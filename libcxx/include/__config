@@ -56,7 +56,7 @@
 #  define _LIBCPP_CONCAT_IMPL(_X, _Y) _X##_Y
 #  define _LIBCPP_CONCAT(_X, _Y) _LIBCPP_CONCAT_IMPL(_X, _Y)
 
-#  if __STDC_HOSTED__ == 0
+#  if __STDC_HOSTED__ == 0 && !defined(_LIBCPP_FREESTANDING)
 #    define _LIBCPP_FREESTANDING
 #  endif
 
@@ -471,7 +471,7 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #  endif
 
 // Need to detect which libc we're using if we're on Linux.
-#  if defined(__linux__)
+#  if defined(__linux__) && __has_include(<features.h>)
 #    include <features.h>
 #    if defined(__GLIBC_PREREQ)
 #      define _LIBCPP_GLIBC_PREREQ(a, b) __GLIBC_PREREQ(a, b)
@@ -480,7 +480,7 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #    endif // defined(__GLIBC_PREREQ)
 #  endif   // defined(__linux__)
 
-#  if defined(__MVS__)
+#  if defined(__MVS__) && __has_include(<features.h>)
 #    include <features.h> // for __NATIVE_ASCII_F
 #  endif
 
@@ -812,7 +812,7 @@ typedef __char32_t char32_t;
 #  ifndef _LIBCPP_NO_ABI_TAG
 #    define _LIBCPP_HIDE_FROM_ABI                                                                                      \
       _LIBCPP_HIDDEN _LIBCPP_EXCLUDE_FROM_EXPLICIT_INSTANTIATION                                                       \
-          __attribute__((__abi_tag__(_LIBCPP_TOSTRING(_LIBCPP_ODR_SIGNATURE))))
+      __attribute__((__abi_tag__(_LIBCPP_TOSTRING(_LIBCPP_ODR_SIGNATURE))))
 #  else
 #    define _LIBCPP_HIDE_FROM_ABI _LIBCPP_HIDDEN _LIBCPP_EXCLUDE_FROM_EXPLICIT_INSTANTIATION
 #  endif

@@ -888,10 +888,12 @@ inline _LIBCPP_HIDE_FROM_ABI _Number __log2i(_Number __n) {
 template <class _Comp, class _RandomAccessIterator>
 void __sort(_RandomAccessIterator, _RandomAccessIterator, _Comp);
 
+#ifndef _LIBCPP_FREESTANDING
+
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<char>&, char*>(char*, char*, __less<char>&);
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<wchar_t>&, wchar_t*>(wchar_t*, wchar_t*, __less<wchar_t>&);
-#endif
+#  endif
 extern template _LIBCPP_EXPORTED_FROM_ABI void
 __sort<__less<signed char>&, signed char*>(signed char*, signed char*, __less<signed char>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void
@@ -913,6 +915,8 @@ extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<float>&, float*>(fl
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<double>&, double*>(double*, double*, __less<double>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void
 __sort<__less<long double>&, long double*>(long double*, long double*, __less<long double>&);
+
+#endif
 
 template <class _AlgPolicy, class _RandomAccessIterator, class _Comp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void

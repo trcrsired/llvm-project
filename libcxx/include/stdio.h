@@ -106,18 +106,23 @@ void perror(const char* s);
 
 #  if __has_include_next(<stdio.h>)
 #    include_next <stdio.h>
+#  else
+#    ifndef EOF
+#      define EOF (-1)
+#    endif
 #  endif
+#endif
 
-#  ifdef __cplusplus
+#ifdef __cplusplus
 
-#    undef getc
-#    undef putc
-#    undef clearerr
-#    undef feof
-#    undef ferror
-#    undef putchar
-#    undef getchar
+#  undef getc
+#  undef putc
+#  undef clearerr
+#  undef feof
+#  undef ferror
+#  undef putchar
+#  undef getchar
 
-#  endif
+#endif
 
 #endif // _LIBCPP_STDIO_H
