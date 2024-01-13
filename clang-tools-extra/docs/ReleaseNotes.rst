@@ -119,7 +119,7 @@ Improvements to clang-tidy
 
 - Improved `--dump-config` to print check options in alphabetical order.
 
-- Improved :program:`clang-tidy-diff.py` script. 
+- Improved :program:`clang-tidy-diff.py` script.
     * Return exit code `1` if any :program:`clang-tidy` subprocess exits with
       a non-zero code or if exporting fixes fails.
 
@@ -260,6 +260,10 @@ Changes in existing checks
   casting during type conversions at variable initialization, now with improved
   compatibility for C++17 and later versions.
 
+- Improved :doc:`bugprone-implicit-widening-of-multiplication-result
+  <clang-tidy/checks/bugprone/implicit-widening-of-multiplication-result>` check
+  to correctly emit fixes.
+
 - Improved :doc:`bugprone-lambda-function-name
   <clang-tidy/checks/bugprone/lambda-function-name>` check by adding option
   `IgnoreMacros` to ignore warnings in macros.
@@ -380,6 +384,10 @@ Changes in existing checks
 - Improved :doc:`misc-redundant-expression
   <clang-tidy/checks/misc/redundant-expression>` check to ignore
   false-positives in unevaluated context (e.g., ``decltype``).
+
+- Improved :doc:`misc-static-assert
+  <clang-tidy/checks/misc/static-assert>` check to ignore false-positives when
+  referring to non-``constexpr`` variables in non-unevaluated context.
 
 - Improved :doc:`misc-unused-using-decls
   <clang-tidy/checks/misc/unused-using-decls>` check to avoid false positive when
