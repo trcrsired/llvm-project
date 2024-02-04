@@ -59,6 +59,8 @@ Changes to building LLVM
 Changes to TableGen
 -------------------
 
+- We can define type aliases via new keyword ``deftype``.
+
 Changes to Interprocedural Optimizations
 ----------------------------------------
 
@@ -93,6 +95,7 @@ Changes to the RISC-V Backend
 -----------------------------
 
 * Support for the Zicond extension is no longer experimental.
+* Added assembler/disassembler support for the experimental Zabha (Byte and Halfword Atomic Memory Operations) extension.
 
 Changes to the WebAssembly Backend
 ----------------------------------
