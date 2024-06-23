@@ -460,6 +460,8 @@ WebAssembly::GetCXXStdlibType(const ArgList &Args) const {
       return ToolChain::CST_Libcxx;
     else if (Value == "libstdc++")
       return ToolChain::CST_Libstdcxx;
+    else if (Value == "stl")
+      return ToolChain::CST_Stl;
     else
       getDriver().Diag(diag::err_drv_invalid_stdlib_name)
           << A->getAsString(Args);
@@ -518,6 +520,11 @@ void WebAssembly::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   case ToolChain::CST_Libstdcxx:
     addLibStdCXXIncludePaths(DriverArgs, CC1Args);
     break;
+  case ToolChain::CST_Stl:
+    addStlIncludePaths(DriverArgs, CC1Args);
+    break;
+  default:
+    break;
   }
 }
 
@@ -533,6 +540,8 @@ void WebAssembly::AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
     break;
   case ToolChain::CST_Libstdcxx:
     CmdArgs.push_back("-lstdc++");
+    break;
+  default:
     break;
   }
 }
@@ -550,6 +559,26 @@ SanitizerMask WebAssembly::getSupportedSanitizers() const {
 
 Tool *WebAssembly::buildLinker() const {
   return new tools::wasm::Linker(*this);
+}
+
+void WebAssembly::addStlIncludePaths(
+    const llvm::opt::ArgList &DriverArgs,
+    llvm::opt::ArgStringList &CC1Args) const {
+  const Driver &D = getDriver();
+  std::string SysRoot = computeSysRoot();
+  std::string LibPath = SysRoot + "/include";
+  const std::string MultiarchTriple =
+      getMultiarchTriple(D, getTriple(), SysRoot);
+  bool IsKnownOs = (getTriple().getOS() != llvm::Triple::UnknownOS);
+
+  // First add the per-target include path if the OS is known.
+  if (IsKnownOs) {
+    std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/stl";
+    addSystemInclude(DriverArgs, CC1Args, TargetDir);
+  }
+
+  // Second add the generic one.
+  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/stl");
 }
 
 void WebAssembly::addLibCxxIncludePaths(
