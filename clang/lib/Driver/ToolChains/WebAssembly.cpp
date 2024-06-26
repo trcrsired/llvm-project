@@ -460,6 +460,8 @@ WebAssembly::GetCXXStdlibType(const ArgList &Args) const {
       return ToolChain::CST_Libcxx;
     else if (Value == "libstdc++")
       return ToolChain::CST_Libstdcxx;
+    else if (Value == "stl")
+      return ToolChain::CST_Stl;
     else
       getDriver().Diag(diag::err_drv_invalid_stdlib_name)
           << A->getAsString(Args);
