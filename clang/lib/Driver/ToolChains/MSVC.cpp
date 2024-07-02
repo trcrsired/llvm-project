@@ -90,6 +90,16 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-defaultlib:oldnames");
   }
 
+  auto SysRoot = TC.getDriver().SysRoot;
+  if (!SysRoot.empty()) {
+    // If we have --sysroot, then we ignore all other setings
+    // libpath is $SYSROOT/lib and $SYSROOT/lib/${ARCH}-unknown-windows-msvc
+    const std::string MultiarchTriple =
+        TC.getMultiarchTriple(TC.getDriver(), TC.getTriple(), SysRoot);
+    std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
+    CmdArgs.push_back(Args.MakeArgString(SysRootLib + '/' + MultiarchTriple));
+    CmdArgs.push_back(Args.MakeArgString(SysRootLib));
+  } else {
   // If the VC environment hasn't been configured (perhaps because the user
   // did not run vcvarsall), try to build a consistent link environment.  If
   // the environment variable is set however, assume the user knows what
@@ -141,6 +151,7 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
     CmdArgs.push_back(Args.MakeArgString(SysRootLib + '/' + MultiarchTriple));
     CmdArgs.push_back(Args.MakeArgString(SysRootLib));
+  }
   }
 
   if (!C.getDriver().IsCLMode() && Args.hasArg(options::OPT_L))
@@ -442,6 +453,7 @@ MSVCToolChain::MSVCToolChain(const Driver &D, const llvm::Triple &Triple,
 
   auto SysRoot = getDriver().SysRoot;
   if (!SysRoot.empty()) {
+    // We have sysroot so we ignore all VCTools settings
     return;
   }
 
@@ -800,7 +812,6 @@ void MSVCToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
 
 void MSVCToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
                                                  ArgStringList &CC1Args) const {
-  // FIXME: There should probably be logic here to find libc++ on Windows.
   if (DriverArgs.hasArg(options::OPT_nostdinc, options::OPT_nostdlibinc,
                         options::OPT_nostdincxx))
     return;
@@ -815,8 +826,6 @@ void MSVCToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
     break;
   case ToolChain::CST_Libcxx:
     addLibCxxIncludePaths(DriverArgs, CC1Args);
-    break;
-  default:
     break;
   }
 }

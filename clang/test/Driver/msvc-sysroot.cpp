@@ -59,12 +59,12 @@
 
 // RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=libc++ -### \
 // RUN: --sysroot=%S/Inputs/basic_linux_libcxx_tree/usr %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_STL_LINK %s
-// COMPILE_LOONGARCH64_STL_LINK: clang{{.*}}" "-cc1"
-// COMPILE_LOONGARCH64_STL_LINK: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_LOONGARCH64_STL_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/loongarch64-unknown-windows-msvc/c++/v1"
-// COMPILE_LOONGARCH64_STL_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/v1"
-// COMPILE_LOONGARCH64_STL_LINK: link.exe{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/loongarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_LIBCXX_LINK %s
+// COMPILE_LOONGARCH64_LIBCXX_LINK: clang{{.*}}" "-cc1"
+// COMPILE_LOONGARCH64_LIBCXX_LINK: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_LOONGARCH64_LIBCXX_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/loongarch64-unknown-windows-msvc/c++/v1"
+// COMPILE_LOONGARCH64_LIBCXX_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/v1"
+// COMPILE_LOONGARCH64_LIBCXX_LINK: link.exe{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/loongarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
 // RUN: %clangxx --target=riscv64-unknown-windows-msvc -### --stdlib=libstdc++ %s 2>&1 \
 // RUN:  --sysroot=%S/Inputs/basic_linux_libstdcxx_libcxxv2_tree/usr \

@@ -94,9 +94,9 @@ public:
   using path_list = SmallVector<std::string, 16>;
 
   enum CXXStdlibType {
-    CST_Libcxx,
-    CST_Libstdcxx,
-    CST_Stl,
+    CST_Libcxx, // LLVM libc++
+    CST_Libstdcxx,  // GNU libstdc++
+    CST_Stl,  // MSVC STL
   };
 
   enum RuntimeLibType {

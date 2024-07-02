@@ -1297,7 +1297,8 @@ void ToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
     CmdArgs.push_back("-lstdc++");
     break;
 
-  default:
+  case ToolChain::CST_Stl:
+    // MSVC STL does not need to add -l
     break;
   }
 }
