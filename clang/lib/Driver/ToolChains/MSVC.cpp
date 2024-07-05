@@ -153,6 +153,7 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString(SysRootLib));
   }
   }
+  }
 
   if (!C.getDriver().IsCLMode() && Args.hasArg(options::OPT_L))
     for (const auto &LibPath : Args.getAllArgValues(options::OPT_L))
