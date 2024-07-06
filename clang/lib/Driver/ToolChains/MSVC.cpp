@@ -31,12 +31,12 @@
 #include <cstdio>
 
 #ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+  #define WIN32_LEAN_AND_MEAN
+  #define NOGDI
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
+  #include <windows.h>
 #endif
 
 using namespace clang::driver;
@@ -105,53 +105,43 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   // the environment variable is set however, assume the user knows what
   // they're doing. If the user passes /vctoolsdir or /winsdkdir, trust that
   // over env vars.
-  auto SysRoot = TC.getDriver().SysRoot;
-  if (SysRoot.empty()) {
-    if (const Arg *A = Args.getLastArg(options::OPT__SLASH_diasdkdir,
-                                       options::OPT__SLASH_winsysroot)) {
-      // cl.exe doesn't find the DIA SDK automatically, so this too requires
-      // explicit flags and doesn't automatically look in "DIA SDK" relative
-      // to the path we found for VCToolChainPath.
-      llvm::SmallString<128> DIAPath(A->getValue());
-      if (A->getOption().getID() == options::OPT__SLASH_winsysroot)
-        llvm::sys::path::append(DIAPath, "DIA SDK");
+  if (const Arg *A = Args.getLastArg(options::OPT__SLASH_diasdkdir,
+                                     options::OPT__SLASH_winsysroot)) {
+    // cl.exe doesn't find the DIA SDK automatically, so this too requires
+    // explicit flags and doesn't automatically look in "DIA SDK" relative
+    // to the path we found for VCToolChainPath.
+    llvm::SmallString<128> DIAPath(A->getValue());
+    if (A->getOption().getID() == options::OPT__SLASH_winsysroot)
+      llvm::sys::path::append(DIAPath, "DIA SDK");
 
-      // The DIA SDK always uses the legacy vc arch, even in new MSVC versions.
-      llvm::sys::path::append(DIAPath, "lib",
-                              llvm::archToLegacyVCArch(TC.getArch()));
-      CmdArgs.push_back(Args.MakeArgString(Twine("-libpath:") + DIAPath));
-    }
-    if (!llvm::sys::Process::GetEnv("LIB") ||
-        Args.getLastArg(options::OPT__SLASH_vctoolsdir,
-                        options::OPT__SLASH_winsysroot)) {
-      CmdArgs.push_back(Args.MakeArgString(
-          Twine("-libpath:") +
-          TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib)));
-      CmdArgs.push_back(Args.MakeArgString(
-          Twine("-libpath:") +
-          TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib, "atlmfc")));
-    }
-    if (!llvm::sys::Process::GetEnv("LIB") ||
-        Args.getLastArg(options::OPT__SLASH_winsdkdir,
-                        options::OPT__SLASH_winsysroot)) {
-      if (TC.useUniversalCRT()) {
-        std::string UniversalCRTLibPath;
-        if (TC.getUniversalCRTLibraryPath(Args, UniversalCRTLibPath))
-          CmdArgs.push_back(
-              Args.MakeArgString(Twine("-libpath:") + UniversalCRTLibPath));
-      }
-      std::string WindowsSdkLibPath;
-      if (TC.getWindowsSDKLibraryPath(Args, WindowsSdkLibPath))
-        CmdArgs.push_back(
-            Args.MakeArgString(std::string("-libpath:") + WindowsSdkLibPath));
-    }
-  } else {
-    const std::string MultiarchTriple =
-        TC.getMultiarchTriple(TC.getDriver(), TC.getTriple(), SysRoot);
-    std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
-    CmdArgs.push_back(Args.MakeArgString(SysRootLib + '/' + MultiarchTriple));
-    CmdArgs.push_back(Args.MakeArgString(SysRootLib));
+    // The DIA SDK always uses the legacy vc arch, even in new MSVC versions.
+    llvm::sys::path::append(DIAPath, "lib",
+                            llvm::archToLegacyVCArch(TC.getArch()));
+    CmdArgs.push_back(Args.MakeArgString(Twine("-libpath:") + DIAPath));
   }
+  if (!llvm::sys::Process::GetEnv("LIB") ||
+      Args.getLastArg(options::OPT__SLASH_vctoolsdir,
+                      options::OPT__SLASH_winsysroot)) {
+    CmdArgs.push_back(Args.MakeArgString(
+        Twine("-libpath:") +
+        TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib)));
+    CmdArgs.push_back(Args.MakeArgString(
+        Twine("-libpath:") +
+        TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib, "atlmfc")));
+  }
+  if (!llvm::sys::Process::GetEnv("LIB") ||
+      Args.getLastArg(options::OPT__SLASH_winsdkdir,
+                      options::OPT__SLASH_winsysroot)) {
+    if (TC.useUniversalCRT()) {
+      std::string UniversalCRTLibPath;
+      if (TC.getUniversalCRTLibraryPath(Args, UniversalCRTLibPath))
+        CmdArgs.push_back(
+            Args.MakeArgString(Twine("-libpath:") + UniversalCRTLibPath));
+    }
+    std::string WindowsSdkLibPath;
+    if (TC.getWindowsSDKLibraryPath(Args, WindowsSdkLibPath))
+      CmdArgs.push_back(
+          Args.MakeArgString(std::string("-libpath:") + WindowsSdkLibPath));
   }
   }
 
@@ -228,14 +218,13 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back(TC.getCompilerRTArgString(Args, Lib));
       // Make sure the dynamic runtime thunk is not optimized out at link time
       // to ensure proper SEH handling.
-      CmdArgs.push_back(
-          Args.MakeArgString(TC.getArch() == llvm::Triple::x86
-                                 ? "-include:___asan_seh_interceptor"
-                                 : "-include:__asan_seh_interceptor"));
+      CmdArgs.push_back(Args.MakeArgString(
+          TC.getArch() == llvm::Triple::x86
+              ? "-include:___asan_seh_interceptor"
+              : "-include:__asan_seh_interceptor"));
       // Make sure the linker consider all object files from the dynamic runtime
       // thunk.
-      CmdArgs.push_back(Args.MakeArgString(
-          std::string("-wholearchive:") +
+      CmdArgs.push_back(Args.MakeArgString(std::string("-wholearchive:") +
           TC.getCompilerRT(Args, "asan_dynamic_runtime_thunk")));
     } else if (DLL) {
       CmdArgs.push_back(TC.getCompilerRTArgString(Args, "asan_dll_thunk"));
@@ -246,7 +235,7 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         // This is necessary because instrumented dlls need access to all the
         // interface exported by the static lib in the main executable.
         CmdArgs.push_back(Args.MakeArgString(std::string("-wholearchive:") +
-                                             TC.getCompilerRT(Args, Lib)));
+            TC.getCompilerRT(Args, Lib)));
       }
     }
   }
@@ -630,8 +619,8 @@ static VersionTuple getMSVCVersionFromExe(const std::string &BinDir) {
   if (!llvm::ConvertUTF8toWide(ClExe.c_str(), ClExeWide))
     return Version;
 
-  const DWORD VersionSize =
-      ::GetFileVersionInfoSizeW(ClExeWide.c_str(), nullptr);
+  const DWORD VersionSize = ::GetFileVersionInfoSizeW(ClExeWide.c_str(),
+                                                      nullptr);
   if (VersionSize == 0)
     return Version;
 
@@ -648,7 +637,7 @@ static VersionTuple getMSVCVersionFromExe(const std::string &BinDir) {
     return Version;
 
   const unsigned Major = (FileInfo->dwFileVersionMS >> 16) & 0xFFFF;
-  const unsigned Minor = (FileInfo->dwFileVersionMS) & 0xFFFF;
+  const unsigned Minor = (FileInfo->dwFileVersionMS      ) & 0xFFFF;
   const unsigned Micro = (FileInfo->dwFileVersionLS >> 16) & 0xFFFF;
 
   Version = VersionTuple(Major, Minor, Micro);
@@ -802,11 +791,12 @@ void MSVCToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   // As a fallback, select default install paths.
   // FIXME: Don't guess drives and paths like this on Windows.
   const StringRef Paths[] = {
-      "C:/Program Files/Microsoft Visual Studio 10.0/VC/include",
-      "C:/Program Files/Microsoft Visual Studio 9.0/VC/include",
-      "C:/Program Files/Microsoft Visual Studio 9.0/VC/PlatformSDK/Include",
-      "C:/Program Files/Microsoft Visual Studio 8/VC/include",
-      "C:/Program Files/Microsoft Visual Studio 8/VC/PlatformSDK/Include"};
+    "C:/Program Files/Microsoft Visual Studio 10.0/VC/include",
+    "C:/Program Files/Microsoft Visual Studio 9.0/VC/include",
+    "C:/Program Files/Microsoft Visual Studio 9.0/VC/PlatformSDK/Include",
+    "C:/Program Files/Microsoft Visual Studio 8/VC/include",
+    "C:/Program Files/Microsoft Visual Studio 8/VC/PlatformSDK/Include"
+  };
   addSystemIncludes(DriverArgs, CC1Args, Paths);
 #endif
 }
@@ -930,8 +920,7 @@ static void TranslateOptArg(Arg *A, llvm::opt::DerivedArgList &DAL,
           DAL.AddFlagArg(A, Opts.getOption(options::OPT_fno_inline));
           break;
         case '1':
-          DAL.AddFlagArg(A,
-                         Opts.getOption(options::OPT_finline_hint_functions));
+          DAL.AddFlagArg(A, Opts.getOption(options::OPT_finline_hint_functions));
           break;
         case '2':
         case '3':
@@ -966,10 +955,11 @@ static void TranslateOptArg(Arg *A, llvm::opt::DerivedArgList &DAL,
       }
       if (SupportsForcingFramePointer) {
         if (OmitFramePointer)
-          DAL.AddFlagArg(A, Opts.getOption(options::OPT_fomit_frame_pointer));
-        else
           DAL.AddFlagArg(A,
-                         Opts.getOption(options::OPT_fno_omit_frame_pointer));
+                         Opts.getOption(options::OPT_fomit_frame_pointer));
+        else
+          DAL.AddFlagArg(
+              A, Opts.getOption(options::OPT_fno_omit_frame_pointer));
       } else {
         // Don't warn about /Oy- in x86-64 builds (where
         // SupportsForcingFramePointer is false).  The flag having no effect
