@@ -1020,19 +1020,18 @@ protected:
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsArrow : 1;
 
-    /// True if this member expression used a nested-name-specifier to
-    /// refer to the member, e.g., "x->Base::f".
-    LLVM_PREFERRED_TYPE(bool)
-    unsigned HasQualifier : 1;
-
     /// Whether this member expression has info for explicit template
     /// keyword and arguments.
     LLVM_PREFERRED_TYPE(bool)
     unsigned HasTemplateKWAndArgsInfo : 1;
 
-    /// Number of declarations found by unqualified lookup for the
-    /// first component name of the nested-name-specifier.
-    unsigned NumUnqualifiedLookups;
+    /// See getFirstQualifierFoundInScope() and the comment listing
+    /// the trailing objects.
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned HasFirstQualifierFoundInScope : 1;
+
+    /// The location of the '->' or '.' operator.
+    SourceLocation OperatorLoc;
   };
 
   class OverloadExprBitfields {
@@ -1657,6 +1656,11 @@ public:
   FPOptionsOverride getStoredFPFeatures() const {
     assert(hasStoredFPFeatures());
     return *getTrailingObjects<FPOptionsOverride>();
+  }
+
+  /// Get the store FPOptionsOverride or default if not stored.
+  FPOptionsOverride getStoredFPFeaturesOrDefault() const {
+    return hasStoredFPFeatures() ? getStoredFPFeatures() : FPOptionsOverride();
   }
 
   using body_iterator = Stmt **;
