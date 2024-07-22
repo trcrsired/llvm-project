@@ -292,7 +292,9 @@ public:
     OpenCL,
     OpenHOS,
 
-    LastEnvironmentType = OpenHOS
+    PAuthTest,
+
+    LastEnvironmentType = PAuthTest
   };
   enum ObjectFormatType {
     UnknownObjectFormat,
