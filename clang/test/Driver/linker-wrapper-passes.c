@@ -9,7 +9,7 @@
 // RUN: opt %t/openmp-amdgcn-amd-amdhsa.bc -o %t/openmp-amdgcn-amd-amdhsa.bc \
 // RUN:     -passes=forceattrs -force-remove-attribute=f:noinline
 // RUN: clang-offload-packager -o %t/openmp-x86_64-unknown-linux-gnu.out \
-// RUN:     --image=file=%t/openmp-amdgcn-amd-amdhsa.bc,triple=amdgcn-amd-amdhsa
+// RUN:     --image=file=%t/openmp-amdgcn-amd-amdhsa.bc,arch=gfx90a,triple=amdgcn-amd-amdhsa
 // RUN: %clang -cc1 -S -o %t/host-x86_64-unknown-linux-gnu.s \
 // RUN:     -fopenmp -fopenmp-targets=amdgcn-amd-amdhsa \
 // RUN:     -fembed-offload-object=%t/openmp-x86_64-unknown-linux-gnu.out \
@@ -19,14 +19,14 @@
 // RUN:     %t/host-x86_64-unknown-linux-gnu.s
 
 // Check plugin, -passes, and no remarks.
-// RUN: clang-linker-wrapper -o a.out --embed-bitcode --dry-run \
+// RUN: clang-linker-wrapper -o a.out --embed-bitcode \
 // RUN:     --linker-path=/usr/bin/true %t/host-x86_64-unknown-linux-gnu.o \
 // RUN:     %offload-opt-loadbye --offload-opt=-wave-goodbye \
 // RUN:     --offload-opt=-passes="function(goodbye),module(inline)" 2>&1 | \
 // RUN:   FileCheck -match-full-lines -check-prefixes=OUT %s
 
 // Check plugin, -p, and remarks.
-// RUN: clang-linker-wrapper -o a.out --embed-bitcode --dry-run \
+// RUN: clang-linker-wrapper -o a.out --embed-bitcode \
 // RUN:     --linker-path=/usr/bin/true %t/host-x86_64-unknown-linux-gnu.o \
 // RUN:     %offload-opt-loadbye --offload-opt=-wave-goodbye \
 // RUN:     --offload-opt=-p="function(goodbye),module(inline)" \
@@ -39,7 +39,7 @@
 // RUN:     -check-prefixes=YML %s
 
 // Check handling of bad plugin.
-// RUN: not clang-linker-wrapper --dry-run \
+// RUN: not clang-linker-wrapper \
 // RUN:     --offload-opt=-load-pass-plugin=%t/nonexistent.so 2>&1 | \
 // RUN:   FileCheck -match-full-lines -check-prefixes=BAD-PLUGIN %s
 
