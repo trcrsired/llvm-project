@@ -155,7 +155,7 @@ bool Call(InterpState &S, CodePtr OpPC, const Function *Func,
 bool CallVirt(InterpState &S, CodePtr OpPC, const Function *Func,
               uint32_t VarArgSize);
 bool CallBI(InterpState &S, CodePtr &PC, const Function *Func,
-            const CallExpr *CE);
+            const CallExpr *CE, uint32_t BuiltinID);
 bool CallPtr(InterpState &S, CodePtr OpPC, uint32_t ArgSize,
              const CallExpr *CE);
 
@@ -268,7 +268,7 @@ bool Interpret(InterpState &S, APValue &Result);
 
 /// Interpret a builtin function.
 bool InterpretBuiltin(InterpState &S, CodePtr OpPC, const Function *F,
-                      const CallExpr *Call);
+                      const CallExpr *Call, uint32_t BuiltinID);
 
 /// Interpret an offsetof operation.
 bool InterpretOffsetOf(InterpState &S, CodePtr OpPC, const OffsetOfExpr *E,
@@ -1993,7 +1993,9 @@ bool OffsetHelper(InterpState &S, CodePtr OpPC, const T &Offset,
 template <PrimType Name, class T = typename PrimConv<Name>::T>
 bool AddOffset(InterpState &S, CodePtr OpPC) {
   const T &Offset = S.Stk.pop<T>();
-  const Pointer &Ptr = S.Stk.pop<Pointer>();
+  Pointer Ptr = S.Stk.pop<Pointer>();
+  if (Ptr.isBlockPointer())
+    Ptr = Ptr.expand();
   return OffsetHelper<T, ArithOp::Add>(S, OpPC, Offset, Ptr);
 }
 
