@@ -662,6 +662,12 @@ Value *SelectInst::create(Value *Cond, Value *True, Value *False,
   return createCommon(Cond, True, False, Name, Builder, Ctx);
 }
 
+void SelectInst::swapValues() {
+  Ctx.getTracker().emplaceIfTracking<UseSwap>(getOperandUse(1),
+                                              getOperandUse(2));
+  cast<llvm::SelectInst>(Val)->swapValues();
+}
+
 bool SelectInst::classof(const Value *From) {
   return From->getSubclassID() == ClassID::Select;
 }
@@ -2489,6 +2495,44 @@ PoisonValue *PoisonValue::getElementValue(unsigned Idx) const {
       cast<llvm::PoisonValue>(Val)->getElementValue(Idx)));
 }
 
+void GlobalObject::setAlignment(MaybeAlign Align) {
+  Ctx.getTracker()
+      .emplaceIfTracking<
+          GenericSetter<&GlobalObject::getAlign, &GlobalObject::setAlignment>>(
+          this);
+  cast<llvm::GlobalObject>(Val)->setAlignment(Align);
+}
+
+void GlobalObject::setGlobalObjectSubClassData(unsigned V) {
+  Ctx.getTracker()
+      .emplaceIfTracking<
+          GenericSetter<&GlobalObject::getGlobalObjectSubClassData,
+                        &GlobalObject::setGlobalObjectSubClassData>>(this);
+  cast<llvm::GlobalObject>(Val)->setGlobalObjectSubClassData(V);
+}
+
+void GlobalObject::setSection(StringRef S) {
+  Ctx.getTracker()
+      .emplaceIfTracking<
+          GenericSetter<&GlobalObject::getSection, &GlobalObject::setSection>>(
+          this);
+  cast<llvm::GlobalObject>(Val)->setSection(S);
+}
+
+void GlobalValue::setUnnamedAddr(UnnamedAddr V) {
+  Ctx.getTracker()
+      .emplaceIfTracking<GenericSetter<&GlobalValue::getUnnamedAddr,
+                                       &GlobalValue::setUnnamedAddr>>(this);
+  cast<llvm::GlobalValue>(Val)->setUnnamedAddr(V);
+}
+
+void GlobalValue::setVisibility(VisibilityTypes V) {
+  Ctx.getTracker()
+      .emplaceIfTracking<GenericSetter<&GlobalValue::getVisibility,
+                                       &GlobalValue::setVisibility>>(this);
+  cast<llvm::GlobalValue>(Val)->setVisibility(V);
+}
+
 BlockAddress *BlockAddress::get(Function *F, BasicBlock *BB) {
   auto *LLVMC = llvm::BlockAddress::get(cast<llvm::Function>(F->Val),
                                         cast<llvm::BasicBlock>(BB->Val));
@@ -2513,6 +2557,21 @@ Function *BlockAddress::getFunction() const {
 BasicBlock *BlockAddress::getBasicBlock() const {
   return cast<BasicBlock>(
       Ctx.getValue(cast<llvm::BlockAddress>(Val)->getBasicBlock()));
+}
+
+DSOLocalEquivalent *DSOLocalEquivalent::get(GlobalValue *GV) {
+  auto *LLVMC = llvm::DSOLocalEquivalent::get(cast<llvm::GlobalValue>(GV->Val));
+  return cast<DSOLocalEquivalent>(GV->getContext().getValue(LLVMC));
+}
+
+GlobalValue *DSOLocalEquivalent::getGlobalValue() const {
+  return cast<GlobalValue>(
+      Ctx.getValue(cast<llvm::DSOLocalEquivalent>(Val)->getGlobalValue()));
+}
+
+ConstantTokenNone *ConstantTokenNone::get(Context &Ctx) {
+  auto *LLVMC = llvm::ConstantTokenNone::get(Ctx.LLVMCtx);
+  return cast<ConstantTokenNone>(Ctx.getOrCreateConstant(LLVMC));
 }
 
 FunctionType *Function::getFunctionType() const {
@@ -2615,6 +2674,10 @@ Value *Context::getOrCreateValueInternal(llvm::Value *LLVMV, llvm::User *U) {
       It->second = std::unique_ptr<BlockAddress>(
           new BlockAddress(cast<llvm::BlockAddress>(C), *this));
       return It->second.get();
+    case llvm::Value::ConstantTokenNoneVal:
+      It->second = std::unique_ptr<ConstantTokenNone>(
+          new ConstantTokenNone(cast<llvm::ConstantTokenNone>(C), *this));
+      return It->second.get();
     case llvm::Value::ConstantAggregateZeroVal: {
       auto *CAZ = cast<llvm::ConstantAggregateZero>(C);
       It->second = std::unique_ptr<ConstantAggregateZero>(
@@ -2640,6 +2703,14 @@ Value *Context::getOrCreateValueInternal(llvm::Value *LLVMV, llvm::User *U) {
       It->second = std::unique_ptr<UndefValue>(
           new UndefValue(cast<llvm::UndefValue>(C), *this));
       return It->second.get();
+    case llvm::Value::DSOLocalEquivalentVal: {
+      auto *DSOLE = cast<llvm::DSOLocalEquivalent>(C);
+      It->second = std::unique_ptr<DSOLocalEquivalent>(
+          new DSOLocalEquivalent(DSOLE, *this));
+      auto *Ret = It->second.get();
+      getOrCreateValueInternal(DSOLE->getGlobalValue(), DSOLE);
+      return Ret;
+    }
     case llvm::Value::ConstantArrayVal:
       It->second = std::unique_ptr<ConstantArray>(
           new ConstantArray(cast<llvm::ConstantArray>(C), *this));
