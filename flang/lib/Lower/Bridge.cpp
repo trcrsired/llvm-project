@@ -3257,15 +3257,10 @@ private:
         const Fortran::parser::CharBlock &endPosition =
             eval.getLastNestedEvaluation().position;
         localSymbols.pushScope();
-        mlir::func::FuncOp stackSave = fir::factory::getLlvmStackSave(*builder);
-        mlir::func::FuncOp stackRestore =
-            fir::factory::getLlvmStackRestore(*builder);
-        mlir::Value stackPtr =
-            builder->create<fir::CallOp>(toLocation(), stackSave).getResult(0);
+        mlir::Value stackPtr = builder->genStackSave(toLocation());
         mlir::Location endLoc = genLocation(endPosition);
-        stmtCtx.attachCleanup([=]() {
-          builder->create<fir::CallOp>(endLoc, stackRestore, stackPtr);
-        });
+        stmtCtx.attachCleanup(
+            [=]() { builder->genStackRestore(endLoc, stackPtr); });
         Fortran::semantics::Scope &scope =
             bridge.getSemanticsContext().FindScope(endPosition);
         scopeBlockIdMap.try_emplace(&scope, ++blockId);
@@ -6069,7 +6064,9 @@ Fortran::lower::LoweringBridge::LoweringBridge(
     const Fortran::lower::LoweringOptions &loweringOptions,
     const std::vector<Fortran::lower::EnvironmentDefault> &envDefaults,
     const Fortran::common::LanguageFeatureControl &languageFeatures,
-    const llvm::TargetMachine &targetMachine, const llvm::StringRef tuneCPU)
+    const llvm::TargetMachine &targetMachine,
+    const Fortran::frontend::TargetOptions &targetOpts,
+    const Fortran::frontend::CodeGenOptions &cgOpts)
     : semanticsContext{semanticsContext}, defaultKinds{defaultKinds},
       intrinsics{intrinsics}, targetCharacteristics{targetCharacteristics},
       cooked{&cooked}, context{context}, kindMap{kindMap},
@@ -6126,11 +6123,13 @@ Fortran::lower::LoweringBridge::LoweringBridge(
   fir::setTargetTriple(*module.get(), triple);
   fir::setKindMapping(*module.get(), kindMap);
   fir::setTargetCPU(*module.get(), targetMachine.getTargetCPU());
-  fir::setTuneCPU(*module.get(), tuneCPU);
+  fir::setTuneCPU(*module.get(), targetOpts.cpuToTuneFor);
   fir::setTargetFeatures(*module.get(), targetMachine.getTargetFeatureString());
   fir::support::setMLIRDataLayout(*module.get(),
                                   targetMachine.createDataLayout());
   fir::setIdent(*module.get(), Fortran::common::getFlangFullVersion());
+  if (cgOpts.RecordCommandLine)
+    fir::setCommandline(*module.get(), *cgOpts.RecordCommandLine);
 }
 
 void Fortran::lower::genCleanUpInRegionIfAny(

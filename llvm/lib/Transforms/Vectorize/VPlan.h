@@ -83,9 +83,6 @@ Value *getRuntimeVF(IRBuilderBase &B, Type *Ty, ElementCount VF);
 Value *createStepForVF(IRBuilderBase &B, Type *Ty, ElementCount VF,
                        int64_t Step);
 
-const SCEV *createTripCountSCEV(Type *IdxTy, PredicatedScalarEvolution &PSE,
-                                Loop *CurLoop = nullptr);
-
 /// A helper function that returns the reciprocal of the block probability of
 /// predicated blocks. If we return X, we are assuming the predicated block
 /// will execute once for every X iterations of the loop header.
@@ -255,7 +252,7 @@ struct VPIteration {
 struct VPTransformState {
   VPTransformState(ElementCount VF, unsigned UF, LoopInfo *LI,
                    DominatorTree *DT, IRBuilderBase &Builder,
-                   InnerLoopVectorizer *ILV, VPlan *Plan, LLVMContext &Ctx);
+                   InnerLoopVectorizer *ILV, VPlan *Plan);
 
   /// The chosen Vectorization and Unroll Factors of the loop being vectorized.
   ElementCount VF;
@@ -743,9 +740,9 @@ struct VPCostContext {
   SmallPtrSet<Instruction *, 8> SkipCostComputation;
 
   VPCostContext(const TargetTransformInfo &TTI, const TargetLibraryInfo &TLI,
-                Type *CanIVTy, LLVMContext &LLVMCtx,
-                LoopVectorizationCostModel &CM)
-      : TTI(TTI), TLI(TLI), Types(CanIVTy, LLVMCtx), LLVMCtx(LLVMCtx), CM(CM) {}
+                Type *CanIVTy, LoopVectorizationCostModel &CM)
+      : TTI(TTI), TLI(TLI), Types(CanIVTy), LLVMCtx(CanIVTy->getContext()),
+        CM(CM) {}
 
   /// Return the cost for \p UI with \p VF using the legacy cost model as
   /// fallback until computing the cost of all recipes migrates to VPlan.
@@ -1720,23 +1717,23 @@ struct VPWidenSelectRecipe : public VPSingleDefRecipe {
   }
 
   bool isInvariantCond() const {
-    return getCond()->isDefinedOutsideVectorRegions();
+    return getCond()->isDefinedOutsideLoopRegions();
   }
 };
 
 /// A recipe for handling GEP instructions.
 class VPWidenGEPRecipe : public VPRecipeWithIRFlags {
   bool isPointerLoopInvariant() const {
-    return getOperand(0)->isDefinedOutsideVectorRegions();
+    return getOperand(0)->isDefinedOutsideLoopRegions();
   }
 
   bool isIndexLoopInvariant(unsigned I) const {
-    return getOperand(I + 1)->isDefinedOutsideVectorRegions();
+    return getOperand(I + 1)->isDefinedOutsideLoopRegions();
   }
 
   bool areAllOperandsInvariant() const {
     return all_of(operands(), [](VPValue *Op) {
-      return Op->isDefinedOutsideVectorRegions();
+      return Op->isDefinedOutsideLoopRegions();
     });
   }
 
@@ -3477,8 +3474,10 @@ public:
   /// middle VPBasicBlock. If a check is needed to guard executing the scalar
   /// epilogue loop, it will be added to the middle block, together with
   /// VPBasicBlocks for the scalar preheader and exit blocks.
-  static VPlanPtr createInitialVPlan(const SCEV *TripCount,
-                                     ScalarEvolution &PSE,
+  /// \p InductionTy is the type of the canonical induction and used for related
+  /// values, like the trip count expression.
+  static VPlanPtr createInitialVPlan(Type *InductionTy,
+                                     PredicatedScalarEvolution &PSE,
                                      bool RequiresScalarEpilogueCheck,
                                      bool TailFolded, Loop *TheLoop);
 

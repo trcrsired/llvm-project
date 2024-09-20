@@ -1894,6 +1894,18 @@ def fprofile_selected_function_group :
   Visibility<[ClangOption, CC1Option]>, MetaVarName<"<i>">,
   HelpText<"Partition functions into N groups using -fprofile-function-groups and select only functions in group i to be instrumented. The valid range is 0 to N-1 inclusive">,
   MarshallingInfoInt<CodeGenOpts<"ProfileSelectedFunctionGroup">>;
+def fcodegen_data_generate_EQ : Joined<["-"], "fcodegen-data-generate=">,
+    Group<f_Group>, Visibility<[ClangOption, CLOption]>, MetaVarName<"<path>">,
+    HelpText<"Emit codegen data into the object file. LLD for MachO (currently) merges them into the specified <path>.">;
+def fcodegen_data_generate : Flag<["-"], "fcodegen-data-generate">,
+    Group<f_Group>, Visibility<[ClangOption, CLOption]>, Alias<fcodegen_data_generate_EQ>, AliasArgs<["default.cgdata"]>,
+    HelpText<"Emit codegen data into the object file. LLD for MachO (currently) merges them into default.cgdata.">;
+def fcodegen_data_use_EQ : Joined<["-"], "fcodegen-data-use=">,
+    Group<f_Group>, Visibility<[ClangOption, CLOption]>, MetaVarName<"<path>">,
+    HelpText<"Use codegen data read from the specified <path>.">;
+def fcodegen_data_use : Flag<["-"], "fcodegen-data-use">,
+    Group<f_Group>, Visibility<[ClangOption, CLOption]>, Alias<fcodegen_data_use_EQ>, AliasArgs<["default.cgdata"]>,
+    HelpText<"Use codegen data read from default.cgdata to optimize the binary">;
 def fswift_async_fp_EQ : Joined<["-"], "fswift-async-fp=">,
     Group<f_Group>,
     Visibility<[ClangOption, CC1Option, CC1AsOption, CLOption]>,
@@ -1982,16 +1994,18 @@ def fparse_all_comments : Flag<["-"], "fparse-all-comments">, Group<f_clang_Grou
   Visibility<[ClangOption, CC1Option]>,
   MarshallingInfoFlag<LangOpts<"CommentOpts.ParseAllComments">>;
 def frecord_command_line : Flag<["-"], "frecord-command-line">,
-  DocBrief<[{Generate a section named ".GCC.command.line" containing the clang
+  DocBrief<[{Generate a section named ".GCC.command.line" containing the
 driver command-line. After linking, the section may contain multiple command
 lines, which will be individually terminated by null bytes. Separate arguments
 within a command line are combined with spaces; spaces and backslashes within an
 argument are escaped with backslashes. This format differs from the format of
 the equivalent section produced by GCC with the -frecord-gcc-switches flag.
 This option is currently only supported on ELF targets.}]>,
-  Group<f_clang_Group>;
+  Group<f_Group>,
+  Visibility<[ClangOption, CLOption, DXCOption, FlangOption]>;
 def fno_record_command_line : Flag<["-"], "fno-record-command-line">,
-  Group<f_clang_Group>;
+  Group<f_Group>,
+  Visibility<[ClangOption, CLOption, DXCOption, FlangOption]>;
 def : Flag<["-"], "frecord-gcc-switches">, Alias<frecord_command_line>;
 def : Flag<["-"], "fno-record-gcc-switches">, Alias<fno_record_command_line>;
 def fcommon : Flag<["-"], "fcommon">, Group<f_Group>,
@@ -3162,6 +3176,12 @@ def modules_reduced_bmi : Flag<["-"], "fexperimental-modules-reduced-bmi">,
   Group<f_Group>, Visibility<[ClangOption, CC1Option]>,
   HelpText<"Generate the reduced BMI">,
   MarshallingInfoFlag<FrontendOpts<"GenReducedBMI">>;
+
+def fmodules_embed_all_files : Joined<["-"], "fmodules-embed-all-files">,
+  Visibility<[ClangOption, CC1Option, CLOption]>,
+  HelpText<"Embed the contents of all files read by this compilation into "
+           "the produced module file.">,
+  MarshallingInfoFlag<FrontendOpts<"ModulesEmbedAllFiles">>;
 
 def fmodules_prune_interval : Joined<["-"], "fmodules-prune-interval=">, Group<i_Group>,
   Visibility<[ClangOption, CC1Option]>, MetaVarName<"<seconds>">,
@@ -5560,7 +5580,8 @@ def : Flag<["-"], "nocudalib">, Alias<nogpulib>;
 def gpulibc : Flag<["-"], "gpulibc">, Visibility<[ClangOption, CC1Option, FlangOption, FC1Option]>,
   HelpText<"Link the LLVM C Library for GPUs">;
 def nogpulibc : Flag<["-"], "nogpulibc">, Visibility<[ClangOption, CC1Option, FlangOption, FC1Option]>;
-def nodefaultlibs : Flag<["-"], "nodefaultlibs">;
+def nodefaultlibs : Flag<["-"], "nodefaultlibs">,
+  Visibility<[ClangOption, FlangOption, CLOption, DXCOption]>;
 def nodriverkitlib : Flag<["-"], "nodriverkitlib">;
 def nofixprebinding : Flag<["-"], "nofixprebinding">;
 def nolibc : Flag<["-"], "nolibc">;
@@ -5580,7 +5601,9 @@ def nostdincxx : Flag<["-"], "nostdinc++">, Visibility<[ClangOption, CC1Option]>
   Group<IncludePath_Group>,
   HelpText<"Disable standard #include directories for the C++ standard library">,
   MarshallingInfoNegativeFlag<HeaderSearchOpts<"UseStandardCXXIncludes">>;
-def nostdlib : Flag<["-"], "nostdlib">, Group<Link_Group>;
+def nostdlib : Flag<["-"], "nostdlib">,
+  Visibility<[ClangOption, CLOption, FlangOption, DXCOption]>,
+  Group<Link_Group>;
 def nostdlibxx : Flag<["-"], "nostdlib++">;
 def object : Flag<["-"], "object">;
 def o : JoinedOrSeparate<["-"], "o">,
@@ -7126,6 +7149,9 @@ def mrelocation_model : Separate<["-"], "mrelocation-model">,
   NormalizedValues<["Static", "PIC_", "ROPI", "RWPI", "ROPI_RWPI", "DynamicNoPIC"]>,
   MarshallingInfoEnum<CodeGenOpts<"RelocationModel">, "PIC_">;
 def debug_info_kind_EQ : Joined<["-"], "debug-info-kind=">;
+def record_command_line : Separate<["-"], "record-command-line">,
+  HelpText<"The string to embed in the .LLVM.command.line section.">,
+  MarshallingInfoString<CodeGenOpts<"RecordCommandLine">>;
 
 } // let Visibility = [CC1Option, CC1AsOption, FC1Option]
 
@@ -7146,9 +7172,6 @@ def debugger_tuning_EQ : Joined<["-"], "debugger-tuning=">,
 def dwarf_debug_flags : Separate<["-"], "dwarf-debug-flags">,
   HelpText<"The string to embed in the Dwarf debug flags record.">,
   MarshallingInfoString<CodeGenOpts<"DwarfDebugFlags">>;
-def record_command_line : Separate<["-"], "record-command-line">,
-  HelpText<"The string to embed in the .LLVM.command.line section.">,
-  MarshallingInfoString<CodeGenOpts<"RecordCommandLine">>;
 def compress_debug_sections_EQ : Joined<["-", "--"], "compress-debug-sections=">,
     HelpText<"DWARF debug sections compression type">, Values<"none,zlib,zstd">,
     NormalizedValuesScope<"llvm::DebugCompressionType">, NormalizedValues<["None", "Zlib", "Zstd"]>,
@@ -7668,10 +7691,6 @@ def fmodules_embed_file_EQ : Joined<["-"], "fmodules-embed-file=">,
   HelpText<"Embed the contents of the specified file into the module file "
            "being compiled.">,
   MarshallingInfoStringVector<FrontendOpts<"ModulesEmbedFiles">>;
-def fmodules_embed_all_files : Joined<["-"], "fmodules-embed-all-files">,
-  HelpText<"Embed the contents of all files read by this compilation into "
-           "the produced module file.">,
-  MarshallingInfoFlag<FrontendOpts<"ModulesEmbedAllFiles">>;
 defm fimplicit_modules_use_lock : BoolOption<"f", "implicit-modules-use-lock",
   FrontendOpts<"BuildingImplicitModuleUsesLock">, DefaultTrue,
   NegFlag<SetFalse>,

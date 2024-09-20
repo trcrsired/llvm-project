@@ -510,22 +510,6 @@ void tools::addLinkerCompressDebugSectionsOption(
   }
 }
 
-void tools::addGPULibraries(const ToolChain &TC, const llvm::opt::ArgList &Args,
-                            llvm::opt::ArgStringList &CmdArgs) {
-  if (Args.hasArg(options::OPT_nostdlib, options::OPT_r,
-                  options::OPT_nodefaultlibs, options::OPT_nolibc,
-                  options::OPT_nogpulibc))
-    return;
-
-  // If the user's toolchain has the 'include/<triple>/` path, we assume it
-  // supports the standard C libraries for the GPU and include them.
-  bool HasLibC = TC.getStdlibIncludePath().has_value();
-  if (HasLibC) {
-    CmdArgs.push_back("-lc");
-    CmdArgs.push_back("-lm");
-  }
-}
-
 void tools::AddTargetFeature(const ArgList &Args,
                              std::vector<StringRef> &Features,
                              OptSpecifier OnOpt, OptSpecifier OffOpt,
@@ -2758,6 +2742,25 @@ void tools::addMachineOutlinerArgs(const Driver &D,
       addArg(Twine("-enable-machine-outliner=never"));
     }
   }
+
+  auto *CodeGenDataGenArg =
+      Args.getLastArg(options::OPT_fcodegen_data_generate_EQ);
+  auto *CodeGenDataUseArg = Args.getLastArg(options::OPT_fcodegen_data_use_EQ);
+
+  // We only allow one of them to be specified.
+  if (CodeGenDataGenArg && CodeGenDataUseArg)
+    D.Diag(diag::err_drv_argument_not_allowed_with)
+        << CodeGenDataGenArg->getAsString(Args)
+        << CodeGenDataUseArg->getAsString(Args);
+
+  // For codegen data gen, the output file is passed to the linker
+  // while a boolean flag is passed to the LLVM backend.
+  if (CodeGenDataGenArg)
+    addArg(Twine("-codegen-data-generate"));
+
+  // For codegen data use, the input file is passed to the LLVM backend.
+  if (CodeGenDataUseArg)
+    addArg(Twine("-codegen-data-use-path=") + CodeGenDataUseArg->getValue());
 }
 
 void tools::addOpenMPDeviceRTL(const Driver &D,
@@ -2961,4 +2964,63 @@ void tools::addMCModel(const Driver &D, const llvm::opt::ArgList &Args,
       CmdArgs.push_back("-mlarge-data-threshold=0");
     }
   }
+}
+
+void tools::escapeSpacesAndBackslashes(const char *Arg,
+                                       llvm::SmallVectorImpl<char> &Res) {
+  for (; *Arg; ++Arg) {
+    switch (*Arg) {
+    default:
+      break;
+    case ' ':
+    case '\\':
+      Res.push_back('\\');
+      break;
+    }
+    Res.push_back(*Arg);
+  }
+}
+
+const char *tools::renderEscapedCommandLine(const ToolChain &TC,
+                                            const llvm::opt::ArgList &Args) {
+  const Driver &D = TC.getDriver();
+  const char *Exec = D.getClangProgramPath();
+
+  llvm::opt::ArgStringList OriginalArgs;
+  for (const auto &Arg : Args)
+    Arg->render(Args, OriginalArgs);
+
+  llvm::SmallString<256> Flags;
+  escapeSpacesAndBackslashes(Exec, Flags);
+  for (const char *OriginalArg : OriginalArgs) {
+    llvm::SmallString<128> EscapedArg;
+    escapeSpacesAndBackslashes(OriginalArg, EscapedArg);
+    Flags += " ";
+    Flags += EscapedArg;
+  }
+
+  return Args.MakeArgString(Flags);
+}
+
+bool tools::shouldRecordCommandLine(const ToolChain &TC,
+                                    const llvm::opt::ArgList &Args,
+                                    bool &FRecordCommandLine,
+                                    bool &GRecordCommandLine) {
+  const Driver &D = TC.getDriver();
+  const llvm::Triple &Triple = TC.getEffectiveTriple();
+  const std::string &TripleStr = Triple.getTriple();
+
+  FRecordCommandLine =
+      Args.hasFlag(options::OPT_frecord_command_line,
+                   options::OPT_fno_record_command_line, false);
+  GRecordCommandLine =
+      Args.hasFlag(options::OPT_grecord_command_line,
+                   options::OPT_gno_record_command_line, false);
+  if (FRecordCommandLine && !Triple.isOSBinFormatELF() &&
+      !Triple.isOSBinFormatXCOFF() && !Triple.isOSBinFormatMachO())
+    D.Diag(diag::err_drv_unsupported_opt_for_target)
+        << Args.getLastArg(options::OPT_frecord_command_line)->getAsString(Args)
+        << TripleStr;
+
+  return FRecordCommandLine || TC.UseDwarfDebugFlags() || GRecordCommandLine;
 }
