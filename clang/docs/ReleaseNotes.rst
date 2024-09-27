@@ -43,7 +43,7 @@ code bases.
   still supporting SPARC V8 CPUs need to specify ``-mcpu=v8`` with a
   `config file
   <https://clang.llvm.org/docs/UsersManual.html#configuration-files>`_.
-  
+
 - The ``clang-rename`` tool has been removed.
 
 C/C++ Language Potentially Breaking Changes
@@ -81,6 +81,24 @@ C++ Specific Potentially Breaking Changes
     template <typename T>
     void f();
 
+- During constant evaluation, comparisons between different evaluations of the
+  same string literal are now correctly treated as non-constant, and comparisons
+  between string literals that cannot possibly overlap in memory are now treated
+  as constant. This updates Clang to match the anticipated direction of open core
+  issue `CWG2765 <http://wg21.link/CWG2765>`, but is subject to change once that
+  issue is resolved.
+
+  .. code-block:: c++
+
+    constexpr const char *f() { return "hello"; }
+    constexpr const char *g() { return "world"; }
+    // Used to evaluate to false, now error: non-constant comparison.
+    constexpr bool a = f() == f();
+    // Might evaluate to true or false, as before.
+    bool at_runtime() { return f() == f(); }
+    // Was error, now evaluates to false.
+    constexpr bool b = f() == g();
+
 ABI Changes in This Version
 ---------------------------
 
@@ -115,7 +133,7 @@ C++ Language Changes
 - Allow single element access of GCC vector/ext_vector_type object to be
   constant expression. Supports the `V.xyzw` syntax and other tidbits
   as seen in OpenCL. Selecting multiple elements is left as a future work.
-- Implement `CWG1815 <https://wg21.link/CWG1815>`_. Support lifetime extension 
+- Implement `CWG1815 <https://wg21.link/CWG1815>`_. Support lifetime extension
   of temporary created by aggregate initialization using a default member
   initializer.
 
@@ -336,6 +354,8 @@ Improvements to Clang's diagnostics
   local variables passed to function calls using the ``[[clang::musttail]]``
   attribute.
 
+- Clang now diagnoses cases where a dangling ``GSLOwner<GSLPointer>`` object is constructed, e.g. ``std::vector<string_view> v = {std::string()};`` (#GH100526).
+
 Improvements to Clang's time-trace
 ----------------------------------
 
@@ -451,6 +471,9 @@ Miscellaneous Clang Crashes Fixed
   Now a diagnostic is emitted. (#GH35741)
 
 - Fixed ``-ast-dump`` crashes on codes involving ``concept`` with ``-ast-dump-decl-types``. (#GH94928)
+
+- Fixed internal assertion firing when a declaration in the implicit global
+  module is found through ADL. (GH#109879)
 
 OpenACC Specific Changes
 ------------------------
@@ -637,6 +660,7 @@ Python Binding Changes
 OpenMP Support
 --------------
 - Added support for 'omp assume' directive.
+- Added support for 'omp scope' directive.
 
 Improvements
 ^^^^^^^^^^^^
