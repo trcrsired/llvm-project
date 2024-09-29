@@ -676,27 +676,6 @@ protected:
   /// Structure to hold information about generated runtime checks, responsible
   /// for cleaning the checks, if vectorization turns out unprofitable.
   GeneratedRTChecks &RTChecks;
-
-  // Holds the resume values for reductions in the loops, used to set the
-  // correct start value of reduction PHIs when vectorizing the epilogue.
-  SmallMapVector<const RecurrenceDescriptor *, PHINode *, 4>
-      ReductionResumeValues;
-};
-
-class InnerLoopUnroller : public InnerLoopVectorizer {
-public:
-  InnerLoopUnroller(Loop *OrigLoop, PredicatedScalarEvolution &PSE,
-                    LoopInfo *LI, DominatorTree *DT,
-                    const TargetLibraryInfo *TLI,
-                    const TargetTransformInfo *TTI, AssumptionCache *AC,
-                    OptimizationRemarkEmitter *ORE, unsigned UnrollFactor,
-                    LoopVectorizationLegality *LVL,
-                    LoopVectorizationCostModel *CM, BlockFrequencyInfo *BFI,
-                    ProfileSummaryInfo *PSI, GeneratedRTChecks &Check)
-      : InnerLoopVectorizer(OrigLoop, PSE, LI, DT, TLI, TTI, AC, ORE,
-                            ElementCount::getFixed(1),
-                            ElementCount::getFixed(1), UnrollFactor, LVL, CM,
-                            BFI, PSI, Check) {}
 };
 
 /// Encapsulate information regarding vectorization of a loop and its epilogue.
@@ -2324,12 +2303,6 @@ void InnerLoopVectorizer::scalarizeInstruction(const Instruction *Instr,
                                                const VPLane &Lane,
                                                VPTransformState &State) {
   assert(!Instr->getType()->isAggregateType() && "Can't handle vectors");
-
-  // llvm.experimental.noalias.scope.decl intrinsics must only be duplicated for
-  // the first lane and part.
-  if (isa<NoAliasScopeDeclInst>(Instr))
-    if (!Lane.isFirstLane())
-      return;
 
   // Does this instruction return a value ?
   bool IsVoidRetTy = Instr->getType()->isVoidTy();
@@ -6508,8 +6481,33 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I,
     // We've proven all lanes safe to speculate, fall through.
     [[fallthrough]];
   case Instruction::Add:
+  case Instruction::Sub: {
+    auto Info = Legal->getHistogramInfo(I);
+    if (Info && VF.isVector()) {
+      const HistogramInfo *HGram = Info.value();
+      // Assume that a non-constant update value (or a constant != 1) requires
+      // a multiply, and add that into the cost.
+      InstructionCost MulCost = TTI::TCC_Free;
+      ConstantInt *RHS = dyn_cast<ConstantInt>(I->getOperand(1));
+      if (!RHS || RHS->getZExtValue() != 1)
+        MulCost = TTI.getArithmeticInstrCost(Instruction::Mul, VectorTy);
+
+      // Find the cost of the histogram operation itself.
+      Type *PtrTy = VectorType::get(HGram->Load->getPointerOperandType(), VF);
+      Type *ScalarTy = I->getType();
+      Type *MaskTy = VectorType::get(Type::getInt1Ty(I->getContext()), VF);
+      IntrinsicCostAttributes ICA(Intrinsic::experimental_vector_histogram_add,
+                                  Type::getVoidTy(I->getContext()),
+                                  {PtrTy, ScalarTy, MaskTy});
+
+      // Add the costs together with the add/sub operation.
+      return TTI.getIntrinsicInstrCost(
+                 ICA, TargetTransformInfo::TCK_RecipThroughput) +
+             MulCost + TTI.getArithmeticInstrCost(I->getOpcode(), VectorTy);
+    }
+    [[fallthrough]];
+  }
   case Instruction::FAdd:
-  case Instruction::Sub:
   case Instruction::FSub:
   case Instruction::Mul:
   case Instruction::FMul:
@@ -7423,10 +7421,9 @@ static void addRuntimeUnrollDisableMetaData(Loop *L) {
 }
 
 // Check if \p RedResult is a ComputeReductionResult instruction, and if it is
-// create a merge phi node for it and add it to \p ReductionResumeValues.
+// create a merge phi node for it.
 static void createAndCollectMergePhiForReduction(
     VPInstruction *RedResult,
-    DenseMap<const RecurrenceDescriptor *, Value *> &ReductionResumeValues,
     VPTransformState &State, Loop *OrigLoop, BasicBlock *LoopMiddleBlock,
     bool VectorizingEpilogue) {
   if (!RedResult ||
@@ -7484,13 +7481,9 @@ static void createAndCollectMergePhiForReduction(
   OrigPhi->setIncomingValue(SelfEdgeBlockIdx, BCBlockPhi);
   Instruction *LoopExitInst = RdxDesc.getLoopExitInstr();
   OrigPhi->setIncomingValue(IncomingEdgeBlockIdx, LoopExitInst);
-
-  ReductionResumeValues[&RdxDesc] = BCBlockPhi;
 }
 
-std::pair<DenseMap<const SCEV *, Value *>,
-          DenseMap<const RecurrenceDescriptor *, Value *>>
-LoopVectorizationPlanner::executePlan(
+DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
     ElementCount BestVF, unsigned BestUF, VPlan &BestVPlan,
     InnerLoopVectorizer &ILV, DominatorTree *DT, bool IsEpilogueVectorization,
     const DenseMap<const SCEV *, Value *> *ExpandedSCEVs) {
@@ -7576,12 +7569,11 @@ LoopVectorizationPlanner::executePlan(
   BestVPlan.execute(&State);
 
   // 2.5 Collect reduction resume values.
-  DenseMap<const RecurrenceDescriptor *, Value *> ReductionResumeValues;
   auto *ExitVPBB =
       cast<VPBasicBlock>(BestVPlan.getVectorLoopRegion()->getSingleSuccessor());
   for (VPRecipeBase &R : *ExitVPBB) {
     createAndCollectMergePhiForReduction(
-        dyn_cast<VPInstruction>(&R), ReductionResumeValues, State, OrigLoop,
+        dyn_cast<VPInstruction>(&R), State, OrigLoop,
         State.CFG.VPBB2IRBB[ExitVPBB], ExpandedSCEVs);
   }
 
@@ -7631,7 +7623,7 @@ LoopVectorizationPlanner::executePlan(
     setBranchWeights(*MiddleTerm, Weights, /*IsExpected=*/false);
   }
 
-  return {State.ExpandedSCEVs, ReductionResumeValues};
+  return State.ExpandedSCEVs;
 }
 
 //===--------------------------------------------------------------------===//
@@ -8426,6 +8418,30 @@ VPWidenRecipe *VPRecipeBuilder::tryToWiden(Instruction *I,
   };
 }
 
+VPHistogramRecipe *
+VPRecipeBuilder::tryToWidenHistogram(const HistogramInfo *HI,
+                                     ArrayRef<VPValue *> Operands) {
+  // FIXME: Support other operations.
+  unsigned Opcode = HI->Update->getOpcode();
+  assert((Opcode == Instruction::Add || Opcode == Instruction::Sub) &&
+         "Histogram update operation must be an Add or Sub");
+
+  SmallVector<VPValue *, 3> HGramOps;
+  // Bucket address.
+  HGramOps.push_back(Operands[1]);
+  // Increment value.
+  HGramOps.push_back(getVPValueOrAddLiveIn(HI->Update->getOperand(1)));
+
+  // In case of predicated execution (due to tail-folding, or conditional
+  // execution, or both), pass the relevant mask.
+  if (Legal->isMaskRequired(HI->Store))
+    HGramOps.push_back(getBlockInMask(HI->Store->getParent()));
+
+  return new VPHistogramRecipe(Opcode,
+                               make_range(HGramOps.begin(), HGramOps.end()),
+                               HI->Store->getDebugLoc());
+}
+
 void VPRecipeBuilder::fixHeaderPhis() {
   BasicBlock *OrigLatch = OrigLoop->getLoopLatch();
   for (VPHeaderPHIRecipe *R : PhisToFix) {
@@ -8548,6 +8564,10 @@ VPRecipeBuilder::tryToCreateWidenRecipe(Instruction *Instr,
 
   if (auto *CI = dyn_cast<CallInst>(Instr))
     return tryToWidenCall(CI, Operands, Range);
+
+  if (StoreInst *SI = dyn_cast<StoreInst>(Instr))
+    if (auto HistInfo = Legal->getHistogramInfo(SI))
+      return tryToWidenHistogram(*HistInfo, Operands);
 
   if (isa<LoadInst>(Instr) || isa<StoreInst>(Instr))
     return tryToWidenMemory(Instr, Operands, Range);
@@ -9998,6 +10018,19 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     InterleaveLoop = false;
   }
 
+  // If there is a histogram in the loop, do not just interleave without
+  // vectorizing. The order of operations will be incorrect without the
+  // histogram intrinsics, which are only used for recipes with VF > 1.
+  if (!VectorizeLoop && InterleaveLoop && LVL.hasHistograms()) {
+    LLVM_DEBUG(dbgs() << "LV: Not interleaving without vectorization due "
+                      << "to histogram operations.\n");
+    IntDiagMsg = std::make_pair(
+        "HistogramPreventsScalarInterleaving",
+        "Unable to interleave without vectorization due to constraints on "
+        "the order of histogram operations");
+    InterleaveLoop = false;
+  }
+
   // Override IC if user provided an interleave count.
   IC = UserIC > 0 ? UserIC : IC;
 
@@ -10047,8 +10080,9 @@ bool LoopVectorizePass::processLoop(Loop *L) {
       assert(IC > 1 && "interleave count should not be 1 or 0");
       // If we decided that it is not legal to vectorize the loop, then
       // interleave it.
-      InnerLoopUnroller Unroller(L, PSE, LI, DT, TLI, TTI, AC, ORE, IC, &LVL,
-                                 &CM, BFI, PSI, Checks);
+      InnerLoopVectorizer Unroller(
+          L, PSE, LI, DT, TLI, TTI, AC, ORE, ElementCount::getFixed(1),
+          ElementCount::getFixed(1), IC, &LVL, &CM, BFI, PSI, Checks);
 
       VPlan &BestPlan = LVP.getPlanFor(VF.Width);
       LVP.executePlan(VF.Width, IC, BestPlan, Unroller, DT, false);
@@ -10076,8 +10110,8 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                                            EPI, &LVL, &CM, BFI, PSI, Checks);
 
         std::unique_ptr<VPlan> BestMainPlan(BestPlan.duplicate());
-        const auto &[ExpandedSCEVs, ReductionResumeValues] = LVP.executePlan(
-            EPI.MainLoopVF, EPI.MainLoopUF, *BestMainPlan, MainILV, DT, true);
+        auto ExpandedSCEVs = LVP.executePlan(EPI.MainLoopVF, EPI.MainLoopUF,
+                                             *BestMainPlan, MainILV, DT, true);
         ++LoopsVectorized;
 
         // Second pass vectorizes the epilogue and adjusts the control flow
@@ -10122,10 +10156,11 @@ bool LoopVectorizePass::processLoop(Loop *L) {
           Value *ResumeV = nullptr;
           // TODO: Move setting of resume values to prepareToExecute.
           if (auto *ReductionPhi = dyn_cast<VPReductionPHIRecipe>(&R)) {
+            ResumeV = cast<PHINode>(ReductionPhi->getUnderlyingInstr())
+                          ->getIncomingValueForBlock(L->getLoopPreheader());
             const RecurrenceDescriptor &RdxDesc =
                 ReductionPhi->getRecurrenceDescriptor();
             RecurKind RK = RdxDesc.getRecurrenceKind();
-            ResumeV = ReductionResumeValues.find(&RdxDesc)->second;
             if (RecurrenceDescriptor::isAnyOfRecurrenceKind(RK)) {
               // VPReductionPHIRecipes for AnyOf reductions expect a boolean as
               // start value; compare the final value from the main vector loop
