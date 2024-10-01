@@ -362,6 +362,8 @@ Improvements to Clang's diagnostics
 
 - Clang now diagnoses cases where a dangling ``GSLOwner<GSLPointer>`` object is constructed, e.g. ``std::vector<string_view> v = {std::string()};`` (#GH100526).
 
+- Clang now diagnoses when a ``requires`` expression has a local parameter of void type, aligning with the function parameter (#GH109831).
+
 Improvements to Clang's time-trace
 ----------------------------------
 
@@ -518,12 +520,13 @@ X86 Support
   * Supported MINMAX intrinsics of ``*_(mask(z)))_minmax(ne)_p[s|d|h|bh]`` and
   ``*_(mask(z)))_minmax_s[s|d|h]``.
 
-- The following bit manipulation intrinsics can now be used in constant expressions:
-  all lzcnt intrinsics in lzcntintrin.h 
-  all bextr intrinsics in bmiintrin.h
-  all tzcnt intrinsics in bmiintrin.h
-  all bzhi intrinsics in bmi2intrin.h
-  all intrinsics in tbmintrin.h
+- All intrinsics in lzcntintrin.h can now be used in constant expressions.
+
+- All intrinsics in bmiintrin.h can now be used in constant expressions.
+
+- All intrinsics in bmi2intrin.h can now be used in constant expressions.
+
+- All intrinsics in tbmintrin.h can now be used in constant expressions.
 
 Arm and AArch64 Support
 ^^^^^^^^^^^^^^^^^^^^^^^
