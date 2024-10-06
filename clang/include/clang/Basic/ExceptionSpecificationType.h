@@ -27,6 +27,11 @@ enum ExceptionSpecificationType {
   EST_DependentNoexcept,///< noexcept(expression), value-dependent
   EST_NoexceptFalse,    ///< noexcept(expression), evals to 'false'
   EST_NoexceptTrue,     ///< noexcept(expression), evals to 'true'
+  EST_BasicThrows,      ///< throws. See Herb Sutter's P0709
+  EST_DependentThrows,  ///< throws(expression), value_dependent
+  EST_ThrowsFalse,      ///< throws(expression), evals to 'false'
+  EST_ThrowsTrue,       ///< throws(expression), evals to 'true'
+  EST_FailsAny,         ///< based on P0709, but used for C/C++
   EST_Unevaluated,      ///< not evaluated yet, for special member function
   EST_Uninstantiated,   ///< not instantiated yet
   EST_Unparsed          ///< not parsed yet
