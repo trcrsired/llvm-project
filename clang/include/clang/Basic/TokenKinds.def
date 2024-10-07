@@ -40,6 +40,9 @@
 #ifndef MODULES_KEYWORD
 #define MODULES_KEYWORD(X) KEYWORD(X,KEYMODULES)
 #endif
+#ifndef HERBCEPTION_KEYWORD
+#define HERBCEPTION_KEYWORD(X) KEYWORD(X,KEYHERBCEPTION)
+#endif
 #ifndef TYPE_TRAIT
 #define TYPE_TRAIT(N,I,K) KEYWORD(I,K)
 #endif
@@ -433,6 +436,10 @@ KEYWORD(_Float16                    , KEYALL)
 // C23 keywords
 C23_KEYWORD(typeof                  , KEYGNU)
 C23_KEYWORD(typeof_unqual           , 0)
+
+// Herbceptions
+HERBCEPTION_KEYWORD(throws)
+HERBCEPTION_KEYWORD(fails)
 
 // ISO/IEC JTC1 SC22 WG14 N1169 Extension
 KEYWORD(_Accum                      , KEYFIXEDPOINT)
