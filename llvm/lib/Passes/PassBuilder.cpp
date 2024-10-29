@@ -114,6 +114,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MachineTraceMetrics.h"
 #include "llvm/CodeGen/MachineVerifier.h"
+#include "llvm/CodeGen/OptimizePHIs.h"
 #include "llvm/CodeGen/PHIElimination.h"
 #include "llvm/CodeGen/PreISelIntrinsicLowering.h"
 #include "llvm/CodeGen/RegAllocFast.h"
@@ -1174,9 +1175,17 @@ Expected<std::string> parseMemProfUsePassOptions(StringRef Params) {
   return Result;
 }
 
-Expected<bool> parseStructuralHashPrinterPassOptions(StringRef Params) {
-  return PassBuilder::parseSinglePassOption(Params, "detailed",
-                                            "StructuralHashPrinterPass");
+Expected<StructuralHashOptions>
+parseStructuralHashPrinterPassOptions(StringRef Params) {
+  if (Params.empty())
+    return StructuralHashOptions::None;
+  if (Params == "detailed")
+    return StructuralHashOptions::Detailed;
+  if (Params == "call-target-ignored")
+    return StructuralHashOptions::CallTargetIgnored;
+  return make_error<StringError>(
+      formatv("invalid structural hash printer parameter '{0}' ", Params).str(),
+      inconvertibleErrorCode());
 }
 
 Expected<bool> parseWinEHPrepareOptions(StringRef Params) {
