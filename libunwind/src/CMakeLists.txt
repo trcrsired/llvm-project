@@ -99,10 +99,10 @@ add_library_flags_if(MINGW "${MINGW_LIBRARIES}")
 if (LIBUNWIND_ENABLE_SHARED AND
     NOT (CXX_SUPPORTS_FNO_EXCEPTIONS_FLAG AND
          CXX_SUPPORTS_FUNWIND_TABLES_FLAG))
-  message(FATAL_ERROR
-          "Compiler doesn't support generation of unwind tables if exception "
-          "support is disabled.  Building libunwind DSO with runtime dependency "
-          "on C++ ABI library is not supported.")
+	 #  message(FATAL_ERROR
+	 # "Compiler doesn't support generation of unwind tables if exception "
+	 # "support is disabled.  Building libunwind DSO with runtime dependency "
+	 # "on C++ ABI library is not supported.")
 endif()
 
 if (HAIKU)
