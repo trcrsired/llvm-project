@@ -73,7 +73,6 @@ void AtLeastOneOf() {
 
   // Exit Data
 #pragma acc exit data copyout(Var)
-  // expected-warning@+1{{OpenACC clause 'delete' not yet implemented}}
 #pragma acc exit data delete(Var)
 #pragma acc exit data detach(VarPtr)
 
@@ -87,7 +86,6 @@ void AtLeastOneOf() {
 #pragma acc exit data
 
   // Host Data
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
 #pragma acc host_data use_device(Var)
   ;
   // OpenACC TODO: The following 'host_data' directives should diagnose, since
@@ -103,9 +101,6 @@ void AtLeastOneOf() {
 
 void DataRules() {
   int Var;
-  // OpenACC TODO: Only 'async' and 'wait' are permitted after a device_type, so
-  // the rest of these should diagnose.
-
   // expected-error@+2{{OpenACC clause 'copy' may not follow a 'device_type' clause in a 'data' construct}}
   // expected-note@+1{{previous clause is here}}
 #pragma acc data device_type(*) copy(Var)
@@ -156,16 +151,13 @@ struct HasMembers {
   int Member;
 
   void HostDataError() {
-  // TODO OpenACC: The following 3 should error, as use_device's var only allows
-  // a variable or array, not an array index, or sub expression.
-
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
+  // expected-error@+1{{OpenACC variable in 'use_device' clause is not a valid variable name or array name}}
 #pragma acc host_data use_device(this)
   ;
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
+  // expected-error@+1{{OpenACC variable in 'use_device' clause is not a valid variable name or array name}}
 #pragma acc host_data use_device(this->Member)
   ;
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
+  // expected-error@+1{{OpenACC variable in 'use_device' clause is not a valid variable name or array name}}
 #pragma acc host_data use_device(Member)
   ;
   }
@@ -178,27 +170,22 @@ void HostDataRules() {
 #pragma acc host_data if(Var) if (Var2)
   ;
 
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
 #pragma acc host_data use_device(Var)
   ;
 
   int Array[5];
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
 #pragma acc host_data use_device(Array)
   ;
 
-  // TODO OpenACC: The following 3 should error, as use_device's var only allows
-  // a variable or array, not an array index, or sub expression.
-
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
+  // expected-error@+1{{OpenACC variable in 'use_device' clause is not a valid variable name or array name}}
 #pragma acc host_data use_device(Array[1:1])
   ;
 
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
+  // expected-error@+1{{OpenACC variable in 'use_device' clause is not a valid variable name or array name}}
 #pragma acc host_data use_device(Array[1])
   ;
   HasMembers HM;
-  // expected-warning@+1{{OpenACC clause 'use_device' not yet implemented}}
+  // expected-error@+1{{OpenACC variable in 'use_device' clause is not a valid variable name or array name}}
 #pragma acc host_data use_device(HM.Member)
   ;
 
