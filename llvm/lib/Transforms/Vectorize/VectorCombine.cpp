@@ -3003,6 +3003,10 @@ bool VectorCombine::foldInsExtVectorToShuffle(Instruction &I) {
   if (!Ext->hasOneUse())
     NewCost += TTI.getVectorInstrCost(*Ext, VecTy, CostKind, ExtIdx);
 
+  LLVM_DEBUG(dbgs() << "Found a insert/extract shuffle-like pair : " << I
+                    << "\n  OldCost: " << OldCost << " vs NewCost: " << NewCost
+                    << "\n");
+
   if (OldCost < NewCost)
     return false;
 
@@ -3027,6 +3031,8 @@ bool VectorCombine::run() {
   // Don't attempt vectorization if the target does not support vectors.
   if (!TTI.getNumberOfRegisters(TTI.getRegisterClassForType(/*Vector*/ true)))
     return false;
+
+  LLVM_DEBUG(dbgs() << "\n\nVECTORCOMBINE on " << F.getName() << "\n");
 
   bool MadeChange = false;
   auto FoldInst = [this, &MadeChange](Instruction &I) {
