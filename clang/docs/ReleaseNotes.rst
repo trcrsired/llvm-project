@@ -1108,6 +1108,10 @@ AST Matchers
 
 - Ensure ``pointee`` matches Objective-C pointer types.
 
+- Add ``dependentScopeDeclRefExpr`` matcher to match expressions that refer to dependent scope declarations.
+
+- Add ``dependentNameType`` matcher to match a dependent name type.
+
 clang-format
 ------------
 
@@ -1119,6 +1123,7 @@ clang-format
   ``Never``, and ``true`` to ``Always``.
 - Adds ``RemoveEmptyLinesInUnwrappedLines`` option.
 - Adds ``KeepFormFeed`` option and set it to ``true`` for ``GNU`` style.
+- Adds ``AllowShortNamespacesOnASingleLine`` option.
 
 libclang
 --------
