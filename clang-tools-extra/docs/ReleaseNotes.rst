@@ -112,10 +112,10 @@ Improvements to clang-tidy
   the configuration options of the `Clang Static Analyzer Checks
   <https://clang.llvm.org/docs/analyzer/checkers.html>`_.
 
+- Improved :program:`clang-tidy` by accepting parameters file in command line.
+
 - Improved :program:`run-clang-tidy.py` script. Fixed minor shutdown noise
   happening on certain platforms when interrupting the script.
-
-- Improved :program:`clang-tidy` by accepting parameters file in command line.
 
 - Removed :program:`clang-tidy`'s global options for most of checks. All options
   are changed to local options except `IncludeStyle`, `StrictMode` and
@@ -292,7 +292,7 @@ Changes in existing checks
   overloaded ``operator new`` and ``operator delete``.
 
 - Improved :doc:`modernize-avoid-c-arrays
-  <clang-tidy/checks/modernize/avoid-c-arrays>` check to suggest using 
+  <clang-tidy/checks/modernize/avoid-c-arrays>` check to suggest using
   ``std::span`` as a replacement for parameters of incomplete C array type in
   C++20 and ``std::array`` or ``std::vector`` before C++20.
 
@@ -360,9 +360,18 @@ Changes in existing checks
   case of the literal suffix in fixes and fixing false positive for implicit
   conversion of comparison result in C23.
 
+- Improved :doc:`readability-redundant-casting
+  <clang-tidy/checks/readability/redundant-casting>` check
+  by addressing a false positive in aggregate initialization through
+  parenthesized list.
+
 - Improved :doc:`readability-redundant-smartptr-get
   <clang-tidy/checks/readability/redundant-smartptr-get>` check to
   remove `->`, when redundant `get()` is removed.
+
+- Improved :doc:`readability-use-std-min-max
+  <clang-tidy/checks/readability/use-std-min-max>` check to use correct template
+  type in ``std::min`` and ``std::max`` when operand is integer literal.
 
 Removed checks
 ^^^^^^^^^^^^^^
