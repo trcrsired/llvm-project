@@ -311,15 +311,13 @@ static void processSTIPredicate(STIPredicateFunction &Fn,
     ConstRecVec Classes = Def->getValueAsListOfDefs("Classes");
     for (const Record *EC : Classes) {
       const Record *Pred = EC->getValueAsDef("Predicate");
-      if (!Predicate2Index.contains(Pred))
-        Predicate2Index[Pred] = NumUniquePredicates++;
+      if (Predicate2Index.try_emplace(Pred, NumUniquePredicates).second)
+        ++NumUniquePredicates;
 
       ConstRecVec Opcodes = EC->getValueAsListOfDefs("Opcodes");
       for (const Record *Opcode : Opcodes) {
-        if (!Opcode2Index.contains(Opcode)) {
-          Opcode2Index[Opcode] = OpcodeMappings.size();
+        if (Opcode2Index.try_emplace(Opcode, OpcodeMappings.size()).second)
           OpcodeMappings.emplace_back(Opcode, OpcodeInfo());
-        }
       }
     }
   }
@@ -452,11 +450,9 @@ void CodeGenSchedModels::checkMCInstPredicates() const {
   for (const Record *TIIPred :
        Records.getAllDerivedDefinitions("TIIPredicate")) {
     StringRef Name = TIIPred->getValueAsString("FunctionName");
-    StringMap<const Record *>::const_iterator It = TIIPredicates.find(Name);
-    if (It == TIIPredicates.end()) {
-      TIIPredicates[Name] = TIIPred;
+    auto [It, Inserted] = TIIPredicates.try_emplace(Name, TIIPred);
+    if (Inserted)
       continue;
-    }
 
     PrintError(TIIPred->getLoc(),
                "TIIPredicate " + Name + " is multiply defined.");
@@ -979,8 +975,9 @@ unsigned CodeGenSchedModels::addSchedClass(const Record *ItinClassDef,
     return SC.isKeyEqual(ItinClassDef, OperWrites, OperReads);
   };
 
-  auto I = find_if(make_range(schedClassBegin(), schedClassEnd()), IsKeyEqual);
-  unsigned Idx = I == schedClassEnd() ? 0 : std::distance(schedClassBegin(), I);
+  auto I = find_if(SchedClasses, IsKeyEqual);
+  unsigned Idx =
+      I == SchedClasses.end() ? 0 : std::distance(SchedClasses.begin(), I);
   if (Idx || SchedClasses[0].isKeyEqual(ItinClassDef, OperWrites, OperReads)) {
     IdxVec PI;
     std::set_union(SchedClasses[Idx].ProcIndices.begin(),
@@ -1103,8 +1100,7 @@ void CodeGenSchedModels::createInstRWClass(const Record *InstRWDef) {
 
 // True if collectProcItins found anything.
 bool CodeGenSchedModels::hasItineraries() const {
-  for (const CodeGenProcModel &PM :
-       make_range(procModelBegin(), procModelEnd()))
+  for (const CodeGenProcModel &PM : procModels())
     if (PM.hasItineraries())
       return true;
   return false;
@@ -1129,8 +1125,7 @@ void CodeGenSchedModels::collectProcItins() {
       const Record *ItinDef = ItinData->getValueAsDef("TheClass");
       bool FoundClass = false;
 
-      for (const CodeGenSchedClass &SC :
-           make_range(schedClassBegin(), schedClassEnd())) {
+      for (const CodeGenSchedClass &SC : schedClasses()) {
         // Multiple SchedClasses may share an itinerary. Update all of them.
         if (SC.ItinClassDef == ItinDef) {
           ProcModel.ItinDefList[SC.Index] = ItinData;
@@ -1420,8 +1415,7 @@ void PredTransitions::getIntersectingVariants(
     if (AliasProcIdx && AliasProcIdx != TransVec[TransIdx].ProcIndex)
       continue;
     if (!Variants.empty()) {
-      const CodeGenProcModel &PM =
-          *(SchedModels.procModelBegin() + AliasProcIdx);
+      const CodeGenProcModel &PM = SchedModels.procModels()[AliasProcIdx];
       PrintFatalError((*AI)->getLoc(),
                       "Multiple variants defined for processor " +
                           PM.ModelName +
@@ -1834,8 +1828,7 @@ void CodeGenSchedModels::collectProcResources() {
   // Add any subtarget-specific SchedReadWrites that are directly associated
   // with processor resources. Refer to the parent SchedClass's ProcIndices to
   // determine which processors they apply to.
-  for (const CodeGenSchedClass &SC :
-       make_range(schedClassBegin(), schedClassEnd())) {
+  for (const CodeGenSchedClass &SC : schedClasses()) {
     if (SC.ItinClassDef) {
       collectItinProcResources(SC.ItinClassDef);
       continue;
