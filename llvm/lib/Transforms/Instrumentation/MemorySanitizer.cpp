@@ -1724,13 +1724,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return ConstantInt::get(MS.IntptrTy, C);
   }
 
-  /// Compute the integer shadow offset that corresponds to a given
-  /// application address.
+  /// Returns the integer shadow offset that corresponds to a given
+  /// application address, whereby:
   ///
-  /// Offset = (Addr & ~AndMask) ^ XorMask
-  /// Addr can be a ptr or <N x ptr>. In both cases ShadowTy the shadow type of
-  /// a single pointee.
-  /// Returns <shadow_ptr, origin_ptr> or <<N x shadow_ptr>, <N x origin_ptr>>.
+  ///     Offset = (Addr & ~AndMask) ^ XorMask
+  ///     Shadow = ShadowBase + Offset
+  ///     Origin = (OriginBase + Offset) & ~Alignment
+  ///
+  /// Note: for efficiency, many shadow mappings only require use the XorMask
+  ///       and OriginBase; the AndMask and ShadowBase are often zero.
   Value *getShadowPtrOffset(Value *Addr, IRBuilder<> &IRB) {
     Type *IntptrTy = ptrToIntPtrType(Addr->getType());
     Value *OffsetLong = IRB.CreatePointerCast(Addr, IntptrTy);
@@ -4008,6 +4010,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///     shadow[out] =
   ///         intrinsic(shadow[var1], shadow[var2], opType) | shadow[opType]
   ///
+  /// CAUTION: this assumes that the intrinsic will handle arbitrary
+  ///          bit-patterns (for example, if the intrinsic accepts floats for
+  ///          var1, we require that it doesn't care if inputs are NaNs).
+  ///
   /// For example, this can be applied to the Arm NEON vector table intrinsics
   /// (tbl{1,2,3,4}).
   ///
@@ -4022,7 +4028,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Don't use getNumOperands() because it includes the callee
     for (unsigned int i = 0; i < I.arg_size() - trailingVerbatimArgs; i++) {
       Value *Shadow = getShadow(&I, i);
-      ShadowArgs.push_back(Shadow);
+
+      // Shadows are integer-ish types but some intrinsics require a
+      // different (e.g., floating-point) type.
+      ShadowArgs.push_back(
+          IRB.CreateBitCast(Shadow, I.getArgOperand(i)->getType()));
     }
 
     for (unsigned int i = I.arg_size() - trailingVerbatimArgs; i < I.arg_size();
@@ -4043,7 +4053,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       CombinedShadow = IRB.CreateOr(Shadow, CombinedShadow, "_msprop");
     }
 
-    setShadow(&I, CombinedShadow);
+    setShadow(&I, IRB.CreateBitCast(CombinedShadow, getShadowTy(&I)));
 
     setOriginForNaryOp(I);
   }
