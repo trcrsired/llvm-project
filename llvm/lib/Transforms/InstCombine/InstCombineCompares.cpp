@@ -834,8 +834,9 @@ Instruction *InstCombinerImpl::foldGEPICmp(GEPOperator *GEPLHS, Value *RHS,
         return replaceInstUsesWith(
             I, // No comparison is needed here.
             ConstantInt::get(I.getType(), ICmpInst::isTrueWhenEqual(Cond)));
-
-      else if (NumDifferences == 1 && CanFold(NW)) {
+      // If two GEPs only differ by an index, compare them.
+      // Note that nowrap flags are always needed when comparing two indices.
+      else if (NumDifferences == 1 && NW != GEPNoWrapFlags::none()) {
         Value *LHSV = GEPLHS->getOperand(DiffOperand);
         Value *RHSV = GEPRHS->getOperand(DiffOperand);
         return NewICmp(NW, LHSV, RHSV);
@@ -5411,7 +5412,7 @@ Instruction *InstCombinerImpl::foldICmpBinOp(ICmpInst &I,
         if (ICmpInst::isEquality(Pred)) {
           // If X != Y, fold (X *nw Z) eq/ne (Y *nw Z) -> Z eq/ne 0
           if (((Op0HasNSW && Op1HasNSW) || (Op0HasNUW && Op1HasNUW)) &&
-              isKnownNonEqual(X, Y, DL, &AC, &I, &DT))
+              isKnownNonEqual(X, Y, SQ))
             return new ICmpInst(Pred, Z, Constant::getNullValue(Z->getType()));
 
           KnownBits ZKnown = computeKnownBits(Z, 0, &I);
