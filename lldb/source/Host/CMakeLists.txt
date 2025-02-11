@@ -110,7 +110,6 @@ else()
       linux/LibcGlue.cpp
       linux/Support.cpp
       android/HostInfoAndroid.cpp
-      android/LibcGlue.cpp
       )
   elseif (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
     add_host_subdirectory(freebsd
