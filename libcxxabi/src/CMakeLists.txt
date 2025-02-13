@@ -17,6 +17,7 @@ set(LIBCXXABI_SOURCES
   abort_message.cpp
   fallback_malloc.cpp
   private_typeinfo.cpp
+  apple_shims.cpp
 )
 
 if (LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS)
