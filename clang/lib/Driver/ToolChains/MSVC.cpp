@@ -100,10 +100,19 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   if (!SysRoot.empty()) {
     // If we have --sysroot, then we ignore all other setings
     // libpath is $SYSROOT/lib and $SYSROOT/lib/${ARCH}-unknown-windows-msvc
+    // For ARM64EC, the ARCH is aarch64 instead
+    auto triple = TC.getTriple();
     const std::string MultiarchTriple =
-        TC.getMultiarchTriple(TC.getDriver(), TC.getTriple(), SysRoot);
+        TC.getMultiarchTriple(TC.getDriver(), triple, SysRoot);
     std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
     CmdArgs.push_back(Args.MakeArgString(SysRootLib + '/' + MultiarchTriple));
+    if (triple.isWindowsArm64EC()) {
+      triple.setArch(triple.getArch());
+      const std::string NoSubArchMultiarchTriple =
+          TC.getMultiarchTriple(TC.getDriver(), triple, SysRoot);
+      CmdArgs.push_back(Args.MakeArgString(SysRootLib + '/' +
+          NoSubArchMultiarchTriple));
+    }
     CmdArgs.push_back(Args.MakeArgString(SysRootLib));
   } else {
   // If the VC environment hasn't been configured (perhaps because the user

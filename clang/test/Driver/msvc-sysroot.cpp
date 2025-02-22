@@ -39,6 +39,15 @@
 // COMPILE_AARCH64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
 // COMPILE_AARCH64_STL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/aarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
+// RUN: %clangxx --target=arm64ec-unknown-windows-msvc -### \
+// RUN: --sysroot=%S -fuse-ld=lld %s 2>&1 \
+// RUN: | FileCheck --check-prefix=COMPILE_ARM64EC_STL %s
+// COMPILE_ARM64EC_STL: clang{{.*}}" "-cc1"
+// COMPILE_ARM64EC_STL: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_ARM64EC_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/arm64ec-unknown-windows-msvc/c++/stl"
+// COMPILE_ARM64EC_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
+// COMPILE_ARM64EC_STL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/arm64ec-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib/aarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+
 // RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=stl -### \
 // RUN: --sysroot=%S -fuse-ld=lld %s 2>&1 \
 // RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_STL %s
