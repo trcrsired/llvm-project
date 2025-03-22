@@ -90,6 +90,8 @@ Changes to the AMDGPU Backend
   [FWD_PROGRESS bit](https://llvm.org/docs/AMDGPUUsage.html#code-object-v3-kernel-descriptor)
   for all GFX ISAs greater or equal to 10, for the AMDHSA OS.
 
+* Bump the default `.amdhsa_code_object_version` to 6. ROCm 6.3 is required to run any program compiled with COV6.
+
 Changes to the ARM Backend
 --------------------------
 
@@ -105,8 +107,12 @@ Changes to the Hexagon Backend
 Changes to the LoongArch Backend
 --------------------------------
 
+* Changing the default code model from `small` to `medium` for 64-bit.
+
 Changes to the MIPS Backend
 ---------------------------
+
+* `-mcpu=i6400` and `-mcpu=i6500` were added.
 
 Changes to the PowerPC Backend
 ------------------------------
