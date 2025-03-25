@@ -7695,8 +7695,21 @@ DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
 
   // 0. Generate SCEV-dependent code in the entry, including TripCount, before
   // making any changes to the CFG.
-  if (!BestVPlan.getEntry()->empty())
-    BestVPlan.getEntry()->execute(&State);
+  DenseMap<const SCEV *, Value *> ExpandedSCEVs;
+  auto *Entry = cast<VPIRBasicBlock>(BestVPlan.getEntry());
+  State.Builder.SetInsertPoint(Entry->getIRBasicBlock()->getTerminator());
+  for (VPRecipeBase &R : make_early_inc_range(*Entry)) {
+    auto *ExpSCEV = dyn_cast<VPExpandSCEVRecipe>(&R);
+    if (!ExpSCEV)
+      continue;
+    ExpSCEV->execute(State);
+    ExpandedSCEVs[ExpSCEV->getSCEV()] = State.get(ExpSCEV, VPLane(0));
+    VPValue *Exp = BestVPlan.getOrAddLiveIn(ExpandedSCEVs[ExpSCEV->getSCEV()]);
+    ExpSCEV->replaceAllUsesWith(Exp);
+    if (BestVPlan.getTripCount() == ExpSCEV)
+      BestVPlan.resetTripCount(Exp);
+    ExpSCEV->eraseFromParent();
+  }
 
   if (!ILV.getTripCount())
     ILV.setTripCount(State.get(BestVPlan.getTripCount(), VPLane(0)));
@@ -7706,9 +7719,7 @@ DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
 
   // 1. Set up the skeleton for vectorization, including vector pre-header and
   // middle block. The vector loop is created during VPlan execution.
-  VPBasicBlock *VectorPH =
-      cast<VPBasicBlock>(BestVPlan.getEntry()->getSingleSuccessor());
-
+  VPBasicBlock *VectorPH = cast<VPBasicBlock>(Entry->getSingleSuccessor());
   State.CFG.PrevBB = ILV.createVectorizedLoopSkeleton();
   if (VectorizingEpilogue)
     VPlanTransforms::removeDeadRecipes(BestVPlan);
@@ -7821,7 +7832,7 @@ DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
     }
   }
 
-  return State.ExpandedSCEVs;
+  return ExpandedSCEVs;
 }
 
 //===--------------------------------------------------------------------===//
@@ -9761,8 +9772,12 @@ void LoopVectorizationPlanner::adjustRecipesForReductions(
       if (CM.blockNeedsPredicationForAnyReason(BB))
         CondOp = RecipeBuilder.getBlockInMask(BB);
 
+      // Non-FP RdxDescs will have all fast math flags set, so clear them.
+      FastMathFlags FMFs = isa<FPMathOperator>(CurrentLinkI)
+                               ? RdxDesc.getFastMathFlags()
+                               : FastMathFlags();
       auto *RedRecipe = new VPReductionRecipe(
-          RdxDesc, CurrentLinkI, PreviousLink, VecOp, CondOp,
+          Kind, FMFs, CurrentLinkI, PreviousLink, VecOp, CondOp,
           CM.useOrderedReductions(RdxDesc), CurrentLinkI->getDebugLoc());
       // Append the recipe to the end of the VPBasicBlock because we need to
       // ensure that it comes after all of it's inputs, including CondOp.
@@ -9850,15 +9865,16 @@ void LoopVectorizationPlanner::adjustRecipesForReductions(
     // bc.merge.rdx phi nodes, hence it needs to be created unconditionally here
     // even for in-loop reductions, until the reduction resume value handling is
     // also modeled in VPlan.
-    auto *FinalReductionResult = new VPInstruction(
+    VPBuilder::InsertPointGuard Guard(Builder);
+    Builder.setInsertPoint(MiddleVPBB, IP);
+    auto *FinalReductionResult = Builder.createNaryOp(
         VPInstruction::ComputeReductionResult, {PhiR, NewExitingVPV}, ExitDL);
     // Update all users outside the vector region.
     OrigExitingVPV->replaceUsesWithIf(
-        FinalReductionResult, [](VPUser &User, unsigned) {
+        FinalReductionResult, [FinalReductionResult](VPUser &User, unsigned) {
           auto *Parent = cast<VPRecipeBase>(&User)->getParent();
-          return Parent && !Parent->getParent();
+          return FinalReductionResult != &User && !Parent->getParent();
         });
-    FinalReductionResult->insertBefore(*MiddleVPBB, IP);
 
     // Adjust AnyOf reductions; replace the reduction phi for the selected value
     // with a boolean reduction phi node to check if the condition is true in
@@ -9880,7 +9896,6 @@ void LoopVectorizationPlanner::adjustRecipesForReductions(
           if (CmpR->getOperand(I) == PhiR)
             CmpR->setOperand(I, PhiR->getStartValue());
       }
-      VPBuilder::InsertPointGuard Guard(Builder);
       Builder.setInsertPoint(Select);
 
       // If the true value of the select is the reduction phi, the new value is
