@@ -227,7 +227,7 @@ template <typename T> SetVector<T> sortByName(std::vector<T> &&V) {
   sort(V, [](const auto *L, const auto *R) {
     return L->getName() < R->getName();
   });
-  return {SetVector<T>(V.begin(), V.end())};
+  return {SetVector<T>(llvm::from_range, V)};
 }
 
 SetVector<GlobalVariable *> AMDGPUSwLowerLDS::getOrderedNonKernelAllLDSGlobals(
@@ -378,7 +378,7 @@ void AMDGPUSwLowerLDS::buildSwDynLDSGlobal(Function *Func) {
 
 void AMDGPUSwLowerLDS::populateSwLDSAttributeAndMetadata(Function *Func) {
   auto &LDSParams = FuncLDSAccessInfo.KernelToLDSParametersMap[Func];
-  bool IsDynLDSUsed = LDSParams.SwDynLDS ? true : false;
+  bool IsDynLDSUsed = LDSParams.SwDynLDS;
   uint32_t Offset = LDSParams.LDSSize;
   recordLDSAbsoluteAddress(M, LDSParams.SwLDS, 0);
   addLDSSizeAttribute(Func, Offset, IsDynLDSUsed);
@@ -1129,8 +1129,8 @@ void AMDGPUSwLowerLDS::initAsanInfo() {
   uint64_t Offset;
   int Scale;
   bool OrShadowOffset;
-  llvm::getAddressSanitizerParams(Triple(AMDGPUTM.getTargetTriple()), LongSize,
-                                  false, &Offset, &Scale, &OrShadowOffset);
+  llvm::getAddressSanitizerParams(AMDGPUTM.getTargetTriple(), LongSize, false,
+                                  &Offset, &Scale, &OrShadowOffset);
   AsanInfo.Scale = Scale;
   AsanInfo.Offset = Offset;
 }
@@ -1265,9 +1265,7 @@ bool AMDGPUSwLowerLDS::run() {
     for (Instruction *Inst : AsanInfo.Instructions) {
       SmallVector<InterestingMemoryOperand, 1> InterestingOperands;
       getInterestingMemoryOperands(M, Inst, InterestingOperands);
-      for (auto &Operand : InterestingOperands) {
-        OperandsToInstrument.push_back(Operand);
-      }
+      llvm::append_range(OperandsToInstrument, InterestingOperands);
     }
     for (auto &Operand : OperandsToInstrument) {
       Value *Addr = Operand.getPtr();
