@@ -67,6 +67,16 @@ public:
     return create<cir::ConstantOp>(loc, attr.getType(), attr);
   }
 
+  cir::ConstantOp getConstantInt(mlir::Location loc, mlir::Type ty,
+                                 int64_t value) {
+    return getConstant(loc, cir::IntAttr::get(ty, value));
+  }
+
+  // Creates constant null value for integral type ty.
+  cir::ConstantOp getNullValue(mlir::Type ty, mlir::Location loc) {
+    return getConstant(loc, getZeroInitAttr(ty));
+  }
+
   mlir::TypedAttr getConstNullPtrAttr(mlir::Type t) {
     assert(mlir::isa<cir::PointerType>(t) && "expected cir.ptr");
     return getConstPtrAttr(t, 0);
@@ -136,6 +146,16 @@ public:
     return create<cir::ForOp>(loc, condBuilder, bodyBuilder, stepBuilder);
   }
 
+  /// Create a break operation.
+  cir::BreakOp createBreak(mlir::Location loc) {
+    return create<cir::BreakOp>(loc);
+  }
+
+  /// Create a continue operation.
+  cir::ContinueOp createContinue(mlir::Location loc) {
+    return create<cir::ContinueOp>(loc);
+  }
+
   mlir::TypedAttr getConstPtrAttr(mlir::Type type, int64_t value) {
     auto valueAttr = mlir::IntegerAttr::get(
         mlir::IntegerType::get(type.getContext(), 64), value);
@@ -169,6 +189,11 @@ public:
     auto addr = createAlloca(loc, getPointerTo(type), type, {},
                              getSizeFromCharUnits(getContext(), alignment));
     return createLoad(loc, addr);
+  }
+
+  cir::PtrStrideOp createPtrStride(mlir::Location loc, mlir::Value base,
+                                   mlir::Value stride) {
+    return create<cir::PtrStrideOp>(loc, base.getType(), base, stride);
   }
 
   //===--------------------------------------------------------------------===//
