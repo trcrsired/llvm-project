@@ -6,4 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-_CLC_OVERLOAD _CLC_DECL __CLC_GENTYPE __CLC_FUNCTION(__CLC_GENTYPE a, __CLC_GENTYPE b);
+#ifndef __CLC_MATH_CLC_FDIM_H__
+#define __CLC_MATH_CLC_FDIM_H__
+
+#define __CLC_BODY <clc/shared/binary_decl.inc>
+#define __CLC_FUNCTION __clc_fdim
+
+#include <clc/math/gentype.inc>
+
+#undef __CLC_BODY
+#undef __CLC_FUNCTION
+
+#endif // __CLC_MATH_CLC_FDIM_H__
