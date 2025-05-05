@@ -1138,7 +1138,6 @@ def CC_X86_32 : CallingConv<[
   // MCU calling convention. Thus, this should be checked before isTargetMCU().
   CCIfCC<"CallingConv::X86_INTR", CCCustom<"CC_X86_Intr">>,
   CCIfSubtarget<"isTargetMCU()", CCDelegateTo<CC_X86_32_MCU>>,
-  CCIfCC<"CallingConv::X86_WinCall", CCDelegateTo<CC_X86_Win64_WinCall>>,
   CCIfCC<"CallingConv::X86_FastCall", CCDelegateTo<CC_X86_32_FastCall>>,
   CCIfCC<"CallingConv::X86_VectorCall", CCDelegateTo<CC_X86_Win32_VectorCall>>,
   CCIfCC<"CallingConv::X86_ThisCall", CCDelegateTo<CC_X86_32_ThisCall>>,
@@ -1160,6 +1159,7 @@ def CC_X86_64 : CallingConv<[
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_64_GHC>>,
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_64_HiPE>>,
   CCIfCC<"CallingConv::AnyReg", CCDelegateTo<CC_X86_64_AnyReg>>,
+  CCIfCC<"CallingConv::X86_WinCall", CCDelegateTo<CC_X86_Win64_WinCall>>,  
   CCIfCC<"CallingConv::Win64", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfCC<"CallingConv::X86_64_SysV", CCDelegateTo<CC_X86_64_C>>,
   CCIfCC<"CallingConv::X86_VectorCall", CCDelegateTo<CC_X86_Win64_VectorCall>>,
