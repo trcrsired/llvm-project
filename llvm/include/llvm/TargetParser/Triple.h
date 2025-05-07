@@ -208,6 +208,7 @@ public:
     Linux,
     Lv2, // PS3
     MacOSX,
+    Managarm,
     NetBSD,
     OpenBSD,
     Solaris,
@@ -299,6 +300,7 @@ public:
     Amplification,
     OpenCL,
     OpenHOS,
+    Mlibc,
 
     PAuthTest,
 
@@ -783,6 +785,8 @@ public:
   bool isShaderModelOS() const { return getOS() == Triple::ShaderModel; }
 
   bool isVulkanOS() const { return getOS() == Triple::Vulkan; }
+
+  bool isOSManagarm() const { return getOS() == Triple::Managarm; }
 
   bool isShaderStageEnvironment() const {
     EnvironmentType Env = getEnvironment();
