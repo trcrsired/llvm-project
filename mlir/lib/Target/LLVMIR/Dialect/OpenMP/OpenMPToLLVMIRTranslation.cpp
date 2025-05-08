@@ -161,8 +161,7 @@ static LogicalResult checkImplementationStatus(Operation &op) {
   auto checkCancelDirective = [&todo](auto op, LogicalResult &result) {
     omp::ClauseCancellationConstructType cancelledDirective =
         op.getCancelDirective();
-    if (cancelledDirective != omp::ClauseCancellationConstructType::Parallel &&
-        cancelledDirective != omp::ClauseCancellationConstructType::Sections)
+    if (cancelledDirective == omp::ClauseCancellationConstructType::Taskgroup)
       result = todo("cancel directive construct type not yet supported");
   };
   auto checkDepend = [&todo](auto op, LogicalResult &result) {
@@ -242,6 +241,9 @@ static LogicalResult checkImplementationStatus(Operation &op) {
   LogicalResult result = success();
   llvm::TypeSwitch<Operation &>(op)
       .Case([&](omp::CancelOp op) { checkCancelDirective(op, result); })
+      .Case([&](omp::CancellationPointOp op) {
+        checkCancelDirective(op, result);
+      })
       .Case([&](omp::DistributeOp op) {
         checkAllocate(op, result);
         checkDistSchedule(op, result);
@@ -1577,11 +1579,12 @@ cleanupPrivateVars(llvm::IRBuilderBase &builder,
 
 /// Returns true if the construct contains omp.cancel or omp.cancellation_point
 static bool constructIsCancellable(Operation *op) {
-  // omp.cancel must be "closely nested" so it will be visible and not inside of
-  // funcion calls. This is enforced by the verifier.
+  // omp.cancel and omp.cancellation_point must be "closely nested" so they will
+  // be visible and not inside of function calls. This is enforced by the
+  // verifier.
   return op
       ->walk([](Operation *child) {
-        if (mlir::isa<omp::CancelOp>(child))
+        if (mlir::isa<omp::CancelOp, omp::CancellationPointOp>(child))
           return WalkResult::interrupt();
         return WalkResult::advance();
       })
@@ -2345,6 +2348,30 @@ convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
           ? llvm::omp::WorksharingLoopType::DistributeForStaticLoop
           : llvm::omp::WorksharingLoopType::ForStaticLoop;
 
+  SmallVector<llvm::BranchInst *> cancelTerminators;
+  // This callback is invoked only if there is cancellation inside of the wsloop
+  // body.
+  auto finiCB = [&](llvm::OpenMPIRBuilder::InsertPointTy ip) -> llvm::Error {
+    llvm::IRBuilderBase &llvmBuilder = ompBuilder->Builder;
+    llvm::IRBuilderBase::InsertPointGuard guard(llvmBuilder);
+
+    // ip is currently in the block branched to if cancellation occured.
+    // We need to create a branch to terminate that block.
+    llvmBuilder.restoreIP(ip);
+
+    // We must still clean up the wsloop after cancelling it, so we need to
+    // branch to the block that finalizes the wsloop.
+    // That block has not been created yet so use this block as a dummy for now
+    // and fix this after creating the wsloop.
+    cancelTerminators.push_back(llvmBuilder.CreateBr(ip.getBlock()));
+    return llvm::Error::success();
+  };
+  // We have to add the cleanup to the OpenMPIRBuilder before the body gets
+  // created in case the body contains omp.cancel (which will then expect to be
+  // able to find this cleanup callback).
+  ompBuilder->pushFinalizationCB({finiCB, llvm::omp::Directive::OMPD_for,
+                                  constructIsCancellable(wsloopOp)});
+
   llvm::OpenMPIRBuilder::LocationDescription ompLoc(builder);
   llvm::Expected<llvm::BasicBlock *> regionBlock = convertOmpOpRegions(
       wsloopOp.getRegion(), "omp.wsloop.region", builder, moduleTranslation);
@@ -2365,6 +2392,19 @@ convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
 
   if (failed(handleError(wsloopIP, opInst)))
     return failure();
+
+  ompBuilder->popFinalizationCB();
+  if (!cancelTerminators.empty()) {
+    // If we cancelled the loop, we should branch to the finalization block of
+    // the wsloop (which is always immediately before the loop continuation
+    // block). Now the finalization has been created, we can fix the branch.
+    llvm::BasicBlock *wsloopFini = wsloopIP->getBlock()->getSinglePredecessor();
+    for (llvm::BranchInst *cancelBranch : cancelTerminators) {
+      assert(cancelBranch->getNumSuccessors() == 1 &&
+             "cancel branch should have one target");
+      cancelBranch->setSuccessor(0, wsloopFini);
+    }
+  }
 
   // Process the reductions if required.
   if (failed(createReductionsAndCleanup(
@@ -3035,6 +3075,30 @@ convertOmpCancel(omp::CancelOp op, llvm::IRBuilderBase &builder,
 
   llvm::OpenMPIRBuilder::InsertPointOrErrorTy afterIP =
       ompBuilder->createCancel(ompLoc, ifCond, cancelledDirective);
+
+  if (failed(handleError(afterIP, *op.getOperation())))
+    return failure();
+
+  builder.restoreIP(afterIP.get());
+
+  return success();
+}
+
+static LogicalResult
+convertOmpCancellationPoint(omp::CancellationPointOp op,
+                            llvm::IRBuilderBase &builder,
+                            LLVM::ModuleTranslation &moduleTranslation) {
+  llvm::OpenMPIRBuilder::LocationDescription ompLoc(builder);
+  llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
+
+  if (failed(checkImplementationStatus(*op.getOperation())))
+    return failure();
+
+  llvm::omp::Directive cancelledDirective =
+      convertCancellationConstructType(op.getCancelDirective());
+
+  llvm::OpenMPIRBuilder::InsertPointOrErrorTy afterIP =
+      ompBuilder->createCancellationPoint(ompLoc, cancelledDirective);
 
   if (failed(handleError(afterIP, *op.getOperation())))
     return failure();
@@ -5482,6 +5546,9 @@ convertHostOrTargetOperation(Operation *op, llvm::IRBuilderBase &builder,
           })
           .Case([&](omp::CancelOp op) {
             return convertOmpCancel(op, builder, moduleTranslation);
+          })
+          .Case([&](omp::CancellationPointOp op) {
+            return convertOmpCancellationPoint(op, builder, moduleTranslation);
           })
           .Case([&](omp::SectionsOp) {
             return convertOmpSections(*op, builder, moduleTranslation);
