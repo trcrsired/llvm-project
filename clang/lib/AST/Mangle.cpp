@@ -68,6 +68,7 @@ enum CCMangling {
   CCM_RegCall,
   CCM_Vector,
   CCM_Std,
+  CCM_WinCall,
   CCM_WasmMainArgcArgv
 };
 
