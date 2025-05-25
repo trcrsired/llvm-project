@@ -13039,7 +13039,7 @@ CallingConv ASTContext::getDefaultCallingConvention(bool IsVariadic,
       if (!IsVariadic)
         return CC_X86StdCall;
       break;
-    case LangOptions::DCC_WinCall
+    case LangOptions::DCC_WinCall:
       if (!IsVariadic)
         return CC_WinCall;
       break;
