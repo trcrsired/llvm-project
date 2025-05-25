@@ -126,6 +126,7 @@ static void diagnoseBadTypeAttribute(Sema &S, const ParsedAttr &attr,
   case ParsedAttr::AT_CDecl:                                                   \
   case ParsedAttr::AT_FastCall:                                                \
   case ParsedAttr::AT_StdCall:                                                 \
+  case ParsedAttr::AT_WinCall:                                                 \
   case ParsedAttr::AT_ThisCall:                                                \
   case ParsedAttr::AT_RegCall:                                                 \
   case ParsedAttr::AT_Pascal:                                                  \
@@ -7512,6 +7513,8 @@ static Attr *getCCTypeAttr(ASTContext &Ctx, ParsedAttr &Attr) {
     return createSimpleAttr<FastCallAttr>(Ctx, Attr);
   case ParsedAttr::AT_StdCall:
     return createSimpleAttr<StdCallAttr>(Ctx, Attr);
+  case ParsedAttr::AT_WinCall:
+    return createSimpleAttr<WinCallAttr>(Ctx, Attr);
   case ParsedAttr::AT_ThisCall:
     return createSimpleAttr<ThisCallAttr>(Ctx, Attr);
   case ParsedAttr::AT_RegCall:

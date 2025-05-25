@@ -5181,6 +5181,9 @@ static void handleCallConvAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   case ParsedAttr::AT_CDecl:
     D->addAttr(::new (S.Context) CDeclAttr(S.Context, AL));
     return;
+  case ParsedAttr::AT_WinCall:
+    D->addAttr(::new (S.Context) WinCallAttr(S.Context, AL));
+    return;
   case ParsedAttr::AT_Pascal:
     D->addAttr(::new (S.Context) PascalAttr(S.Context, AL));
     return;
@@ -5414,6 +5417,9 @@ bool Sema::CheckCallingConvAttr(const ParsedAttr &Attrs, CallingConv &CC,
     break;
   case ParsedAttr::AT_ThisCall:
     CC = CC_X86ThisCall;
+    break;
+  case ParsedAttr::AT_WinCall:
+    CC = CC_WinCall;
     break;
   case ParsedAttr::AT_Pascal:
     CC = CC_X86Pascal;

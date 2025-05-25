@@ -3133,6 +3133,8 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(CallingConv CC,
   //                      ::= H # __export __stdcall
   //                      ::= I # __fastcall
   //                      ::= J # __export __fastcall
+  //                      ::= K # __wincall
+  //                      ::= L # __export __wincall
   //                      ::= Q # __vectorcall
   //                      ::= S # __attribute__((__swiftcall__)) // Clang-only
   //                      ::= W # __attribute__((__swiftasynccall__))
@@ -3167,6 +3169,9 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(CallingConv CC,
       return;
     case CC_X86FastCall:
       Out << 'I';
+      return;
+    case CC_WinCall:
+      Out << 'K';
       return;
     case CC_X86VectorCall:
       Out << 'Q';

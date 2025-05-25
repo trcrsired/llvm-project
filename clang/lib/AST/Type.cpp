@@ -3582,6 +3582,8 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
     return "fastcall";
   case CC_X86ThisCall:
     return "thiscall";
+  case CC_WinCall:
+    return "wincall";
   case CC_X86Pascal:
     return "pascal";
   case CC_X86VectorCall:

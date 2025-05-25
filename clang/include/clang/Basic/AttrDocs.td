@@ -3394,6 +3394,19 @@ COM applications. See the documentation for `__stdcall`_ on MSDN.
   }];
 }
 
+def WinCallDocs : Documentation {
+  let Category = DocCatCallingConvs;
+  let Content = [{
+Wincall introduces a new calling convention for x86_64, designed to support Intel APX. 
+This convention addresses calling convention challenges for C++ types, such as `std::span`, 
+on the Windows x86_64 platform. 
+
+For detailed information, refer to the proposal for `__wincall`_ on Microsoft Developer Community.
+
+.. _`__wincall`: https://developercommunity.visualstudio.com/t/I-present-a-novel-calling-convention-nam/10433601?q=wincall
+  }];
+}
+
 def FastCallDocs : Documentation {
   let Category = DocCatCallingConvs;
   let Content = [{

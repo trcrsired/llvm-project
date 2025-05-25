@@ -115,6 +115,8 @@ static CCMangling getCallingConvMangling(const ASTContext &Context,
     return CCM_Std;
   case CC_X86VectorCall:
     return CCM_Vector;
+  case CC_X86WinCall:
+    return CCM_WinCall;
   }
 }
 

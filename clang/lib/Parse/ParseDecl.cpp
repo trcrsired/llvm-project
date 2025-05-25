@@ -974,6 +974,7 @@ void Parser::ParseMicrosoftTypeAttributes(ParsedAttributes &attrs) {
     case tok::kw___regcall:
     case tok::kw___cdecl:
     case tok::kw___vectorcall:
+    case tok::kw___wincall:
     case tok::kw___ptr64:
     case tok::kw___w64:
     case tok::kw___ptr32:

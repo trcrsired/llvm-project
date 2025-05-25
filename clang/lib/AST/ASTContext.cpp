@@ -13039,6 +13039,10 @@ CallingConv ASTContext::getDefaultCallingConvention(bool IsVariadic,
       if (!IsVariadic)
         return CC_X86StdCall;
       break;
+    case LangOptions::DCC_WinCall
+      if (!IsVariadic)
+        return CC_WinCall;
+      break;
     case LangOptions::DCC_VectorCall:
       // __vectorcall cannot be applied to variadic functions.
       if (!IsVariadic)
