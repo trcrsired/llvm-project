@@ -18334,7 +18334,7 @@ static bool funcHasParameterSizeMangling(Sema &S, FunctionDecl *FD) {
   case CC_X86StdCall:
   case CC_X86FastCall:
   case CC_X86VectorCall:
-  case CC_X86WinCall:
+  case CC_WinCall:
     return true;
   default:
     break;
