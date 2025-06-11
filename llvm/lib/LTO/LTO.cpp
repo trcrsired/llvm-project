@@ -39,9 +39,9 @@
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Support/Caching.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -69,8 +69,6 @@ using namespace lto;
 using namespace object;
 
 #define DEBUG_TYPE "lto"
-
-extern cl::opt<bool> UseNewDbgInfoFormat;
 
 static cl::opt<bool>
     DumpThinCGSCCs("dump-thin-cg-sccs", cl::init(false), cl::Hidden,
@@ -602,7 +600,7 @@ LTO::RegularLTOState::RegularLTOState(unsigned ParallelCodeGenParallelismLevel,
     : ParallelCodeGenParallelismLevel(ParallelCodeGenParallelismLevel),
       Ctx(Conf), CombinedModule(std::make_unique<Module>("ld-temp.o", Ctx)),
       Mover(std::make_unique<IRMover>(*CombinedModule)) {
-  CombinedModule->IsNewDbgInfoFormat = UseNewDbgInfoFormat;
+  CombinedModule->IsNewDbgInfoFormat = true;
 }
 
 LTO::ThinLTOState::ThinLTOState(ThinBackend BackendParam)

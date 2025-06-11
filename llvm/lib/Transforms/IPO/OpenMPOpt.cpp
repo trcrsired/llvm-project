@@ -37,7 +37,6 @@
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
@@ -5233,8 +5232,7 @@ struct AAFoldRuntimeCallCallSiteReturned : AAFoldRuntimeCall {
         IRPosition::callsite_returned(CB),
         [&](const IRPosition &IRP, const AbstractAttribute *AA,
             bool &UsedAssumedInformation) -> std::optional<Value *> {
-          assert((isValidState() ||
-                  (SimplifiedValue && *SimplifiedValue == nullptr)) &&
+          assert((isValidState() || SimplifiedValue == nullptr) &&
                  "Unexpected invalid state!");
 
           if (!isAtFixpoint()) {

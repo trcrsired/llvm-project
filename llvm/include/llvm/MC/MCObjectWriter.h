@@ -10,6 +10,7 @@
 #define LLVM_MC_MCOBJECTWRITER_H
 
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/TargetParser/Triple.h"
 #include <cstdint>
 
@@ -30,7 +31,7 @@ class MCValue;
 /// points. Once assembly is complete, the object writer is given the
 /// MCAssembler instance, which contains all the symbol and section data which
 /// should be emitted as part of writeObject().
-class MCObjectWriter {
+class LLVM_ABI MCObjectWriter {
 protected:
   MCAssembler *Asm = nullptr;
   /// List of declared file names
@@ -55,7 +56,9 @@ public:
   MCObjectWriter &operator=(const MCObjectWriter &) = delete;
   virtual ~MCObjectWriter();
 
-  void setAssembler(MCAssembler *A) { Asm = A; }
+  virtual void setAssembler(MCAssembler *A) { Asm = A; }
+
+  MCContext &getContext() const;
 
   /// lifetime management
   virtual void reset();
@@ -76,9 +79,8 @@ public:
   /// post layout binding. The implementation is responsible for storing
   /// information about the relocation so that it can be emitted during
   /// writeObject().
-  virtual void recordRelocation(MCAssembler &Asm, const MCFragment *Fragment,
-                                const MCFixup &Fixup, MCValue Target,
-                                uint64_t &FixedValue) = 0;
+  virtual void recordRelocation(const MCFragment &F, const MCFixup &Fixup,
+                                MCValue Target, uint64_t &FixedValue);
 
   /// Check whether the difference (A - B) between two symbol references is
   /// fully resolved.
@@ -96,7 +98,7 @@ public:
   MutableArrayRef<std::pair<std::string, size_t>> getFileNames() {
     return FileNames;
   }
-  void addFileName(MCAssembler &Asm, StringRef FileName);
+  void addFileName(StringRef FileName);
   void setCompilerVersion(StringRef CompilerVers) {
     CompilerVersion = CompilerVers;
   }
@@ -124,7 +126,7 @@ public:
   /// This routine is called by the assembler after layout and relaxation is
   /// complete, fixups have been evaluated and applied, and relocations
   /// generated.
-  virtual uint64_t writeObject(MCAssembler &Asm) = 0;
+  virtual uint64_t writeObject() = 0;
 
   /// @}
 };
@@ -134,7 +136,14 @@ public:
 class MCObjectTargetWriter {
 public:
   virtual ~MCObjectTargetWriter() = default;
+  void setAssembler(MCAssembler *A) { Asm = A; }
   virtual Triple::ObjectFormatType getFormat() const = 0;
+
+protected:
+  LLVM_ABI MCContext &getContext() const;
+  LLVM_ABI void reportError(SMLoc L, const Twine &Msg) const;
+
+  MCAssembler *Asm = nullptr;
 };
 
 } // end namespace llvm
