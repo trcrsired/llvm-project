@@ -8,6 +8,7 @@
 
 #include "MSVC.h"
 #include "Darwin.h"
+#include "Gnu.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
