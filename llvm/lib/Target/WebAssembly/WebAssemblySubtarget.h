@@ -53,7 +53,6 @@ class WebAssemblySubtarget final : public WebAssemblyGenSubtargetInfo {
   bool HasNontrappingFPToInt = false;
   bool HasReferenceTypes = false;
   bool HasMemtag = false;
-  bool HasGC = false;
   bool HasSignExt = false;
   bool HasTailCall = false;
   bool HasWideArithmetic = false;
