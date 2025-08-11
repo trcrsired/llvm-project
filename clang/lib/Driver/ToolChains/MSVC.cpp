@@ -106,56 +106,56 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       triple.setArch(triple.getArch());
       const std::string NoSubArchMultiarchTriple =
           TC.getMultiarchTriple(TC.getDriver(), triple, SysRoot);
-      CmdArgs.push_back(Args.MakeArgString(SysRootLib + '/' +
-          NoSubArchMultiarchTriple));
+      CmdArgs.push_back(
+          Args.MakeArgString(SysRootLib + '/' + NoSubArchMultiarchTriple));
     }
     CmdArgs.push_back(Args.MakeArgString(SysRootLib));
   } else {
-  // If the VC environment hasn't been configured (perhaps because the user
-  // did not run vcvarsall), try to build a consistent link environment.  If
-  // the environment variable is set however, assume the user knows what
-  // they're doing. If the user passes /vctoolsdir or /winsdkdir, trust that
-  // over env vars.
-  if (const Arg *A = Args.getLastArg(options::OPT__SLASH_diasdkdir,
-                                     options::OPT__SLASH_winsysroot)) {
-    // cl.exe doesn't find the DIA SDK automatically, so this too requires
-    // explicit flags and doesn't automatically look in "DIA SDK" relative
-    // to the path we found for VCToolChainPath.
-    llvm::SmallString<128> DIAPath(A->getValue());
-    if (A->getOption().getID() == options::OPT__SLASH_winsysroot)
-      llvm::sys::path::append(DIAPath, "DIA SDK");
+    // If the VC environment hasn't been configured (perhaps because the user
+    // did not run vcvarsall), try to build a consistent link environment.  If
+    // the environment variable is set however, assume the user knows what
+    // they're doing. If the user passes /vctoolsdir or /winsdkdir, trust that
+    // over env vars.
+    if (const Arg *A = Args.getLastArg(options::OPT__SLASH_diasdkdir,
+                                       options::OPT__SLASH_winsysroot)) {
+      // cl.exe doesn't find the DIA SDK automatically, so this too requires
+      // explicit flags and doesn't automatically look in "DIA SDK" relative
+      // to the path we found for VCToolChainPath.
+      llvm::SmallString<128> DIAPath(A->getValue());
+      if (A->getOption().getID() == options::OPT__SLASH_winsysroot)
+        llvm::sys::path::append(DIAPath, "DIA SDK");
 
-    // The DIA SDK always uses the legacy vc arch, even in new MSVC versions.
-    llvm::sys::path::append(DIAPath, "lib",
-                            llvm::archToLegacyVCArch(TC.getArch()));
-    CmdArgs.push_back(Args.MakeArgString(Twine("-libpath:") + DIAPath));
-  }
-  if (!llvm::sys::Process::GetEnv("LIB") ||
-      Args.hasArg(options::OPT__SLASH_vctoolsdir,
-                  options::OPT__SLASH_vctoolsversion,
-                  options::OPT__SLASH_winsysroot)) {
-    CmdArgs.push_back(Args.MakeArgString(
-        Twine("-libpath:") +
-        TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib)));
-    CmdArgs.push_back(Args.MakeArgString(
-        Twine("-libpath:") +
-        TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib, "atlmfc")));
-  }
-  if (!llvm::sys::Process::GetEnv("LIB") ||
-      Args.hasArg(options::OPT__SLASH_winsdkdir,
-                  options::OPT__SLASH_winsdkversion,
-                  options::OPT__SLASH_winsysroot)) {
-    if (TC.useUniversalCRT()) {
-      std::string UniversalCRTLibPath;
-      if (TC.getUniversalCRTLibraryPath(Args, UniversalCRTLibPath))
-        CmdArgs.push_back(
-            Args.MakeArgString(Twine("-libpath:") + UniversalCRTLibPath));
+      // The DIA SDK always uses the legacy vc arch, even in new MSVC versions.
+      llvm::sys::path::append(DIAPath, "lib",
+                              llvm::archToLegacyVCArch(TC.getArch()));
+      CmdArgs.push_back(Args.MakeArgString(Twine("-libpath:") + DIAPath));
     }
-    std::string WindowsSdkLibPath;
-    if (TC.getWindowsSDKLibraryPath(Args, WindowsSdkLibPath))
-      CmdArgs.push_back(
-          Args.MakeArgString(std::string("-libpath:") + WindowsSdkLibPath));
-  }
+    if (!llvm::sys::Process::GetEnv("LIB") ||
+        Args.hasArg(options::OPT__SLASH_vctoolsdir,
+                    options::OPT__SLASH_vctoolsversion,
+                    options::OPT__SLASH_winsysroot)) {
+      CmdArgs.push_back(Args.MakeArgString(
+          Twine("-libpath:") +
+          TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib)));
+      CmdArgs.push_back(Args.MakeArgString(
+          Twine("-libpath:") +
+          TC.getSubDirectoryPath(llvm::SubDirectoryType::Lib, "atlmfc")));
+    }
+    if (!llvm::sys::Process::GetEnv("LIB") ||
+        Args.hasArg(options::OPT__SLASH_winsdkdir,
+                    options::OPT__SLASH_winsdkversion,
+                    options::OPT__SLASH_winsysroot)) {
+      if (TC.useUniversalCRT()) {
+        std::string UniversalCRTLibPath;
+        if (TC.getUniversalCRTLibraryPath(Args, UniversalCRTLibPath))
+          CmdArgs.push_back(
+              Args.MakeArgString(Twine("-libpath:") + UniversalCRTLibPath));
+      }
+      std::string WindowsSdkLibPath;
+      if (TC.getWindowsSDKLibraryPath(Args, WindowsSdkLibPath))
+        CmdArgs.push_back(
+            Args.MakeArgString(std::string("-libpath:") + WindowsSdkLibPath));
+    }
   }
 
   if (!C.getDriver().IsCLMode() && Args.hasArg(options::OPT_L))

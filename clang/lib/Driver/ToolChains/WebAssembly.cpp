@@ -542,8 +542,6 @@ void WebAssembly::AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
   case ToolChain::CST_Libstdcxx:
     CmdArgs.push_back("-lstdc++");
     break;
-  default:
-    break;
   }
 }
 
@@ -567,9 +565,8 @@ Tool *WebAssembly::buildLinker() const {
   return new tools::wasm::Linker(*this);
 }
 
-void WebAssembly::addStlIncludePaths(
-    const llvm::opt::ArgList &DriverArgs,
-    llvm::opt::ArgStringList &CC1Args) const {
+void WebAssembly::addStlIncludePaths(const llvm::opt::ArgList &DriverArgs,
+                                     llvm::opt::ArgStringList &CC1Args) const {
   const Driver &D = getDriver();
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
