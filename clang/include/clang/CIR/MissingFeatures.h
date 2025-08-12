@@ -192,6 +192,7 @@ struct MissingFeatures {
   static bool constantFoldSwitchStatement() { return false; }
   static bool constructABIArgDirectExtend() { return false; }
   static bool coverageMapping() { return false; }
+  static bool createInvariantGroup() { return false; }
   static bool createProfileWeightsForLoop() { return false; }
   static bool ctorMemcpyizer() { return false; }
   static bool cudaSupport() { return false; }
@@ -212,6 +213,8 @@ struct MissingFeatures {
   static bool fastMathFlags() { return false; }
   static bool fpConstraints() { return false; }
   static bool generateDebugInfo() { return false; }
+  static bool globalViewIndices() { return false; }
+  static bool globalViewIntLowering() { return false; }
   static bool hip() { return false; }
   static bool implicitConstructorArgs() { return false; }
   static bool incrementProfileCounter() { return false; }
@@ -236,7 +239,6 @@ struct MissingFeatures {
   static bool objCGC() { return false; }
   static bool objCLifetime() { return false; }
   static bool openMP() { return false; }
-  static bool opGlobalViewAttr() { return false; }
   static bool opTBAA() { return false; }
   static bool peepholeProtection() { return false; }
   static bool pgoUse() { return false; }
@@ -263,6 +265,7 @@ struct MissingFeatures {
   static bool appleKext() { return false; }
   static bool dtorCleanups() { return false; }
   static bool vtableInitialization() { return false; }
+  static bool vtableRelativeLayout() { return false; }
   static bool msvcBuiltins() { return false; }
   static bool vlas() { return false; }
 
