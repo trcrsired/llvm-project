@@ -399,6 +399,13 @@ implicit none
     end function
   end interface
 
+  interface __fdividef
+    attributes(device) real function __fdividef(r,d) bind(c, name='__nv_fast_fdividef')
+      !dir$ ignore_tkr (d) r, (d) d
+      real, value :: r,d
+    end function
+  end interface
+
   interface __sinf
     attributes(device) real function __sinf(r) bind(c, name='__nv_sinf')
       !dir$ ignore_tkr (d) r
@@ -583,6 +590,20 @@ implicit none
     end function
   end interface
 
+  interface double_as_longlong
+    attributes(device) integer(8) function __double_as_longlong(i) bind(c, name='__nv_double_as_longlong')
+      !dir$ ignore_tkr (d) i
+      real(8), value :: i
+    end function
+  end interface
+
+  interface longlong_as_double
+    attributes(device) real(8) function __longlong_as_double(i) bind(c, name='__nv_longlong_as_double')
+      !dir$ ignore_tkr (d) i
+      integer(8), value :: i
+    end function
+  end interface
+
   interface __double2int_rd
     attributes(device) integer function __double2int_rd(r) bind(c, name='__nv_double2int_rd')
       !dir$ ignore_tkr (d) r
@@ -717,7 +738,7 @@ implicit none
   end interface
 
   interface __int2double_rn
-    attributes(device) double precision function __int2double_rn(i) bind(c)
+    attributes(device) double precision function __int2double_rn(i) bind(c, name='__nv_int2double_rn')
       !dir$ ignore_tkr (d) i
       integer, value :: i
     end function
