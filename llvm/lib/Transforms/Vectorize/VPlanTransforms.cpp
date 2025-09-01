@@ -1072,7 +1072,7 @@ static void simplifyRecipe(VPRecipeBase &R, VPTypeAnalysis &TypeInfo) {
   // TODO: Split up into simpler, modular combines: (X && Y) || (X && Z) into X
   // && (Y || Z) and (X || !X) into true. This requires queuing newly created
   // recipes to be visited during simplification.
-  VPValue *X, *Y;
+  VPValue *X, *Y, *Z;
   if (match(Def,
             m_c_BinaryOr(m_LogicalAnd(m_VPValue(X), m_VPValue(Y)),
                          m_LogicalAnd(m_Deferred(X), m_Not(m_Deferred(Y)))))) {
@@ -1095,6 +1095,17 @@ static void simplifyRecipe(VPRecipeBase &R, VPTypeAnalysis &TypeInfo) {
                                                  : R.getOperand(0));
     return;
   }
+
+  // (x && y) || (x && z) -> x && (y || z)
+  VPBuilder Builder(Def);
+  if (match(Def, m_c_BinaryOr(m_LogicalAnd(m_VPValue(X), m_VPValue(Y)),
+                              m_LogicalAnd(m_Deferred(X), m_VPValue(Z)))) &&
+      // Simplify only if one of the operands has one use to avoid creating an
+      // extra recipe.
+      (!Def->getOperand(0)->hasMoreThanOneUniqueUser() ||
+       !Def->getOperand(1)->hasMoreThanOneUniqueUser()))
+    return Def->replaceAllUsesWith(
+        Builder.createLogicalAnd(X, Builder.createOr(Y, Z)));
 
   if (match(Def, m_Select(m_VPValue(), m_VPValue(X), m_Deferred(X))))
     return Def->replaceAllUsesWith(X);
@@ -1162,7 +1173,7 @@ static void simplifyRecipe(VPRecipeBase &R, VPTypeAnalysis &TypeInfo) {
                      m_VPValue(X), m_SpecificInt(1)))) {
     Type *WideStepTy = TypeInfo.inferScalarType(Def);
     if (TypeInfo.inferScalarType(X) != WideStepTy)
-      X = VPBuilder(Def).createWidenCast(Instruction::Trunc, X, WideStepTy);
+      X = Builder.createWidenCast(Instruction::Trunc, X, WideStepTy);
     Def->replaceAllUsesWith(X);
     return;
   }
@@ -2315,6 +2326,10 @@ static VPRecipeBase *optimizeMaskToEVL(VPValue *HeaderMask,
         VPValue *NewAddr = GetNewAddr(S->getAddr());
         return new VPWidenStoreEVLRecipe(*S, NewAddr, EVL, NewMask);
       })
+      .Case<VPInterleaveRecipe>([&](VPInterleaveRecipe *IR) {
+        VPValue *NewMask = GetNewMask(IR->getMask());
+        return new VPInterleaveEVLRecipe(*IR, EVL, NewMask);
+      })
       .Case<VPReductionRecipe>([&](VPReductionRecipe *Red) {
         VPValue *NewMask = GetNewMask(Red->getCondOp());
         return new VPReductionEVLRecipe(*Red, EVL, NewMask);
@@ -2437,16 +2452,17 @@ static void transformRecipestoEVLRecipes(VPlan &Plan, VPValue &EVL) {
     if (!EVLRecipe)
       continue;
 
-    [[maybe_unused]] unsigned NumDefVal = EVLRecipe->getNumDefinedValues();
+    unsigned NumDefVal = EVLRecipe->getNumDefinedValues();
     assert(NumDefVal == CurRecipe->getNumDefinedValues() &&
            "New recipe must define the same number of values as the "
            "original.");
-    assert(NumDefVal <= 1 &&
-           "Only supports recipes with a single definition or without users.");
     EVLRecipe->insertBefore(CurRecipe);
-    if (isa<VPSingleDefRecipe, VPWidenLoadEVLRecipe>(EVLRecipe)) {
-      VPValue *CurVPV = CurRecipe->getVPSingleValue();
-      CurVPV->replaceAllUsesWith(EVLRecipe->getVPSingleValue());
+    if (isa<VPSingleDefRecipe, VPWidenLoadEVLRecipe, VPInterleaveEVLRecipe>(
+            EVLRecipe)) {
+      for (unsigned I = 0; I < NumDefVal; ++I) {
+        VPValue *CurVPV = CurRecipe->getVPValue(I);
+        CurVPV->replaceAllUsesWith(EVLRecipe->getVPValue(I));
+      }
     }
     ToErase.push_back(CurRecipe);
   }
