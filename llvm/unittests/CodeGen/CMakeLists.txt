@@ -20,7 +20,6 @@ set(LLVM_LINK_COMPONENTS
   )
 
 add_llvm_unittest(CodeGenTests
-  AArch64SelectionDAGTest.cpp
   AllocationOrderTest.cpp
   AMDGPUMetadataTest.cpp
   AsmPrinterDwarfTest.cpp
@@ -38,11 +37,13 @@ add_llvm_unittest(CodeGenTests
   MachineInstrBundleIteratorTest.cpp
   MachineInstrTest.cpp
   MachineOperandTest.cpp
+  MIR2VecTest.cpp
   RegAllocScoreTest.cpp
   PassManagerTest.cpp
   ScalableVectorMVTsTest.cpp
   SchedBoundary.cpp
   SelectionDAGAddressAnalysisTest.cpp
+  SelectionDAGNodeConstructionTest.cpp
   SelectionDAGPatternMatchTest.cpp
   TypeTraitsTest.cpp
   TargetOptionsTest.cpp
@@ -52,5 +53,6 @@ add_llvm_unittest(CodeGenTests
   )
 
 add_subdirectory(GlobalISel)
+add_subdirectory(CGPluginTest)
 
 target_link_libraries(CodeGenTests PRIVATE LLVMTestingSupport)

@@ -364,7 +364,7 @@ bool X86InstructionSelector::select(MachineInstr &I) {
   MachineRegisterInfo &MRI = MF.getRegInfo();
 
   unsigned Opcode = I.getOpcode();
-  if (!isPreISelGenericOpcode(Opcode)) {
+  if (!isPreISelGenericOpcode(Opcode) && !I.isPreISelOpcode()) {
     // Certain non-generic instructions also need some special handling.
 
     if (Opcode == TargetOpcode::LOAD_STACK_GUARD)
@@ -407,6 +407,7 @@ bool X86InstructionSelector::select(MachineInstr &I) {
   case TargetOpcode::G_TRUNC:
     return selectTruncOrPtrToInt(I, MRI, MF);
   case TargetOpcode::G_INTTOPTR:
+  case TargetOpcode::G_FREEZE:
     return selectCopy(I, MRI);
   case TargetOpcode::G_ZEXT:
     return selectZext(I, MRI, MF);

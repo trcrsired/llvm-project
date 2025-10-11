@@ -101,8 +101,6 @@ std::optional<AttrInfo> findAttributeInfo(const DWARFDie DIE,
   return findAttributeInfo(DIE, AbbrevDecl, *Index);
 }
 
-const DebugLineTableRowRef DebugLineTableRowRef::NULL_ROW{0, 0};
-
 LLVM_ATTRIBUTE_UNUSED
 static void printLE64(const std::string &S) {
   for (uint32_t I = 0, Size = S.size(); I < Size; ++I) {
@@ -676,7 +674,6 @@ static void writeDWARF5LocList(uint32_t &NumberOfEntries, DIEValue &AttrInfo,
     return;
   }
 
-  std::vector<uint64_t> OffsetsArray;
   auto writeExpression = [&](uint32_t Index) -> void {
     const DebugLocationEntry &Entry = LocList[Index];
     encodeULEB128(Entry.Expr.size(), LocBodyStream);

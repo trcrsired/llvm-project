@@ -927,7 +927,7 @@ MLEvictAdvisor::getLIFeatureComponents(const LiveInterval &LI) const {
       Ret.HintWeights += Freq;
   }
   Ret.IsRemat = VirtRegAuxInfo::isRematerializable(
-      LI, *LIS, *VRM, *MF.getSubtarget().getInstrInfo());
+      LI, *LIS, *VRM, *MRI, *MF.getSubtarget().getInstrInfo());
   return Ret;
 }
 
@@ -1056,9 +1056,9 @@ void llvm::extractInstructionFeatures(
   // frequency vector, mapping each instruction to its associated MBB.
 
   // Start off by sorting the segments based on the beginning slot index.
-  llvm::sort(LRPosInfo, [](LRStartEndInfo A, LRStartEndInfo B) {
-    return A.Begin < B.Begin;
-  });
+  std::sort(
+      LRPosInfo.begin(), LRPosInfo.end(),
+      [](LRStartEndInfo A, LRStartEndInfo B) { return A.Begin < B.Begin; });
   size_t InstructionIndex = 0;
   size_t CurrentSegmentIndex = 0;
   SlotIndex CurrentIndex = LRPosInfo[0].Begin;
