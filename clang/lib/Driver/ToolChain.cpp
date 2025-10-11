@@ -1395,8 +1395,8 @@ ToolChain::CXXStdlibType ToolChain::GetCXXStdlibType(const ArgList &Args) const{
     cxxStdlibType = ToolChain::CST_Libcxx;
   else if (LibName == "libstdc++")
     cxxStdlibType = ToolChain::CST_Libstdcxx;
-  else if (LibName == "stl")
-    cxxStdlibType = ToolChain::CST_Stl;
+  else if (LibName == "msstl")
+    cxxStdlibType = ToolChain::CST_Msstl;
   else if (LibName == "platform")
     cxxStdlibType = GetDefaultCXXStdlibType();
   else {
@@ -1553,7 +1553,7 @@ void ToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
     CmdArgs.push_back("-lstdc++");
     break;
 
-  case ToolChain::CST_Stl:
+  case ToolChain::CST_Msstl:
     // MSVC STL does not need to add -l
     break;
   }

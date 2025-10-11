@@ -1,11 +1,11 @@
 // RUN: %clangxx --target=x86_64-unknown-windows-msvc -### \
 // RUN: --sysroot=%S -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_X86_64_STL %s
-// COMPILE_X86_64_STL: clang{{.*}}" "-cc1"
-// COMPILE_X86_64_STL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_X86_64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/stl"
-// COMPILE_X86_64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
-// COMPILE_X86_64_STL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/x86_64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_X86_64_MSSTL %s
+// COMPILE_X86_64_MSSTL: clang{{.*}}" "-cc1"
+// COMPILE_X86_64_MSSTL: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_X86_64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/msstl"
+// COMPILE_X86_64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msstl"
+// COMPILE_X86_64_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/x86_64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
 // RUN: %clangxx --target=x86_64-unknown-windows-msvc -### \
 // RUN: --sysroot=%S/Inputs/basic_linux_libcxx_tree/usr -stdlib=libc++ -fuse-ld=lld %s 2>&1 \
@@ -32,39 +32,39 @@
 
 // RUN: %clangxx --target=aarch64-unknown-windows-msvc -### \
 // RUN: --sysroot=%S -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_AARCH64_STL %s
-// COMPILE_AARCH64_STL: clang{{.*}}" "-cc1"
-// COMPILE_AARCH64_STL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_AARCH64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/aarch64-unknown-windows-msvc/c++/stl"
-// COMPILE_AARCH64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
-// COMPILE_AARCH64_STL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/aarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_AARCH64_MSSTL %s
+// COMPILE_AARCH64_MSSTL: clang{{.*}}" "-cc1"
+// COMPILE_AARCH64_MSSTL: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_AARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/aarch64-unknown-windows-msvc/c++/msstl"
+// COMPILE_AARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msstl"
+// COMPILE_AARCH64_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/aarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
 // RUN: %clangxx --target=arm64ec-unknown-windows-msvc -### \
 // RUN: --sysroot=%S -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_ARM64EC_STL %s
-// COMPILE_ARM64EC_STL: clang{{.*}}" "-cc1"
-// COMPILE_ARM64EC_STL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_ARM64EC_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/arm64ec-unknown-windows-msvc/c++/stl"
-// COMPILE_ARM64EC_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
-// COMPILE_ARM64EC_STL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/arm64ec-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib/aarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_ARM64EC_MSSTL %s
+// COMPILE_ARM64EC_MSSTL: clang{{.*}}" "-cc1"
+// COMPILE_ARM64EC_MSSTL: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_ARM64EC_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/arm64ec-unknown-windows-msvc/c++/msstl"
+// COMPILE_ARM64EC_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msstl"
+// COMPILE_ARM64EC_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/arm64ec-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib/aarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
-// RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=stl -### \
+// RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=msstl -### \
 // RUN: --sysroot=%S -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_STL %s
-// COMPILE_LOONGARCH64_STL: clang{{.*}}" "-cc1"
-// COMPILE_LOONGARCH64_STL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_LOONGARCH64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/loongarch64-unknown-windows-msvc/c++/stl"
-// COMPILE_LOONGARCH64_STL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
-// COMPILE_LOONGARCH64_STL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/loongarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_MSSTL %s
+// COMPILE_LOONGARCH64_MSSTL: clang{{.*}}" "-cc1"
+// COMPILE_LOONGARCH64_MSSTL: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_LOONGARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/loongarch64-unknown-windows-msvc/c++/msstl"
+// COMPILE_LOONGARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msstl"
+// COMPILE_LOONGARCH64_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/loongarch64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
-// RUN: %clangxx --target=x86_64-unknown-windows-msvc -stdlib=stl -### \
+// RUN: %clangxx --target=x86_64-unknown-windows-msvc -stdlib=msstl -### \
 // RUN: --sysroot=%S %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_X86_64_STL_LINK %s
-// COMPILE_X86_64_STL_LINK: clang{{.*}}" "-cc1"
-// COMPILE_X86_64_STL_LINK: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_X86_64_STL_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/stl"
-// COMPILE_X86_64_STL_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/stl"
-// COMPILE_X86_64_STL_LINK: link.exe{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/x86_64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_X86_64_MSSTL_LINK %s
+// COMPILE_X86_64_MSSTL_LINK: clang{{.*}}" "-cc1"
+// COMPILE_X86_64_MSSTL_LINK: "-isysroot" "[[SYSROOT:[^"]+]]"
+// COMPILE_X86_64_MSSTL_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/msstl"
+// COMPILE_X86_64_MSSTL_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msstl"
+// COMPILE_X86_64_MSSTL_LINK: link.exe{{.*}}" "-libpath:[[SYSROOT:[^"]+]]/lib/x86_64-unknown-windows-msvc" "-libpath:[[SYSROOT:[^"]+]]/lib"
 
 // RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=libc++ -### \
 // RUN: --sysroot=%S/Inputs/basic_linux_libcxx_tree/usr %s 2>&1 \

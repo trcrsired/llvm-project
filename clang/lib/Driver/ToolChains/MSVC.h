@@ -134,10 +134,9 @@ protected:
 
   Tool *buildLinker() const override;
   Tool *buildAssembler() const override;
-
 private:
   CXXStdlibType GetDefaultCXXStdlibType() const override {
-    return ToolChain::CST_Stl;
+    return ToolChain::CST_Msstl;
   }
   RuntimeLibType GetDefaultRuntimeLibType() const override {
     return ToolChain::RLT_Vcruntime;
@@ -145,8 +144,8 @@ private:
   UnwindLibType GetDefaultUnwindLibType() const override {
     return ToolChain::UNW_Vcruntime;
   }
-  void addStlIncludePaths(const llvm::opt::ArgList &DriverArgs,
-                          llvm::opt::ArgStringList &CC1Args) const;
+  void addMsstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &CC1Args) const;
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const;
   void addLibStdCXXIncludePaths(const llvm::opt::ArgList &DriverArgs,

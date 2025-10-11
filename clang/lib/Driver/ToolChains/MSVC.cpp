@@ -832,8 +832,8 @@ void MSVCToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   if (getDriver().SysRoot.empty())
     return;
   switch (GetCXXStdlibType(DriverArgs)) {
-  case ToolChain::CST_Stl:
-    addStlIncludePaths(DriverArgs, CC1Args);
+  case ToolChain::CST_Msstl:
+    addMsstlIncludePaths(DriverArgs, CC1Args);
     break;
   case ToolChain::CST_Libstdcxx:
     addLibStdCXXIncludePaths(DriverArgs, CC1Args);
@@ -1094,7 +1094,7 @@ void MSVCToolChain::addClangTargetOptions(
     A->ignoreTargetSpecific();
 }
 
-void MSVCToolChain::addStlIncludePaths(
+void MSVCToolChain::addMsstlIncludePaths(
     const llvm::opt::ArgList &DriverArgs,
     llvm::opt::ArgStringList &CC1Args) const {
   const Driver &D = getDriver();
@@ -1103,11 +1103,11 @@ void MSVCToolChain::addStlIncludePaths(
   const std::string MultiarchTriple =
       getMultiarchTriple(D, getTriple(), SysRoot);
 
-  std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/stl";
+  std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msstl";
   addSystemInclude(DriverArgs, CC1Args, TargetDir);
 
   // Second add the generic one.
-  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/stl");
+  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/msstl");
 }
 
 void MSVCToolChain::addLibCxxIncludePaths(

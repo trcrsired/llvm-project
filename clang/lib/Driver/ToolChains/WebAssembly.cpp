@@ -463,8 +463,8 @@ WebAssembly::GetCXXStdlibType(const ArgList &Args) const {
       return ToolChain::CST_Libcxx;
     else if (Value == "libstdc++")
       return ToolChain::CST_Libstdcxx;
-    else if (Value == "stl")
-      return ToolChain::CST_Stl;
+    else if (Value == "msstl")
+      return ToolChain::CST_Msstl;
     else
       getDriver().Diag(diag::err_drv_invalid_stdlib_name)
           << A->getAsString(Args);
@@ -523,8 +523,8 @@ void WebAssembly::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   case ToolChain::CST_Libstdcxx:
     addLibStdCXXIncludePaths(DriverArgs, CC1Args);
     break;
-  case ToolChain::CST_Stl:
-    addStlIncludePaths(DriverArgs, CC1Args);
+  case ToolChain::CST_Msstl:
+    addMsstlIncludePaths(DriverArgs, CC1Args);
     break;
   }
 }
@@ -541,6 +541,8 @@ void WebAssembly::AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
     break;
   case ToolChain::CST_Libstdcxx:
     CmdArgs.push_back("-lstdc++");
+    break;
+  default:
     break;
   }
 }
@@ -565,8 +567,9 @@ Tool *WebAssembly::buildLinker() const {
   return new tools::wasm::Linker(*this);
 }
 
-void WebAssembly::addStlIncludePaths(const llvm::opt::ArgList &DriverArgs,
-                                     llvm::opt::ArgStringList &CC1Args) const {
+void WebAssembly::addMsstlIncludePaths(
+    const llvm::opt::ArgList &DriverArgs,
+    llvm::opt::ArgStringList &CC1Args) const {
   const Driver &D = getDriver();
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
@@ -576,12 +579,12 @@ void WebAssembly::addStlIncludePaths(const llvm::opt::ArgList &DriverArgs,
 
   // First add the per-target include path if the OS is known.
   if (IsKnownOs) {
-    std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/stl";
+    std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msstl";
     addSystemInclude(DriverArgs, CC1Args, TargetDir);
   }
 
   // Second add the generic one.
-  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/stl");
+  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/msstl");
 }
 
 void WebAssembly::addLibCxxIncludePaths(
