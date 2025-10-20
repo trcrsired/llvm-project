@@ -154,26 +154,32 @@ extern "C" {
 //  object. Zero-fill the object. If memory can't be allocated, call
 //  std::terminate. Return a pointer to the memory to be used for the
 //  user's exception object.
-void* __cxa_allocate_exception(size_t thrown_size) throw() {
-  size_t actual_size = cxa_exception_size_from_exception_thrown_size(thrown_size);
+void *__cxa_allocate_exception(size_t thrown_size) throw() {
+    size_t actual_size = cxa_exception_size_from_exception_thrown_size(thrown_size);
 
-  // Allocate extra space before the __cxa_exception header to ensure the
-  // start of the thrown object is sufficiently aligned.
-  size_t header_offset = get_cxa_exception_offset();
-  char* raw_buffer = (char*)__aligned_malloc_with_fallback(header_offset + actual_size);
-  if (NULL == raw_buffer)
-    std::terminate();
-  __cxa_exception* exception_header = static_cast<__cxa_exception*>((void*)(raw_buffer + header_offset));
-  ::memset(exception_header, 0, actual_size);
-  return thrown_object_from_cxa_exception(exception_header);
+    // Allocate extra space before the __cxa_exception header to ensure the
+    // start of the thrown object is sufficiently aligned.
+    size_t header_offset = get_cxa_exception_offset();
+    char *raw_buffer =
+        (char *)__aligned_malloc_with_fallback(header_offset + actual_size);
+    if (NULL == raw_buffer)
+        std::terminate();
+    __cxa_exception *exception_header =
+        static_cast<__cxa_exception *>((void *)(raw_buffer + header_offset));
+    // We warn on memset to a non-trivially castable type. We might want to
+    // change that diagnostic to not fire on a trivially obvious zero fill.
+    ::memset(static_cast<void*>(exception_header), 0, actual_size);
+    return thrown_object_from_cxa_exception(exception_header);
 }
 
+
 //  Free a __cxa_exception object allocated with __cxa_allocate_exception.
-void __cxa_free_exception(void* thrown_object) throw() {
-  // Compute the size of the padding before the header.
-  size_t header_offset = get_cxa_exception_offset();
-  char* raw_buffer = ((char*)cxa_exception_from_thrown_object(thrown_object)) - header_offset;
-  __aligned_free_with_fallback((void*)raw_buffer);
+void __cxa_free_exception(void *thrown_object) throw() {
+    // Compute the size of the padding before the header.
+    size_t header_offset = get_cxa_exception_offset();
+    char *raw_buffer =
+        ((char *)cxa_exception_from_thrown_object(thrown_object)) - header_offset;
+    __aligned_free_with_fallback((void *)raw_buffer);
 }
 
 __cxa_exception* __cxa_init_primary_exception(void* object, std::type_info* tinfo,

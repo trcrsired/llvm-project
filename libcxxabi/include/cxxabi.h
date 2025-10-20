@@ -40,7 +40,7 @@ struct __cxa_exception;
 #  if defined(__wasm__)
 typedef void* (*__libcxxabi_exception_destructor_func)(void*);
 #  else
-typedef void(_LIBCXXABI_DTOR_FUNC* __libcxxabi_exception_destructor_func)(void*);
+typedef void(_LIBCXXABI_DTOR_FUNC* __ptrauth_cxxabi_exception_destructor __libcxxabi_exception_destructor_func)(void*);
 #  endif
 
 extern "C" {
