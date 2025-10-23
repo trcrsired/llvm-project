@@ -246,6 +246,12 @@ def HasCMH          : Predicate<"Subtarget->hasCMH()">,
                                  AssemblerPredicateWithAll<(all_of FeatureCMH), "cmh">;
 def HasLSCP         : Predicate<"Subtarget->hasLSCP()">,
                                  AssemblerPredicateWithAll<(all_of FeatureLSCP), "lscp">;
+def HasSVE2p2       : Predicate<"Subtarget->hasSVE2p2()">,
+                                 AssemblerPredicateWithAll<(all_of FeatureSVE2p2), "sve2p2">;
+def HasSVE_B16MM    : Predicate<"Subtarget->isSVEAvailable() && Subtarget->hasSVE_B16MM()">,
+                                 AssemblerPredicateWithAll<(all_of FeatureSVE_B16MM), "sve-b16mm">;
+def HasF16MM        : Predicate<"Subtarget->isSVEAvailable() && Subtarget->hasF16MM()">,
+                                 AssemblerPredicateWithAll<(all_of FeatureF16MM), "f16mm">;
 
 // A subset of SVE(2) instructions are legal in Streaming SVE execution mode,
 // they should be enabled if either has been specified.
@@ -315,6 +321,10 @@ def HasSVE2p2_or_SME2p2
     : Predicate<"Subtarget->isSVEorStreamingSVEAvailable() && (Subtarget->hasSVE2p2() || Subtarget->hasSME2p2())">,
                 AssemblerPredicateWithAll<(any_of FeatureSME2p2, FeatureSVE2p2),
                 "sme2p2 or sve2p2">;
+def HasSVE2p3_or_SME2p3
+    : Predicate<"Subtarget->isSVEorStreamingSVEAvailable() && (Subtarget->hasSVE2p3() || Subtarget->hasSME2p3())">,
+                AssemblerPredicateWithAll<(any_of FeatureSME2p3, FeatureSVE2p3),
+                "sme2p3 or sve2p3">;
 def HasNonStreamingSVE2p2_or_SME2p2
     : Predicate<"(Subtarget->isSVEAvailable() && Subtarget->hasSVE2p2()) ||"
                 "(Subtarget->isSVEorStreamingSVEAvailable() && Subtarget->hasSME2p2())">,
@@ -406,6 +416,8 @@ def HasMPAMv2        : Predicate<"Subtarget->hasMPAMv2()">,
                        AssemblerPredicateWithAll<(all_of FeatureMPAMv2), "mpamv2">;
 def HasMTETC         : Predicate<"Subtarget->hasMTETC()">,
                        AssemblerPredicateWithAll<(all_of FeatureMTETC), "mtetc">;
+def HasGCIE          : Predicate<"Subtarget->hasGCIE()">,
+                       AssemblerPredicateWithAll<(all_of FeatureGCIE), "gcie">;
 def IsLE             : Predicate<"Subtarget->isLittleEndian()">;
 def IsBE             : Predicate<"!Subtarget->isLittleEndian()">;
 def IsWindows        : Predicate<"Subtarget->isTargetWindows()">;
