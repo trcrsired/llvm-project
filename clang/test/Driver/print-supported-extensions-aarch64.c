@@ -8,6 +8,7 @@
 // CHECK-NEXT:     bf16                FEAT_BF16                                              Enable BFloat16 Extension
 // CHECK-NEXT:     brbe                FEAT_BRBE                                              Enable Branch Record Buffer Extension
 // CHECK-NEXT:     bti                 FEAT_BTI                                               Enable Branch Target Identification
+// CHECK-NEXT:     cmh                 FEAT_CMH                                               Enable Armv9.7-A Contention Management Hints
 // CHECK-NEXT:     cmpbr               FEAT_CMPBR                                             Enable Armv9.6-A base compare and branch instructions
 // CHECK-NEXT:     fcma                FEAT_FCMA                                              Enable Armv8.3-A Floating-point complex number support
 // CHECK-NEXT:     cpa                 FEAT_CPA                                               Enable Armv9.5-A Checked Pointer Arithmetic
@@ -37,13 +38,16 @@
 // CHECK-NEXT:     ite                 FEAT_ITE                                               Enable Armv9.4-A Instrumentation Extension
 // CHECK-NEXT:     jscvt               FEAT_JSCVT                                             Enable Armv8.3-A JavaScript FP conversion instructions
 // CHECK-NEXT:     ls64                FEAT_LS64, FEAT_LS64_V, FEAT_LS64_ACCDATA              Enable Armv8.7-A LD64B/ST64B Accelerator Extension
+// CHECK-NEXT:     lscp                FEAT_LSCP                                              Enable Armv9.7-A Load-acquire and store-release pair extension
 // CHECK-NEXT:     lse                 FEAT_LSE                                               Enable Armv8.1-A Large System Extension (LSE) atomic instructions
 // CHECK-NEXT:     lse128              FEAT_LSE128                                            Enable Armv9.4-A 128-bit Atomic instructions
 // CHECK-NEXT:     lsfe                FEAT_LSFE                                              Enable Armv9.6-A base Atomic floating-point in-memory instructions
 // CHECK-NEXT:     lsui                FEAT_LSUI                                              Enable Armv9.6-A unprivileged load/store instructions
 // CHECK-NEXT:     lut                 FEAT_LUT                                               Enable Lookup Table instructions
 // CHECK-NEXT:     mops                FEAT_MOPS                                              Enable Armv8.8-A memcpy and memset acceleration instructions
+// CHECK-NEXT:     mpamv2              FEAT_MPAMv2                                            Enable Armv9.7-A MPAMv2 Lookaside Buffer Invalidate instructions
 // CHECK-NEXT:     memtag              FEAT_MTE, FEAT_MTE2                                    Enable Memory Tagging Extension
+// CHECK-NEXT:     mtetc               FEAT_MTETC                                             Enable Virtual Memory Tagging Extension
 // CHECK-NEXT:     simd                FEAT_AdvSIMD                                           Enable Advanced SIMD instructions
 // CHECK-NEXT:     occmo               FEAT_OCCMO                                             Enable Armv9.6-A Outer cacheable cache maintenance operations
 // CHECK-NEXT:     pauth               FEAT_PAuth                                             Enable Armv8.3-A Pointer Authentication extension
@@ -102,6 +106,7 @@
 // CHECK-NEXT:     sve2p1              FEAT_SVE2p1                                            Enable Scalable Vector Extension 2.1 instructions
 // CHECK-NEXT:     sve2p2              FEAT_SVE2p2                                            Enable Armv9.6-A Scalable Vector Extension 2.2 instructions
 // CHECK-NEXT:     the                 FEAT_THE                                               Enable Armv8.9-A Translation Hardening Extension
+// CHECK-NEXT:     tlbid               FEAT_TLBID                                             Enable Armv9.7-A TLBI Domains extension
 // CHECK-NEXT:     tlbiw               FEAT_TLBIW                                             Enable Armv9.5-A TLBI VMALL for Dirty State
 // CHECK-NEXT:     tme                 FEAT_TME                                               Enable Transactional Memory Extension
 // CHECK-NEXT:     wfxt                FEAT_WFxT                                              Enable Armv8.7-A WFET and WFIT instruction

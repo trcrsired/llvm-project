@@ -1443,7 +1443,9 @@ TEST(TargetParserTest, AArch64ExtensionFeatures) {
       AArch64::AEK_SVEAES,       AArch64::AEK_SME_MOP4,
       AArch64::AEK_SME_TMOP,     AArch64::AEK_SVEBITPERM,
       AArch64::AEK_SSVE_BITPERM, AArch64::AEK_SVESHA3,
-      AArch64::AEK_SVESM4,
+      AArch64::AEK_SVESM4,       AArch64::AEK_CMH,
+      AArch64::AEK_LSCP,         AArch64::AEK_TLBID,
+      AArch64::AEK_MPAMV2,       AArch64::AEK_MTETC,
   };
 
   std::vector<StringRef> Features;
@@ -1555,6 +1557,11 @@ TEST(TargetParserTest, AArch64ExtensionFeatures) {
   EXPECT_TRUE(llvm::is_contained(Features, "+pops"));
   EXPECT_TRUE(llvm::is_contained(Features, "+sme-mop4"));
   EXPECT_TRUE(llvm::is_contained(Features, "+sme-tmop"));
+  EXPECT_TRUE(llvm::is_contained(Features, "+cmh"));
+  EXPECT_TRUE(llvm::is_contained(Features, "+lscp"));
+  EXPECT_TRUE(llvm::is_contained(Features, "+tlbid"));
+  EXPECT_TRUE(llvm::is_contained(Features, "+mpamv2"));
+  EXPECT_TRUE(llvm::is_contained(Features, "+mtetc"));
 
   // Assuming we listed every extension above, this should produce the same
   // result.
@@ -1721,6 +1728,11 @@ TEST(TargetParserTest, AArch64ArchExtFeature) {
       {"pops", "nopops", "+pops", "-pops"},
       {"sme-mop4", "nosme-mop4", "+sme-mop4", "-sme-mop4"},
       {"sme-tmop", "nosme-tmop", "+sme-tmop", "-sme-tmop"},
+      {"cmh", "nocmh", "+cmh", "-cmh"},
+      {"lscp", "nolscp", "+lscp", "-lscp"},
+      {"tlbid", "notlbid", "+tlbid", "-tlbid"},
+      {"mpamv2", "nompamv2", "+mpamv2", "-mpamv2"},
+      {"mtetc", "nomtetc", "+mtetc", "-mtetc"},
   };
 
   for (unsigned i = 0; i < std::size(ArchExt); i++) {

@@ -909,13 +909,25 @@ bool AArch64InstPrinter::printSysAlias(const MCInst *MI,
   Encoding |= CnVal << 7;
   Encoding |= Op1Val << 11;
 
-  bool NeedsReg;
+  bool NeedsReg = false;
+  bool OptionalReg = false;
   std::string Ins;
   std::string Name;
 
   if (CnVal == 7) {
     switch (CmVal) {
     default: return false;
+    // MLBI aliases
+    case 0: {
+      const AArch64MLBI::MLBI *MLBI =
+          AArch64MLBI::lookupMLBIByEncoding(Encoding);
+      if (!MLBI || !MLBI->haveFeatures(STI.getFeatureBits()))
+        return false;
+
+      NeedsReg = MLBI->NeedsReg;
+      Ins = "mlbi\t";
+      Name = std::string(MLBI->Name);
+    } break;
     // Maybe IC, maybe Prediction Restriction
     case 1:
       switch (Op1Val) {
@@ -1004,6 +1016,9 @@ bool AArch64InstPrinter::printSysAlias(const MCInst *MI,
       return false;
 
     NeedsReg = TLBI->NeedsReg;
+    if (STI.hasFeature(AArch64::FeatureAll) ||
+        STI.hasFeature(AArch64::FeatureTLBID))
+      OptionalReg = TLBI->OptionalReg;
     Ins = "tlbi\t";
     Name = std::string(TLBI->Name);
   }
@@ -1013,10 +1028,10 @@ bool AArch64InstPrinter::printSysAlias(const MCInst *MI,
   StringRef Reg = getRegisterName(MI->getOperand(4).getReg());
   bool NotXZR = Reg != "xzr";
 
-  // If a mandatory is not specified in the TableGen
+  // If a mandatory or optional register is not specified in the TableGen
   // (i.e. no register operand should be present), and the register value
   // is not xzr/x31, then disassemble to a SYS alias instead.
-  if (NotXZR && !NeedsReg)
+  if (NotXZR && !NeedsReg && !OptionalReg)
     return false;
 
   std::string Str = Ins + Name;
@@ -1024,7 +1039,9 @@ bool AArch64InstPrinter::printSysAlias(const MCInst *MI,
 
   O << '\t' << Str;
 
-  if (NeedsReg)
+  // For optional registers, don't print the value if it's xzr/x31
+  // since this defaults to xzr/x31 if register is not specified.
+  if (NeedsReg || (OptionalReg && NotXZR))
     O << ", " << Reg;
 
   return true;
@@ -1506,6 +1523,17 @@ void AArch64InstPrinter::printBTIHintOp(const MCInst *MI, unsigned OpNum,
     O << BTI->Name;
   else
     markup(O, Markup::Immediate) << '#' << formatImm(btihintop);
+}
+
+void AArch64InstPrinter::printCMHPriorityHintOp(const MCInst *MI,
+                                                unsigned OpNum,
+                                                const MCSubtargetInfo &STI,
+                                                raw_ostream &O) {
+  unsigned priorityhint_op = MI->getOperand(OpNum).getImm();
+  auto PHint =
+      AArch64CMHPriorityHint::lookupCMHPriorityHintByEncoding(priorityhint_op);
+  if (PHint)
+    O << PHint->Name;
 }
 
 void AArch64InstPrinter::printFPImmOperand(const MCInst *MI, unsigned OpNum,

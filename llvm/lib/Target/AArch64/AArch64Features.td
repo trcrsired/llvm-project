@@ -589,6 +589,20 @@ def FeatureSSVE_FEXPA : ExtensionWithMArch<"ssve-fexpa", "SSVE_FEXPA", "FEAT_SSV
 //  Armv9.7 Architecture Extensions
 //===----------------------------------------------------------------------===//
 
+def FeatureCMH : ExtensionWithMArch<"cmh", "CMH", "FEAT_CMH",
+  "Enable Armv9.7-A Contention Management Hints">;
+
+def FeatureLSCP : ExtensionWithMArch<"lscp", "LSCP", "FEAT_LSCP",
+  "Enable Armv9.7-A Load-acquire and store-release pair extension">;
+
+def FeatureTLBID: ExtensionWithMArch<"tlbid", "TLBID", "FEAT_TLBID",
+  "Enable Armv9.7-A TLBI Domains extension">;
+
+def FeatureMPAMv2: ExtensionWithMArch<"mpamv2", "MPAMv2", "FEAT_MPAMv2",
+  "Enable Armv9.7-A MPAMv2 Lookaside Buffer Invalidate instructions">;
+
+def FeatureMTETC: ExtensionWithMArch<"mtetc", "MTETC", "FEAT_MTETC",
+  "Enable Virtual Memory Tagging Extension">;
 
 //===----------------------------------------------------------------------===//
 //  Other Features
