@@ -16,7 +16,7 @@
 #define UNWIND_ASSEMBLY_H
 
 #ifndef __wasm__
-#if defined(__linux__) && defined(__CET__)
+#if defined(__CET__)
 #include <cet.h>
 #define _LIBUNWIND_CET_ENDBR _CET_ENDBR
 #else
