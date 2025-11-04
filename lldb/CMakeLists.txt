@@ -37,6 +37,7 @@ endif()
 
 include(LLDBConfig)
 include(AddLLDB)
+include(LLDBLayeringCheck)
 
 set(LLDB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -86,6 +87,12 @@ if (LLDB_ENABLE_PYTHON)
       set(LLDB_PYTHON_EXT_SUFFIX "_d${LLDB_PYTHON_EXT_SUFFIX}")
     endif()
   endif()
+  if(TARGET Python3::Python)
+    get_target_property(_Python3_LIB_PATH Python3::Python IMPORTED_LIBRARY_LOCATION)
+    if(_Python3_LIB_PATH)
+      get_filename_component(LLDB_PYTHON_RUNTIME_LIBRARY_FILENAME "${_Python3_LIB_PATH}" NAME)
+    endif()
+  endif()
 endif ()
 
 if (LLDB_ENABLE_LUA)
@@ -126,6 +133,8 @@ add_subdirectory(utils/TableGen)
 add_subdirectory(source)
 add_subdirectory(tools)
 add_subdirectory(docs)
+
+check_lldb_plugin_layering()
 
 if (LLDB_ENABLE_PYTHON)
   if(LLDB_BUILD_FRAMEWORK)
