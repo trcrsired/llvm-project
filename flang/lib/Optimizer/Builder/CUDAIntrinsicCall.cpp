@@ -891,8 +891,7 @@ CUDAIntrinsicLibrary::genBarrierArrive(mlir::Type resultType,
   assert(args.size() == 1);
   mlir::Value barrier = convertPtrToNVVMSpace(
       builder, loc, args[0], mlir::NVVM::NVVMMemorySpace::Shared);
-  return mlir::NVVM::MBarrierArriveSharedOp::create(builder, loc, resultType,
-                                                    barrier)
+  return mlir::NVVM::MBarrierArriveOp::create(builder, loc, resultType, barrier)
       .getResult();
 }
 
@@ -1123,13 +1122,7 @@ CUDAIntrinsicLibrary::genSyncThreadsOr(mlir::Type resultType,
 void CUDAIntrinsicLibrary::genSyncWarp(
     llvm::ArrayRef<fir::ExtendedValue> args) {
   assert(args.size() == 1);
-  constexpr llvm::StringLiteral funcName = "llvm.nvvm.bar.warp.sync";
-  mlir::Value mask = fir::getBase(args[0]);
-  mlir::FunctionType funcType =
-      mlir::FunctionType::get(builder.getContext(), {mask.getType()}, {});
-  auto funcOp = builder.createFunction(loc, funcName, funcType);
-  llvm::SmallVector<mlir::Value> argsList{mask};
-  fir::CallOp::create(builder, loc, funcOp, argsList);
+  mlir::NVVM::SyncWarpOp::create(builder, loc, fir::getBase(args[0]));
 }
 
 // THIS_GRID
