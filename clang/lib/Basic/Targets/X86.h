@@ -931,6 +931,7 @@ public:
     case CC_SwiftAsync:
     case CC_X86RegCall:
     case CC_DeviceKernel:
+    case CC_WinCall:
       return CCCR_OK;
     default:
       return CCCR_Warning;
