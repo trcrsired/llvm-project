@@ -7513,6 +7513,7 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
   case ParsedAttr::AT_CDecl:
   case ParsedAttr::AT_FastCall:
   case ParsedAttr::AT_ThisCall:
+  case ParsedAttr::AT_WinCall:
   case ParsedAttr::AT_Pascal:
   case ParsedAttr::AT_RegCall:
   case ParsedAttr::AT_SwiftCall:
