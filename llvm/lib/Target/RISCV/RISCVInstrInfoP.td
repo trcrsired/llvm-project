@@ -106,7 +106,7 @@ class PLUI_i<bits<7> funct7, string opcodestr>
 }
 
 // Common base for widening Binary/Ternary ops
-class RVPWideningBase<bits<2> w, bit arith_shift, dag outs, dag ins,
+class RVPWideningBase<bits<4> f, bits<2> w, bit arith_shift, dag outs, dag ins,
                       string opcodestr>
   : RVInst<outs, ins, opcodestr, "$rd, $rs1, $rs2", [], InstFormatOther> {
   bits<5> rs2;
@@ -114,6 +114,7 @@ class RVPWideningBase<bits<2> w, bit arith_shift, dag outs, dag ins,
   bits<5> rd;
 
   let Inst{31}    = 0b0;
+  let Inst{30-27} = f;
   let Inst{26-25} = w;
   let Inst{24-20} = rs2;
   let Inst{19-15} = rs1;
@@ -332,11 +333,8 @@ class RVPNarrowingShift_rr<bits<3> f, bits<2> w, string opcodestr>
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 class RVPWideningShift_rr<bits<3> f, bits<2> w, string opcodestr>
-    : RVPWideningBase<w, 0b0, (outs GPRPairRV32:$rd), (ins GPR:$rs1, GPR:$rs2),
-                      opcodestr> {
-  let Inst{30-28} = f;
-  let Inst{27} = 0b1;
-}
+    : RVPWideningBase<{f, 0b1}, w, 0b0, (outs GPRPairRV32:$rd),
+                      (ins GPR:$rs1, GPR:$rs2), opcodestr>;
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 class RVPPairShift_rr<bits<3> f, bits<2> w, string opcodestr,
@@ -393,10 +391,8 @@ class RVPBinary_rr<bits<4> f, bits<2> w, bits<3> funct3, string opcodestr,
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 class RVPWideningBinary_rr<bits<4> f, bits<2> w, string opcodestr,
                            bit Commutable = 0>
-    : RVPWideningBase<w, 0b1, (outs GPRPairRV32:$rd), (ins GPR:$rs1, GPR:$rs2),
-                      opcodestr> {
-  let Inst{30-27} = f;
-
+    : RVPWideningBase<f, w, 0b1, (outs GPRPairRV32:$rd),
+                      (ins GPR:$rs1, GPR:$rs2), opcodestr> {
   let isCommutable = Commutable;
 }
 
@@ -447,10 +443,8 @@ class RVPTernary_rrr<bits<4> f, bits<2> w, bits<3> funct3, string opcodestr>
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 class RVPWideningTernary_rrr<bits<4> f, bits<2> w, string opcodestr>
-    : RVPWideningBase<w, 0b1, (outs GPRPairRV32:$rd_wb),
-                     (ins GPRPairRV32:$rd, GPR:$rs1, GPR:$rs2), opcodestr> {
-  let Inst{30-27} = f;
-
+    : RVPWideningBase<f, w, 0b1, (outs GPRPairRV32:$rd_wb),
+                      (ins GPRPairRV32:$rd, GPR:$rs1, GPR:$rs2), opcodestr> {
   let Constraints = "$rd = $rd_wb";
 }
 
@@ -1641,6 +1635,16 @@ let Predicates = [HasStdExtP] in {
            (PMSLT_H GPR:$rs1, GPR:$rs2)>;
   def: Pat<(XLenVecI16VT (setcc (XLenVecI16VT GPR:$rs1), (XLenVecI16VT GPR:$rs2), SETULT)),
            (PMSLTU_H GPR:$rs1, GPR:$rs2)>;
+
+  // 8/16-bit [s|u]min/[s|u]max patterns
+  def: Pat<(XLenVecI8VT (smin GPR:$rs1, GPR:$rs2)), (PMIN_B GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI8VT (umin GPR:$rs1, GPR:$rs2)), (PMINU_B GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI16VT (smin GPR:$rs1, GPR:$rs2)), (PMIN_H GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI16VT (umin GPR:$rs1, GPR:$rs2)), (PMINU_H GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI8VT (smax GPR:$rs1, GPR:$rs2)), (PMAX_B GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI8VT (umax GPR:$rs1, GPR:$rs2)), (PMAXU_B GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI16VT (smax GPR:$rs1, GPR:$rs2)), (PMAX_H GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(XLenVecI16VT (umax GPR:$rs1, GPR:$rs2)), (PMAXU_H GPR:$rs1, GPR:$rs2)>;
 } // Predicates = [HasStdExtP]
 
 let Predicates = [HasStdExtP, IsRV32] in {
@@ -1748,6 +1752,12 @@ let Predicates = [HasStdExtP, IsRV64] in {
            (PMSLT_W GPR:$rs1, GPR:$rs2)>;
   def: Pat<(v2i32 (setcc (v2i32 GPR:$rs2), (v2i32 GPR:$rs1), SETUGT)),
            (PMSLTU_W GPR:$rs1, GPR:$rs2)>;
+
+  // 32-bit [s|u]min/[s|u]max patterns
+  def: Pat<(v2i32 (smin GPR:$rs1, GPR:$rs2)), (PMIN_W GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(v2i32 (umin GPR:$rs1, GPR:$rs2)), (PMINU_W GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(v2i32 (smax GPR:$rs1, GPR:$rs2)), (PMAX_W GPR:$rs1, GPR:$rs2)>;
+  def: Pat<(v2i32 (umax GPR:$rs1, GPR:$rs2)), (PMAXU_W GPR:$rs1, GPR:$rs2)>;
 
   // 32-bit logical shift left/right patterns
   def: Pat<(v2i32 (shl GPR:$rs1, (v2i32 (splat_vector uimm5:$shamt)))),
