@@ -176,6 +176,12 @@ struct KnownFPClass {
       SignBit = !*SignBit;
   }
 
+  static KnownFPClass fneg(const KnownFPClass &Src) {
+    KnownFPClass Known = Src;
+    Known.fneg();
+    return Known;
+  }
+
   void fabs() {
     if (KnownFPClasses & fcNegZero)
       KnownFPClasses |= fcPosZero;
@@ -190,12 +196,6 @@ struct KnownFPClass {
       KnownFPClasses |= fcPosNormal;
 
     signBitMustBeZero();
-  }
-
-  static KnownFPClass fneg(const KnownFPClass &Src) {
-    KnownFPClass Known = Src;
-    Known.fneg();
-    return Known;
   }
 
   static KnownFPClass fabs(const KnownFPClass &Src) {
@@ -233,6 +233,11 @@ struct KnownFPClass {
   LLVM_ABI static KnownFPClass
   fadd_self(const KnownFPClass &Src,
             DenormalMode Mode = DenormalMode::getDynamic());
+
+  /// Report known values for fsub
+  LLVM_ABI static KnownFPClass
+  fsub(const KnownFPClass &LHS, const KnownFPClass &RHS,
+       DenormalMode Mode = DenormalMode::getDynamic());
 
   /// Report known values for fmul
   LLVM_ABI static KnownFPClass
@@ -332,12 +337,19 @@ struct KnownFPClass {
                                      const fltSemantics &DstTy,
                                      const fltSemantics &SrcTy);
 
+  /// Propagate known class for fptrunc.
+  static LLVM_ABI KnownFPClass fptrunc(const KnownFPClass &KnownSrc);
+
   /// Propagate known class for rounding intrinsics (trunc, floor, ceil, rint,
   /// nearbyint, round, roundeven). This is trunc if \p IsTrunc. \p
   /// IsMultiUnitFPType if this is for a multi-unit floating-point type.
   static LLVM_ABI KnownFPClass roundToIntegral(const KnownFPClass &Src,
                                                bool IsTrunc,
                                                bool IsMultiUnitFPType);
+
+  /// Propagate known class for mantissa component of frexp
+  static LLVM_ABI KnownFPClass frexp_mant(
+      const KnownFPClass &Src, DenormalMode Mode = DenormalMode::getDynamic());
 
   void resetAll() { *this = KnownFPClass(); }
 };

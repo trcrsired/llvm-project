@@ -279,6 +279,12 @@ KnownFPClass KnownFPClass::fadd_self(const KnownFPClass &KnownSrc,
   return Known;
 }
 
+KnownFPClass KnownFPClass::fsub(const KnownFPClass &KnownLHS,
+                                const KnownFPClass &KnownRHS,
+                                DenormalMode Mode) {
+  return fadd(KnownLHS, fneg(KnownRHS), Mode);
+}
+
 KnownFPClass KnownFPClass::fmul(const KnownFPClass &KnownLHS,
                                 const KnownFPClass &KnownRHS,
                                 DenormalMode Mode) {
@@ -423,6 +429,20 @@ KnownFPClass KnownFPClass::fpext(const KnownFPClass &KnownSrc,
   return Known;
 }
 
+KnownFPClass KnownFPClass::fptrunc(const KnownFPClass &KnownSrc) {
+  KnownFPClass Known;
+
+  // Sign should be preserved
+  // TODO: Handle cannot be ordered greater than zero
+  if (KnownSrc.cannotBeOrderedLessThanZero())
+    Known.knownNot(KnownFPClass::OrderedLessThanZeroMask);
+
+  Known.propagateNaN(KnownSrc, true);
+
+  // Infinity needs a range check.
+  return Known;
+}
+
 KnownFPClass KnownFPClass::roundToIntegral(const KnownFPClass &KnownSrc,
                                            bool IsTrunc,
                                            bool IsMultiUnitFPType) {
@@ -448,5 +468,32 @@ KnownFPClass KnownFPClass::roundToIntegral(const KnownFPClass &KnownSrc,
   if (KnownSrc.isKnownNever(fcNegFinite))
     Known.knownNot(fcNegFinite);
 
+  return Known;
+}
+
+KnownFPClass KnownFPClass::frexp_mant(const KnownFPClass &KnownSrc,
+                                      DenormalMode Mode) {
+  KnownFPClass Known;
+  Known.knownNot(fcSubnormal);
+
+  if (KnownSrc.isKnownNever(fcNegative))
+    Known.knownNot(fcNegative);
+  else {
+    if (KnownSrc.isKnownNeverLogicalNegZero(Mode))
+      Known.knownNot(fcNegZero);
+    if (KnownSrc.isKnownNever(fcNegInf))
+      Known.knownNot(fcNegInf);
+  }
+
+  if (KnownSrc.isKnownNever(fcPositive))
+    Known.knownNot(fcPositive);
+  else {
+    if (KnownSrc.isKnownNeverLogicalPosZero(Mode))
+      Known.knownNot(fcPosZero);
+    if (KnownSrc.isKnownNever(fcPosInf))
+      Known.knownNot(fcPosInf);
+  }
+
+  Known.propagateNaN(KnownSrc);
   return Known;
 }
