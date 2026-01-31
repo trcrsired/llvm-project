@@ -153,12 +153,24 @@ bool WebAssemblyStackTagging::runOnFunction(Function &Fn) {
   if (AllocasToInstrument.empty()) {
     return true;
   }
-  Instruction *Base = insertBaseTaggedPointer(AllocasToInstrument, DT);
+  Instruction *Base = nullptr;
+  bool usehint = false;
+  if (1 < AllocasToInstrument.size()) {
+    Base = insertBaseTaggedPointer(AllocasToInstrument, DT);
+    usehint = true;
+  }
   uint64_t NextTag = 0;
+  LLVMContext &Ctx = Fn.getContext();
+  Type *Int32Type = llvm::Type::getInt32Ty(Ctx);
+  Type *Int64Type = llvm::Type::getInt64Ty(Ctx);
+  Type *IntPtrType = iswasm32 ? Int32Type : Int64Type;
+
+  Function *UntagStoreDecl = Intrinsic::getOrInsertDeclaration(
+      F->getParent(), Intrinsic::wasm_memtag_untagstore, {IntPtrType});
+
   for (auto &I : AllocasToInstrument) {
     memtag::AllocaInfo &Info = I.second;
     memtag::alignAndPadAlloca(Info, kTagGranuleSize);
- 
     uint64_t Tag = NextTag;
     if (iswasm32) {
       Tag = static_cast<uint32_t>(Tag);
@@ -166,11 +178,7 @@ bool WebAssemblyStackTagging::runOnFunction(Function &Fn) {
     ++NextTag;
     AllocaInst *AI = Info.AI;
     IRBuilder<> IRB(Info.AI->getNextNode());
-    Type *Int32Type = IRB.getInt32Ty();
-    Type *Int64Type = IRB.getInt64Ty();
-    Type *IntPtrType = iswasm32 ? Int32Type : Int64Type;
-    Function *StoreTagDecl = Intrinsic::getOrInsertDeclaration(
-        F->getParent(), Intrinsic::wasm_memtag_store, {IntPtrType});
+
     // Calls to functions that may return twice (e.g. setjmp) confuse the
     // postdominator analysis, and will leave us to keep memory tagged after
     // function return. Work around this by always untagging at every return
@@ -180,49 +188,120 @@ bool WebAssemblyStackTagging::runOnFunction(Function &Fn) {
                                    3) &&
         !SInfo.CallsReturnTwice;
     if (StandardLifetime) {
-      auto *HintTagDecl = Intrinsic::getOrInsertDeclaration(
-          F->getParent(), Intrinsic::wasm_memtag_hint, {IntPtrType});
-      auto *TagPCall = IRB.CreateCall(
-          HintTagDecl, {ConstantInt::get(Int32Type, 0), Info.AI, Base,
-                        ConstantInt::get(IntPtrType, Tag)});
-      if (Info.AI->hasName())
-        TagPCall->setName(Info.AI->getName() + ".tag");
-      Info.AI->replaceUsesWithIf(TagPCall, [&](const Use &U) {
-        return !isa<LifetimeIntrinsic>(U.getUser());
-      });
-      TagPCall->setOperand(1, Info.AI);
-      IntrinsicInst *Start = Info.LifetimeStart[0];
+      bool combineStore{Info.LifetimeStart.size() == 1 &&
+                        Info.LifetimeEnd.size() == 1};
+      Function *StoreTagDecl = nullptr;
+      Intrinsic::ID SelectedIntrinsicID;
+      if (combineStore) {
+        SelectedIntrinsicID = usehint ? Intrinsic::wasm_memtag_hintstore
+                                      : Intrinsic::wasm_memtag_randomstore;
+      } else {
+        SelectedIntrinsicID = usehint ? Intrinsic::wasm_memtag_hint
+                                      : Intrinsic::wasm_memtag_random;
+        StoreTagDecl = Intrinsic::getOrInsertDeclaration(
+            F->getParent(), Intrinsic::wasm_memtag_store, {IntPtrType});
+      }
+
+      SmallVector<Type *, 2> SelectedStoreSignatureTypes;
+      if (combineStore) {
+        SelectedStoreSignatureTypes.push_back(IntPtrType);
+      }
+      if (usehint) {
+        SelectedStoreSignatureTypes.push_back(IntPtrType);
+      }
       uint64_t Size = *Info.AI->getAllocationSize(*DL);
       Size = alignTo(Size, kTagGranuleSize);
 
-      IRBuilder<> IRB2(Start->getNextNode());
-      IRB2.CreateCall(StoreTagDecl, {ConstantInt::get(Int32Type, 0), TagPCall,
-                                     ConstantInt::get(IntPtrType, Size)});
+      auto *RandomOrHintMayStoreTagDecl = Intrinsic::getOrInsertDeclaration(
+          F->getParent(), SelectedIntrinsicID, SelectedStoreSignatureTypes);
 
-      auto TagEnd = [&](Instruction *Node) {
-        untagAlloca(AI, Node, Size, StoreTagDecl, IntPtrType);
-      };
-      if (!DT || !PDT ||
-          !memtag::forAllReachableExits(*DT, *PDT, *LI, Start, Info.LifetimeEnd,
-                                        SInfo.RetVec, TagEnd)) {
-        for (auto *End : Info.LifetimeEnd)
-          End->eraseFromParent();
+      SmallVector<Value *, 5> TagCallArguments{ConstantInt::get(Int32Type, 0),
+                                               Info.AI};
+      if (combineStore) {
+        TagCallArguments.push_back(ConstantInt::get(IntPtrType, Size));
+      }
+      if (usehint) {
+        TagCallArguments.push_back(Base);
+        TagCallArguments.push_back(ConstantInt::get(IntPtrType, Tag));
+      }
+      if (combineStore) {
+        IntrinsicInst *Start = Info.LifetimeStart.front();
+        IRBuilder<> IRBStart(Start->getNextNode());
+        CallInst *TagPCall =
+            IRBStart.CreateCall(RandomOrHintMayStoreTagDecl, TagCallArguments);
+        if (Info.AI->hasName())
+          TagPCall->setName(Info.AI->getName() + ".tag");
+
+        Info.AI->replaceUsesWithIf(TagPCall, [&](const Use &U) {
+          return U.getUser() != TagPCall &&
+                !isa<LifetimeIntrinsic>(U.getUser());
+        });
+        TagPCall->setOperand(1, Info.AI);
+        IntrinsicInst *End = Info.LifetimeEnd.front();
+        IRBuilder<> IRBEnd(End);
+        IRBEnd.CreateCall(UntagStoreDecl,
+                          {ConstantInt::get(Int32Type, 0), Info.AI,
+                           ConstantInt::get(IntPtrType, Size)});
+        Start->eraseFromParent();
+        End->eraseFromParent();
+      } else {
+        auto *TagPCall =
+            IRB.CreateCall(RandomOrHintMayStoreTagDecl, TagCallArguments);
+
+        if (Info.AI->hasName())
+          TagPCall->setName(Info.AI->getName() + ".tag");
+
+        Info.AI->replaceUsesWithIf(TagPCall, [&](const Use &U) {
+          return !isa<LifetimeIntrinsic>(U.getUser());
+        });
+
+        TagPCall->setOperand(1, Info.AI);
+
+        for (IntrinsicInst *Start : Info.LifetimeStart) {
+          IRBuilder<> IRB2(Start->getNextNode());
+          IRB2.CreateCall(StoreTagDecl,
+                          {ConstantInt::get(Int32Type, 0), TagPCall,
+                           ConstantInt::get(IntPtrType, Size)});
+        }
+        auto TagEnd = [&](Instruction *Node) {
+          untagAlloca(AI, Node, Size, UntagStoreDecl, IntPtrType);
+        };
+        if (!DT || !PDT ||
+            !memtag::forAllReachableExits(*DT, *PDT, *LI, Info, SInfo.RetVec,
+                                          TagEnd)) {
+          for (auto *End : Info.LifetimeEnd)
+            End->eraseFromParent();
+        }
       }
     } else {
       uint64_t Size = *Info.AI->getAllocationSize(*DL);
-      auto *HintStoreTagDecl = Intrinsic::getOrInsertDeclaration(
-          F->getParent(), Intrinsic::wasm_memtag_hintstore,
-          {IntPtrType, IntPtrType});
-      auto *TagPCall = IRB.CreateCall(HintStoreTagDecl,
-                                      {ConstantInt::get(Int32Type, 0), Info.AI,
-                                       ConstantInt::get(IntPtrType, Size), Base,
-                                       ConstantInt::get(IntPtrType, Tag)});
+      Intrinsic::ID SelectedStoreIntrinsicID =
+          usehint ? Intrinsic::wasm_memtag_hintstore
+                  : Intrinsic::wasm_memtag_randomstore;
+      SmallVector<Type *, 2> SelectedStoreSignatureTypes{IntPtrType};
+      if (usehint) {
+        SelectedStoreSignatureTypes.push_back(IntPtrType);
+      }
+      auto *RandomOrHintStoreTagDecl = Intrinsic::getOrInsertDeclaration(
+          F->getParent(), SelectedStoreIntrinsicID,
+          SelectedStoreSignatureTypes);
+
+      SmallVector<Value *, 5> StoreTagCallArguments{
+          ConstantInt::get(Int32Type, 0), Info.AI,
+          ConstantInt::get(IntPtrType, Size)};
+      if (usehint) {
+        StoreTagCallArguments.push_back(Base);
+        StoreTagCallArguments.push_back(ConstantInt::get(IntPtrType, Tag));
+      }
+
+      auto *TagPCall =
+          IRB.CreateCall(RandomOrHintStoreTagDecl, StoreTagCallArguments);
       if (Info.AI->hasName())
         TagPCall->setName(Info.AI->getName() + ".tag");
       Info.AI->replaceAllUsesWith(TagPCall);
       TagPCall->setOperand(1, Info.AI);
       for (auto *RI : SInfo.RetVec) {
-        untagAlloca(AI, RI, Size, StoreTagDecl, IntPtrType);
+        untagAlloca(AI, RI, Size, UntagStoreDecl, IntPtrType);
       }
       // We may have inserted tag/untag outside of any lifetime interval.
       // Remove all lifetime intrinsics for this alloca.
