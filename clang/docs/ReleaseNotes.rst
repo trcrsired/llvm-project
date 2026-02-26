@@ -168,6 +168,10 @@ New Compiler Flags
   enable parsing of the experimental ``overflow_behavior`` type attribute and
   type specifiers.
 
+- New ``-cl`` option ``/d2guardnochecks`` added to match MSVC. When Windows
+  Control Flow Guard (CFG) is enabled by other options, it will instruct Clang
+  to emit the CFG metadata, but disable adding checks.
+
 Deprecated Compiler Flags
 -------------------------
 
@@ -315,6 +319,7 @@ Bug Fixes to C++ Support
 - Fixed a bug where captured variables in non-mutable lambdas were incorrectly treated as mutable 
   when used inside decltype in the return type. (#GH180460)
 - Fixed a crash when evaluating uninitialized GCC vector/ext_vector_type vectors in ``constexpr``. (#GH180044)
+- Fixed a crash on ``typeid`` of incomplete local types during template instantiation. (#GH63242), (#GH176397)
 
 Bug Fixes to AST Handling
 ^^^^^^^^^^^^^^^^^^^^^^^^^
