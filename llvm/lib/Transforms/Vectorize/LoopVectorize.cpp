@@ -7371,21 +7371,39 @@ static void fixReductionScalarResumeWhenVectorizingEpilog(
       vputils::findRecipe(BackedgeVal, IsaPred<VPReductionPHIRecipe>));
   if (!EpiRedHeaderPhi) {
     match(BackedgeVal,
-          VPlanPatternMatch::m_Select(VPlanPatternMatch::m_VPValue(),
-                                      VPlanPatternMatch::m_VPValue(BackedgeVal),
-                                      VPlanPatternMatch::m_VPValue()));
-    EpiRedHeaderPhi = cast<VPReductionPHIRecipe>(
+          m_Select(m_VPValue(), m_VPValue(BackedgeVal), m_VPValue()));
+    EpiRedHeaderPhi = cast_if_present<VPReductionPHIRecipe>(
         vputils::findRecipe(BackedgeVal, IsaPred<VPReductionPHIRecipe>));
   }
 
+  // Look through Broadcast or ReductionStartVector to get the underlying
+  // start value.
+  auto GetStartValue = [](VPValue *V) -> Value * {
+    VPValue *Start;
+    if (match(V, m_VPInstruction<VPInstruction::ReductionStartVector>(
+                     m_VPValue(Start), m_VPValue(), m_VPValue())) ||
+        match(V, m_Broadcast(m_VPValue(Start))))
+      return Start->getUnderlyingValue();
+    return V->getUnderlyingValue();
+  };
+
   Value *MainResumeValue;
-  if (auto *VPI = dyn_cast<VPInstruction>(EpiRedHeaderPhi->getStartValue())) {
-    assert((VPI->getOpcode() == VPInstruction::Broadcast ||
-            VPI->getOpcode() == VPInstruction::ReductionStartVector) &&
-           "unexpected start recipe");
-    MainResumeValue = VPI->getOperand(0)->getUnderlyingValue();
-  } else
-    MainResumeValue = EpiRedHeaderPhi->getStartValue()->getUnderlyingValue();
+  if (EpiRedHeaderPhi) {
+    MainResumeValue = GetStartValue(EpiRedHeaderPhi->getStartValue());
+  } else {
+    // The epilogue vector loop was dissolved (single-iteration). The
+    // reduction header phi was replaced by its start value. Look for a
+    // Broadcast or ReductionStartVector in BackedgeVal or its operands.
+    Value *FromOperand = nullptr;
+    if (auto *BackedgeR = BackedgeVal->getDefiningRecipe()) {
+      auto *It = find_if(BackedgeR->operands(), [&](VPValue *Op) {
+        return GetStartValue(Op) != Op->getUnderlyingValue();
+      });
+      if (It != BackedgeR->op_end())
+        FromOperand = GetStartValue(*It);
+    }
+    MainResumeValue = FromOperand ? FromOperand : GetStartValue(BackedgeVal);
+  }
   if (EpiRedResult->getOpcode() == VPInstruction::ComputeAnyOfResult) {
     [[maybe_unused]] Value *StartV =
         EpiRedResult->getOperand(0)->getLiveInIRValue();
@@ -7467,6 +7485,8 @@ DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
   VPlanTransforms::expandBranchOnTwoConds(BestVPlan);
   // Convert loops with variable-length stepping after regions are dissolved.
   VPlanTransforms::convertToVariableLengthStep(BestVPlan);
+  // Remove dead edges for single-iteration loops with BranchOnCond(true).
+  VPlanTransforms::removeBranchOnConst(BestVPlan);
   VPlanTransforms::materializeBackedgeTakenCount(BestVPlan, VectorPH);
   VPlanTransforms::materializeVectorTripCount(
       BestVPlan, VectorPH, CM.foldTailByMasking(),
@@ -7474,6 +7494,7 @@ DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
   VPlanTransforms::materializeFactors(BestVPlan, VectorPH, BestVF);
   VPlanTransforms::cse(BestVPlan);
   VPlanTransforms::simplifyRecipes(BestVPlan);
+  VPlanTransforms::simplifyKnownEVL(BestVPlan, BestVF, PSE);
 
   // 0. Generate SCEV-dependent code in the entry, including TripCount, before
   // making any changes to the CFG.
@@ -8186,6 +8207,31 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
 
   VPlanTransforms::createLoopRegions(*Plan);
 
+  // Don't use getDecisionAndClampRange here, because we don't know the UF
+  // so this function is better to be conservative, rather than to split
+  // it up into different VPlans.
+  // TODO: Consider using getDecisionAndClampRange here to split up VPlans.
+  bool IVUpdateMayOverflow = false;
+  for (ElementCount VF : Range)
+    IVUpdateMayOverflow |= !isIndvarOverflowCheckKnownFalse(&CM, VF);
+
+  TailFoldingStyle Style = CM.getTailFoldingStyle(IVUpdateMayOverflow);
+  // Use NUW for the induction increment if we proved that it won't overflow in
+  // the vector loop or when not folding the tail. In the later case, we know
+  // that the canonical induction increment will not overflow as the vector trip
+  // count is >= increment and a multiple of the increment.
+  VPRegionBlock *LoopRegion = Plan->getVectorLoopRegion();
+  bool HasNUW = !IVUpdateMayOverflow || Style == TailFoldingStyle::None;
+  if (!HasNUW) {
+    auto *IVInc =
+        LoopRegion->getExitingBasicBlock()->getTerminator()->getOperand(0);
+    assert(match(IVInc,
+                 m_VPInstruction<Instruction::Add>(
+                     m_Specific(LoopRegion->getCanonicalIV()), m_VPValue())) &&
+           "Did not find the canonical IV increment");
+    cast<VPRecipeWithIRFlags>(IVInc)->dropPoisonGeneratingFlags();
+  }
+
   // ---------------------------------------------------------------------------
   // Pre-construction: record ingredients whose recipes we'll need to further
   // process after constructing the initial VPlan.
@@ -8225,7 +8271,6 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
 
   // Scan the body of the loop in a topological order to visit each basic block
   // after having visited its predecessor basic blocks.
-  VPRegionBlock *LoopRegion = Plan->getVectorLoopRegion();
   VPBasicBlock *HeaderVPBB = LoopRegion->getEntryBasicBlock();
   ReversePostOrderTraversal<VPBlockShallowTraversalWrapper<VPBlockBase *>> RPOT(
       HeaderVPBB);
@@ -8378,12 +8423,6 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
                       Builder))
     return nullptr;
 
-  // TODO: Remove as IV can no longer overflow.
-  bool IVUpdateMayOverflow = false;
-  for (ElementCount VF : Range)
-    IVUpdateMayOverflow |= !isIndvarOverflowCheckKnownFalse(&CM, VF);
-
-  TailFoldingStyle Style = CM.getTailFoldingStyle(IVUpdateMayOverflow);
   if (useActiveLaneMask(Style)) {
     // TODO: Move checks to VPlanTransforms::addActiveLaneMask once
     // TailFoldingStyle is visible there.
