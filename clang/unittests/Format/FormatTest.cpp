@@ -17532,6 +17532,8 @@ TEST_F(FormatTest, ConfigurableSpaceBeforeParens) {
                "#elif ((a || b) && c) || d\n"
                "#endif",
                NoSpace);
+  // Space between sizeof and C compound literal.
+  verifyFormat("a = sizeof (int){};", NoSpace);
 
   FormatStyle Space = getLLVMStyle();
   Space.SpaceBeforeParens = FormatStyle::SBPO_Always;
@@ -28321,6 +28323,19 @@ TEST_F(FormatTest, BreakAfterAttributes) {
   EXPECT_EQ(Style.BreakAfterAttributes, FormatStyle::ABS_Leave);
   verifyNoChange(Code, Style);
 
+  Style.BreakAfterAttributes = FormatStyle::ABS_LeaveAll;
+  verifyNoChange("[[deprecated(\"Don't use this version\")]]\n"
+                 "[[nodiscard]]\n"
+                 "bool foo() {\n"
+                 "  return true;\n"
+                 "}\n"
+                 "\n"
+                 "[[deprecated(\"Don't use this version\")]]\n"
+                 "[[nodiscard]] bool bar() {\n"
+                 "  return true;\n"
+                 "}",
+                 Style);
+
   Style.BreakAfterAttributes = FormatStyle::ABS_Never;
   verifyFormat("[[maybe_unused]] const int i;\n"
                "[[foo([[]])]] [[maybe_unused]] int j;\n"
@@ -29348,8 +29363,15 @@ TEST_F(FormatTest, KeepFormFeed) {
 }
 
 TEST_F(FormatTest, ShortNamespacesOption) {
-  auto Style = getLLVMStyle();
+  auto Style = getLLVMStyleWithColumns(60);
   Style.AllowShortNamespacesOnASingleLine = true;
+
+  verifyFormat("namespace {\n"
+               "void xxxxx(nnn::TTTTT *mmm, YYYYY &yyyyy);\n"
+               "} // namespace",
+               Style);
+
+  Style.ColumnLimit = 80;
   Style.CompactNamespaces = true;
   Style.FixNamespaceComments = false;
 
