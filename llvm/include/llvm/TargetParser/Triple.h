@@ -385,6 +385,13 @@ public:
 
   bool operator!=(const Triple &Other) const { return !(*this == Other); }
 
+  bool operator<(const Triple &Other) const {
+    return std::tie(Arch, SubArch, Vendor, OS, Environment, ObjectFormat,
+                    Data) < std::tie(Other.Arch, Other.SubArch, Other.Vendor,
+                                     Other.OS, Other.Environment,
+                                     Other.ObjectFormat, Other.Data);
+  }
+
   /// @}
   /// @name Normalization
   /// @{
