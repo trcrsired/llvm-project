@@ -6830,8 +6830,10 @@ LoopVectorizationPlanner::precomputeCosts(VPlan &Plan, ElementCount VF,
     return Cost;
 
   // Pre-compute costs for instructions that are forced-scalar or profitable to
-  // scalarize. Their costs will be computed separately in the legacy cost
-  // model.
+  // scalarize. For most such instructions, their scalarization costs are
+  // accounted for here using the legacy cost model. However, some opcodes
+  // are excluded from these precomputed scalarization costs and are instead
+  // modeled later by the VPlan cost model (see UseVPlanCostModel below).
   for (Instruction *ForcedScalar : CM.ForcedScalars[VF]) {
     if (CostCtx.skipCostComputation(ForcedScalar, VF.isVector()))
       continue;
@@ -6843,8 +6845,21 @@ LoopVectorizationPlanner::precomputeCosts(VPlan &Plan, ElementCount VF,
     });
     Cost += ForcedCost;
   }
+
+  auto UseVPlanCostModel = [](Instruction *I) -> bool {
+    switch (I->getOpcode()) {
+    case Instruction::SDiv:
+    case Instruction::UDiv:
+    case Instruction::SRem:
+    case Instruction::URem:
+      return true;
+    default:
+      return false;
+    }
+  };
   for (const auto &[Scalarized, ScalarCost] : CM.InstsToScalarize[VF]) {
-    if (CostCtx.skipCostComputation(Scalarized, VF.isVector()))
+    if (UseVPlanCostModel(Scalarized) ||
+        CostCtx.skipCostComputation(Scalarized, VF.isVector()))
       continue;
     CostCtx.SkipCostComputation.insert(Scalarized);
     LLVM_DEBUG({
@@ -7269,6 +7284,7 @@ VPRecipeBase *VPRecipeBuilder::tryToWidenMemory(VPInstruction *VPI,
                                                 : GEPNoWrapFlags::none(),
                                             VPI->getDebugLoc());
     }
+    Builder.setInsertPoint(VPI);
     Builder.insert(VectorPtr);
     Ptr = VectorPtr;
   }
@@ -7481,8 +7497,16 @@ VPWidenRecipe *VPRecipeBuilder::tryToWiden(VPInstruction *VPI) {
   };
 }
 
-VPHistogramRecipe *VPRecipeBuilder::tryToWidenHistogram(const HistogramInfo *HI,
-                                                        VPInstruction *VPI) {
+VPHistogramRecipe *VPRecipeBuilder::widenIfHistogram(VPInstruction *VPI) {
+  if (VPI->getOpcode() != Instruction::Store)
+    return nullptr;
+
+  auto HistInfo =
+      Legal->getHistogramInfo(cast<StoreInst>(VPI->getUnderlyingInstr()));
+  if (!HistInfo)
+    return nullptr;
+
+  const HistogramInfo *HI = *HistInfo;
   // FIXME: Support other operations.
   unsigned Opcode = HI->Update->getOpcode();
   assert((Opcode == Instruction::Add || Opcode == Instruction::Sub) &&
@@ -7500,6 +7524,25 @@ VPHistogramRecipe *VPRecipeBuilder::tryToWidenHistogram(const HistogramInfo *HI,
     HGramOps.push_back(VPI->getMask());
 
   return new VPHistogramRecipe(Opcode, HGramOps, VPI->getDebugLoc());
+}
+
+bool VPRecipeBuilder::replaceWithFinalIfReductionStore(
+    VPInstruction *VPI, VPBuilder &FinalRedStoresBuilder) {
+  StoreInst *SI;
+  if ((SI = dyn_cast<StoreInst>(VPI->getUnderlyingInstr())) &&
+      Legal->isInvariantAddressOfReduction(SI->getPointerOperand())) {
+    // Only create recipe for the final invariant store of the reduction.
+    if (Legal->isInvariantStoreOfReduction(SI)) {
+      auto *Recipe = new VPReplicateRecipe(
+          SI, VPI->operandsWithoutMask(), true /* IsUniform */,
+          nullptr /*Mask*/, *VPI, *VPI, VPI->getDebugLoc());
+      FinalRedStoresBuilder.insert(Recipe);
+    }
+    VPI->eraseFromParent();
+    return true;
+  }
+
+  return false;
 }
 
 VPReplicateRecipe *VPRecipeBuilder::handleReplication(VPInstruction *VPI,
@@ -7588,13 +7631,9 @@ VPRecipeBuilder::tryToCreateWidenNonPhiRecipe(VPSingleDefRecipe *R,
     return tryToWidenCall(VPI, Range);
 
   Instruction *Instr = R->getUnderlyingInstr();
-  if (VPI->getOpcode() == Instruction::Store)
-    if (auto HistInfo = Legal->getHistogramInfo(cast<StoreInst>(Instr)))
-      return tryToWidenHistogram(*HistInfo, VPI);
-
-  if (VPI->getOpcode() == Instruction::Load ||
-      VPI->getOpcode() == Instruction::Store)
-    return tryToWidenMemory(VPI, Range);
+  assert(!is_contained({Instruction::Load, Instruction::Store},
+                       VPI->getOpcode()) &&
+         "Should have been handled prior to this!");
 
   if (!shouldWiden(Instr, Range))
     return nullptr;
@@ -7782,8 +7821,6 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
   ReversePostOrderTraversal<VPBlockShallowTraversalWrapper<VPBlockBase *>> RPOT(
       HeaderVPBB);
 
-  VPBasicBlock::iterator MBIP = MiddleVPBB->getFirstNonPhi();
-
   // Collect blocks that need predication for in-loop reduction recipes.
   DenseSet<BasicBlock *> BlocksNeedingPredication;
   for (BasicBlock *BB : OrigLoop->blocks())
@@ -7793,13 +7830,23 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
   VPlanTransforms::createInLoopReductionRecipes(*Plan, BlocksNeedingPredication,
                                                 Range.Start);
 
+  VPCostContext CostCtx(CM.TTI, *CM.TLI, *Plan, CM, CM.CostKind, CM.PSE,
+                        OrigLoop);
+
+  RUN_VPLAN_PASS_NO_VERIFY(VPlanTransforms::makeMemOpWideningDecisions, *Plan,
+                           Range, RecipeBuilder);
+
   // Now process all other blocks and instructions.
   for (VPBasicBlock *VPBB : VPBlockUtils::blocksOnly<VPBasicBlock>(RPOT)) {
     // Convert input VPInstructions to widened recipes.
     for (VPRecipeBase &R : make_early_inc_range(
              make_range(VPBB->getFirstNonPhi(), VPBB->end()))) {
-      // Skip recipes that do not need transforming.
-      if (isa<VPWidenCanonicalIVRecipe, VPBlendRecipe, VPReductionRecipe>(&R))
+      // Skip recipes that do not need transforming or have already been
+      // transformed.
+      if (isa<VPWidenCanonicalIVRecipe, VPBlendRecipe, VPReductionRecipe,
+              VPReplicateRecipe, VPWidenLoadRecipe, VPWidenStoreRecipe,
+              VPVectorPointerRecipe, VPVectorEndPointerRecipe,
+              VPHistogramRecipe>(&R))
         continue;
       auto *VPI = cast<VPInstruction>(&R);
       if (!VPI->getUnderlyingValue())
@@ -7810,23 +7857,6 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
       // to construct recipes below to not use the underlying instruction.
       Instruction *Instr = cast<Instruction>(VPI->getUnderlyingValue());
       Builder.setInsertPoint(VPI);
-
-      // The stores with invariant address inside the loop will be deleted, and
-      // in the exit block, a uniform store recipe will be created for the final
-      // invariant store of the reduction.
-      StoreInst *SI;
-      if ((SI = dyn_cast<StoreInst>(Instr)) &&
-          Legal->isInvariantAddressOfReduction(SI->getPointerOperand())) {
-        // Only create recipe for the final invariant store of the reduction.
-        if (Legal->isInvariantStoreOfReduction(SI)) {
-          auto *Recipe = new VPReplicateRecipe(
-              SI, VPI->operandsWithoutMask(), true /* IsUniform */,
-              nullptr /*Mask*/, *VPI, *VPI, VPI->getDebugLoc());
-          Recipe->insertBefore(*MiddleVPBB, MBIP);
-        }
-        R.eraseFromParent();
-        continue;
-      }
 
       VPRecipeBase *Recipe =
           RecipeBuilder.tryToCreateWidenNonPhiRecipe(VPI, Range);
@@ -7894,8 +7924,6 @@ VPlanPtr LoopVectorizationPlanner::tryToBuildVPlanWithVPRecipes(
   // TODO: Enable following transform when the EVL-version of extended-reduction
   // and mulacc-reduction are implemented.
   if (!CM.foldTailWithEVL()) {
-    VPCostContext CostCtx(CM.TTI, *CM.TLI, *Plan, CM, CM.CostKind, CM.PSE,
-                          OrigLoop);
     RUN_VPLAN_PASS(VPlanTransforms::createPartialReductions, *Plan, CostCtx,
                    Range);
     RUN_VPLAN_PASS(VPlanTransforms::convertToAbstractRecipes, *Plan, CostCtx,

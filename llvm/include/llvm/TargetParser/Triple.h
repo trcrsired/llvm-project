@@ -1157,8 +1157,7 @@ public:
     EnvironmentType Env = getEnvironment();
     return Env == llvm::Triple::GNUEABIHF ||
            Env == llvm::Triple::GNUEABIHFT64 ||
-           Env == llvm::Triple::MuslEABIHF ||
-           Env == llvm::Triple::EABIHF;
+           Env == llvm::Triple::MuslEABIHF || Env == llvm::Triple::EABIHF;
   }
 
   /// Tests whether the target supports comdat
