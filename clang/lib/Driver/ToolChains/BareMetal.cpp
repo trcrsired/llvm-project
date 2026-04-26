@@ -470,7 +470,7 @@ void BareMetal::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
       addSystemInclude(DriverArgs, CC1Args, Dir.str());
     break;
   }
-  case ToolChain::CST_Libstdcxx:
+  default:
     break;
   }
 }

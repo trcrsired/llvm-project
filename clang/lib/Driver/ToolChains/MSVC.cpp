@@ -61,6 +61,30 @@ static std::string FindVisualStudioExecutable(const ToolChain &TC,
   return std::string(canExecute(TC.getVFS(), FilePath) ? FilePath.str() : Exe);
 }
 
+// Finds the highest versioned directory (lexically) in a given path.
+// If IsWinSDK is true, it filters for directories starting with "10.".
+static std::string getHighestVersion(llvm::vfs::FileSystem &VFS,
+                                     StringRef BasePath) {
+  std::string HighestVersion;
+  llvm::VersionTuple MaxVersion;
+  std::error_code EC;
+
+  for (llvm::vfs::directory_iterator LI = VFS.dir_begin(BasePath, EC), LE;
+       !EC && LI != LE; LI = LI.increment(EC)) {
+    StringRef VerText = llvm::sys::path::filename(LI->path());
+
+    llvm::VersionTuple CurrentVersion;
+    if (CurrentVersion.tryParse(VerText))
+      continue;
+
+    if (CurrentVersion > MaxVersion) {
+      MaxVersion = CurrentVersion;
+      HighestVersion = VerText.str();
+    }
+  }
+  return HighestVersion;
+}
+
 void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                         const InputInfo &Output,
                                         const InputInfoList &Inputs,
@@ -94,6 +118,8 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   auto SysRoot = TC.getDriver().SysRoot;
   if (!SysRoot.empty()) {
+
+    // --- 1. GNU-STYLE DETECTION
     // If we have --sysroot, then we ignore all other setings
     // libpath is $SYSROOT/lib and $SYSROOT/lib/${ARCH}-unknown-windows-msvc
     // For ARM64EC, the ARCH is aarch64 instead
@@ -110,6 +136,44 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
           Args.MakeArgString(SysRootLib + '/' + NoSubArchMultiarchTriple));
     }
     CmdArgs.push_back(Args.MakeArgString(SysRootLib));
+
+    // --- 2. MSVC-STYLE DETECTION (Only if Windows Kits exists) ---
+    auto &VFS = TC.getVFS();
+    std::string WinKitsBase = SysRoot + "/Windows Kits";
+
+    if (VFS.exists(WinKitsBase)) {
+      const char *Arch = llvm::archToWindowsSDKArch(TC.getArch());
+
+      // Windows SDK Discovery
+      std::string SDKRootVer = getHighestVersion(VFS, WinKitsBase);
+      if (!SDKRootVer.empty()) {
+        std::string SDKLibBase = WinKitsBase + "/" + SDKRootVer + "/Lib";
+
+        std::string SDKBuildVer = getHighestVersion(VFS, SDKLibBase);
+        if (!SDKBuildVer.empty()) {
+          std::string SDKLib = SDKLibBase + "/" + SDKBuildVer;
+          CmdArgs.push_back(
+              Args.MakeArgString("-libpath:" + SDKLib + "/ucrt/" + Arch));
+          CmdArgs.push_back(
+              Args.MakeArgString("-libpath:" + SDKLib + "/um/" + Arch));
+        }
+      }
+
+      // MSVC Libs
+      std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
+      std::string VCVer = getHighestVersion(VFS, VCToolsBase);
+      if (!VCVer.empty()) {
+        std::string VCLib = VCToolsBase + "/" + VCVer + "/lib/" + Arch;
+        CmdArgs.push_back(Args.MakeArgString("-libpath:" + VCLib));
+        CmdArgs.push_back(Args.MakeArgString("-libpath:" + VCLib + "/atlmfc"));
+      }
+
+      // DIA SDK
+      std::string DIALib =
+          SysRoot + "/DIA SDK/lib/" + llvm::archToLegacyVCArch(TC.getArch());
+      if (VFS.exists(DIALib))
+        CmdArgs.push_back(Args.MakeArgString("-libpath:" + DIALib));
+    }
   } else {
     // If the VC environment hasn't been configured (perhaps because the user
     // did not run vcvarsall), try to build a consistent link environment.  If
@@ -696,9 +760,42 @@ void MSVCToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
     const Driver &D = getDriver();
     const std::string MultiarchTriple =
         getMultiarchTriple(D, getTriple(), SysRoot);
+
+    // --- 1. GNU-style Headers ---
     addSystemInclude(DriverArgs, CC1Args,
                      SysRoot + "/include/" + MultiarchTriple);
     addSystemInclude(DriverArgs, CC1Args, SysRoot + "/include");
+
+    // 2. MSVC-style (Only if Windows Kits exists)
+    auto &VFS = getVFS();
+    std::string WinKitsBase = SysRoot + "/Windows Kits";
+
+    if (VFS.exists(WinKitsBase)) {
+      // Find SDK Root (e.g., "10" or "11")
+      std::string SDKRootVer = getHighestVersion(VFS, WinKitsBase);
+
+      if (!SDKRootVer.empty()) {
+        std::string SDKIncBase = WinKitsBase + "/" + SDKRootVer + "/Include";
+
+        // Find Specific SDK Build Version (e.g., "10.0.19041.0")
+        std::string SDKBuildVer = getHighestVersion(VFS, SDKIncBase);
+        if (!SDKBuildVer.empty()) {
+          std::string SDKPath = SDKIncBase + "/" + SDKBuildVer;
+          addSystemInclude(DriverArgs, CC1Args, SDKPath + "/ucrt");
+          addSystemInclude(DriverArgs, CC1Args, SDKPath + "/um");
+          addSystemInclude(DriverArgs, CC1Args, SDKPath + "/shared");
+        }
+      }
+
+      // VC Tools Discovery
+      std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
+      std::string VCVer = getHighestVersion(VFS, VCToolsBase);
+      if (!VCVer.empty()) {
+        std::string VCInc = VCToolsBase + "/" + VCVer + "/include";
+        addSystemInclude(DriverArgs, CC1Args, VCInc);
+        addSystemInclude(DriverArgs, CC1Args, VCInc + "/atlmfc");
+      }
+    }
     return;
   }
 
