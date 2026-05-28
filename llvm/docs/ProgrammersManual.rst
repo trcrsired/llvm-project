@@ -115,7 +115,9 @@ rarely have to include this file directly).
   The ``isa<>`` operator works exactly like the Java "``instanceof``" operator.
   It returns ``true`` or ``false`` depending on whether a reference or pointer points to
   an instance of the specified class.  This can be very useful for constraint
-  checking of various sorts (example below).
+  checking of various sorts (example below). It's a variadic operator, so you
+  can specify more than one class to check if the reference or pointer points
+  to an instance of one of the classes specified.
 
 ``cast<>``:
   The ``cast<>`` operator is a "checked cast" operation.  It converts a pointer
@@ -131,7 +133,11 @@ rarely have to include this file directly).
       if (isa<Constant>(V) || isa<Argument>(V) || isa<GlobalValue>(V))
         return true;
 
-      // Otherwise, it must be an instruction...
+      // Alternate, more compact form.
+      if (isa<Constant, Argument, GlobalValue>(V))
+        return true;
+
+      // Otherwise, it must be an instruction.
       return !L->contains(cast<Instruction>(V)->getParent());
     }
 
@@ -167,8 +173,9 @@ rarely have to include this file directly).
 ``isa_and_present<>``:
   The ``isa_and_present<>`` operator works just like the ``isa<>`` operator,
   except that it allows for a null pointer as an argument (which it then
-  returns ``false``).  This can sometimes be useful, allowing you to combine several
-  null checks into one.
+  returns ``false``).  This can sometimes be useful, allowing you to combine
+  several null checks into one. Similar to ``isa<>`` operator, you can specify
+  more than one class to check.
 
 ``cast_if_present<>``:
   The ``cast_if_present<>`` operator works just like the ``cast<>`` operator,
@@ -445,6 +452,15 @@ violations even in builds that do not enable assertions:
   if (VerifyFooAnalysis && !Foo.verify()) {
     reportFatalInternalError("Analysis 'foo' not preserved");
   }
+
+Additionally, ``checkNotNull`` can be used to check/document that a pointer
+is never supposed to be null inline.
+
+.. code-block:: c++
+
+    setMyPointer("key", Pointer);
+    // [...]
+    Type *P = checkNotNull(getMyPointer("key"));
 
 Recoverable Errors
 ^^^^^^^^^^^^^^^^^^
@@ -2406,13 +2422,14 @@ that are currently inserted in the map.  ``DenseMap`` is a great way to map
 pointers to pointers, or map other small types to each other.
 
 There are several aspects of ``DenseMap`` that you should be aware of, however.
-The iterators in a ``DenseMap`` are invalidated whenever an insertion occurs,
-unlike ``map``.  Also, because ``DenseMap`` allocates space for a large number of
-key/value pairs (it starts with 64 by default), it will waste a lot of space if
-your keys or values are large.  Finally, you must implement a partial
-specialization of ``DenseMapInfo`` for the key that you want, if it isn't already
-supported.  This is required to tell ``DenseMap`` about two special marker values
-(which can never be inserted into the map) that it needs internally.
+The iterators in a ``DenseMap`` are invalidated whenever an insertion or
+erasure occurs, unlike ``map``.  Also, because ``DenseMap`` allocates space for
+a large number of key/value pairs (it starts with 64 by default), it will waste
+a lot of space if your keys or values are large.  Finally, you must implement a
+partial specialization of ``DenseMapInfo`` for the key that you want, if it
+isn't already supported.  This is required to tell ``DenseMap`` about two
+special marker values (which can never be inserted into the map) that it needs
+internally.
 
 ``DenseMap``'s ``find_as()`` method supports lookup operations using an alternate key
 type.  This is useful in cases where the normal key type is expensive to

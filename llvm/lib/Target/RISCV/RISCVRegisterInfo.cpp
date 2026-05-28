@@ -120,6 +120,56 @@ RISCVRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   }
 }
 
+const TargetRegisterClass *RISCVRegisterInfo::getConstrainedRegClassForOperand(
+    const MachineOperand &MO, const MachineRegisterInfo &MRI) const {
+  const RISCVSubtarget &STI = MRI.getMF().getSubtarget<RISCVSubtarget>();
+
+  const RegClassOrRegBank &RCOrRB = MRI.getRegClassOrRegBank(MO.getReg());
+  if (const RegisterBank *RB = dyn_cast<const RegisterBank *>(RCOrRB))
+    return getRegClassForTypeOnBank(MRI.getType(MO.getReg()), *RB,
+                                    STI.is64Bit());
+
+  if (const auto *RC = dyn_cast<const TargetRegisterClass *>(RCOrRB)) {
+    return getAllocatableClass(RC);
+  }
+
+  return nullptr;
+}
+
+const TargetRegisterClass *
+RISCVRegisterInfo::getRegClassForTypeOnBank(LLT Ty, const RegisterBank &RB,
+                                            bool Is64Bit) const {
+  if (RB.getID() == RISCV::GPRBRegBankID) {
+    if (Ty.getSizeInBits() <= 32 || (Is64Bit && Ty.getSizeInBits() == 64))
+      return &RISCV::GPRRegClass;
+  }
+
+  if (RB.getID() == RISCV::FPRBRegBankID) {
+    if (Ty.getSizeInBits() == 16)
+      return &RISCV::FPR16RegClass;
+    if (Ty.getSizeInBits() == 32)
+      return &RISCV::FPR32RegClass;
+    if (Ty.getSizeInBits() == 64)
+      return &RISCV::FPR64RegClass;
+  }
+
+  if (RB.getID() == RISCV::VRBRegBankID) {
+    if (Ty.getSizeInBits().getKnownMinValue() <= 64)
+      return &RISCV::VRRegClass;
+
+    if (Ty.getSizeInBits().getKnownMinValue() == 128)
+      return &RISCV::VRM2RegClass;
+
+    if (Ty.getSizeInBits().getKnownMinValue() == 256)
+      return &RISCV::VRM4RegClass;
+
+    if (Ty.getSizeInBits().getKnownMinValue() == 512)
+      return &RISCV::VRM8RegClass;
+  }
+
+  return nullptr;
+}
+
 BitVector RISCVRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   const RISCVFrameLowering *TFI = getFrameLowering(MF);
   BitVector Reserved(getNumRegs());
@@ -127,12 +177,16 @@ BitVector RISCVRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   for (size_t Reg = 0; Reg < getNumRegs(); Reg++) {
     // Mark any GPRs requested to be reserved as such
-    if (Subtarget.isRegisterReservedByUser(Reg))
-      markSuperRegs(Reserved, Reg);
+    if (Subtarget.isRegisterReservedByUser(Reg)) {
+      for (MCPhysReg Sub : subregs_inclusive(Reg))
+        markSuperRegs(Reserved, Sub);
+    }
 
     // Mark all the registers defined as constant in TableGen as reserved.
-    if (isConstantPhysReg(Reg))
-      markSuperRegs(Reserved, Reg);
+    if (isConstantPhysReg(Reg)) {
+      for (MCPhysReg Sub : subregs_inclusive(Reg))
+        markSuperRegs(Reserved, Sub);
+    }
   }
 
   // Use markSuperRegs to ensure any register aliases are also reserved
@@ -547,9 +601,11 @@ bool RISCVRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       // MIPS Prefetch instructions require the offset to be 9 bits encoded.
       MI.getOperand(FIOperandNum + 1).ChangeToImmediate(0);
     } else if ((Opc == RISCV::PseudoRV32ZdinxLD ||
-                Opc == RISCV::PseudoRV32ZdinxSD) &&
+                Opc == RISCV::PseudoRV32ZdinxSD ||
+                Opc == RISCV::PseudoLD_RV32_OPT ||
+                Opc == RISCV::PseudoSD_RV32_OPT) &&
                Lo12 >= 2044) {
-      // This instruction will be split into 2 instructions. The second
+      // This instruction will/might be split into 2 instructions. The second
       // instruction will add 4 to the immediate. If that would overflow 12
       // bits, we can't fold the offset.
       MI.getOperand(FIOperandNum + 1).ChangeToImmediate(0);
@@ -673,7 +729,13 @@ bool RISCVRegisterInfo::needsFrameBaseReg(MachineInstr *MI,
     }
 
     int64_t MaxFPOffset = Offset - CalleeSavedSize;
-    return !isFrameOffsetLegal(MI, RISCV::X8, MaxFPOffset);
+    if (isFrameOffsetLegal(MI, RISCV::X8, MaxFPOffset))
+      return false;
+
+    // If the FP-relative offset doesn't fit, fall through to check the
+    // SP-relative offset. getFrameIndexReference may select SP over FP when
+    // the SP offset fits in the compressed instruction immediate range, so a
+    // base register might not be needed.
   }
 
   // Assume 128 bytes spill slots size to estimate the maximum possible
@@ -869,6 +931,7 @@ bool RISCVRegisterInfo::getRegAllocationHints(
   unsigned HintType = Hint.first;
   Register Partner = Hint.second;
 
+  MCRegister TargetReg;
   if (HintType == RISCVRI::RegPairEven || HintType == RISCVRI::RegPairOdd) {
     // Check if we want the even or odd register of a consecutive pair
     bool WantOdd = (HintType == RISCVRI::RegPairOdd);
@@ -877,7 +940,7 @@ bool RISCVRegisterInfo::getRegAllocationHints(
     if (Partner.isVirtual() && VRM && VRM->hasPhys(Partner)) {
       MCRegister PartnerPhys = VRM->getPhys(Partner);
       // Calculate the exact register we need for consecutive pairing
-      MCRegister TargetReg = PartnerPhys.id() + (WantOdd ? 1 : -1);
+      TargetReg = PartnerPhys.id() + (WantOdd ? 1 : -1);
 
       // Verify it's valid and available
       if (RISCV::GPRRegClass.contains(TargetReg) &&
@@ -888,18 +951,17 @@ bool RISCVRegisterInfo::getRegAllocationHints(
     // Second priority: Try to find consecutive register pairs in the allocation
     // order
     for (MCPhysReg PhysReg : Order) {
-      if (!PhysReg)
+      // Don't add the hint if we already added above.
+      if (TargetReg == PhysReg)
         continue;
 
       unsigned RegNum = getEncodingValue(PhysReg);
       // Check if this register matches the even/odd requirement
       bool IsOdd = (RegNum % 2 != 0);
 
-      // Verify the pair register exists and is in the same register class
-      // TODO: Skip unallocatable registers: we need to prevent any of odd/even
-      // to be reserved, so if we need odd, we need to check if corresponding
-      // even is preserved, vice versa.
-      if ((WantOdd && IsOdd) || (!WantOdd && !IsOdd))
+      // Don't provide hints that are paired to a reserved register.
+      MCRegister Paired = PhysReg + (IsOdd ? -1 : 1);
+      if (WantOdd == IsOdd && !MRI->isReserved(Paired))
         Hints.push_back(PhysReg);
     }
   }
@@ -963,13 +1025,16 @@ bool RISCVRegisterInfo::getRegAllocationHints(
     case RISCV::ADDIW:
       return MI.getOperand(2).isImm() && isInt<6>(MI.getOperand(2).getImm());
     case RISCV::MUL:
+      // c.mul
+      NeedGPRC = true;
+      return Subtarget.hasStdExtZcb();
     case RISCV::SEXT_B:
     case RISCV::SEXT_H:
     case RISCV::ZEXT_H_RV32:
     case RISCV::ZEXT_H_RV64:
-      // c.mul, c.sext.b, c.sext.h, c.zext.h
+      // c.sext.b, c.sext.h, c.zext.h
       NeedGPRC = true;
-      return Subtarget.hasStdExtZcb();
+      return Subtarget.hasStdExtZcb() && Subtarget.hasStdExtZbb();
     case RISCV::ADD_UW:
       // c.zext.w
       NeedGPRC = true;
@@ -980,6 +1045,13 @@ bool RISCVRegisterInfo::getRegAllocationHints(
       NeedGPRC = true;
       return Subtarget.hasStdExtZcb() && MI.getOperand(2).isImm() &&
              MI.getOperand(2).getImm() == -1;
+    case RISCV::QC_EXTU:
+      return MI.getOperand(2).getImm() >= 6 && MI.getOperand(3).getImm() == 0;
+    case RISCV::BSETI:
+    case RISCV::BEXTI:
+      // qc.c.bseti, qc.c.bexti
+      NeedGPRC = true;
+      return Subtarget.hasVendorXqcibm() && MI.getOperand(2).getImm() != 0;
     }
   };
 

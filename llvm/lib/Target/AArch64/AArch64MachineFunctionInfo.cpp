@@ -183,6 +183,7 @@ bool AArch64FunctionInfo::shouldSignReturnAddress(SignReturnAddress Condition,
   case SignReturnAddress::All:
     return true;
   }
+  llvm_unreachable("Unknown SignReturnAddress enum");
 }
 
 bool AArch64FunctionInfo::shouldSignReturnAddress(
@@ -205,8 +206,8 @@ bool AArch64FunctionInfo::needsShadowCallStackPrologueEpilogue(
 bool AArch64FunctionInfo::needsDwarfUnwindInfo(
     const MachineFunction &MF) const {
   if (!NeedsDwarfUnwindInfo)
-    NeedsDwarfUnwindInfo = MF.needsFrameMoves() &&
-                           !MF.getTarget().getMCAsmInfo()->usesWindowsCFI();
+    NeedsDwarfUnwindInfo =
+        MF.needsFrameMoves() && !MF.getTarget().getMCAsmInfo().usesWindowsCFI();
 
   return *NeedsDwarfUnwindInfo;
 }

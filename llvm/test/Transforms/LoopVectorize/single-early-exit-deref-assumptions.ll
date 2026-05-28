@@ -11,28 +11,27 @@ define i64 @early_exit_alignment_and_deref_known_via_assumption_with_constant_si
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX1:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT3:%.*]], %[[VECTOR_BODY]] ]
+; CHECK-NEXT:    [[INDEX1:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT3:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
 ; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr inbounds i8, ptr [[P1]], i64 [[INDEX1]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i8>, ptr [[TMP0]], align 1
 ; CHECK-NEXT:    [[TMP2:%.*]] = getelementptr inbounds i8, ptr [[P2]], i64 [[INDEX1]]
 ; CHECK-NEXT:    [[WIDE_LOAD2:%.*]] = load <4 x i8>, ptr [[TMP2]], align 1
 ; CHECK-NEXT:    [[TMP4:%.*]] = icmp ne <4 x i8> [[WIDE_LOAD]], [[WIDE_LOAD2]]
-; CHECK-NEXT:    [[INDEX_NEXT3]] = add nuw i64 [[INDEX1]], 4
 ; CHECK-NEXT:    [[TMP3:%.*]] = freeze <4 x i1> [[TMP4]]
 ; CHECK-NEXT:    [[TMP5:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP3]])
+; CHECK-NEXT:    [[INDEX_NEXT3]] = add nuw i64 [[INDEX1]], 4
 ; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq i64 [[INDEX_NEXT3]], 1024
-; CHECK-NEXT:    [[TMP7:%.*]] = or i1 [[TMP5]], [[TMP6]]
-; CHECK-NEXT:    br i1 [[TMP7]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP0:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP5]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP5]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP6]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP0:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    br label %[[LOOP_END:.*]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP8:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP4]], i1 true)
+; CHECK-NEXT:    [[TMP8:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP4]], i1 false)
 ; CHECK-NEXT:    [[TMP9:%.*]] = add i64 [[INDEX1]], [[TMP8]]
 ; CHECK-NEXT:    br label %[[LOOP_END]]
 ; CHECK:       [[LOOP_END]]:
-; CHECK-NEXT:    [[RETVAL:%.*]] = phi i64 [ -1, %[[MIDDLE_BLOCK]] ], [ [[TMP9]], %[[VECTOR_EARLY_EXIT]] ]
+; CHECK-NEXT:    [[RETVAL:%.*]] = phi i64 [ [[TMP9]], %[[VECTOR_EARLY_EXIT]] ], [ -1, %[[MIDDLE_BLOCK]] ]
 ; CHECK-NEXT:    ret i64 [[RETVAL]]
 ;
 entry:
@@ -122,25 +121,24 @@ define i64 @early_exit_alignment_and_deref_known_via_assumption_n_not_zero(ptr n
 ; CHECK-NEXT:    [[N_VEC:%.*]] = sub i64 [[N]], [[N_MOD_VF]]
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX1:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT3:%.*]], %[[VECTOR_BODY]] ]
+; CHECK-NEXT:    [[INDEX1:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT3:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
 ; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr inbounds i8, ptr [[P1]], i64 [[INDEX1]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i8>, ptr [[TMP0]], align 1
 ; CHECK-NEXT:    [[TMP1:%.*]] = getelementptr inbounds i8, ptr [[P2]], i64 [[INDEX1]]
 ; CHECK-NEXT:    [[WIDE_LOAD2:%.*]] = load <4 x i8>, ptr [[TMP1]], align 1
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp ne <4 x i8> [[WIDE_LOAD]], [[WIDE_LOAD2]]
-; CHECK-NEXT:    [[INDEX_NEXT3]] = add nuw i64 [[INDEX1]], 4
 ; CHECK-NEXT:    [[TMP3:%.*]] = freeze <4 x i1> [[TMP2]]
 ; CHECK-NEXT:    [[TMP4:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP3]])
+; CHECK-NEXT:    [[INDEX_NEXT3]] = add nuw i64 [[INDEX1]], 4
 ; CHECK-NEXT:    [[TMP5:%.*]] = icmp eq i64 [[INDEX_NEXT3]], [[N_VEC]]
-; CHECK-NEXT:    [[TMP6:%.*]] = or i1 [[TMP4]], [[TMP5]]
-; CHECK-NEXT:    br i1 [[TMP6]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP3:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP4]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP4]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP5]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP3:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    [[CMP_N:%.*]] = icmp eq i64 [[N]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[CMP_N]], label %[[LOOP_END_LOOPEXIT:.*]], label %[[SCALAR_PH]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP7:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP2]], i1 true)
+; CHECK-NEXT:    [[TMP7:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP2]], i1 false)
 ; CHECK-NEXT:    [[TMP8:%.*]] = add i64 [[INDEX1]], [[TMP7]]
 ; CHECK-NEXT:    br label %[[LOOP_END_LOOPEXIT]]
 ; CHECK:       [[SCALAR_PH]]:
@@ -315,30 +313,29 @@ define i64 @early_exit_alignment_and_deref_known_via_assumption_n_not_zero_i16_p
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    [[N_MOD_VF:%.*]] = urem i64 [[TMP2]], 4
 ; CHECK-NEXT:    [[N_VEC:%.*]] = sub i64 [[TMP2]], [[N_MOD_VF]]
-; CHECK-NEXT:    [[TMP3:%.*]] = mul i64 [[N_VEC]], 2
+; CHECK-NEXT:    [[TMP3:%.*]] = shl i64 [[N_VEC]], 1
 ; CHECK-NEXT:    [[IV_NEXT1:%.*]] = getelementptr i8, ptr [[A]], i64 [[TMP3]]
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = mul i64 [[INDEX]], 2
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
+; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = shl i64 [[INDEX]], 1
 ; CHECK-NEXT:    [[NEXT_GEP:%.*]] = getelementptr i8, ptr [[A]], i64 [[OFFSET_IDX]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i16>, ptr [[NEXT_GEP]], align 2
 ; CHECK-NEXT:    [[TMP5:%.*]] = icmp eq <4 x i16> [[WIDE_LOAD]], zeroinitializer
-; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP6:%.*]] = freeze <4 x i1> [[TMP5]]
 ; CHECK-NEXT:    [[TMP7:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP6]])
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP8:%.*]] = icmp eq i64 [[INDEX_NEXT]], [[N_VEC]]
-; CHECK-NEXT:    [[TMP9:%.*]] = or i1 [[TMP7]], [[TMP8]]
-; CHECK-NEXT:    br i1 [[TMP9]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP5:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP7]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP7]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP8]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP5:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    [[CMP_N:%.*]] = icmp eq i64 [[TMP2]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[CMP_N]], label %[[EXIT_LOOPEXIT:.*]], label %[[SCALAR_PH]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP10:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP5]], i1 true)
+; CHECK-NEXT:    [[TMP10:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP5]], i1 false)
 ; CHECK-NEXT:    [[TMP11:%.*]] = add i64 [[INDEX]], [[TMP10]]
-; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP11]], 2
+; CHECK-NEXT:    [[TMP12:%.*]] = shl i64 [[TMP11]], 1
 ; CHECK-NEXT:    [[TMP13:%.*]] = getelementptr i8, ptr [[A]], i64 [[TMP12]]
 ; CHECK-NEXT:    br label %[[EXIT_LOOPEXIT]]
 ; CHECK:       [[SCALAR_PH]]:
@@ -410,30 +407,29 @@ define ptr @find_deref_pointer_distance_align_attribute_argument(ptr align 2 %fi
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    [[N_MOD_VF:%.*]] = urem i64 [[TMP3]], 4
 ; CHECK-NEXT:    [[N_VEC:%.*]] = sub i64 [[TMP3]], [[N_MOD_VF]]
-; CHECK-NEXT:    [[TMP4:%.*]] = mul i64 [[N_VEC]], 2
+; CHECK-NEXT:    [[TMP4:%.*]] = shl i64 [[N_VEC]], 1
 ; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr i8, ptr [[FIRST]], i64 [[TMP4]]
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = mul i64 [[INDEX]], 2
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
+; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = shl i64 [[INDEX]], 1
 ; CHECK-NEXT:    [[NEXT_GEP:%.*]] = getelementptr i8, ptr [[FIRST]], i64 [[OFFSET_IDX]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i16>, ptr [[NEXT_GEP]], align 2
 ; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq <4 x i16> [[WIDE_LOAD]], splat (i16 1)
-; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP7:%.*]] = freeze <4 x i1> [[TMP6]]
 ; CHECK-NEXT:    [[TMP8:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP7]])
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP9:%.*]] = icmp eq i64 [[INDEX_NEXT]], [[N_VEC]]
-; CHECK-NEXT:    [[TMP10:%.*]] = or i1 [[TMP8]], [[TMP9]]
-; CHECK-NEXT:    br i1 [[TMP10]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP7:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP8]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP8]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP9]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP7:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    [[CMP_N:%.*]] = icmp eq i64 [[TMP3]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[CMP_N]], label %[[EXIT_LOOPEXIT:.*]], label %[[SCALAR_PH]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP6]], i1 true)
+; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP6]], i1 false)
 ; CHECK-NEXT:    [[TMP12:%.*]] = add i64 [[INDEX]], [[TMP11]]
-; CHECK-NEXT:    [[TMP13:%.*]] = mul i64 [[TMP12]], 2
+; CHECK-NEXT:    [[TMP13:%.*]] = shl i64 [[TMP12]], 1
 ; CHECK-NEXT:    [[TMP14:%.*]] = getelementptr i8, ptr [[FIRST]], i64 [[TMP13]]
 ; CHECK-NEXT:    br label %[[EXIT_LOOPEXIT]]
 ; CHECK:       [[SCALAR_PH]]:
@@ -504,30 +500,29 @@ define ptr @find_deref_pointer_distance_align_assumption(ptr %first, ptr %last) 
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    [[N_MOD_VF:%.*]] = urem i64 [[TMP3]], 4
 ; CHECK-NEXT:    [[N_VEC:%.*]] = sub i64 [[TMP3]], [[N_MOD_VF]]
-; CHECK-NEXT:    [[TMP4:%.*]] = mul i64 [[N_VEC]], 2
+; CHECK-NEXT:    [[TMP4:%.*]] = shl i64 [[N_VEC]], 1
 ; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr i8, ptr [[FIRST]], i64 [[TMP4]]
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = mul i64 [[INDEX]], 2
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
+; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = shl i64 [[INDEX]], 1
 ; CHECK-NEXT:    [[NEXT_GEP:%.*]] = getelementptr i8, ptr [[FIRST]], i64 [[OFFSET_IDX]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i16>, ptr [[NEXT_GEP]], align 2
 ; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq <4 x i16> [[WIDE_LOAD]], splat (i16 1)
-; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP7:%.*]] = freeze <4 x i1> [[TMP6]]
 ; CHECK-NEXT:    [[TMP8:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP7]])
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP9:%.*]] = icmp eq i64 [[INDEX_NEXT]], [[N_VEC]]
-; CHECK-NEXT:    [[TMP10:%.*]] = or i1 [[TMP8]], [[TMP9]]
-; CHECK-NEXT:    br i1 [[TMP10]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP9:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP8]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP8]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP9]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP9:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    [[CMP_N:%.*]] = icmp eq i64 [[TMP3]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[CMP_N]], label %[[EXIT_LOOPEXIT:.*]], label %[[SCALAR_PH]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP6]], i1 true)
+; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP6]], i1 false)
 ; CHECK-NEXT:    [[TMP12:%.*]] = add i64 [[INDEX]], [[TMP11]]
-; CHECK-NEXT:    [[TMP13:%.*]] = mul i64 [[TMP12]], 2
+; CHECK-NEXT:    [[TMP13:%.*]] = shl i64 [[TMP12]], 1
 ; CHECK-NEXT:    [[TMP14:%.*]] = getelementptr i8, ptr [[FIRST]], i64 [[TMP13]]
 ; CHECK-NEXT:    br label %[[EXIT_LOOPEXIT]]
 ; CHECK:       [[SCALAR_PH]]:
@@ -585,28 +580,27 @@ define i64 @early_exit_alignment_and_deref_known_via_assumption_with_constant_si
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX1:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT3:%.*]], %[[VECTOR_BODY]] ]
+; CHECK-NEXT:    [[INDEX1:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT3:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
 ; CHECK-NEXT:    [[ARRAYIDX2:%.*]] = getelementptr inbounds i8, ptr [[P1]], i64 [[INDEX1]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i8>, ptr [[ARRAYIDX2]], align 1
 ; CHECK-NEXT:    [[TMP1:%.*]] = getelementptr inbounds i8, ptr [[P2]], i64 [[INDEX1]]
 ; CHECK-NEXT:    [[WIDE_LOAD2:%.*]] = load <4 x i8>, ptr [[TMP1]], align 1
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp ne <4 x i8> [[WIDE_LOAD]], [[WIDE_LOAD2]]
-; CHECK-NEXT:    [[INDEX_NEXT3]] = add nuw i64 [[INDEX1]], 4
 ; CHECK-NEXT:    [[TMP3:%.*]] = freeze <4 x i1> [[TMP2]]
 ; CHECK-NEXT:    [[TMP4:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP3]])
+; CHECK-NEXT:    [[INDEX_NEXT3]] = add nuw i64 [[INDEX1]], 4
 ; CHECK-NEXT:    [[TMP5:%.*]] = icmp eq i64 [[INDEX_NEXT3]], 1024
-; CHECK-NEXT:    [[TMP6:%.*]] = or i1 [[TMP4]], [[TMP5]]
-; CHECK-NEXT:    br i1 [[TMP6]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP11:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP4]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP4]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP5]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP11:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    br label %[[LOOP_END:.*]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP7:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP2]], i1 true)
+; CHECK-NEXT:    [[TMP7:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP2]], i1 false)
 ; CHECK-NEXT:    [[TMP8:%.*]] = add i64 [[INDEX1]], [[TMP7]]
 ; CHECK-NEXT:    br label %[[LOOP_END]]
 ; CHECK:       [[LOOP_END]]:
-; CHECK-NEXT:    [[RETVAL:%.*]] = phi i64 [ -1, %[[MIDDLE_BLOCK]] ], [ [[TMP8]], %[[VECTOR_EARLY_EXIT]] ]
+; CHECK-NEXT:    [[RETVAL:%.*]] = phi i64 [ [[TMP8]], %[[VECTOR_EARLY_EXIT]] ], [ -1, %[[MIDDLE_BLOCK]] ]
 ; CHECK-NEXT:    ret i64 [[RETVAL]]
 ;
 entry:
@@ -719,30 +713,29 @@ define i64 @find_if_pointer_distance_deref_via_assumption(ptr %vec) nofree nosyn
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    [[N_MOD_VF:%.*]] = urem i64 [[TMP3]], 4
 ; CHECK-NEXT:    [[N_VEC:%.*]] = sub i64 [[TMP3]], [[N_MOD_VF]]
-; CHECK-NEXT:    [[TMP4:%.*]] = mul i64 [[N_VEC]], 2
+; CHECK-NEXT:    [[TMP4:%.*]] = shl i64 [[N_VEC]], 1
 ; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr i8, ptr [[BEGIN]], i64 [[TMP4]]
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = mul i64 [[INDEX]], 2
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY_INTERIM:.*]] ]
+; CHECK-NEXT:    [[OFFSET_IDX:%.*]] = shl i64 [[INDEX]], 1
 ; CHECK-NEXT:    [[NEXT_GEP:%.*]] = getelementptr i8, ptr [[BEGIN]], i64 [[OFFSET_IDX]]
 ; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i16>, ptr [[NEXT_GEP]], align 2
 ; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq <4 x i16> [[WIDE_LOAD]], splat (i16 1)
-; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP7:%.*]] = freeze <4 x i1> [[TMP6]]
 ; CHECK-NEXT:    [[TMP8:%.*]] = call i1 @llvm.vector.reduce.or.v4i1(<4 x i1> [[TMP7]])
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP9:%.*]] = icmp eq i64 [[INDEX_NEXT]], [[N_VEC]]
-; CHECK-NEXT:    [[TMP10:%.*]] = or i1 [[TMP8]], [[TMP9]]
-; CHECK-NEXT:    br i1 [[TMP10]], label %[[MIDDLE_SPLIT:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP12:![0-9]+]]
-; CHECK:       [[MIDDLE_SPLIT]]:
-; CHECK-NEXT:    br i1 [[TMP8]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[MIDDLE_BLOCK:.*]]
+; CHECK-NEXT:    br i1 [[TMP8]], label %[[VECTOR_EARLY_EXIT:.*]], label %[[VECTOR_BODY_INTERIM]]
+; CHECK:       [[VECTOR_BODY_INTERIM]]:
+; CHECK-NEXT:    br i1 [[TMP9]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP12:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    [[CMP_N:%.*]] = icmp eq i64 [[TMP3]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[CMP_N]], label %[[EXIT_LOOPEXIT:.*]], label %[[SCALAR_PH]]
 ; CHECK:       [[VECTOR_EARLY_EXIT]]:
-; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP6]], i1 true)
+; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @llvm.experimental.cttz.elts.i64.v4i1(<4 x i1> [[TMP6]], i1 false)
 ; CHECK-NEXT:    [[TMP12:%.*]] = add i64 [[INDEX]], [[TMP11]]
-; CHECK-NEXT:    [[TMP13:%.*]] = mul i64 [[TMP12]], 2
+; CHECK-NEXT:    [[TMP13:%.*]] = shl i64 [[TMP12]], 1
 ; CHECK-NEXT:    [[TMP14:%.*]] = getelementptr i8, ptr [[BEGIN]], i64 [[TMP13]]
 ; CHECK-NEXT:    br label %[[EXIT_LOOPEXIT]]
 ; CHECK:       [[SCALAR_PH]]:
@@ -1053,3 +1046,47 @@ exit:
 }
 
 declare i32 @__gxx_personality_v0(...)
+
+define i32 @early_exit_clamped_load_rejected(ptr %A, i32 %N, i32 %sentinel) {
+; CHECK-LABEL: define i32 @early_exit_clamped_load_rejected(
+; CHECK-SAME: ptr [[A:%.*]], i32 [[N:%.*]], i32 [[SENTINEL:%.*]]) {
+; CHECK-NEXT:  [[ENTRY:.*]]:
+; CHECK-NEXT:    br label %[[LOOP:.*]]
+; CHECK:       [[LOOP]]:
+; CHECK-NEXT:    [[IV:%.*]] = phi i32 [ 0, %[[ENTRY]] ], [ [[IV_NEXT:%.*]], %[[LATCH:.*]] ]
+; CHECK-NEXT:    [[CLAMPED:%.*]] = urem i32 [[IV]], 4
+; CHECK-NEXT:    [[GEP_A:%.*]] = getelementptr inbounds i32, ptr [[A]], i32 [[CLAMPED]]
+; CHECK-NEXT:    [[LV:%.*]] = load i32, ptr [[GEP_A]], align 4
+; CHECK-NEXT:    [[MATCH:%.*]] = icmp eq i32 [[LV]], [[SENTINEL]]
+; CHECK-NEXT:    br i1 [[MATCH]], label %[[FOUND:.*]], label %[[LATCH]]
+; CHECK:       [[LATCH]]:
+; CHECK-NEXT:    [[IV_NEXT]] = add nuw nsw i32 [[IV]], 1
+; CHECK-NEXT:    [[COND:%.*]] = icmp eq i32 [[IV_NEXT]], [[N]]
+; CHECK-NEXT:    br i1 [[COND]], label %[[EXIT:.*]], label %[[LOOP]]
+; CHECK:       [[FOUND]]:
+; CHECK-NEXT:    ret i32 1
+; CHECK:       [[EXIT]]:
+; CHECK-NEXT:    ret i32 0
+;
+entry:
+  br label %loop
+
+loop:
+  %iv = phi i32 [ 0, %entry ], [ %iv.next, %latch ]
+  %clamped = urem i32 %iv, 4
+  %gep.A = getelementptr inbounds i32, ptr %A, i32 %clamped
+  %lv = load i32, ptr %gep.A, align 4
+  %match = icmp eq i32 %lv, %sentinel
+  br i1 %match, label %found, label %latch
+
+latch:
+  %iv.next = add nuw nsw i32 %iv, 1
+  %cond = icmp eq i32 %iv.next, %N
+  br i1 %cond, label %exit, label %loop
+
+found:
+  ret i32 1
+
+exit:
+  ret i32 0
+}

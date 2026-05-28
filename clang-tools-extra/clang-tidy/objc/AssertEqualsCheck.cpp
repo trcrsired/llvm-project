@@ -25,7 +25,7 @@ void AssertEqualsCheck::registerMatchers(MatchFinder *Finder) {
   for (const auto &[CurrName, _] : NameMap) {
     Finder->addMatcher(
         binaryOperator(anyOf(hasOperatorName("!="), hasOperatorName("==")),
-                       isExpandedFromMacro(CurrName),
+                       isExpandedFromMacro(std::string(CurrName)),
                        anyOf(hasLHS(hasType(qualType(
                                  hasCanonicalType(asString("NSString *"))))),
                              hasRHS(hasType(qualType(
@@ -46,7 +46,7 @@ void AssertEqualsCheck::check(
       diag(MacroCallsite,
            (Twine("use ") + TargetName + " for comparing objects").str())
           << FixItHint::CreateReplacement(
-                 clang::CharSourceRange::getCharRange(
+                 CharSourceRange::getCharRange(
                      MacroCallsite,
                      MacroCallsite.getLocWithOffset(CurrName.size())),
                  TargetName);

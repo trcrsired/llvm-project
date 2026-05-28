@@ -326,6 +326,7 @@ constexpr bool isCallableCC(CallingConv::ID CC) {
   case CallingConv::AMDGPU_PS:
   case CallingConv::AMDGPU_VS:
   case CallingConv::SPIR_KERNEL:
+  case CallingConv::PTX_Kernel:
     return false;
   default:
     return true;
