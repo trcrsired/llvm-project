@@ -354,6 +354,9 @@ New Compiler Flags
   that ``bool`` values loaded from memory cannot have a bit pattern other
   than 0 or 1.
 
+- New option ``-fcrash-diagnostics-tar`` added to create an archive of crash
+  reproducer files for easier bug filing.
+
 Deprecated Compiler Flags
 -------------------------
 
@@ -597,6 +600,9 @@ Improvements to Clang's diagnostics
 
 - Clang now rejects inline asm constraints and clobbers that contain an
   embedded null character, instead of silently truncating them. (#GH173900)
+
+- Diagnostics for the C++11 range-based for statement now report the correct
+  iterator type in notes for invalid iterator types.
 
 Improvements to Clang's time-trace
 ----------------------------------
