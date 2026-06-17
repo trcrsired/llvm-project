@@ -201,15 +201,39 @@ For noexcept functions, terminate scope is pushed.
 - ADD `"throws"` or `"deterministic-eh"` attribute
 - No terminate scope (errors return normally)
 
-### 1.6 Name Mangling
+### 1.6 Name Mangling — Required for ABI Safety
 
-**File:** `clang/lib/AST/ItaniumMangle.cpp:3712-3726`
+**File:** `clang/lib/AST/ItaniumMangle.cpp`
 
-Noexcept: `Do` suffix
+**Why different mangling is required:**
+```cpp
+// Different ABI — must have different mangled names
+T foo();            // Returns T in register(s), no discriminant
+T foo() throws;     // Returns {T, i1} or T + carry flag
 
-**For `throws`:**
-- Add `Dt` mangling for basic `throws`
-- For `throws(T)` or `fails{E}`: mangle error type
+// If same mangling: linker could mismatch them → ABI corruption at runtime
+```
+
+**Noexcept mangling (existing):**
+- `Do` suffix for `noexcept`
+
+**Throws mangling (new):**
+```cpp
+// Basic throws
+void func() throws;     // Mangled with throws indicator
+
+// fails{E} — error type also mangled
+int func() fails{int};  // Error type E part of mangling
+```
+
+**Mangling prevents:**
+- Linking `throws` function to non-`throws` pointer
+- ABI mismatch at runtime
+- Calling convention confusion
+
+**Implementation:**
+- `throws` is part of canonical type (affects mangling)
+- Different from `noexcept` (since C++17, not part of canonical type)
 
 ---
 
@@ -2307,52 +2331,53 @@ When `supportThrowsCC() == true`, backend uses optimized discriminant:
 
 | Category | File | Key Lines |
 |----------|------|-----------|
-| **Parsing** | `clang/lib/Parse/ParseDeclCXX.cpp` | 3925-4029 |
-| | `clang/lib/Parse/ParseDecl.c` | — |
+| **Parsing** | `clang/lib/Parse/ParseDeclCXX.cpp` | 3923 (tryParseExceptionSpecification) |
+| | `clang/lib/Parse/ParseExprCXX.cpp` | — |
 | | `clang/include/clang/Basic/TokenKinds.def` | — |
-| **AST/Types** | `clang/include/clang/AST/TypeBase.h` | 4565-5749, 2013 |
-| | `clang/lib/AST/Type.cpp` | 3969-3999 |
-| **Exception Spec** | `clang/include/clang/Basic/ExceptionSpecificationType.h` | 20-56 |
-| **Sema** | `clang/lib/Sema/SemaExceptionSpec.cpp` | 85-116, 1113-1250 |
-| **CodeGen** | `clang/lib/CodeGen/CGCall.cpp` | 2017-2019, 2553-2839, 6104-6166 |
-| | `clang/lib/CodeGen/CGException.cpp` | 493-542, 778-826 |
-| | `clang/lib/CodeGen/ItaniumCXXABI.cpp` | 1460-1518, 4945-5276 |
-| | `clang/lib/CodeGen/CGFunctionInfo.h` | 32-93, 596-788 |
-| | `clang/lib/CodeGen/Targets/X86.cpp` | 2601-2732, 2048-2051 |
-| **Mangling** | `clang/lib/AST/ItaniumMangle.cpp` | 3712-3726 |
-| **Printing** | `clang/lib/AST/TypePrinter.cpp` | 991-1089 |
+| **AST/Types** | `clang/include/clang/AST/TypeBase.h` | 2013 (ExceptionSpecType bit), 5678 (getExceptionSpecType) |
+| | `clang/lib/AST/Type.cpp` | — |
+| **Exception Spec** | `clang/include/clang/Basic/ExceptionSpecificationType.h` | 21-32 (EST_ enum), 35-55 (helpers) |
+| **Sema** | `clang/lib/Sema/SemaExceptionSpec.cpp` | — |
+| | `clang/lib/Sema/SemaExprCXX.cpp` | — |
+| **CodeGen** | `clang/lib/CodeGen/CGCall.cpp` | 2018 (isNothrow → nounwind) |
+| | `clang/lib/CodeGen/CGException.cpp` | 485, 508, 541 (pushTerminate) |
+| | `clang/lib/CodeGen/ItaniumCXXABI.cpp` | — |
+| | `clang/include/clang/CodeGen/CGFunctionInfo.h` | — |
+| | `clang/lib/CodeGen/Targets/X86.cpp` | — |
+| **Mangling** | `clang/lib/AST/ItaniumMangle.cpp` | — |
+| **Printing** | `clang/lib/AST/TypePrinter.cpp` | — |
 
 ### LLVM Files
 
 | Category | File | Key Lines |
 |----------|------|-----------|
-| **Attributes** | `llvm/include/llvm/IR/Attributes.td` | 369-376 (swifterror ref) |
-| | `llvm/include/llvm/IR/Attributes.h` | 124-132, 544-1085 |
-| **Calling Conv** | `llvm/include/llvm/IR/CallingConv.h` | 21-302 |
-| | `llvm/include/llvm/CodeGen/CallingConvLower.h` | 34-143, 171-552 |
-| | `llvm/include/llvm/CodeGen/TargetCallingConv.h` | 27-198 |
-| | `llvm/include/llvm/Target/TargetCallingConv.td` | 59-62 |
-| **TargetLowering** | `llvm/include/llvm/CodeGen/TargetLowering.h` | 4697-4701, 4800-5127 |
-| **SelectionDAG** | `llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp` | 2194-2320, 500-611 |
-| | `llvm/lib/CodeGen/FunctionLoweringInfo.cpp` | 96-102 |
-| **X86** | `llvm/lib/Target/X86/X86CallingConv.td` | 239-256, 509-516 |
-| | `llvm/lib/Target/X86/X86ISelLowering.cpp` | 23617-23622, 34069-34072 |
-| | `llvm/lib/Target/X86/X86ISelLoweringCall.cpp` | 669-676, 744-950 |
-| | `llvm/lib/Target/X86/X86RegisterInfo.td` | 466 (EFLAGS) |
-| | `llvm/lib/Target/X86/MCTargetDesc/X86BaseInfo.h` | 77-103 (CondCode) |
-| | `llvm/lib/Target/X86/X86InstrMisc.td` | 1022-1026 (CLC/STC) |
-| | `llvm/lib/Target/X86/X86InstrCompiler.td` | 378-386 (SETB_C) |
-| **AArch64** | `llvm/lib/Target/AArch64/Utils/AArch64BaseInfo.h` | 288-313 (CondCode) |
-| | `llvm/lib/Target/AArch64/AArch64RegisterInfo.td` | 172 (NZCV), 308-314 (CCR) |
-| | `llvm/lib/Target/AArch64/AArch64ISelLowering.cpp` | 4587-4596, 13531-13551 |
-| | `llvm/lib/Target/AArch64/AArch64InstrInfo.td` | 3572-3585, 849-875 |
-| **RISC-V** | `llvm/lib/Target/RISCV/RISCVCallingConv.cpp` | 83-91, 167-178, 402-410 |
-| | `llvm/lib/Target/RISCV/RISCVRegisterInfo.td` | 200-201 (X10/X11) |
-| | `llvm/lib/Target/RISCV/RISCVISelLowering.cpp` | 25342-25369 |
-| **LoongArch** | `llvm/lib/Target/LoongArch/LoongArchISelLowering.cpp` | 8826-8832, 8931-8934, 10022-10038 |
-| | `llvm/lib/Target/LoongArch/LoongArchRegisterInfo.td` | 64-65 (R4/R5) |
-| **ISD Opcodes** | `llvm/include/llvm/CodeGen/ISDOpcodes.h` | 287-330 |
-| **Intrinsics** | `llvm/include/llvm/IR/Intrinsics.td` | 1657-1676 (overflow ref) |
+| **Attributes** | `llvm/include/llvm/IR/Attributes.td` | — (swifterror ref) |
+| | `llvm/include/llvm/IR/Attributes.h` | — |
+| **Calling Conv** | `llvm/include/llvm/IR/CallingConv.h` | 21 (namespace), 304 (end) |
+| | `llvm/include/llvm/CodeGen/CallingConvLower.h` | — |
+| | `llvm/include/llvm/CodeGen/TargetCallingConv.h` | — |
+| | `llvm/include/llvm/Target/TargetCallingConv.td` | — |
+| **TargetLowering** | `llvm/include/llvm/CodeGen/TargetLowering.h` | — |
+| **SelectionDAG** | `llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp` | — |
+| | `llvm/lib/CodeGen/FunctionLoweringInfo.cpp` | — |
+| **X86** | `llvm/lib/Target/X86/X86CallingConv.td` | — |
+| | `llvm/lib/Target/X86/X86ISelLowering.cpp` | 25648, 28601 (COND_B usage) |
+| | `llvm/lib/Target/X86/X86ISelLoweringCall.cpp` | — |
+| | `llvm/lib/Target/X86/X86RegisterInfo.td` | — |
+| | `llvm/lib/Target/X86/MCTargetDesc/X86BaseInfo.h` | — (CondCode enum) |
+| | `llvm/lib/Target/X86/X86InstrMisc.td` | — (CLC/STC) |
+| | `llvm/lib/Target/X86/X86InstrCompiler.td` | — (SETB_C) |
+| **AArch64** | `llvm/lib/Target/AArch64/Utils/AArch64BaseInfo.h` | 288 (CondCode enum) |
+| | `llvm/lib/Target/AArch64/AArch64RegisterInfo.td` | — (NZCV) |
+| | `llvm/lib/Target/AArch64/AArch64ISelLowering.cpp` | — |
+| | `llvm/lib/Target/AArch64/AArch64InstrInfo.td` | — |
+| **RISC-V** | `llvm/lib/Target/RISCV/RISCVCallingConv.cpp` | 167 (ArgIGPRs), 402-410 (return limit) |
+| | `llvm/lib/Target/RISCV/RISCVRegisterInfo.td` | — |
+| | `llvm/lib/Target/RISCV/RISCVISelLowering.cpp` | — |
+| **LoongArch** | `llvm/lib/Target/LoongArch/LoongArchISelLowering.cpp` | — |
+| | `llvm/lib/Target/LoongArch/LoongArchRegisterInfo.td` | — |
+| **ISD Opcodes** | `llvm/include/llvm/CodeGen/ISDOpcodes.h` | — |
+| **Intrinsics** | `llvm/include/llvm/IR/Intrinsics.td` | — |
 | **SwiftError Ref** | `llvm/include/llvm/CodeGen/SwiftErrorValueTracking.h` | — |
 
 ---
