@@ -1658,6 +1658,106 @@ catch throws(std::error e) {
 }
 ```
 
+### 7.3.1 Herbception and Coroutines
+
+**Unhandled herbception in coroutine:**
+
+When a coroutine has an unhandled herbception (throws error without catch), it calls a function to store the `std::error` in the coroutine frame. The caller's `co_await`, `co_yield`, etc. then retrieve and handle the stored error.
+
+**Coroutine error storage mechanism:**
+```cpp
+// Coroutine with throws specifier
+Task<int> async_read() throws {
+  // If error thrown without handling:
+  // Calls __coro_store_error() to store std::error in coroutine frame
+  throw throws std::errc::io_error;
+}
+
+// Caller using co_await
+Task<void> process() throws {
+  // co_await retrieves stored error from coroutine frame
+  int result = co_await async_read();
+  // If async_read() threw error: stored in frame, co_await propagates it
+}
+```
+
+**Internal mechanism:**
+```cpp
+// Coroutine frame layout (simplified)
+struct __coro_frame {
+  // ... promise_type, suspension points, etc.
+  std::error __stored_error;  // Stored herbception error
+  bool __has_error;           // Error flag
+};
+
+// Called when unhandled herbception in coroutine
+extern "C" void __coro_store_error(void* frame, std::error e) noexcept {
+  auto* f = static_cast<__coro_frame*>(frame);
+  f->__stored_error = std::move(e);
+  f->__has_error = true;
+}
+
+// Called by co_await to check/retrieve error
+extern "C" bool __coro_has_error(void* frame) noexcept {
+  return static_cast<__coro_frame*>(frame)->__has_error;
+}
+
+extern "C" std::error __coro_retrieve_error(void* frame) noexcept {
+  auto* f = static_cast<__coro_frame*>(frame);
+  f->__has_error = false;
+  return std::move(f->__stored_error);
+}
+```
+
+**co_await behavior:**
+```cpp
+// co_await on throws coroutine
+auto result = co_await async_func();
+
+// Generated code (simplified):
+// 1. Resume coroutine
+// 2. Check __coro_has_error()
+// 3. If error: propagate via __coro_retrieve_error()
+// 4. If success: return result value
+```
+
+**co_yield behavior:**
+```cpp
+// co_yield in throws coroutine
+Task<int> generator() throws {
+  co_yield 42;  // Yield value
+  throw throws std::errc::invalid_argument;  // Unhandled error
+}
+
+// Caller receives:
+// - First co_await: yields 42 (success)
+// - Second co_await: retrieves stored error (propagates)
+```
+
+**Promise type integration:**
+```cpp
+template<typename T>
+struct throws_promise {
+  std::error __stored_error;
+  bool __has_error = false;
+  
+  // Called when coroutine throws herbception without catch
+  void unhandled_herbception(std::error e) noexcept {
+    __stored_error = std::move(e);
+    __has_error = true;
+  }
+  
+  // Called by co_await to check error
+  bool has_error() const noexcept { return __has_error; }
+  
+  // Called by co_await to retrieve error
+  std::error retrieve_error() noexcept {
+    __has_error = false;
+    return std::move(__stored_error);
+  }
+};
+```
+
 ### 7.4 C++ `fails{E}` — C-Style Value Return
 
 **`fails{E}` uses C-style syntax in both C++ and C:**
