@@ -97,9 +97,65 @@ define { E, i1 } @foo(...) #throws {  ; E is the error type, i1 is discriminant
 
 The `noexcept` implementation is the primary template for `throws`.
 
-### 1.1 Exception Specification Type Enum
+### 1.1 `noexcept` vs `throws` Relationship
 
-**File:** `clang/include/clang/Basic/ExceptionSpecificationType.h:20-33`
+**Semantic relationship:**
+```cpp
+noexcept           ≡  noexcept(true) throws(false)  // cannot fail at all
+noexcept(true)     ≡  noexcept(true) throws(false)  // cannot fail at all
+throws             ≡  noexcept(true) throws(true)   // no dynamic EH, only herbception
+throws(true)       ≡  noexcept(true) throws(true)   // no dynamic EH, only herbception
+fails{E}           ≡  noexcept(true) fails{E}       // no dynamic EH, herbception with explicit error type
+noexcept(false) fails{E}                           // allows dynamic EH + herbception (explicit)
+(nothing)          →  noexcept(false) throws(false) // traditional EH may apply
+```
+
+**Key insight:** 
+- `throws` (or `throws(true)`) = `noexcept(true) throws(true)` — never throws traditional C++ dynamic exceptions, only returns herbception errors via discriminant.
+- `fails{E}` defaults to `noexcept(true)` — no traditional EH, only herbception with explicit error type.
+- User can override with `noexcept(false) fails{E}` to allow traditional exceptions alongside herbception.
+- `throws` and `fails{E}` cannot coexist on same function.
+
+**What this means:**
+- `throws` functions cannot use `throw expr` (traditional EH)
+- `throws` functions can only use `throw throws enum_value`
+- `fails{E}` functions (default) cannot use `throw expr` (traditional EH)
+- `fails{E}` functions use `failure(expr)` to return errors
+- `noexcept(false) fails{E}` functions can use both traditional `throw expr` and `failure(expr)`
+- Traditional `try/catch` blocks don't catch herbception errors
+- `catch throws(std::error e)` catches `throws` herbception errors
+- `catch fails(E e)` catches `fails{E}` herbception errors
+
+**Compiler flags:**
+```
+-fherbexceptions    // Enable herbception support (testing)
+-fno-exceptions     // Disable traditional EH entirely
+```
+
+**Transition path:**
+```cpp
+// Old code (traditional dynamic exceptions):
+void foo() { throw std::runtime_error("error"); }  // noexcept(false) throws(false)
+
+// New code (herbception - no dynamic EH):
+void foo() throws { throw throws std::errc::invalid_argument; }  // noexcept(true) throws(true)
+
+// Herbception with explicit error type:
+void foo() fails{int} { return failure(42); }  // noexcept(true) fails{int}
+
+// Mixed: traditional EH + herbception (explicit override):
+void foo() noexcept(false) fails{int} {
+  if (condition) throw std::runtime_error("error");  // traditional EH allowed
+  return failure(42);  // herbception also allowed
+}
+
+// Safe code (cannot fail):
+void bar() noexcept { ... }  // noexcept(true) throws(false)
+```
+
+### 1.2 Exception Specification Type Enum
+
+**File:** `clang/include/clang/Basic/ExceptionSpecificationType.h:21-32`
 
 ```cpp
 enum ExceptionSpecificationType {
@@ -1072,22 +1128,232 @@ Herbception uses distinct keywords to avoid conflict with traditional EH:
 | **Function spec** | `throw(T1, T2)` (deprecated) | `throws` or `fails{E}` |
 | **Explicit handling** | N/A | `try(expr)` optional |
 
-### 7.2 Function Specifiers — Works in Both C++ and C
+### 7.2 Function Specifiers — `throws` vs `fails`
 
-**Two forms:**
+**Two forms (cannot coexist):**
 
 ```cpp
-// Basic throws - uses std::error (implicit error type) — C++ only
-T foo() throws;
+// throws - uses std::error (implicit) — C++ only
+T foo() throws;               // noexcept(true) throws(true)
 
-// Typed fails - explicit error type E — works in BOTH C++ and C
-T foo() fails{E};
+// fails{E} - explicit error type E — C++ and C
+T foo() fails{E};             // noexcept(true) fails{E} by default
+
+// noexcept(false) fails{E} - allows traditional EH + herbception
+T foo() noexcept(false) fails{E};  // explicit override
 ```
+
+**Rules:**
+- `throws` and `fails{E}` **cannot coexist** on same function
+- `fails{E}` **defaults to `noexcept`** (no traditional exceptions)
+- User can explicitly write `noexcept(false) fails{E}` to allow traditional exceptions
+- `fails` uses `{T}` braces only — NOT `fails(xxxx)` parentheses
 
 **Why `{E}` instead of `(E)`?**
 - `()` typically means conditional statement (e.g., `noexcept(cond)`)
 - `{E}` clearly indicates a type parameter
+- No conditional syntax: `fails{E}` only, not `fails(E)` or `fails(cond)`
 - Consistent with C23 keyword approach (no `_` prefix macros)
+
+### 7.2.1 Interoperation: Calling `fails{E}` from `throws`
+
+**When a `throws` function calls a `fails{E}` function:**
+
+1. **Must use `try` at call point** — explicit error handling required
+2. **Error type E must be convertible to/from `std::error`** — otherwise compile error
+
+**Example:**
+```cpp
+// throws function calling fails{E}
+void foo() throws {
+  // ERROR: must use try() wrapper
+  bar();  // bar() fails{int}
+  
+  // CORRECT: explicit handling with try
+  try bar();  // auto-propagate error
+  
+  // BUT: int must be convertible to std::error
+  // If int is not convertible: compile error
+}
+
+// fails{E} function with convertible error type
+void bar() fails{std::errc} {  // std::errc is convertible to std::error
+  return failure(std::errc::invalid_argument);
+}
+
+void baz() fails{int} {  // int is NOT convertible to std::error (unless specialized)
+  return failure(42);
+}
+```
+
+**Compile-time rules:**
+```cpp
+// Rule 1: try required at call point
+void foo() throws {
+  baz();  // ERROR: calling fails{E} without try wrapper
+  try baz();  // OK: explicit handling
+}
+
+// Rule 2: error type must be convertible
+void foo() throws {
+  try bar();  // OK: std::errc → std::error conversion exists
+  try baz();  // ERROR: int is not convertible to std::error
+}
+```
+
+**Convertible error types:**
+- `std::errc` (POSIX errno) — always convertible
+- `std::nt_errc` (NTSTATUS) — convertible when `_WIN32` defined
+- `std::win32_errc` (Win32 errors) — convertible when `_WIN32` defined
+- `std::com_errc` (HRESULT) — convertible when `_WIN32` defined
+- `std::wine_errc` (host errno) — convertible in Wine environment
+- Custom types: must implement `error_domain<T>` specialization
+
+**Custom error type conversion:**
+```cpp
+// To make custom type E convertible to std::error:
+template<>
+struct std::error_domain<MyErrorEnum> {
+  using errc_type = MyErrorEnum;
+  static error_domain_singleton const* domain() noexcept;
+  static std::size_t code(MyErrorEnum e) noexcept;
+};
+
+// Now MyErrorEnum can be used with throws functions
+void foo() throws {
+  try bar();  // OK: MyErrorEnum → std::error conversion exists
+}
+
+void bar() fails{MyErrorEnum} {
+  return failure(MyErrorEnum::some_error);
+}
+```
+
+### 7.2.2 Interoperation: Calling `throws` from `fails{E}`
+
+**When a `fails{E}` function calls a `throws` function:**
+
+1. **Must use `try` at call point** — explicit error handling required
+2. **`std::error` must be convertible to E** — otherwise compile error
+
+**Example:**
+```cpp
+// fails{E} function calling throws
+void foo() fails{std::errc} {
+  // ERROR: must use try() wrapper
+  bar();  // bar() throws (returns std::error)
+  
+  // CORRECT: explicit handling with try
+  try bar();  // auto-propagate, converts std::error → std::errc
+  
+  // BUT: std::error must be convertible to std::errc
+  // If conversion fails: compile error
+}
+
+void bar() throws {
+  throw throws std::errc::invalid_argument;
+}
+```
+
+**Compile-time rules:**
+```cpp
+// Rule 1: try required at call point
+void foo() fails{std::errc} {
+  bar();  // ERROR: calling throws without try wrapper
+  try bar();  // OK: explicit handling
+}
+
+// Rule 2: std::error must be convertible to E
+void foo() fails{int} {
+  try bar();  // ERROR: std::error is not convertible to int
+}
+
+void foo() fails{std::errc} {
+  try bar();  // OK: std::error → std::errc conversion exists
+}
+```
+
+**Bidirectional conversion requirement:**
+- `throws` → `fails{E}`: `std::error` must convert to E
+- `fails{E}` → `throws`: E must convert to `std::error`
+- Both require `error_domain<T>` specialization for custom types
+
+### 7.2.3 Calling `throws(true)` from `noexcept` Functions
+
+**When a `noexcept(true)` or `noexcept(false)` function calls a `throws(true)` function without error handling:**
+
+| Caller Type | Behavior without `try` wrapper |
+|-------------|-------------------------------|
+| `noexcept(true)` | **Termination** — calls `__builtin_trap()` |
+| `noexcept(false)` | **Throws C++ EH** — converts `std::error` to traditional exception |
+
+**For `noexcept(false)` caller: `try` is required before calling `throws(true)` function.**
+
+**Example:**
+```cpp
+// noexcept(true) caller - unhandled error = termination
+void safe_func() noexcept(true) {
+  foo();  // foo() throws(true)
+  // If foo() returns error: __builtin_trap() called
+  // Program terminates immediately
+}
+
+// noexcept(false) caller - unhandled error = throw C++ EH
+void maybe_throw_func() noexcept(false) {
+  foo();  // ERROR: must use try wrapper for throws(true) call
+  try foo();  // OK: explicit handling
+  // If foo() returns error without try: throws std::error as C++ exception
+}
+```
+
+**Future API support:**
+
+This design allows POSIX APIs, Win32 APIs, and other system APIs to support C++ EH directly:
+```cpp
+// POSIX API wrapper with throws
+int open(const char* path, int flags) throws {
+  int fd = ::open(path, flags);
+  if (fd < 0) {
+    throw throws std::errc(errno);  // errno → std::errc → std::error
+  }
+  return fd;
+}
+
+// Win32 API wrapper with throws
+HANDLE create_file(const char* path) throws {
+  HANDLE h = CreateFileA(path, ...);
+  if (h == INVALID_HANDLE_VALUE) {
+    throw throws std::win32_errc(GetLastError());
+  }
+  return h;
+}
+
+// Usage in noexcept(false) function - error becomes C++ EH
+void process_file() noexcept(false) {
+  try open("test.txt", O_RDONLY);  // OK: explicit handling
+  
+  // Without try: error thrown as C++ exception
+  // Can be caught by traditional catch block:
+  try {
+    open("test.txt", O_RDONLY);
+  } catch throws(std::error e) {
+    // Handle herbception error
+  } catch (std::exception& e) {
+    // Handle traditional C++ exception
+  }
+}
+```
+
+**Error propagation chain:**
+```cpp
+// throws(true) → noexcept(false) without try:
+// std::error → C++ exception (automatic conversion)
+
+// throws(true) → noexcept(true) without try:
+// std::error → __builtin_trap() (termination)
+
+// This allows gradual migration from traditional EH to herbception
+```
 
 ### 7.3 C++ `throws` — Value-Based, Not Type-Based
 
