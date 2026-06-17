@@ -121,15 +121,17 @@ void initializeDXContainerGlobalsPass(PassRegistry &);
 /// Pass for generating DXContainer part globals.
 ModulePass *createDXContainerGlobalsPass();
 
+/// Initializer for DXContainerPDB pass.
+void initializeDXContainerPDBPass(PassRegistry &);
+
+/// Pass for emitting DirectX PDB files.
+ModulePass *createDXContainerPDBPass();
+
 /// Initializer for DXILFinalizeLinkage pass.
 void initializeDXILFinalizeLinkageLegacyPass(PassRegistry &);
 
 /// Pass to finalize linkage of functions.
 ModulePass *createDXILFinalizeLinkageLegacyPass();
-
-namespace dxil {
-const AttributeMask &getNonDXILAttributeMask();
-} // namespace dxil
 } // namespace llvm
 
 #endif // LLVM_LIB_TARGET_DIRECTX_DIRECTX_H
