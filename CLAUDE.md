@@ -10,15 +10,16 @@ This document provides a comprehensive analysis of the LLVM/Clang codebase for i
 
 **C++:**
 ```cpp
-T foo() throws;              // Returns T on success, std::error on failure
+T foo() throws;              // Returns T on success, std::error on failure (implicit error type)
+T foo() fails{E};            // Returns T on success, E on failure (explicit error type)
 ```
 
 **C:**
 ```c
-void foo() fails{std::error}; // Returns void, std::error is error return type
+T foo() fails{E};            // Same as C++ fails{E} — explicit error type required
 ```
 
-**Key insight:** `T foo() throws` in C++ is semantically equivalent to `void foo() fails{std::error}` in C. The only difference is that C++ binds the success return type T to the function signature, while C binds only the error type.
+**Key insight:** `throws` is C++-only with implicit `std::error`. `fails{E}` works in both C++ and C with explicit error type. Both require explicit handling with `try` or `catch fails`.
 
 ### No Two-Phase Rollback — Key Difference from Traditional EH
 
@@ -35,17 +36,16 @@ void foo() fails{std::error}; // Returns void, std::error is error return type
 
 **Error propagation flow:**
 ```cpp
-T foo() throws {          // marks itself as potentially failing
-  A a;                    // destructor needed
-  auto result = bar();    // bar() throws
+T foo() fails{E} {              // marks itself as potentially failing
+  A a;                          // destructor needed
+  either<T, E> result = catch fails(bar());  // bar() fails{E}
   
-  if (result.failed) {    // caller checks discriminant
+  if (!result.positive) {       // check .positive flag
     // ~A() called on normal scope exit
-    // propagate error to caller: return result.error
-    return propagate(result);
+    return failure(result.right);  // propagate error
   }
   // success: ~A() called at end of scope
-  return result.value;
+  return result.left;
 }
 ```
 
@@ -73,19 +73,23 @@ define { E, i1 } @foo(...) #throws {  ; E is the error type, i1 is discriminant
 
 ### Implementation Strategy
 
-1. **IR Representation:** `{ union{T, E}, bool failed }` with `throws` attribute — backend can optimize or fallback to struct
-2. **C++ `throws`:** `T foo() throws` → IR: `{ T, i1 }` return (T is success value)
-3. **C `fails{E}:** `void foo() fails{E}` → IR: `{ E, i1 }` return (E is error value, void means no success value)
-4. **Destructor handling:** Normal scope-based cleanup (no landing pads, no unwinding)
-5. **Error propagation:** Caller checks discriminant, calls destructors, returns error
-6. **Backend Optimization:** 
-   - With `throws` attribute + `supportThrowsCC()`: target-specific discriminant
-   - Without: struct return via registers
-7. **Target-Specific Mechanisms:**
-   - **x86_64:** Carry flag (CF in EFLAGS) — T in RAX, error indicated by CF
-   - **AArch64:** Carry flag (C in NZCV) — T in X0, error indicated by NZCV.C
-   - **RISC-V:** Extra register a2 (X12) — T in a0, discriminant in a2
-   - **LoongArch:** Extra register a2 (R6) — T in a0, discriminant in a2
+1. **IR Representation:** `{ T, i1 }` with `throws` attribute — backend can optimize or fallback to struct
+2. **C++ `throws`:** `T foo() throws` → implicit `std::error`, requires `try` handling
+3. **`fails{E}` (C++ and C):** `T foo() fails{E}` → explicit error type E, **requires** `try` or `catch fails`
+4. **Explicit handling:** Calling `fails{E}` function without `try`/`catch fails` wrapper = compile error
+5. **`try(expr)`:** Auto-propagate error on failure, continue on success
+6. **`catch fails(expr)`:** Returns `either{T, E}` with `.positive`, `.left`, `.right`
+7. **`try expr;`:** Auto-propagate at statement level (C++ only, no parens)
+8. **`catch fails(E e)`:** Catch block for explicit error handling
+9. **Destructor handling:** Normal scope-based cleanup (no landing pads, no unwinding)
+10. **Backend Optimization:** 
+    - With `throws` attribute + `supportThrowsCC()`: target-specific discriminant
+    - Without: struct return via registers
+11. **Target-Specific Mechanisms:**
+    - **x86_64:** Carry flag (CF in EFLAGS) — T in RAX, error indicated by CF
+    - **AArch64:** Carry flag (C in NZCV) — T in X0, error indicated by NZCV.C
+    - **RISC-V:** Extra register a2 (X12) — T in a0, discriminant in a2
+    - **LoongArch:** Extra register a2 (R6) — T in a0, discriminant in a2
 
 ---
 
@@ -1030,48 +1034,772 @@ cleanup_error:
 
 ---
 
-## Part 7: C Language `fails{E}` Syntax
+## Part 7: Grammar — Traditional EH vs Herbception Separation
 
-### 7.1 Semantic Equivalence with C++ `throws`
+### 7.1 Complete Separation (C++)
 
-**Key insight:**
+Herbception uses distinct keywords to avoid conflict with traditional EH:
+
+| Feature | Traditional EH | Herbception (C++) |
+|---------|----------------|-------------------|
+| **Throw** | `throw expr;` | `throw throws expr;` |
+| **Catch** | `catch(type e) { }` | `catch throws(type e) { }` |
+| **Try block** | `try { } catch(type) { }` | Same try block, different catch |
+| **Function spec** | `throw(T1, T2)` (deprecated) | `throws` or `fails{E}` |
+| **Explicit handling** | N/A | `try(expr)` optional |
+
+### 7.2 Function Specifiers — Works in Both C++ and C
+
+**Two forms:**
+
+```cpp
+// Basic throws - uses std::error (implicit error type) — C++ only
+T foo() throws;
+
+// Typed fails - explicit error type E — works in BOTH C++ and C
+T foo() fails{E};
 ```
-C++: T foo() throws;         ≡  C: void foo() fails{std::error}  (with implicit T return)
-C++: void foo() throws;      ≡  C: void foo() fails{std::error}  (no success value)
+
+**Why `{E}` instead of `(E)`?**
+- `()` typically means conditional statement (e.g., `noexcept(cond)`)
+- `{E}` clearly indicates a type parameter
+- Consistent with C23 keyword approach (no `_` prefix macros)
+
+### 7.3 C++ Throw Syntax
+
+**Traditional EH:**
+```cpp
+throw std::runtime_error("error");  // dynamic exception
 ```
 
-**IR representation (identical for both):**
+**Herbception:**
+```cpp
+throw throws std::error("error");   // for throws (implicit std::error)
+throw throws E(e_value);            // for fails{E} (explicit error type)
+```
+
+**IR generation:**
 ```llvm
-; T foo() throws in C++:
-define { T, i1 } @foo(...) #throws {
-  ; Returns {value, failed_flag}
+; Traditional throw:
+call void @__cxa_throw(%exception_ptr, %type_info, %destructor)
+
+; Herbception throw:
+ret { E, i1 } { %error_value, i1 1 }  ; return with discriminant set
+```
+
+### 7.4 C++ Catch Syntax — catches both `throws` and `fails{E}`
+
+**Traditional EH:**
+```cpp
+try {
+  foo();
+} catch(std::exception& e) {
+  // handle exception
+}
+```
+
+**Herbception — catches `throws` or `fails{E}`:**
+```cpp
+// For throws (implicit std::error) — C++ only
+try {
+  try foo();  // foo() throws
+} catch throws(std::error e) {
+  // handle deterministic error
 }
 
-; void foo() fails{E} in C:
-define { E, i1 } @foo(...) #throws {
-  ; Returns {error_value, failed_flag}
-  ; When failed_flag=0: function succeeded (void return)
-  ; When failed_flag=1: error_value contains E
+// For fails{E} (explicit error type) — C++ and C
+try {
+  try foo();  // foo() fails{E}
+} catch fails(E e) {
+  // handle typed error
 }
 ```
 
-**The only difference:**
-- C++ binds the success return type `T` to the function signature
-- C binds only the error type `E` to `fails{E}`
-- Both use the same `throws` attribute in IR for backend optimization
-
-### 7.2 Token Addition
-
-**File:** `clang/include/clang/Basic/TokenKinds.def`
-
-Add:
+**Multiple catches (non-conflicting):**
+```cpp
+try {
+  try foo();  // foo() throws or fails{E}
+  bar();      // bar() might throw traditional exception
+} catch(std::exception& e) {
+  // traditional EH handler
+} catch throws(std::error e) {
+  // herbception handler (for throws)
+} catch fails(E e) {
+  // herbception handler (for fails{E})
+}
 ```
-KEYWORD(fails, KEYC)
+
+### 7.5 C++ `try` — Required for `fails{E}` (Same Semantics as C)
+
+In C++, calling a `fails{E}` function **requires** explicit handling with `try` or `catch fails`:
+
+```cpp
+// Option 1: catch fails(expr) at call point — returns either<T, E>
+int foo() fails{int} {
+  auto result = catch fails(bar());  // returns either<int, int>
+  // OR: either(int, int) result = catch fails(bar());
+  
+  if (result.positive) {
+    return result.left;  // success value
+  } else {
+    return failure(result.right);  // propagate error
+  }
+}
+
+// Option 2: try(expr) at call point — auto-propagate on failure
+int foo() fails{int} {
+  int v = try(bar());  // if bar fails, auto-propagate error
+  return v;            // only reached if bar succeeded
+}
+
+// Option 3: try before statement (no parens) — auto-propagate on failure
+int foo() fails{int} {
+  try bar();           // try before statement, no parentheses
+  // ... continue if succeeded, auto-propagate if failed
+  return 0;
+}
 ```
 
-### 7.3 Parser Handling (C-specific)
+**Key rule:** Calling `fails{E}` function without `try` or `catch fails` wrapper is a compile-time error in BOTH C++ and C.
 
-**File:** `clang/lib/Parse/ParseDecl.c`
+### 7.6 Catch Syntax — `catch throws` vs `catch fails`
+
+| Function Specifier | Throw Syntax | Catch Syntax |
+|--------------------|--------------|--------------|
+| `throws` (C++ only) | `throw throws expr` | `catch throws(std::error e)` |
+| `fails{E}` (C++ and C) | `failure(expr)` | `catch fails(E e)` |
+
+**Example:**
+```cpp
+// For throws (implicit std::error) — C++ only
+try { } catch throws(std::error e) { }
+
+// For fails{E} (explicit error type) — works in both C++ and C
+try { } catch fails(int e) { }
+```
+
+### 7.7 Complete C++ Example with `fails{E}`
+
+```cpp
+// Function with typed error
+int some_function(int x) fails{float} {
+  return (x != 0) ? 5 : failure(2.0);
+}
+
+// Option 1: catch fails returns either
+int foo() fails{float} {
+  auto result = catch fails(some_function(x));
+  if (result.positive) {
+    return result.left + 1;
+  } else {
+    return failure(result.right);
+  }
+}
+
+// Option 2: try(expr) auto-propagates
+int bar() fails{float} {
+  int v = try(some_function(x));
+  return v + 1;  // only if succeeded
+}
+
+// Option 3: try statement auto-propagates
+int baz() fails{float} {
+  try some_function(x);
+  return 0;  // only if succeeded
+}
+
+// With catch block
+int qux() {
+  try {
+    try some_function(x);
+  } catch fails(float e) {
+    printf("error: %f\n", e);
+    return -1;
+  }
+  return 0;
+}
+```
+
+### 7.8 Comparison: C++ vs C `fails{E}` Handling
+
+| Aspect | C++ | C |
+|--------|-----|---|
+| **Catch returns either** | `catch fails(expr)` → `either<T,E>` | `catch fails(expr)` → `either<T,E>` |
+| **Auto-propagate at call** | `try(expr)` | `try(expr)` |
+| **Auto-propagate at statement** | `try expr;` (no parens) | `try(expr)` (parens required) |
+| **Catch block syntax** | `catch fails(E e)` | `catch fails(expr)` (expression, not block) |
+| **Calling without wrapper** | **Compile error** | **Compile error** |
+
+**Both C++ and C enforce explicit handling for `fails{E}` functions.**
+
+### 7.5 C Language Syntax (C23-style Keywords)
+
+Following C23's approach (keywords without `_` prefix, like `bool` instead of `_Bool`):
+
+| Feature | C Syntax | Notes |
+|---------|----------|-------|
+| **Function spec** | `T foo() fails{E}` | `{E}` not `(E)` to avoid conditional confusion |
+| **Return failure** | `failure(expr)` | Return via failure channel |
+| **Error propagation** | `try(expr)` | Auto-propagate failure (like `_Try` in proposal) |
+| **Error catch** | `catch fails(expr)` | Convert to `either{T,E}` (consistent with C++) |
+| **Sum type** | `either{T, E}` | `.left` = T, `.right` = E, `.positive` = success |
+
+### 7.6 C Language Example
+
+```c
+// Function with typed error
+int some_function(int x) fails{float} {
+  return (x != 0) ? 5 : failure(2.0);  // Return via failure channel
+}
+
+const char *some_other_function(int x) fails{float} {
+  // try() auto-propagates failure: if some_function fails, return its error
+  int v = try(some_function(x));
+  
+  return (v == 5) ? "Yes" : "No";
+}
+
+int main(int argc, char *argv[]) {
+  // catch fails() converts result to either type
+  either(const char *, float) v = catch fails(some_other_function(atoi(argv[1])));
+  
+  if(v.positive) {
+    printf("success: %s\n", v.left);
+  } else {
+    printf("failure: %f\n", v.right);
+  }
+  return 0;
+}
+```
+
+### 7.7 C Requires Explicit Error Handling — No Invisible Propagation
+
+**Critical difference from C++:**
+
+| Aspect | C++ | C |
+|--------|-----|---|
+| **Error catching** | Implicit (compiler checks discriminant) | Explicit: MUST use `try(expr)` or `catch fails(expr)` |
+| **Error propagation** | Automatic (discriminant-based branch) | Manual: `try(expr)` auto-propagates, otherwise compile error |
+| **Calling fails function** | Allowed anywhere | Compile error if not wrapped in `try()` or `catch fails()` |
+
+**C compile-time rule:**
+Calling a `fails{E}` function without `try(expr)` or `catch fails(expr)` wrapper is a **compile-time error**. This forces explicit error handling.
+
+```c
+// WRONG in C - compile error!
+int foo() fails{int} {
+  int x = some_fails_func();  // ERROR: must use try() or catch fails()
+  return x;
+}
+
+// CORRECT in C - explicit error handling
+int foo() fails{int} {
+  int x = try(some_fails_func());  // OK: try() catches and auto-propagates
+  return x;
+}
+
+// ALSO CORRECT - convert to either
+int bar() {
+  either(int, int) result = catch fails(some_fails_func());
+  if (result.positive) {
+    return result.left;
+  } else {
+    handle_error(result.right);
+    return -1;
+  }
+}
+```
+
+**C++ allows implicit handling:**
+```cpp
+// C++ - OK, compiler implicitly handles discriminant
+int foo() throws {
+  auto result = some_throws_func();  // compiler checks discriminant
+  if (result.failed) {
+    // handle or propagate
+  }
+  return result.value;
+}
+```
+
+### 7.8 Syntax Comparison: C vs C++
+
+| Feature | C++ | C |
+|---------|-----|---|
+| **Function specifier** | `throws` or `fails{E}` | `fails{E}` only |
+| **Implicit error type** | `std::error` (for `throws`) | N/A (must specify E) |
+| **Return error** | `throw throws expr` | `failure(expr)` |
+| **Error catching** | **Required for `fails{E}`**: `try(expr)` or `catch fails(expr)` | **Required**: `try(expr)` or `catch fails(expr)` |
+| **Auto-propagate** | `try expr` or `try(expr)` | `try(expr)` |
+| **Convert to sum** | `catch fails(expr)` → `either{T,E}` | `catch fails(expr)` → `either{T,E}` |
+| **Catch block** | `catch fails(E e) { }` | N/A (use `catch fails(expr)` expression) |
+| **Sum type** | `either{T, E}` | `either{T, E}` |
+| **Compile enforcement** | **Error for `fails{E}` without wrapper** | **Error if fails function called without wrapper** |
+
+### 7.9 Parser Implementation
+
+**File:** `clang/lib/Parse/ParseDeclCXX.cpp`
+
+**Function specifier parsing:**
+```cpp
+// After parsing function return type and name
+if (Tok.is(tok::kw_throws)) {
+  ConsumeToken();
+  // EST_BasicThrows - implicit std::error
+} else if (Tok.is(tok::kw_fails)) {
+  ConsumeToken();
+  if (Tok.is(tok::l_brace)) {
+    ConsumeBrace();
+    QualType ErrorType = ParseTypeName();
+    ExpectAndConsume(tok::r_brace);
+    // EST_FailsTyped with explicit error type
+  }
+}
+```
+
+**File:** `clang/lib/Parse/ParseExprCXX.cpp`
+
+**Throw parsing (C++):**
+```cpp
+if (Tok.is(tok::kw_throw)) {
+  ConsumeToken();
+  if (Tok.is(tok::kw_throws)) {
+    // Herbception: throw throws expr
+    ConsumeToken();
+    ExprResult E = ParseExpression();
+    return Actions.ActOnThrowThrowsExpr(ThrowLoc, ThrowsLoc, E);
+  } else if (Tok.isNot(tok::semi)) {
+    // Traditional: throw expr
+    ExprResult E = ParseExpression();
+    return Actions.ActOnThrowExpr(ThrowLoc, E);
+  }
+}
+```
+
+**File:** `clang/lib/Parse/ParseExpr.c`
+
+**Failure parsing (C):**
+```cpp
+if (Tok.is(tok::kw_failure)) {
+  ConsumeToken();
+  ExpectAndConsume(tok::l_paren);
+  ExprResult E = ParseExpression();
+  ExpectAndConsume(tok::r_paren);
+  return Actions.ActOnFailureExpr(FailureLoc, E);
+}
+```
+
+**Try parsing (C):**
+```cpp
+if (Tok.is(tok::kw_try)) {
+  ConsumeToken();
+  ExpectAndConsume(tok::l_paren);
+  ExprResult E = ParseExpression();
+  ExpectAndConsume(tok::r_paren);
+  return Actions.ActOnTryExpr(TryLoc, E);
+}
+```
+
+**Catch parsing (C):**
+```cpp
+if (Tok.is(tok::kw_catch)) {
+  ConsumeToken();
+  if (Tok.is(tok::kw_fails)) {
+    ConsumeToken();
+    ExpectAndConsume(tok::l_paren);
+    ExprResult E = ParseExpression();
+    ExpectAndConsume(tok::r_paren);
+    return Actions.ActOnCatchFailsExpr(CatchLoc, E);
+  }
+}
+```
+
+**File:** `clang/lib/Parse/ParseStmt.cpp`
+
+**Catch parsing (C++):**
+```cpp
+while (Tok.is(tok::kw_catch)) {
+  ConsumeToken();
+  
+  if (Tok.is(tok::kw_throws)) {
+    // Herbception: catch throws(type e)
+    ConsumeToken();
+    ParseCatchesThrowsClause();
+  } else {
+    // Traditional: catch(type e)
+    ParseTraditionalCatchClause();
+  }
+}
+```
+
+### 7.9 AST Nodes
+
+**C++ AST nodes:**
+```cpp
+// CXXThrowThrowsExpr - herbception throw (throw throws expr)
+class CXXThrowThrowsExpr : public Expr {
+  Expr *ErrorValue;
+  SourceLocation ThrowsLoc;
+};
+
+// CXXCatchThrowsStmt - herbception catch (catch throws(e) { })
+class CXXCatchThrowsStmt : public Stmt {
+  VarDecl *ErrorDecl;
+  Stmt *HandlerBlock;
+};
+```
+
+**C AST nodes:**
+```cpp
+// FailureExpr - failure(expr)
+class FailureExpr : public Expr {
+  Expr *ErrorValue;
+};
+
+// TryExpr - try(expr)
+class TryExpr : public Expr {
+  Expr *SubExpr;  // auto-propagates failure
+};
+
+// CatchFailsExpr - catch fails(expr)
+class CatchFailsExpr : public Expr {
+  Expr *SubExpr;  // converts to either<T, E>
+};
+
+// EitherType - either{T, E}
+class EitherType : public Type {
+  QualType LeftType;   // success type T
+  QualType RightType;  // failure type E
+};
+```
+
+**File:** `clang/include/clang/AST/StmtCXX.h` (C++)
+**File:** `clang/include/clang/AST/Stmt.h` (C)
+
+### 7.10 Semantic Analysis
+
+**File:** `clang/lib/Sema/SemaExprCXX.cpp`
+
+```cpp
+Sema::ActOnThrowThrowsExpr(SourceLocation ThrowLoc, SourceLocation ThrowsLoc,
+                           Expr *ErrorValue) {
+  // Check that function has throws/fails specifier
+  FunctionDecl *FD = getCurrentFunctionDecl();
+  if (!FD->hasThrowsOrFailsSpecifier()) {
+    Diag(ThrowLoc, diag::err_throw_throws_without_spec);
+    return ExprError();
+  }
+  
+  // Check error type matches function's declared error type
+  QualType ErrorType = ErrorValue->getType();
+  QualType ExpectedErrorType = FD->getErrorType();  // std::error or E from fails{E}
+  
+  return new (Context) CXXThrowThrowsExpr(ErrorValue, ThrowsLoc);
+}
+```
+
+**File:** `clang/lib/Sema/SemaExpr.c`
+
+```cpp
+Sema::ActOnTryExpr(SourceLocation TryLoc, Expr *SubExpr) {
+  // try(expr) auto-propagates failure:
+  // If expr fails: return failure(expr.right)
+  // If expr succeeds: use expr.left
+  
+  // Check that current function has matching fails specifier
+  FunctionDecl *FD = getCurrentFunctionDecl();
+  if (!FD->hasFailsSpecifier()) {
+    Diag(TryLoc, diag::err_try_without_fails_spec);
+    return ExprError();
+  }
+  
+  return new (Context) TryExpr(SubExpr);
+}
+
+// C compile-time enforcement: calling fails function without wrapper is error
+Sema::CheckCallExpr(CallExpr *CE) {
+  FunctionDecl *Callee = CE->getCalleeDecl();
+  
+  // In C mode: check if callee has fails specifier
+  if (getLangOpts().C99 && Callee->hasFailsSpecifier()) {
+    // Check if this call is inside try() or catch fails() wrapper
+    Expr *Parent = getParentExpr(CE);
+    if (!isTryOrCatchFailsWrapper(Parent)) {
+      Diag(CE->getBeginLoc(), diag::err_fails_call_without_wrapper);
+      Diag(Callee->getLocation(), diag::note_fails_function_declared_here);
+      return ExprError();
+    }
+  }
+}
+```
+
+**Error message example:**
+```
+error: calling function with 'fails{E}' specifier requires 'try()' or 'catch fails()' wrapper
+  int x = some_fails_func();
+          ^~~~~~~~~~~~~~~
+note: function declared with 'fails{int}' here
+  int some_fails_func() fails{int};
+      ^
+
+// Correct usage:
+  int x = try(some_fails_func());       // auto-propagate
+  either(int, int) e = catch fails(some_fails_func());  // convert to either
+```
+
+### 7.11 Code Generation
+
+**Herbception throw (C++):**
+```cpp
+void CodeGenFunction::EmitCXXThrowThrowsExpr(const CXXThrowThrowsExpr *E) {
+  llvm::Value *ErrorVal = EmitScalarExpr(E->getErrorValue());
+  
+  // Emit destructors for current scope (normal cleanup)
+  EmitCleanupForScopeExit();
+  
+  // Return with discriminant set
+  llvm::Value *Failed = Builder.getInt1(1);
+  llvm::Value *Result = Builder.CreateInsertValue(
+      llvm::UndefValue::get(ResultType), ErrorVal, 0);
+  Result = Builder.CreateInsertValue(Result, Failed, 1);
+  Builder.CreateRet(Result);
+}
+```
+
+**Failure expression (C):**
+```cpp
+void CodeGenFunction::EmitFailureExpr(const FailureExpr *E) {
+  llvm::Value *ErrorVal = EmitScalarExpr(E->getErrorValue());
+  
+  // Return via failure channel
+  llvm::Value *Failed = Builder.getInt1(1);
+  llvm::Value *Result = Builder.CreateInsertValue(
+      llvm::UndefValue::get(ResultType), ErrorVal, 0);
+  Result = Builder.CreateInsertValue(Result, Failed, 1);
+  Builder.CreateRet(Result);
+}
+```
+
+**Try expression (C) — auto-propagate:**
+```cpp
+void CodeGenFunction::EmitTryExpr(const TryExpr *E) {
+  // Call the sub-expression
+  llvm::Value *Result = EmitScalarExpr(E->getSubExpr());
+  
+  // Check discriminant
+  llvm::Value *Failed = Builder.CreateExtractValue(Result, 1);
+  
+  // If failed: propagate error (return failure)
+  llvm::BasicBlock *PropagateBB = createBasicBlock("try.propagate");
+  llvm::BasicBlock *SuccessBB = createBasicBlock("try.success");
+  
+  Builder.CreateCondBr(Builder.CreateICmpNE(Failed, Builder.getInt1(0)),
+                       PropagateBB, SuccessBB);
+  
+  // Propagate block: return the error
+  EmitBlock(PropagateBB);
+  Builder.CreateRet(Result);  // propagate error
+  
+  // Success block: continue with value
+  EmitBlock(SuccessBB);
+  llvm::Value *Value = Builder.CreateExtractValue(Result, 0);
+  // Value is now available for subsequent use
+}
+```
+
+**Catch fails expression (C) — convert to either:**
+```cpp
+void CodeGenFunction::EmitCatchFailsExpr(const CatchFailsExpr *E) {
+  // Call the sub-expression
+  llvm::Value *Result = EmitScalarExpr(E->getSubExpr());
+  
+  // Create either<T, E> result
+  llvm::Type *EitherTy = getEitherType(E->getType());
+  llvm::Value *Either = llvm::UndefValue::get(EitherTy);
+  
+  // .positive = !failed
+  llvm::Value *Failed = Builder.CreateExtractValue(Result, 1);
+  llvm::Value *Positive = Builder.CreateICmpEQ(Failed, Builder.getInt1(0));
+  Either = Builder.CreateInsertValue(Either, Positive, 0);  // .positive
+  
+  // Extract value or error based on discriminant
+  llvm::Value *Payload = Builder.CreateExtractValue(Result, 0);
+  
+  // Create union storage for .left/.right
+  // If positive: store in .left
+  // If negative: store in .right
+  Either = Builder.CreateInsertValue(Either, Payload, 1);  // union
+  
+  // Note: caller accesses .left or .right based on .positive
+}
+```
+
+---
+
+## Part 8: Function Pointer Compatibility
+
+### 8.1 Strict Type Separation
+
+Function pointers with `throws/fails` are **distinct types** — no implicit conversions allowed either way:
+
+```cpp
+// Different types — no implicit conversion
+void (*p1)(int);                    // normal function pointer
+void (*p2)(int) throws;             // throws function pointer — different type!
+void (*p3)(int) fails{E};           // fails function pointer — different type!
+
+// These are compile errors:
+p1 = p2;  // ERROR: cannot assign throws pointer to non-throws pointer
+p2 = p1;  // ERROR: cannot assign non-throws pointer to throws pointer
+p1 = p3;  // ERROR: cannot assign fails pointer to non-fails pointer
+p3 = p1;  // ERROR: cannot assign non-fails pointer to fails pointer
+```
+
+### 8.2 Comparison with `noexcept`
+
+This mirrors the existing `noexcept` situation:
+
+```cpp
+// noexcept function pointers (existing C++17 behavior)
+void (*p1)(int);           // can throw
+void (*p2)(int) noexcept;  // cannot throw
+
+// C++17 allows: noexcept → non-noexcept (safe conversion)
+p1 = p2;  // OK: noexcept function can be called as non-noexcept
+
+// C++17 disallows: non-noexcept → noexcept (unsafe)
+p2 = p1;  // ERROR: throwing function cannot be called as noexcept
+```
+
+**Why `throws/fails` is stricter:**
+- `noexcept`: calling convention is same, just adds optimization hint
+- `throws/fails`: calling convention **changes** (struct return vs discriminant)
+- Implicit conversion would cause ABI mismatch at runtime
+
+### 8.3 Use Cases for `throws/fails` Function Pointers
+
+**Calling C APIs with error handling:**
+```cpp
+// POSIX open() returns -1 on error, sets errno
+// Can be wrapped as fails function:
+int open_wrapped(const char* path, int flags) fails{int} {
+  int fd = open(path, flags);
+  if (fd < 0) return failure(errno);
+  return fd;
+}
+
+// Store function pointer for later use
+int (*open_func)(const char*, int) fails{int} = open_wrapped;
+```
+
+**Callback patterns:**
+```cpp
+// Callback that might fail
+using ErrorCallback = void(*)(int error_code) fails{int};
+
+// Register callback
+void register_callback(ErrorCallback cb) {
+  // cb must be fails{int} function pointer
+}
+```
+
+### 8.4 Canonical Type Rules
+
+**Similar to `noexcept` in C++17:**
+
+| Specifier | Part of canonical type? | Conversion allowed? |
+|-----------|------------------------|---------------------|
+| `noexcept` | No (since C++17) | noexcept → non-noexcept OK |
+| `throws` | **Yes** | No conversions |
+| `fails{E}` | **Yes** | No conversions |
+
+**Implementation:**
+```cpp
+// clang/lib/AST/ASTContext.cpp
+QualType ASTContext::getCanonicalType(QualType T) {
+  // throws/fails affects canonical type (unlike noexcept since C++17)
+  if (const FunctionProtoType *FPT = T->getAs<FunctionProtoType>()) {
+    if (FPT->hasThrowsOrFailsSpecifier()) {
+      // throws/fails is part of canonical type
+      return getFunctionTypeWithThrowsSpec(...);
+    }
+  }
+}
+```
+
+### 8.5 Template Deduction
+
+```cpp
+// Template deduction respects throws/fails
+template<typename F>
+void call_func(F func);
+
+void normal_func(int);
+void throws_func(int) throws;
+void fails_func(int) fails{int};
+
+// Each deduces different F:
+call_func(normal_func);  // F = void(*)(int)
+call_func(throws_func);  // F = void(*)(int) throws
+call_func(fails_func);   // F = void(*)(int) fails{int}
+
+// Cannot mix:
+template<typename F>
+void wrapper(F func) throws {
+  func(42);  // ERROR if F is non-throws/non-fails
+}
+```
+
+### 8.6 ABI Implications
+
+| Function Type | Return ABI | Caller responsibility |
+|---------------|------------|----------------------|
+| Normal | T in register(s) | No error checking |
+| `throws` | `{T, i1}` or discriminant | Must check discriminant |
+| `fails{E}` | `{T, i1}` or discriminant | Must check discriminant |
+
+**Mixing would cause:**
+- Caller expects normal return, callee returns struct → corruption
+- Caller expects discriminant, callee returns normal → undefined behavior
+
+### 8.7 Sema Implementation
+
+**File:** `clang/lib/Sema/SemaExpr.cpp`
+
+```cpp
+Sema::CheckFunctionPointerAssignment(QualType ToType, QualType FromType) {
+  const FunctionProtoType *ToFPT = ToType->getAs<FunctionProtoType>();
+  const FunctionProtoType *FromFPT = FromType->getAs<FunctionProtoType>();
+  
+  // Check throws/fails specifier match
+  bool ToHasThrows = ToFPT && ToFPT->hasThrowsSpecifier();
+  bool FromHasThrows = FromFPT && FromFPT->hasThrowsSpecifier();
+  bool ToHasFails = ToFPT && ToFPT->hasFailsSpecifier();
+  bool FromHasFails = FromFPT && FromFPT->hasFailsSpecifier();
+  
+  // No implicit conversions allowed
+  if (ToHasThrows != FromHasThrows || ToHasFails != FromHasFails) {
+    Diag(Loc, diag::err_func_ptr_throws_mismatch);
+    return false;
+  }
+  
+  // If both have fails, error types must match
+  if (ToHasFails && FromHasFails) {
+    QualType ToErrorType = ToFPT->getFailsErrorType();
+    QualType FromErrorType = FromFPT->getFailsErrorType();
+    if (!Context.hasSameType(ToErrorType, FromErrorType)) {
+      Diag(Loc, diag::err_func_ptr_fails_type_mismatch);
+      return false;
+    }
+  }
+  
+  return true;
+}
+```
+
+---
+
+## Part 9: Implementation Phases
 
 Parse `fails{E}` after function signature:
 ```cpp
