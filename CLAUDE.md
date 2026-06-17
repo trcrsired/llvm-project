@@ -6,18 +6,86 @@ This document provides a comprehensive analysis of the LLVM/Clang codebase for i
 
 ## Overview
 
+### Semantic Equivalence
+
+**C++:**
+```cpp
+T foo() throws;              // Returns T on success, std::error on failure
+```
+
+**C:**
+```c
+void foo() fails{std::error}; // Returns void, std::error is error return type
+```
+
+**Key insight:** `T foo() throws` in C++ is semantically equivalent to `void foo() fails{std::error}` in C. The only difference is that C++ binds the success return type T to the function signature, while C binds only the error type.
+
+### No Two-Phase Rollback — Key Difference from Traditional EH
+
+**Critical distinction:** `throws/fails` uses normal return semantics, not exception unwinding:
+
+| Aspect | Traditional C++ EH | throws/fails |
+|--------|---------------------|--------------|
+| **Mechanism** | `throw` → unwinder → landing pad | `return` → discriminant check → branch |
+| **Destructor calls** | During phase-2 unwinding (async) | During normal scope exit (sync) |
+| **Unwinding phases** | 2-phase: search then unwind | None — just return and propagate |
+| **Landing pads** | Required | Not needed |
+| **Personality function** | Required | Not needed |
+| **Zero-cost?** | Zero-cost at call site, expensive when thrown | Zero-cost always (no EH tables) |
+
+**Error propagation flow:**
+```cpp
+T foo() throws {          // marks itself as potentially failing
+  A a;                    // destructor needed
+  auto result = bar();    // bar() throws
+  
+  if (result.failed) {    // caller checks discriminant
+    // ~A() called on normal scope exit
+    // propagate error to caller: return result.error
+    return propagate(result);
+  }
+  // success: ~A() called at end of scope
+  return result.value;
+}
+```
+
+### IR Representation
+
+Both are represented in LLVM IR as:
+```llvm
+; Struct return with discriminant (fallback mechanism)
+%throws_result = type { [sizeof(T_or_E) x i8], i1 }  ; union + failed flag
+
+; Actual representation for T foo() throws:
+define { T, i1 } @foo(...) #throws {  ; #throws attribute for backend optimization
+  ; ...
+}
+
+; Actual representation for void foo() fails{E}:
+define { E, i1 } @foo(...) #throws {  ; E is the error type, i1 is discriminant
+  ; ...                                                 ; (void return means only error matters)
+}
+```
+
+**With `throws` attribute:** Backend can optimize using target-specific mechanisms (carry flag, extra register).
+
+**Without backend support:** Falls back to struct return via multiple registers.
+
 ### Implementation Strategy
 
-1. **IR Representation (Fallback):** `{ union{T, E}; bool; }` struct — default mechanism when backend lacks special support
-2. **Clang Frontend:** Passes special flag indicating `throws` function
-3. **Backend Optimization:** If backend implements special handling, uses target-specific mechanism; otherwise falls back to struct
-4. **Target-Specific Mechanisms:**
-   - **x86_64:** Carry flag (CF in EFLAGS)
-   - **AArch64:** Carry flag (C in NZCV)
-   - **RISC-V:** Extra register (a2/X12) for discriminant
-   - **LoongArch:** Extra register (a2/R6) for discriminant
-5. **C Language:** `fails{E}` keyword for typed errors
-6. **C++:** Uses `std::error` type
+1. **IR Representation:** `{ union{T, E}, bool failed }` with `throws` attribute — backend can optimize or fallback to struct
+2. **C++ `throws`:** `T foo() throws` → IR: `{ T, i1 }` return (T is success value)
+3. **C `fails{E}:** `void foo() fails{E}` → IR: `{ E, i1 }` return (E is error value, void means no success value)
+4. **Destructor handling:** Normal scope-based cleanup (no landing pads, no unwinding)
+5. **Error propagation:** Caller checks discriminant, calls destructors, returns error
+6. **Backend Optimization:** 
+   - With `throws` attribute + `supportThrowsCC()`: target-specific discriminant
+   - Without: struct return via registers
+7. **Target-Specific Mechanisms:**
+   - **x86_64:** Carry flag (CF in EFLAGS) — T in RAX, error indicated by CF
+   - **AArch64:** Carry flag (C in NZCV) — T in X0, error indicated by NZCV.C
+   - **RISC-V:** Extra register a2 (X12) — T in a0, discriminant in a2
+   - **LoongArch:** Extra register a2 (R6) — T in a0, discriminant in a2
 
 ---
 
@@ -823,11 +891,176 @@ Current: `__cxa_begin_catch`, `__cxa_end_catch`
 - `catch` becomes error handler block
 - No runtime calls
 
+### 6.5 Destructor Handling — No Two-Phase Rollback
+
+**Key difference from traditional C++ EH:**
+
+| Mechanism | Traditional EH | throws/fails |
+|-----------|----------------|--------------|
+| **Unwinding** | 2-phase: search → unwind | Normal return path |
+| **Destructor timing** | During phase-2 unwinding | During normal scope exit |
+| **Landing pads** | Required for cleanup | Not needed |
+| **Personality function** | Required for unwinder | Not needed |
+| **Control flow** | Asynchronous (throw jumps) | Synchronous (return + branch) |
+
+**Traditional C++ EH (2-phase):**
+```cpp
+void foo() {
+  A a;               // destructor needed
+  bar();             // might throw
+}
+// If bar() throws:
+// Phase 1: Search for catch handler
+// Phase 2: Unwind stack, run ~A() via landing pad
+```
+
+**throws/fails (normal return):**
+```cpp
+void foo() throws {              // marks itself as potentially failing
+  A a;                           // destructor needed
+  bar();                         // if bar() throws/fails
+  // bar returns with discriminant
+  // foo checks discriminant
+  // if error: ~A() called on normal scope exit, then return error
+}
+```
+
+**IR representation for destructor cleanup:**
+```llvm
+define { void, i1 } @foo(...) #throws {
+  ; construct A
+  call void @A_constructor(%A* %a)
+  
+  ; call bar
+  %result = call { void, i1 } @bar(...) #throws
+  
+  ; check discriminant
+  %failed = extractvalue { void, i1 } %result, 1
+  br i1 %failed, label %error_exit, label %normal_exit
+  
+normal_exit:
+  ; continue normal execution
+  br %return
+  
+error_exit:
+  ; call destructor on normal path (not landing pad!)
+  call void @A_destructor(%A* %a)
+  br %propagate_error
+  
+propagate_error:
+  ; return error to caller
+  ret { void, i1 } { undef, i1 1 }
+}
+```
+
+### 6.6 Error Propagation Pattern
+
+**Caller code pattern:**
+```cpp
+T foo() throws {
+  A a;
+  B b;
+  
+  auto result = bar();  // bar() throws
+  
+  if (result.failed) {
+    // ~b() called first (reverse construction order)
+    // ~a() called next
+    // propagate error: return result.error
+    return propagate(result.error);
+  }
+  
+  // success path
+  // ~b() and ~a() called at normal end of scope
+  return result.value;
+}
+```
+
+**Generated IR structure:**
+```llvm
+define { T, i1 } @foo(...) #throws {
+entry:
+  ; construct objects
+  call void @A_ctor(%A* %a)
+  call void @B_ctor(%B* %b)
+  
+  ; call throws function
+  %bar_result = call { X, i1 } @bar(...) #throws
+  %bar_failed = extractvalue { X, i1 } %bar_result, 1
+  
+  ; branch on discriminant
+  br i1 %bar_failed, label %cleanup_error, label %success
+  
+success:
+  ; normal path
+  call void @B_dtor(%B* %b)   ; end-of-scope destructors
+  call void @A_dtor(%A* %a)
+  ret { T, i1 } { %success_value, i1 0 }
+  
+cleanup_error:
+  ; error propagation path (NOT landing pad!)
+  call void @B_dtor(%B* %b)   ; reverse-order destructors
+  call void @A_dtor(%A* %a)
+  ret { T, i1 } { %error_value, i1 1 }
+}
+```
+
+### 6.7 Key Implementation Implications
+
+1. **No EH infrastructure needed:**
+   - No `invoke` instructions
+   - No landing pads
+   - No personality function
+   - No LSDA tables
+
+2. **Normal code flow:**
+   - All cleanup happens on normal return paths
+   - Branch on discriminant determines which path
+   - Destructors called explicitly before returning error
+
+3. **Clang CodeGen changes:**
+   - `EHScopeStack` not needed for throws functions
+   - Cleanups become normal scope-based (like `goto` cleanup)
+   - No `pushTerminate()` for throws (unlike noexcept)
+
+4. **Function marking:**
+   - Function declares `throws`/`fails` to indicate potential failure
+   - Caller must check discriminant
+   - Caller propagates error by returning with discriminant set
+
 ---
 
 ## Part 7: C Language `fails{E}` Syntax
 
-### 7.1 Token Addition
+### 7.1 Semantic Equivalence with C++ `throws`
+
+**Key insight:**
+```
+C++: T foo() throws;         ≡  C: void foo() fails{std::error}  (with implicit T return)
+C++: void foo() throws;      ≡  C: void foo() fails{std::error}  (no success value)
+```
+
+**IR representation (identical for both):**
+```llvm
+; T foo() throws in C++:
+define { T, i1 } @foo(...) #throws {
+  ; Returns {value, failed_flag}
+}
+
+; void foo() fails{E} in C:
+define { E, i1 } @foo(...) #throws {
+  ; Returns {error_value, failed_flag}
+  ; When failed_flag=0: function succeeded (void return)
+  ; When failed_flag=1: error_value contains E
+}
+```
+
+**The only difference:**
+- C++ binds the success return type `T` to the function signature
+- C binds only the error type `E` to `fails{E}`
+- Both use the same `throws` attribute in IR for backend optimization
+
+### 7.2 Token Addition
 
 **File:** `clang/include/clang/Basic/TokenKinds.def`
 
@@ -836,7 +1069,7 @@ Add:
 KEYWORD(fails, KEYC)
 ```
 
-### 7.2 Parser Handling (C-specific)
+### 7.3 Parser Handling (C-specific)
 
 **File:** `clang/lib/Parse/ParseDecl.c`
 
@@ -851,22 +1084,34 @@ if (Tok.is(tok::kw_fails)) {
     QualType ErrorType = ParseTypeName();
     ExpectAndConsume(tok::r_brace);
     // Store in FunctionDecl
+    // If function returns void, IR will be {E, i1}
+    // If function returns T, IR will be {union{T,E}, i1}
   }
 }
 ```
 
-### 7.3 AST Storage for C
+### 7.4 AST Storage for C
 
-Similar to `throws(T)` in C++:
-- Store error type `QualType`
+Similar to `throws` in C++:
+- Store error type `QualType` in trailing objects
 - Method: `getErrorType()` on `FunctionDecl` or `FunctionProtoType`
+- Function return type remains as declared (void or T)
 
-### 7.4 C Error Type Semantics
+### 7.5 C Error Type Semantics
 
-Unlike C++ which uses `std::error`:
-- C `fails{E}` allows any type E as error
-- Error type is explicitly specified
-- Discriminant value encodes E type info
+**C `fails{E}` behavior:**
+- Allows any type E as error (not restricted to `std::error`)
+- Error type is explicitly specified in `fails{E}` braces
+- For `void foo() fails{E}`: IR returns `{E, i1}`
+- For `T foo() fails{E}`: IR returns `{union{T, E}, i1}`
+
+**Comparison with C++:**
+| Feature | C++ `throws` | C `fails{E}` |
+|---------|--------------|--------------|
+| Success return type | T (explicit) | void (implicit) or T (explicit) |
+| Error type | `std::error` (implicit) | E (explicit in braces) |
+| IR representation | `{T, i1}` | `{E, i1}` or `{union{T,E}, i1}` |
+| Attribute | `#throws` | `#throws` (same) |
 
 ---
 
@@ -949,32 +1194,63 @@ Unlike C++ which uses `std::error`:
 
 ## Part 9: Discriminant Mechanism Summary
 
-### Fallback: Struct Return
+### IR Representation with `throws` Attribute
 
-**IR:** `{ T, i1 }` or `{ union{T, E}, i1 }`
+**C++ `T foo() throws`:**
+```llvm
+define { T, i1 } @foo(...) #throws {
+  ; i1 = 0: success, T is valid
+  ; i1 = 1: failure, error indicated (T may be error value)
+}
+```
 
-**Calling convention:**
-- T in first return register (RAX/a0)
-- Discriminant in second register (RDX/a1)
-- Backend checks `supportThrowsCC()` — if false, uses this
+**C `void foo() fails{E}`:**
+```llvm
+define { E, i1 } @foo(...) #throws {
+  ; i1 = 0: success (void return)
+  ; i1 = 1: failure, E contains error
+}
+```
 
-### Target-Specific Optimizations
+**C `T foo() fails{E}`:**
+```llvm
+define { [max(T,E) x i8], i1 } @foo(...) #throws {
+  ; union + discriminant
+  ; i1 = 0: union contains T
+  ; i1 = 1: union contains E
+}
+```
 
-| Target | Mechanism | Implementation |
-|--------|-----------|----------------|
-| x86-64 | Carry flag (CF) | `STC`/`CLC` + `JC`/`JNC` |
-| AArch64 | NZCV.C flag | `SUBS` + `CSET` with HS/LO |
-| RISC-V | Register a2 (X12) | `li a2, 0/1` + `beqz a2` |
-| LoongArch | Register a2 (R6) | `li $a2, 0/1` + `beqz $a2` |
+### Fallback: Struct Return (No Backend Support)
+
+**Calling convention when `supportThrowsCC() == false`:**
+- `{T, i1}`: T in first register (RAX/a0), discriminant in second (RDX/a1)
+- `{E, i1}`: E in first register, discriminant in second
+- `{union, i1}`: union split across registers, discriminant in extra register
+
+### Target-Specific Optimizations (Backend Support)
+
+When `supportThrowsCC() == true`, backend uses optimized discriminant:
+
+| Target | Mechanism | Caller Check | Callee Set |
+|--------|-----------|--------------|------------|
+| x86-64 | Carry flag (CF) | `jc error` / `jnc success` | `stc` (error) / `clc` (success) |
+| AArch64 | NZCV.C flag | `cset w0, hs` (error check) | `subs xzr, xzr, #1` (set C) |
+| RISC-V | Register a2 (X12) | `beqz a2, success` | `li a2, 0` (success) / `li a2, 1` (error) |
+| LoongArch | Register a2 (R6) | `beqz $a2, success` | `li $a2, 0` (success) / `li $a2, 1` (error) |
 
 ### Discriminant Value Encoding
 
-**Success:** Discriminant = 0
-**Error:** Discriminant ≠ 0
+**Success:** Discriminant = 0 (CF=0, a2=0)
+**Error:** Discriminant ≠ 0 (CF=1, a2≠0)
 
-For typed errors (`throws(T)` or `fails{E}`):
-- Discriminant could encode error type tag
-- Or error value in T's register, discriminant just indicates error state
+**For C++ `throws`:**
+- Success: T in return register, discriminant = 0
+- Error: error value in return register, discriminant ≠ 0
+
+**For C `fails{E}`:**
+- Success: no value (void), discriminant = 0
+- Error: E in return register, discriminant ≠ 0
 
 ---
 
@@ -1038,34 +1314,50 @@ For typed errors (`throws(T)` or `fails{E}`):
 
 ### 1. Discriminant for Typed Errors
 
-For `throws(T)` or `fails{E}`:
-- How to encode error type in discriminant?
-- Option A: Discriminant = error tag, error value in T's register
-- Option B: Use union representation `{union{T,E}, bool}`
+For `T foo() fails{E}` (C with both return and error types):
+- IR: `{ [max(T,E) x i8], i1 }` — union representation
+- Backend optimization: same discriminant mechanism, union in return register(s)
+- When discriminant = 0: union contains T
+- When discriminant ≠ 0: union contains E
 
 ### 2. Error Type Matching
 
 - `catch(E e)` needs to match error type
-- Similar to current exception type matching
-- Use discriminant value + type info?
+- For C++ `throws`: implicit `std::error` matching
+- For C `fails{E}`: explicit E type matching
+- Discriminant + error value comparison
 
 ### 3. Interaction with Existing EH
 
-- Can `throws` and traditional `throw` coexist?
-- What happens when `throws` function calls throwing function?
-- Mixed mode handling
+- Can `throws` and traditional `throw` coexist in same program?
+- What happens when `throws` function calls non-`throws` throwing function?
+- Mixed mode handling: `throws` caller must handle traditional exceptions via try/catch
 
-### 4. C `fails{E}` vs C++ `throws`
+### 4. C `fails{E}` vs C++ `throws` — Resolved
 
-- C allows arbitrary error type E
-- C++ uses `std::error` type
-- Different semantics but same IR representation?
+**Semantic equivalence:**
+```
+T foo() throws (C++)     ≡ void foo() fails{std::error} (C)
+void foo() throws (C++)  ≡ void foo() fails{std::error} (C)
+```
 
-### 5. Optimization
+**Difference:**
+- C++ binds T (success return) to signature, uses implicit `std::error`
+- C binds E (error type) to `fails{E}`, allows explicit error type
+- IR uses same `throws` attribute, different struct composition
+
+### 5. Backend Support Detection
+
+- `supportThrowsCC()` returns true → use target-specific discriminant
+- `supportThrowsCC()` returns false → use struct fallback
+- Need per-target implementation: x86-64, AArch64, RISC-V, LoongArch
+
+### 6. Optimization
 
 - Dead discriminant elimination for known-success paths
 - Inlining across throws boundaries
 - SROA for struct fallback representation
+- Carry flag propagation for flag-based targets
 
 ---
 
