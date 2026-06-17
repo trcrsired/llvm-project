@@ -1065,73 +1065,392 @@ T foo() fails{E};
 - `{E}` clearly indicates a type parameter
 - Consistent with C23 keyword approach (no `_` prefix macros)
 
-### 7.3 C++ Throw Syntax
+### 7.3 C++ `throws` — Value-Based, Not Type-Based
 
-**Traditional EH:**
+**Key principle:** Herbception is **value-based**, not type-based. No exception types like traditional EH.
+
+**Traditional EH (type-based):**
 ```cpp
-throw std::runtime_error("error");  // dynamic exception
+throw std::runtime_error("error");  // type-based exception
+throw MyCustomException(42);        // different type
 ```
 
-**Herbception:**
+**Herbception `throws` (value-based):**
 ```cpp
-throw throws std::error("error");   // for throws (implicit std::error)
-throw throws E(e_value);            // for fails{E} (explicit error type)
+// throws only allows enums convertible to std::error
+throw throws std::errc::file_not_found;
+throw throws std::nt_errc::invalid_parameter;
+throw throws std::win32_errc::access_denied;
+throw throws std::wine_errc::wine_server_error;
 ```
 
-**IR generation:**
-```llvm
-; Traditional throw:
-call void @__cxa_throw(%exception_ptr, %type_info, %destructor)
+**No `std::error` constructor:** You don't construct `std::error` directly. You throw enum values that are convertible to `std::error`.
 
-; Herbception throw:
-ret { E, i1 } { %error_value, i1 1 }  ; return with discriminant set
+**Standard error enums:**
+```cpp
+// Existing (always available)
+enum class errc { ... };  // POSIX errno values (std::errc already exists)
+
+// New (available when _WIN32 defined)
+enum class nt_errc { ... };     // NTSTATUS values
+enum class win32_errc { ... };  // Win32 error codes (GetLastError)
+enum class com_errc { ... };    // COM HRESULT values
+enum class wine_errc { ... };   // Host environment POSIX errno (for calling host libc)
 ```
 
-### 7.4 C++ Catch Syntax — catches both `throws` and `fails{E}`
+**Note:** `std::errc` is an existing C++ standard enum for POSIX errno values. The new enums (`nt_errc`, `win32_errc`, `com_errc`, `wine_errc`) extend this pattern for Windows.
 
-**Traditional EH:**
+**`wine_errc` purpose:** Represents host environment POSIX errno in a general way, allowing direct calls to host libc APIs. The errno values are cross-platform and defined by Wine for Windows programs running under Wine.
+
+**`std::error` is a magic type:**
 ```cpp
-try {
-  foo();
-} catch(std::exception& e) {
-  // handle exception
+// std::error is not constructible directly
+// std::error auto-converts from any *_errc enum
+std::error e = std::errc::file_not_found;  // implicit conversion
+std::error e = std::nt_errc::invalid_parameter;  // implicit conversion
+```
+
+**`std::error` implementation — concrete skeleton:**
+
+```cpp
+// io_scatter_t — basically iovec (for scatter/gather IO)
+struct io_scatter_t {
+  void const* base;
+  std::size_t len;
+};
+
+// error_reporter_encoding — avoids unnecessary codecvt (e.g., on Windows)
+enum class error_reporter_encoding {
+  utf8,
+  utf16,    // native endian
+  utf32,    // native endian
+  gb18030,
+  utfebcdic
+};
+
+// error_reporter_io_cookie_function — IO callback for freestanding
+using error_reporter_io_cookie_function = void (*)(error_reporter_encoding, void*, io_scatter_t const*, std::size_t) noexcept;
+
+// error_domain_singleton — custom "vtable" (not C++ vtable)
+struct error_domain_singleton {
+  bool (*do_equivalent)(std::size_t, error_domain_singleton const*, std::size_t) noexcept;
+  void (*do_name)(std::size_t, error_reporter_encoding, void*, error_reporter_io_cookie_function) noexcept;
+  void (*do_message)(std::size_t, error_reporter_encoding, void*, error_reporter_io_cookie_function) noexcept;
+  std::errc (*do_to_errc)(std::size_t) noexcept;
+  void (*do_cleanup)(std::size_t) noexcept;  // called when std::error goes out of scope
+};
+
+// std::error — 2-register type (trivially relocatable, constexpr)
+struct error {
+  error_domain_singleton const* domain_opaque{};  // Register 1: domain singleton
+  std::size_t code_opaque{};                       // Register 2: error code
+  
+  // Destructor — calls domain's do_cleanup
+  constexpr ~error() noexcept {
+    if (domain_opaque && domain_opaque->do_cleanup) {
+      domain_opaque->do_cleanup(code_opaque);
+    }
+  }
+  
+  // Move constructor — nullify source to prevent double cleanup
+  constexpr error(error&& other) noexcept 
+    : domain_opaque(other.domain_opaque), code_opaque(other.code_opaque) {
+    other.domain_opaque = nullptr;
+    other.code_opaque = 0;
+  }
+  
+  // Move assignment — cleanup current, then move and nullify source
+  constexpr error& operator=(error&& other) noexcept {
+    if (this != &other) {
+      // Cleanup current value
+      if (domain_opaque && domain_opaque->do_cleanup) {
+        domain_opaque->do_cleanup(code_opaque);
+      }
+      // Move from other
+      domain_opaque = other.domain_opaque;
+      code_opaque = other.code_opaque;
+      // Nullify source
+      other.domain_opaque = nullptr;
+      other.code_opaque = 0;
+    }
+    return *this;
+  }
+  
+  // Copy NOT allowed
+  error(const error&) = delete;
+  error& operator=(const error&) = delete;
+  
+  // Cross-domain comparison
+  template<typename T>
+  constexpr bool do_equivalent(T ec) noexcept {
+    return domain_opaque->do_equivalent(code_opaque, error_domain<T>::domain(), ec);
+  }
+  
+  // Convert to POSIX errc for strerror etc.
+  constexpr std::errc do_to_errc() noexcept {
+    return domain_opaque->do_to_errc(code_opaque);
+  }
+};
+
+// Template for each error domain
+template<typename T>
+requires (std::is_enum_v<T>)
+struct error_domain {
+  using errc_type = T;
+  static error_domain_singleton const* domain() noexcept;
+  static std::size_t code(errc_type e) noexcept;
+};
+
+// Comparison operators
+template<typename T>
+requires (std::is_enum_v<T>)
+constexpr bool operator==(std::error e, T t) noexcept {
+  return error_domain<T>::code(t) == e.code_opaque &&
+         error_domain<T>::domain() == e.domain_opaque;
 }
 ```
 
-**Herbception — catches `throws` or `fails{E}`:**
+**Domain singleton example (win32) — `constinit` for compile-time init:**
 ```cpp
-// For throws (implicit std::error) — C++ only
+namespace std::error_domains {
+constinit error_domain_singleton __win32_error_domain {
+  .do_equivalent = [](std::size_t cd, error_domain_singleton const* other, std::size_t othercd) noexcept {
+    // Cross-domain: compare after converting both to errc
+    return __win32_error_domain.do_to_errc(cd) == other->do_to_errc(othercd);
+  },
+  .do_name = [](std::size_t, error_reporter_encoding enc, void* cookie, auto cookfun) noexcept {
+    // IO-based model: write domain name via cookfun (no heap allocation)
+    // Accommodates fast_io and freestanding IO libraries
+  },
+  .do_message = [](std::size_t code, error_reporter_encoding enc, void* cookie, auto cookfun) noexcept {
+    // IO-based: write error message directly (FormatMessage on Windows)
+    // No string-based model — no heap allocation needed
+  },
+  .do_to_errc = [](std::size_t cd) noexcept -> std::errc {
+    // Map Win32 errors to POSIX errc
+    switch(static_cast<std::win32_errc>(cd)) {
+      case std::win32_errc::success:        return static_cast<std::errc>(0);
+      case std::win32_errc::file_not_found: return std::errc::no_such_file_or_directory;
+      case std::win32_errc::access_denied:  return std::errc::permission_denied;
+      default:                              return std::errc::invalid_argument;
+    }
+  }
+};
+
+// ABI-stable external C function with [[__gnu__::__weak__]] — overridable!
+extern "C" [[__gnu__::__weak__]]
+error_domain_singleton const* __cxa_error_domain_win32() noexcept {
+  return __builtin_addressof(__win32_error_domain);  // use __builtin_addressof
+}
+}
+```
+
+**IO-based model (not string-based):**
+```cpp
+// error_reporter uses IO callbacks, not string allocation
+// Accommodates fast_io and freestanding environments
+
+// No heap dependencies, NO STRING TYPES:
+// - do_name: writes directly via IO callback
+// - do_message: writes directly via IO callback
+// - No std::string, no std::string_view, no const char*
+// - No heap allocation, no dynamic memory
+
+// Freestanding-friendly:
+// - Works without <string> header
+// - Works with custom IO libraries (fast_io, etc.)
+// - constinit ensures compile-time initialization
+// - No dependencies on STL string infrastructure
+```
+
+**`[[__gnu__::__weak__]]` — overridable for flexibility:**
+```cpp
+// Allows freestanding environments to implement their own error domains
+// Handles DLL linking issues (multiple implementations possible)
+// Custom error domains for embedded/special environments
+
+// Freestanding can override:
+extern "C" [[__gnu__::__weak__]]
+error_domain_singleton const* __cxa_error_domain_win32() noexcept {
+  return &my_custom_win32_error_domain;  // custom implementation
+}
+```
+
+**Cross-language interoperability:**
+```cpp
+// error_domain_singleton uses extern "C" ABI with function pointers
+// NOT C++ vtables — any language can implement!
+
+// C can implement error domains:
+struct error_domain_singleton my_c_error_domain = {
+  .do_equivalent = my_c_equivalent_func,
+  .do_name = my_c_name_func,
+  .do_message = my_c_message_func,
+  .do_to_errc = my_c_to_errc_func,
+};
+
+// std::error is just 2 registers (pointer + code)
+// No C++ RTTI or class hierarchy needed
+// Pure ABI with C function pointers
+
+// Cross-language error propagation:
+// C++: throw throws std::win32_errc::file_not_found;
+// C:   return failure(errno_value);  // C's fails{int}
+```
+
+**Why extern "C" ABI matters:**
+- `error_domain_singleton` is plain struct with function pointers
+- No C++ features: no virtual functions, no RTTI, no inheritance
+- `__cxa_error_domain_*` functions are C ABI stable
+- Any language can implement their own domain
+- Enables EH communication between C++ and C
+
+**ABI implications:**
+```cpp
+// std::error returned in 2 registers (like struct)
+// RAX: domain_opaque pointer (to singleton)
+// RDX: code_opaque value
+
+// No heap allocation (domain is singleton with constinit)
+// Trivially relocatable = can be moved without calling destructor
+// Enables efficient passing and returning despite having destructor
+
+// Domain singletons initialized at compile-time (constinit)
+// No dynamic initialization order issues
+```
+
+**Usage with `throw throws` syntax:**
+```cpp
+// Throw enum value (convertible to std::error)
+throw throws std::win32_errc::file_not_found;
+
+// Catch std::error (handles all domains)
+catch throws(std::error e) {
+  // Strict comparison (same domain)
+  if (e == std::win32_errc::file_not_found) { ... }
+  
+  // Cross-domain comparison
+  if (e.do_equivalent(std::errc::no_such_file_or_directory)) { ... }
+  
+  // Convert to POSIX errc for strerror
+  fprintf(stderr, "%s\n", strerror(static_cast<int>(e.do_to_errc())));
+}
+```
+
+### 7.4 C++ `fails{E}` — C-Style Value Return
+
+**`fails{E}` uses C-style syntax in both C++ and C:**
+```cpp
+// C++ fails{E} uses failure(expr), NOT throw throws
+int foo() fails{int} {
+  if (error_condition) {
+    return failure(error_value);  // C-style value return
+  }
+  return success_value;
+}
+
+// NOT: throw throws E(...)  // WRONG - fails doesn't use throw throws
+```
+
+**Why value-based matters:**
+- No type hierarchy complexity
+- No RTTI needed
+- Simple comparison: `e == std::errc::file_not_found`
+- Cross-domain comparison: `e.is_equivalent(other_domain_value)`
+
+### 7.5 Catch Syntax — `catch throws` for `throws`, `catch fails` for `fails{E}`
+
+**Catching `throws` (std::error):**
+```cpp
 try {
   try foo();  // foo() throws
 } catch throws(std::error e) {
-  // handle deterministic error
-}
-
-// For fails{E} (explicit error type) — C++ and C
-try {
-  try foo();  // foo() fails{E}
-} catch fails(E e) {
-  // handle typed error
+  // std::error handles all error domains
+  
+  // Strict comparison (same domain)
+  if (e == std::errc::file_not_found) {
+    // POSIX error
+  }
+  else if (e == std::win32_errc::access_denied) {
+    // Win32 error
+  }
+  
+  // Cross-domain comparison
+  else if (e.is_equivalent(std::errc::permission_denied)) {
+    // Matches equivalent error from any domain
+  }
 }
 ```
 
-**Multiple catches (non-conflicting):**
+**Catching `fails{E}`:**
+```cpp
+// C++ and C use same syntax
+try {
+  try foo();  // foo() fails{int}
+} catch fails(int e) {
+  // Direct value comparison
+  if (e == 42) { ... }
+}
+```
+
+**Multiple catches:**
 ```cpp
 try {
-  try foo();  // foo() throws or fails{E}
-  bar();      // bar() might throw traditional exception
+  try foo();  // foo() throws
+  try bar();  // bar() fails{int}
 } catch(std::exception& e) {
-  // traditional EH handler
+  // traditional EH
 } catch throws(std::error e) {
-  // herbception handler (for throws)
-} catch fails(E e) {
-  // herbception handler (for fails{E})
+  // herbception for throws
+} catch fails(int e) {
+  // herbception for fails{int}
 }
 ```
 
-### 7.5 C++ `try` — Required for `fails{E}` (Same Semantics as C)
+### 7.6 Complete Examples
 
-In C++, calling a `fails{E}` function **requires** explicit handling with `try` or `catch fails`:
+**`throws` function (C++ only):**
+```cpp
+int open_file(const char* path) throws {
+  int fd = ::open(path, O_RDONLY);
+  if (fd < 0) {
+    throw throws std::errc(errno);  // errno → errc enum
+  }
+  return fd;
+}
+
+// Usage:
+try {
+  int fd = try open_file("test.txt");
+} catch throws(std::error e) {
+  if (e == std::errc::no_such_file_or_directory) {
+    // file not found
+  }
+}
+```
+
+**`fails{E}` function (C++ and C):**
+```cpp
+// C++
+int divide(int a, int b) fails{int} {
+  if (b == 0) {
+    return failure(EDIVIDE);  // C-style value return
+  }
+  return a / b;
+}
+
+// C
+int divide(int a, int b) fails{int} {
+  if (b == 0) {
+    return failure(EDIVIDE);
+  }
+  return a / b;
+}
+
+// Both use same calling/handling:
+int result = try divide(10, 2);  // auto-propagate
+either(int, int) e = catch fails(divide(10, 0));  // get either
+```
 
 ```cpp
 // Option 1: catch fails(expr) at call point — returns either<T, E>
