@@ -1280,31 +1280,46 @@ void foo() fails{std::errc} {
 
 ### 7.2.3 Calling `throws(true)` from `noexcept` Functions
 
-**When a `noexcept(true)` or `noexcept(false)` function calls a `throws(true)` function without error handling:**
+**Rule: Herbception must never escape `noexcept(true)` boundary.**
 
-| Caller Type | Behavior without `try` wrapper |
-|-------------|-------------------------------|
-| `noexcept(true)` | **Termination** — calls `__builtin_trap()` |
-| `noexcept(false)` | **Throws C++ EH** — converts `std::error` to traditional exception |
+| Caller Type | Behavior without handling |
+|-------------|---------------------------|
+| `noexcept(true)` (except `main`) | **Compile error** — must handle explicitly, cannot propagate |
+| `int main()` | **Termination** — calls `__builtin_trap()` on error |
+| `noexcept(false)` | **Compile error** — must use `try` wrapper |
 
-**For `noexcept(false)` caller: `try` is required before calling `throws(true)` function.**
+**Key principle:**
+- `noexcept(true)` functions MUST handle `throws(true)` calls — error cannot escape boundary
+- `try foo();` is NOT allowed in `noexcept(true)` — that would propagate, violating contract
+- Must use `catch throws()` to actually handle the error, not auto-propagate
+- Exception: `int main()` can call `throws(true)` without handling → `__builtin_trap()` on error
 
 **Example:**
 ```cpp
-// noexcept(true) caller - unhandled error = termination
+// noexcept(true) caller - MUST handle, cannot propagate
 void safe_func() noexcept(true) {
-  foo();  // foo() throws(true)
-  // If foo() returns error: __builtin_trap() called
-  // Program terminates immediately
+  foo();  // ERROR: throws(true) call must be handled
+  try foo();  // ERROR: try auto-propagates, violates noexcept(true) contract
+  catch throws(foo());  // OK: actually handles error, doesn't propagate
 }
 
-// noexcept(false) caller - unhandled error = throw C++ EH
+// int main() - special case: unhandled error = termination
+int main() {
+  foo();  // OK: special exception for main()
+  // If foo() returns error: __builtin_trap() called
+}
+
+// noexcept(false) caller - must use try wrapper (propagation allowed)
 void maybe_throw_func() noexcept(false) {
-  foo();  // ERROR: must use try wrapper for throws(true) call
-  try foo();  // OK: explicit handling
-  // If foo() returns error without try: throws std::error as C++ exception
+  foo();  // ERROR: must use try wrapper
+  try foo();  // OK: explicit handling, propagation allowed (becomes C++ EH)
 }
 ```
+
+**Rationale:**
+- `noexcept(true)` declares function cannot fail — allowing unhandled herbception would violate contract
+- `int main()` is entry point — termination on unhandled error is acceptable fallback
+- Compiler enforces this at compile time for all `noexcept(true)` functions except `main`
 
 **Future API support:**
 
@@ -1344,16 +1359,32 @@ void process_file() noexcept(false) {
 }
 ```
 
-**Error propagation chain:**
+**Error propagation chain (initial implementation):**
 ```cpp
 // throws(true) → noexcept(false) without try:
-// std::error → C++ exception (automatic conversion)
+// Compile error — must use try wrapper
 
-// throws(true) → noexcept(true) without try:
+// throws(true) → noexcept(true) without handling:
+// Compile error — must handle with catch throws(), cannot propagate
+
+// throws(true) → noexcept(true) with try foo():
+// Compile error — try auto-propagates, violates noexcept(true) contract
+
+// throws(true) → int main() without handling:
 // std::error → __builtin_trap() (termination)
 
-// This allows gradual migration from traditional EH to herbception
+// throws(true) → noexcept(false) with try, propagated:
+// std::error → C++ exception (automatic conversion) — ALLOWED
+
+// C++ exception → std::error:
+// NOT ALLOWED initially (to simplify implementation before verified)
 ```
+
+**Conversion limitation:**
+- `std::error` → C++ exception: supported (herbception to traditional EH, when propagated from `noexcept(false)`)
+- C++ exception → `std::error`: **not supported** initially
+- `noexcept(true)` boundary: enforced at compile time — `try` auto-propagate not allowed, must `catch throws()`
+- Exception: `int main()` allowed to have unhandled herbception (termination fallback)
 
 ### 7.3 C++ `throws` — Value-Based, Not Type-Based
 
