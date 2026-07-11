@@ -20,7 +20,6 @@
 #include <__cxxabi_config.h>
 
 #define _LIBCPPABI_VERSION 230000
-#define _LIBCXXABI_NORETURN  __attribute__((noreturn))
 #define _LIBCXXABI_ALWAYS_COLD __attribute__((cold))
 
 #ifdef __cplusplus
@@ -53,8 +52,8 @@ extern _LIBCXXABI_FUNC_VIS __cxa_exception* __cxa_init_primary_exception(void* o
                                                                          __libcxxabi_exception_destructor_func) _LIBCXXABI_NOEXCEPT;
 
 // 2.4.3 Throwing the Exception Object
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_throw(void* thrown_exception, std::type_info* tinfo,
-                                                                __libcxxabi_exception_destructor_func);
+[[noreturn]] extern _LIBCXXABI_FUNC_VIS void __cxa_throw(void* thrown_exception, std::type_info* tinfo,
+                                                         __libcxxabi_exception_destructor_func);
 
 // 2.5.3 Exception Handlers
 extern _LIBCXXABI_FUNC_VIS void *
@@ -72,21 +71,21 @@ extern _LIBCXXABI_FUNC_VIS std::type_info* __cxa_current_exception_type();
 // GNU extension
 // Calls `terminate` with the current exception being caught. This function is used by GCC when a `noexcept` function
 // throws an exception inside a try/catch block and doesn't catch it.
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_call_terminate(void*) _LIBCXXABI_NOEXCEPT;
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_call_terminate(void*) _LIBCXXABI_NOEXCEPT;
 
 // 2.5.4 Rethrowing Exceptions
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_rethrow();
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_rethrow();
 
 // 2.6 Auxiliary Runtime APIs
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_bad_cast(void);
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_bad_typeid(void);
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_throw_bad_array_new_length(void);
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_bad_cast(void);
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_bad_typeid(void);
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_throw_bad_array_new_length(void);
 
 // 3.2.6 Pure Virtual Function API
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_pure_virtual(void);
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_pure_virtual(void);
 
 // 3.2.7 Deleted Virtual Function API
-extern _LIBCXXABI_FUNC_VIS _LIBCXXABI_NORETURN void __cxa_deleted_virtual(void);
+[[__noreturn__]] extern _LIBCXXABI_FUNC_VIS void __cxa_deleted_virtual(void);
 
 // 3.3.2 One-time Construction API
 #  if defined(_LIBCXXABI_GUARD_ABI_ARM)

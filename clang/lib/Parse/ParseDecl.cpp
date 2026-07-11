@@ -31,6 +31,7 @@
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "clang/Sema/SemaObjC.h"
 #include "clang/Sema/SemaOpenMP.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <optional>
@@ -2185,8 +2186,14 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     while (MaybeParseHLSLAnnotations(D))
       ;
 
-  if (Tok.is(tok::kw_requires))
+  if (Tok.is(tok::kw_requires)) {
+    TemplateParameterDepthRAII CurTemplateDepthTracker(TemplateParameterDepth);
+    // With abbreviated function templates - we need to explicitly add depth to
+    // account for the implicit template parameter list induced by the template.
+    if (!TemplateInfo.TemplateParams && D.getInventedTemplateParameterList())
+      ++CurTemplateDepthTracker;
     ParseTrailingRequiresClauseWithScope(D);
+  }
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2329,43 +2336,39 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   // Handle the Objective-C for-in loop variable similarly, although we
   // don't need to parse the container in advance.
   if (FRI && (Tok.is(tok::colon) || isTokIdentifier_in())) {
-    bool IsForRangeLoop = false;
+    // If we're parsing an expansion statement, enter its context to ensure
+    // the declaration ends up in a dependent context. We previously left the
+    // context of the expansion statement because init-statements should *not*
+    // be in a dependent context, and only once we get here do we know that this
+    // is not an init-statement but rather a for-range-declaration.
+    //
+    // Note that this is *not* the case if we get here via ParseCXXCondition()
+    // since if that is called when we parse an expansion statement, we know for
+    // sure that it has to be the for-range-declaration.
+    //
+    // We can't use ContextRAII here since that pushes a new delayed diagnostics
+    // pool, which causes issues during declaration parsing.
+    bool EnterContext = FRI->ExpansionStmt &&
+                        Actions.CurContext == FRI->ExpansionStmt->getParent();
+    if (EnterContext)
+      Actions.PushDeclContext(nullptr, FRI->ExpansionStmt);
+    llvm::scope_exit RestoreDeclContext{[&] {
+      if (EnterContext)
+        Actions.PopDeclContext();
+    }};
+
+    bool IsForRangeLoopOrExpansionStmt = false;
     if (TryConsumeToken(tok::colon, FRI->ColonLoc)) {
-      IsForRangeLoop = true;
-      EnterExpressionEvaluationContext ForRangeInitContext(
-          Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
-          /*LambdaContextDecl=*/nullptr,
-          Sema::ExpressionEvaluationContextRecord::EK_Other,
-          getLangOpts().CPlusPlus23);
-
-      // P2718R0 - Lifetime extension in range-based for loops.
-      if (getLangOpts().CPlusPlus23) {
-        auto &LastRecord = Actions.currentEvaluationContext();
-        LastRecord.InLifetimeExtendingContext = true;
-        LastRecord.RebuildDefaultArgOrDefaultInit = true;
-      }
-
-      if (getLangOpts().OpenMP)
+      IsForRangeLoopOrExpansionStmt = true;
+      if (getLangOpts().OpenMP && !FRI->ExpansionStmt)
         Actions.OpenMP().startOpenMPCXXRangeFor();
-      if (Tok.is(tok::l_brace))
-        FRI->RangeExpr = ParseBraceInitializer();
-      else
-        FRI->RangeExpr = ParseExpression();
 
-      // Before c++23, ForRangeLifetimeExtendTemps should be empty.
-      assert(
-          getLangOpts().CPlusPlus23 ||
-          Actions.ExprEvalContexts.back().ForRangeLifetimeExtendTemps.empty());
-
-      // Move the collected materialized temporaries into ForRangeInit before
-      // ForRangeInitContext exit.
-      FRI->LifetimeExtendTemps = std::move(
-          Actions.ExprEvalContexts.back().ForRangeLifetimeExtendTemps);
+      ParseForRangeInitializerAfterColon(*FRI, &DS);
     }
 
     Decl *ThisDecl = Actions.ActOnDeclarator(getCurScope(), D);
-    if (IsForRangeLoop) {
-      Actions.ActOnCXXForRangeDecl(ThisDecl);
+    if (IsForRangeLoopOrExpansionStmt) {
+      Actions.ActOnCXXForRangeDecl(ThisDecl, FRI->ExpansionStmt);
     } else {
       // Obj-C for loop
       if (auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl))
@@ -3282,8 +3285,8 @@ Parser::DiagnoseMissingSemiAfterTagDefinition(DeclSpec &DS, AccessSpecifier AS,
                           DSContext == DeclSpecContext::DSC_top_level);
 
   if (getLangOpts().CPlusPlus &&
-      Tok.isOneOf(tok::identifier, tok::coloncolon, tok::kw_decltype,
-                  tok::annot_template_id) &&
+      (Tok.isOneOf(tok::identifier, tok::coloncolon, tok::kw_decltype) ||
+       (Tok.is(tok::annot_template_id) && NextToken().is(tok::coloncolon))) &&
       TryAnnotateCXXScopeToken(EnteringContext)) {
     SkipMalformedDecl();
     return true;
@@ -3775,9 +3778,7 @@ void Parser::ParseDeclarationSpecifiers(
       // This identifier can only be a typedef name if we haven't already seen
       // a type-specifier.  Without this check we misparse:
       //  typedef int X; struct Y { short X; };  as 'short int'.
-      // However, if 'auto' is set, we need to check if this identifier is a
-      // type name to detect conflicts (e.g., "auto MyInt").
-      if (DS.hasTypeSpecifier() && DS.getTypeSpecType() != DeclSpec::TST_auto)
+      if (DS.hasTypeSpecifier())
         goto DoneWithDeclSpec;
 
       // If the token is an identifier named "__declspec" and Microsoft
@@ -3862,14 +3863,6 @@ void Parser::ParseDeclarationSpecifiers(
                                   DS.isFriendSpecified()))
         goto DoneWithDeclSpec;
 
-      // If 'auto' is set and we're in a template parameter context, the
-      // identifier is always the parameter name, not a type specifier, so skip
-      // type name lookup to avoid false ambiguity errors.
-      if (DS.getTypeSpecType() == DeclSpec::TST_auto &&
-          DSContext == DeclSpecContext::DSC_template_param) {
-        goto DoneWithDeclSpec;
-      }
-
       ParsedType TypeRep = Actions.getTypeName(
           *Tok.getIdentifierInfo(), Tok.getLocation(), getCurScope(), nullptr,
           false, false, nullptr, false, false,
@@ -3877,16 +3870,11 @@ void Parser::ParseDeclarationSpecifiers(
 
       // If this is not a typedef name, don't parse it as part of the declspec,
       // it must be an implicit int or an error.
-      // However, if 'auto' is already set, we can't have an implicit int.
       if (!TypeRep) {
         if (TryAnnotateTypeConstraint())
           goto DoneWithDeclSpec;
         if (Tok.isNot(tok::identifier))
           continue;
-        // If 'auto' is set, the identifier must be a type name or it's an
-        // error. Don't try to parse it as implicit int.
-        if (DS.getTypeSpecType() == DeclSpec::TST_auto)
-          goto DoneWithDeclSpec;
         ParsedAttributes Attrs(AttrFactory);
         if (ParseImplicitInt(DS, nullptr, TemplateInfo, AS, DSContext, Attrs)) {
           if (!Attrs.empty()) {
@@ -3896,25 +3884,6 @@ void Parser::ParseDeclarationSpecifiers(
           continue;
         }
         goto DoneWithDeclSpec;
-      }
-
-      // If 'auto' is set and this identifier is a type name, stop parsing
-      // declaration specifiers when the next token indicates this is the
-      // declarator-id rather than another type specifier.
-      if (DS.getTypeSpecType() == DeclSpec::TST_auto && TypeRep) {
-        Token Next = NextToken();
-        if (Next.isOneOf(tok::equal, tok::l_paren, tok::l_square, tok::amp,
-                         tok::ampamp, tok::star, tok::coloncolon, tok::comma,
-                         tok::semi, tok::colon, tok::greater, tok::r_paren,
-                         tok::arrow)) {
-          // This identifier is likely the variable/parameter name, stop parsing
-          // decl specifiers. Note: ':' is for range-based for loops:
-          // for (auto Arg: x).
-          // Note: '>' is for template parameters: template<auto V>
-          // Note: ')' is for function/lambda parameters: [](auto c)
-          // Note: '->' is for lambda return types: [](auto c) -> int
-          goto DoneWithDeclSpec;
-        }
       }
 
       // Likewise, if this is a context where the identifier could be a template
@@ -4171,9 +4140,12 @@ void Parser::ParseDeclarationSpecifiers(
           }
         };
 
-        if (!getLangOpts().CPlusPlus && MayBeTypeSpecifier()) {
+        if (MayBeTypeSpecifier()) {
           isInvalid = DS.SetStorageClassSpec(Actions, DeclSpec::SCS_auto, Loc,
                                              PrevSpec, DiagID, Policy);
+          if (!isInvalid && !getLangOpts().C23)
+            Diag(Tok, diag::ext_auto_storage_class)
+              << FixItHint::CreateRemoval(DS.getStorageClassSpecLoc());
         } else
           isInvalid = DS.SetTypeSpecType(DeclSpec::TST_auto, Loc, PrevSpec,
                                          DiagID, Policy);
@@ -4731,8 +4703,7 @@ void Parser::ParseDeclarationSpecifiers(
     DS.SetRangeEnd(ConsumedEnd.isValid() ? ConsumedEnd : Tok.getLocation());
 
     // If the specifier wasn't legal, issue a diagnostic.
-    // Skip diagnostic if 'auto' conflict will be handled in Finish()
-    if (isInvalid && !DS.hasConflictingTypeSpecifier()) {
+    if (isInvalid) {
       assert(PrevSpec && "Method did not return previous specifier!");
       assert(DiagID);
 
