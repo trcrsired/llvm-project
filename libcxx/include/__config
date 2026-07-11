@@ -234,6 +234,7 @@ typedef __char32_t char32_t;
 #    elif defined(_LIBCPP_WIN32API)
 #      undef _LIBCPP_HAS_THREAD_API_WIN32
 #      define _LIBCPP_HAS_THREAD_API_WIN32 1
+#    elif _LIBCPP_FREESTANDING != 0
 #    else
 #      error "No thread API"
 #    endif // _LIBCPP_HAS_THREAD_API
