@@ -37,6 +37,10 @@
 // Given a LLVM release LLVM XX.YY.ZZ (e.g. LLVM 17.0.1 == 17.00.01), _LIBCPP_VERSION is
 // defined to XXYYZZ.
 #  define _LIBCPP_VERSION 230000
+#  if __STDC_HOSTED__ == 0 && _LIBCPP_FREESTANDING == 0
+#    undef _LIBCPP_FREESTANDING
+#    define _LIBCPP_FREESTANDING 1
+#  endif
 
 #  if defined(_LIBCPP_ABI_MICROSOFT) && !defined(_LIBCPP_NO_VCRUNTIME)
 #    define _LIBCPP_ABI_VCRUNTIME

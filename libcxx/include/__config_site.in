@@ -32,6 +32,9 @@
 #cmakedefine01 _LIBCPP_HAS_TIME_ZONE_DATABASE
 #cmakedefine01 _LIBCPP_INSTRUMENTED_WITH_ASAN
 
+// Freestanding
+#cmakedefine01 _LIBCPP_FREESTANDING
+
 // PSTL backends
 #cmakedefine _LIBCPP_PSTL_BACKEND_SERIAL
 #cmakedefine _LIBCPP_PSTL_BACKEND_STD_THREAD
