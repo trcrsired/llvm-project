@@ -107,7 +107,6 @@ void perror(const char* s);
 #    define EOF (-1)
 #  endif
 #endif
-#endif
 
 #ifndef _LIBCPP_STDIO_H
 #  define _LIBCPP_STDIO_H
