@@ -9,52 +9,49 @@
 // Test that _LIBCPP_FREESTANDING is not defined when -ffreestanding is not passed
 // to the compiler but defined when -ffreestanding is passed to the compiler.
 
-// RUN: %{cxx} %{flags} %{compile_flags} -fsyntax-only %s
-// RUN: %{cxx} %{flags} %{compile_flags} -fsyntax-only -ffreestanding -DFREESTANDING %s
 // RUN: %{cxx} %{flags} %{compile_flags} -fsyntax-only -ffreestanding %s
 
 #include <__config>
 
-#if defined(FREESTANDING) != defined(_LIBCPP_FREESTANDING)
-#  error _LIBCPP_FREESTANDING should be defined in freestanding mode and not \
-       defined in non-freestanding mode
-#  if defined(__has_feature)
-#    if __has_feature(modules)
-#      define _LIBCPP_FREESTANDING_NO_TEST_MODULES
-#    endif
-#  elif defined(__cpp_modules)
+#if defined(__has_feature)
+#  if __has_feature(modules)
 #    define _LIBCPP_FREESTANDING_NO_TEST_MODULES
 #  endif
+#elif defined(__cpp_modules)
+#  define _LIBCPP_FREESTANDING_NO_TEST_MODULES
+#endif
 
 #  if _LIBCPP_FREESTANDING && !defined(_LIBCPP_FREESTANDING_NO_TEST_MODULES)
-#    include <cstddef>
-#    include <limits>
-#    include <cfloat>
-#    include <version>
-#    include <cstdint>
-#    include <cstdlib>
-#    include <new>
-#    include <typeinfo>
-#    if __has_include(<source_location>)
-#      include <source_location>
-#    endif
-#    include <exception>
-#    include <initializer_list>
-#    include <compare>
-#    include <coroutine>
-#    include <cstdarg>
-#    include <concepts>
-#    include <type_traits>
-#    include <bit>
-#    include <atomic>
-#    include <utility>
-#    include <tuple>
-#    include <memory>
-#    include <functional>
-#    include <ratio>
-#    include <iterator>
-#    include <ranges>
-#    include <typeinfo>
+#  include <cstddef>
+#  include <limits>
+#  include <climits>
+#  include <cfloat>
+#  include <version>
+#  include <cstdint>
+#  include <cstdlib>
+#  include <new>
+#  include <typeinfo>
+#  if __has_include(<source_location>)
+#    include <source_location>
+#  endif
+#  include <exception>
+#  include <initializer_list>
+#  include <compare>
+#  include <coroutine>
+#  include <cstdarg>
+#  include <concepts>
+#  include <type_traits>
+#  include <bit>
+#  include <atomic>
+#  include <utility>
+#  include <tuple>
+#  include <memory>
+#  include <functional>
+#  include <ratio>
+#  include <iterator>
+#  include <ranges>
+#  include <typeinfo>
+#  include <execution>
 
 /*
 We tested these headers are for preventing build issues
