@@ -244,6 +244,7 @@ void initializeWebAssemblyReplacePhysRegsLegacyPass(PassRegistry &);
 void initializeWebAssemblySetP2AlignOperandsLegacyPass(PassRegistry &);
 void initializeWebAssemblyCoalesceFeaturesAndStripAtomicsLegacyPass(
     PassRegistry &);
+void initializeWebAssemblyGlobalsTaggingPass(PassRegistry &);
 
 namespace WebAssembly {
 enum TargetIndex {
