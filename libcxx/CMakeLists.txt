@@ -156,21 +156,44 @@ option(LIBCXX_ENABLE_VENDOR_AVAILABILITY_ANNOTATIONS
    the shared library they shipped should turn this on and see `include/__configuration/availability.h`
    for more details." OFF)
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-shared-gcc.cfg.in")
-elseif(MINGW)
-  set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-mingw.cfg.in")
-elseif(WIN32) # clang-cl
-  if (LIBCXX_ENABLE_SHARED)
-    set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-shared-clangcl.cfg.in")
-  else()
-    set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-static-clangcl.cfg.in")
-  endif()
+option(LIBCXX_FREESTANDING
+   "Build libc++ in freestanding mode. This toggle allows the libc++ to work without libc
+    for environments like operating systems kernels or embedded systems." OFF)
+
+if (LIBCXX_FREESTANDING)
+  set(LIBCXX_ENABLE_FILESYSTEM OFF)
+  set(LIBCXX_ENABLE_RANDOM_DEVICE OFF)
+  set(LIBCXX_ENABLE_PARALLEL_ALGORITHMS OFF)
+  set(LIBCXX_ENABLE_SHARED OFF)
+  set(LIBCXX_ENABLE_STATIC OFF)
+  set(CMAKE_ASM_COMPILER_WORKS ON)
+  set(CMAKE_C_COMPILER_WORKS ON)
+  set(CMAKE_CXX_COMPILER_WORKS ON)
+  set(LIBCXX_ENABLE_LOCALIZATION OFF)
+  set(LIBCXX_ENABLE_FSTREAM OFF)
+  set(LIBCXX_ENABLE_STD_MODULES OFF)
+  set(LIBCXX_INCLUDE_BENCHMARKS OFF)
+  set(LIBCXX_ENABLE_WIDE_CHARACTERS OFF)
+  set(LIBCXX_ENABLE_TIME_ZONE_DATABASE OFF)
+  set(LIBCXX_INCLUDE_TESTS Off)
+  set(LIBCXX_ENABLE_THREADS Off)
 else()
-  if (LIBCXX_ENABLE_SHARED)
-    set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-shared.cfg.in")
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-shared-gcc.cfg.in")
+  elseif(MINGW)
+    set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-mingw.cfg.in")
+  elseif(WIN32) # clang-cl
+    if (LIBCXX_ENABLE_SHARED)
+      set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-shared-clangcl.cfg.in")
+    else()
+      set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-static-clangcl.cfg.in")
+    endif()
   else()
-    set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-static.cfg.in")
+    if (LIBCXX_ENABLE_SHARED)
+      set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-shared.cfg.in")
+    else()
+      set(LIBCXX_DEFAULT_TEST_CONFIG "llvm-libc++-static.cfg.in")
+    endif()
   endif()
 endif()
 set(LIBCXX_TEST_CONFIG "${LIBCXX_DEFAULT_TEST_CONFIG}" CACHE STRING
@@ -543,7 +566,9 @@ include(config-ix)
 #===============================================================================
 
 include(HandleLibC) # Setup the C library flags
+if (NOT LIBCXX_FREESTANDING)
 include(HandleLibCXXABI) # Setup the ABI library flags
+endif()
 
 # FIXME(EricWF): See the FIXME on LIBCXX_ENABLE_PEDANTIC.
 # Remove the -pedantic flag and -Wno-pedantic and -pedantic-errors
@@ -901,6 +926,10 @@ if (WIN32 AND LIBCXX_ENABLE_STATIC_ABI_LIBRARY)
   add_definitions(-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS)
 endif()
 
+if (LIBCXX_FREESTANDING)
+  config_define(LIBCXX_FREESTANDING _LIBCPP_FREESTANDING)
+endif()
+
 # Setup all common build flags =================================================
 function(cxx_add_common_build_flags target)
   cxx_add_basic_build_flags(${target})
@@ -920,9 +949,11 @@ add_custom_target(cxx-test-depends
   COMMENT "Build dependencies required to run the libc++ test suite.")
 
 add_subdirectory(include)
+if (NOT LIBCXX_FREESTANDING)
 add_subdirectory(src)
 add_subdirectory(utils)
 add_subdirectory(modules)
+endif()
 
 if (LIBCXX_INCLUDE_TESTS)
   add_subdirectory(test)
