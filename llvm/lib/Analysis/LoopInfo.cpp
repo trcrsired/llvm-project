@@ -453,10 +453,10 @@ bool Loop::isCanonical(ScalarEvolution &SE) const {
 static bool isBlockInLCSSAForm(const Loop &L, const BasicBlock &BB,
                                const DominatorTree &DT, bool IgnoreTokens) {
   for (const Instruction &I : BB) {
-    // Tokens can't be used in PHI nodes and live-out tokens prevent loop
-    // optimizations, so for the purposes of considered LCSSA form, we
-    // can ignore them.
-    if (IgnoreTokens && I.getType()->isTokenTy())
+    // Token-like values can't be used in PHI nodes and live-out token-like
+    // values prevent loop optimizations, so for the purposes of considered
+    // LCSSA form, we can ignore them.
+    if (IgnoreTokens && I.getType()->isTokenLikeTy())
       continue;
 
     for (const Use &U : I.uses()) {
@@ -557,29 +557,35 @@ void Loop::setLoopID(MDNode *LoopID) const {
 }
 
 void Loop::setLoopAlreadyUnrolled() {
-  LLVMContext &Context = getHeader()->getContext();
-
-  MDNode *DisableUnrollMD =
-      MDNode::get(Context, MDString::get(Context, "llvm.loop.unroll.disable"));
-  MDNode *LoopID = getLoopID();
-  MDNode *NewLoopID = makePostTransformationMetadata(
-      Context, LoopID, {"llvm.loop.unroll."}, {DisableUnrollMD});
-  setLoopID(NewLoopID);
+  addStringLoopAttribute("llvm.loop.unroll.disable", {"llvm.loop.unroll."});
 }
 
 void Loop::setLoopMustProgress() {
-  LLVMContext &Context = getHeader()->getContext();
-
-  MDNode *MustProgress = findOptionMDForLoop(this, "llvm.loop.mustprogress");
-
-  if (MustProgress)
+  if (findOptionMDForLoop(this, "llvm.loop.mustprogress"))
     return;
+  addStringLoopAttribute("llvm.loop.mustprogress");
+}
 
-  MDNode *MustProgressMD =
-      MDNode::get(Context, MDString::get(Context, "llvm.loop.mustprogress"));
+void Loop::addStringLoopAttribute(StringRef Name,
+                                  ArrayRef<StringRef> RemovePrefixes) const {
+  LLVMContext &Context = getHeader()->getContext();
+  MDNode *AttrMD = MDNode::get(Context, MDString::get(Context, Name));
   MDNode *LoopID = getLoopID();
   MDNode *NewLoopID =
-      makePostTransformationMetadata(Context, LoopID, {}, {MustProgressMD});
+      makePostTransformationMetadata(Context, LoopID, RemovePrefixes, {AttrMD});
+  setLoopID(NewLoopID);
+}
+
+void Loop::addIntLoopAttribute(StringRef Name, unsigned Value,
+                               ArrayRef<StringRef> RemovePrefixes) const {
+  LLVMContext &Context = getHeader()->getContext();
+  MDNode *AttrMD = MDNode::get(
+      Context,
+      {MDString::get(Context, Name),
+       ConstantAsMetadata::get(ConstantInt::get(Context, APInt(32, Value)))});
+  MDNode *LoopID = getLoopID();
+  MDNode *NewLoopID =
+      makePostTransformationMetadata(Context, LoopID, RemovePrefixes, {AttrMD});
   setLoopID(NewLoopID);
 }
 
@@ -963,9 +969,9 @@ void LoopInfo::erase(Loop *Unloop) {
 
 bool LoopInfo::wouldBeOutOfLoopUseRequiringLCSSA(
     const Value *V, const BasicBlock *ExitBB) const {
-  if (V->getType()->isTokenTy())
-    // We can't form PHIs of token type, so the definition of LCSSA excludes
-    // values of that type.
+  if (V->getType()->isTokenLikeTy())
+    // We can't form PHIs of token-like type, so the definition of LCSSA
+    // excludes values of that type.
     return false;
 
   const Instruction *I = dyn_cast<Instruction>(V);

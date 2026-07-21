@@ -22,6 +22,8 @@
 #include "SPIRVLegalizeZeroSizeArrays.h"
 #include "SPIRVLegalizerInfo.h"
 #include "SPIRVMergeRegionExitTargets.h"
+#include "SPIRVPrepareFunctions.h"
+#include "SPIRVPrepareGlobals.h"
 #include "SPIRVPushConstantAccess.h"
 #include "SPIRVRegularizer.h"
 #include "SPIRVStructurizerWrapper.h"
@@ -68,9 +70,9 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeSPIRVTarget() {
   initializeSPIRVPreLegalizerPass(PR);
   initializeSPIRVPostLegalizerPass(PR);
   initializeSPIRVMergeRegionExitTargetsLegacyPass(PR);
-  initializeSPIRVEmitIntrinsicsPass(PR);
-  initializeSPIRVPrepareFunctionsPass(PR);
-  initializeSPIRVPrepareGlobalsPass(PR);
+  initializeSPIRVEmitIntrinsicsLegacyPass(PR);
+  initializeSPIRVPrepareFunctionsLegacyPass(PR);
+  initializeSPIRVPrepareGlobalsLegacyPass(PR);
   initializeSPIRVLegalizeImplicitBindingLegacyPass(PR);
   initializeSPIRVCtorDtorLoweringLegacyPass(PR);
 }
