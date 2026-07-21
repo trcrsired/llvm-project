@@ -36,6 +36,8 @@ add_llvm_target(WebAssemblyCodeGen
   WebAssemblyCFGStackify.cpp
   WebAssemblyCleanCodeAfterTrap.cpp
   WebAssemblyCFGSort.cpp
+  WebAssemblyCoalesceFeaturesAndStripAtomics.cpp
+  WebAssemblyCodeGenPassBuilder.cpp
   WebAssemblyDebugFixup.cpp
   WebAssemblyDebugValueManager.cpp
   WebAssemblyLateEHPrepare.cpp
@@ -88,8 +90,10 @@ add_llvm_target(WebAssemblyCodeGen
   CodeGen
   CodeGenTypes
   Core
+  IRPrinter
   GlobalISel
   MC
+  ObjCARC
   Scalar
   SelectionDAG
   Support
