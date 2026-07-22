@@ -566,7 +566,9 @@ include(config-ix)
 #===============================================================================
 
 include(HandleLibC) # Setup the C library flags
+if (NOT LIBCXX_FREESTANDING)
 include(HandleLibCXXABI) # Setup the ABI library flags
+endif()
 
 # FIXME(EricWF): See the FIXME on LIBCXX_ENABLE_PEDANTIC.
 # Remove the -pedantic flag and -Wno-pedantic and -pedantic-errors
