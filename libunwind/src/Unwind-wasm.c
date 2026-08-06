@@ -93,4 +93,3 @@ _LIBUNWIND_EXPORT uintptr_t
 _Unwind_GetRegionStart(struct _Unwind_Context *context) {
   return 0;
 }
-#endif
