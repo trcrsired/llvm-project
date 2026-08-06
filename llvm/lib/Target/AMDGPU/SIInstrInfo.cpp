@@ -5853,20 +5853,7 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     if (Data && !Data->isReg())
       Data = nullptr;
 
-    if (ST.hasGFX90AInsts()) {
-      if (Dst && Data && !Dst->isTied() && !Data->isTied() &&
-          (RI.isAGPR(MRI, Dst->getReg()) != RI.isAGPR(MRI, Data->getReg()))) {
-        ErrInfo = "Invalid register class: "
-                  "vdata and vdst should be both VGPR or AGPR";
-        return false;
-      }
-      if (Data && Data2 &&
-          (RI.isAGPR(MRI, Data->getReg()) != RI.isAGPR(MRI, Data2->getReg()))) {
-        ErrInfo = "Invalid register class: "
-                  "both data operands should be VGPR or AGPR";
-        return false;
-      }
-    } else {
+    if (!ST.hasGFX90AInsts()) {
       if ((Dst && RI.isAGPR(MRI, Dst->getReg())) ||
           (Data && RI.isAGPR(MRI, Data->getReg())) ||
           (Data2 && RI.isAGPR(MRI, Data2->getReg()))) {
@@ -5940,7 +5927,7 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
   }
 
   // See SIInstrInfo::isLegalSingleSGPRReadInstOperand for more information.
-  if (AMDGPU::isGFX12Plus(ST) && AMDGPU::isSingleSGPRReadInst(Opcode)) {
+  if (AMDGPU::isSingleSGPRReadInst(Opcode)) {
     for (unsigned I = 0; I < 3; ++I) {
       if (!isLegalSingleSGPRReadInstOperand(MRI, MI, I))
         return false;
@@ -6299,7 +6286,7 @@ void SIInstrInfo::legalizeOpWithMove(MachineInstr &MI, unsigned OpIdx) const {
   Register Reg = MRI.createVirtualRegister(VRC);
   DebugLoc DL = MBB->findDebugLoc(I);
 
-  if (Size == 128 && AMDGPU::isPacked64BitInst(MI.getOpcode()) &&
+  if (Size == 128 && AMDGPU::isPackedSingleSGPR64BitInst(MI.getOpcode()) &&
       isLegalSingleSGPRReadInstOperand(MRI, MI, VOP3OpIdxToSrcN(MI, OpIdx))) {
     // Special case for V_PK_*64 instructions: these do not have OPSEL but SGPR
     // sources behave like OPSEL is set replicating low 64-bits into high. VGPR
@@ -6403,7 +6390,7 @@ bool SIInstrInfo::isLegalRegOperand(const MachineInstr &MI, unsigned OpIdx,
   unsigned Opc = MI.getOpcode();
 
   // See SIInstrInfo::isLegalSingleSGPRReadInstOperand for more information.
-  if (AMDGPU::isGFX12Plus(ST) && MO.isReg() && RI.isSGPRReg(MRI, MO.getReg()) &&
+  if (MO.isReg() && RI.isSGPRReg(MRI, MO.getReg()) &&
       AMDGPU::isSingleSGPRReadInst(MI.getOpcode()) &&
       !isLegalSingleSGPRReadInstOperand(MRI, MI, VOP3OpIdxToSrcN(MI, OpIdx),
                                         &MO))
@@ -6895,7 +6882,7 @@ void SIInstrInfo::legalizeOperandsVOP3(MachineRegisterInfo &MRI,
 
   // Fix the register class of single-sgpr-read instructions on gfx12+. See
   // SIInstrInfo::isLegalSingleSGPRReadInstOperand for more information.
-  if (AMDGPU::isGFX12Plus(ST) && AMDGPU::isSingleSGPRReadInst(Opc)) {
+  if (AMDGPU::isSingleSGPRReadInst(Opc)) {
     for (unsigned I = 0; I < 3; ++I) {
       if (!isLegalSingleSGPRReadInstOperand(MRI, MI, /*SrcN=*/I))
         legalizeOpWithMove(MI, VOP3Idx[I]);
@@ -7087,9 +7074,10 @@ void SIInstrInfo::legalizeGenericOperand(MachineBasicBlock &InsertMBB,
     return;
 
   Register DstReg = MRI.createVirtualRegister(DstRC);
-  auto Copy =
-      BuildMI(InsertMBB, I, DL, get(AMDGPU::COPY), DstReg).addReg(OpReg);
+  auto Copy = BuildMI(InsertMBB, I, DL, get(AMDGPU::COPY), DstReg)
+                  .addReg(OpReg, {}, OpSubReg);
   Op.setReg(DstReg);
+  Op.setSubReg(AMDGPU::NoSubRegister);
 
   MachineInstr *Def = MRI.getVRegDef(OpReg);
   if (!Def)
@@ -9820,7 +9808,7 @@ const TargetRegisterClass *SIInstrInfo::getDestEquivalentVGPRClass(
       if (!NewDstRC)
         return nullptr;
     } else {
-      if (RI.isVGPRClass(NewDstRC) || NewDstRC == &AMDGPU::VReg_1RegClass)
+      if (!RI.isSGPRClass(NewDstRC) || NewDstRC == &AMDGPU::VReg_1RegClass)
         return nullptr;
 
       NewDstRC = RI.getEquivalentVGPRClass(NewDstRC);
@@ -10184,7 +10172,8 @@ SIInstrInfo::CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
 ScheduleHazardRecognizer *
 SIInstrInfo::CreateTargetPostRAHazardRecognizer(const MachineFunction &MF,
                                                 MachineLoopInfo *MLI) const {
-  return new GCNHazardRecognizer(MF, MLI);
+  return new GCNHazardRecognizer(
+      MF, GCNHazardRecognizer::OperatingMode::HazardRecognizerMode, MLI);
 }
 
 // Called during:
@@ -11615,6 +11604,24 @@ void SIInstrInfo::enforceOperandRCAlignment(MachineInstr &MI,
   Op.setReg(NewVR);
   Op.setSubReg(AMDGPU::sub0);
   MI.addOperand(MachineOperand::CreateReg(NewVR, false, true));
+}
+
+unsigned SIInstrInfo::getRepeatRate(const MachineInstr &MI) const {
+  if (!SchedModel.hasInstrSchedModel())
+    return 0;
+
+  // The repeat rate is the throughput-limiting resource occupancy: the largest
+  // number of cycles any written processor resource is held.
+  const MCSchedClassDesc *SCDesc = SchedModel.resolveSchedClass(&MI);
+  unsigned RepeatRate = 0;
+  for (TargetSchedModel::ProcResIter
+           PI = SchedModel.getWriteProcResBegin(SCDesc),
+           PE = SchedModel.getWriteProcResEnd(SCDesc);
+       PI != PE; ++PI) {
+    RepeatRate = std::max(RepeatRate, (unsigned)PI->ReleaseAtCycle);
+  }
+
+  return RepeatRate;
 }
 
 bool SIInstrInfo::isGlobalMemoryObject(const MachineInstr *MI) const {
