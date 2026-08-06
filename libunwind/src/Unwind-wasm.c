@@ -13,10 +13,13 @@
 // clang-format off
 #include <stdbool.h>
 // clang-format on
+
+#ifdef __wasm__
+
 #include "config.h"
 #include "unwind.h"
 
-_LIBUNWIND_EXPORT thread_local struct _Unwind_LandingPadContext
+_LIBUNWIND_EXPORT _Thread_local struct _Unwind_LandingPadContext
     __wasm_lpad_context;
 
 /// Called by __cxa_throw.
@@ -93,3 +96,5 @@ _LIBUNWIND_EXPORT uintptr_t
 _Unwind_GetRegionStart(struct _Unwind_Context *context) {
   return 0;
 }
+
+#endif
