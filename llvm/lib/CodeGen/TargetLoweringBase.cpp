@@ -1853,6 +1853,11 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
     if (attr.hasRetAttr(Attribute::InReg))
       Flags.setInReg();
 
+    // Propagate the throws (herbception) discriminant flag from the function
+    // so that return value lowering can use a discriminant mechanism.
+    if (attr.hasFnAttr(Attribute::Throws))
+      Flags.setThrows();
+
     // Propagate extension type if any
     if (attr.hasRetAttr(Attribute::SExt))
       Flags.setSExt();
