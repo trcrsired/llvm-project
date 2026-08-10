@@ -4749,6 +4749,16 @@ public:
     return false;
   }
 
+  /// Return true if the target supports the throws (herbception) calling
+  /// convention, i.e. it can return a success/failure discriminant
+  /// alongside the return value using a target-specific mechanism (e.g. a
+  /// carry flag or an extra register) instead of a plain struct return.
+  /// When false, the middle-end falls back to returning the discriminant
+  /// as a regular struct member.
+  virtual bool supportThrowsCC() const {
+    return false;
+  }
+
   /// Return true if the target supports that a subset of CSRs for the given
   /// machine function is handled explicitly via copies.
   virtual bool supportSplitCSR(MachineFunction *MF) const {
@@ -4893,6 +4903,9 @@ public:
     bool IsPatchPoint      : 1;
     bool IsPreallocated : 1;
     bool NoMerge           : 1;
+    /// The called function (or call site) returns its value with the throws
+    /// (herbception) discriminant.
+    bool IsThrows          : 1;
 
     // IsTailCall should be modified by implementations of
     // TargetLowering::LowerCall that perform tail call conversions.
@@ -4922,6 +4935,7 @@ public:
         : RetSExt(false), RetZExt(false), IsVarArg(false), IsInReg(false),
           DoesNotReturn(false), IsReturnValueUsed(true), IsConvergent(false),
           IsPatchPoint(false), IsPreallocated(false), NoMerge(false),
+          IsThrows(false),
           DAG(DAG) {}
 
     CallLoweringInfo &setDebugLoc(const SDLoc &dl) {
@@ -4964,6 +4978,7 @@ public:
       RetSExt = ResultAttrs.hasAttribute(Attribute::SExt);
       RetZExt = ResultAttrs.hasAttribute(Attribute::ZExt);
       NoMerge = ResultAttrs.hasAttribute(Attribute::NoMerge);
+      IsThrows = ResultAttrs.hasAttribute(Attribute::Throws);
 
       Callee = Target;
       CallConv = CC;
@@ -4986,6 +5001,7 @@ public:
       RetSExt = Call.hasRetAttr(Attribute::SExt);
       RetZExt = Call.hasRetAttr(Attribute::ZExt);
       NoMerge = Call.hasFnAttr(Attribute::NoMerge);
+      IsThrows = Call.hasFnAttr(Attribute::Throws);
 
       Callee = Target;
 

@@ -2311,6 +2311,10 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
         if (RetInReg)
           Flags.setInReg();
 
+        // Herbception (throws) functions return with a discriminant.
+        if (F->getAttributes().hasFnAttr(Attribute::Throws))
+          Flags.setThrows();
+
         if (I.getOperand(0)->getType()->isPointerTy()) {
           Flags.setPointer();
           Flags.setPointerAddrSpace(
@@ -11478,6 +11482,11 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
 
   SmallVector<ISD::OutputArg, 4> Outs;
   GetReturnInfo(CLI.CallConv, CLI.RetTy, getReturnAttrs(CLI), Outs, *this, DL);
+  // Propagate the throws (herbception) discriminant flag to the return values
+  // so that the caller-side return lowering can use a discriminant mechanism.
+  if (CLI.IsThrows)
+    for (ISD::OutputArg &Out : Outs)
+      Out.Flags.setThrows();
 
   bool CanLowerReturn =
       this->CanLowerReturn(CLI.CallConv, CLI.DAG.getMachineFunction(),
@@ -11536,6 +11545,8 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
           Ret.Flags.setZExt();
         if (CLI.IsInReg)
           Ret.Flags.setInReg();
+        if (CLI.IsThrows)
+          Ret.Flags.setThrows();
         CLI.Ins.push_back(Ret);
       }
     }

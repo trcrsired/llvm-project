@@ -56,6 +56,10 @@ namespace ISD {
     unsigned IsPointer : 1;
     /// Whether this is part of a variable argument list (non-fixed).
     unsigned IsVarArg : 1;
+    /// Whether this argument (return value) is passed with the herbception
+    /// 'throws' calling convention, i.e. a discriminant flag accompanies the
+    /// return value to signal success/failure.
+    unsigned IsThrows : 1;
 
     unsigned ByValOrByRefSize = 0; ///< Byval or byref struct size
 
@@ -69,7 +73,7 @@ namespace ISD {
           IsSwiftError(0), IsCFGuardTarget(0), IsHva(0), IsHvaStart(0),
           IsSecArgPass(0), MemAlign(0), OrigAlign(0),
           IsInConsecutiveRegsLast(0), IsInConsecutiveRegs(0),
-          IsCopyElisionCandidate(0), IsPointer(0), IsVarArg(0) {
+          IsCopyElisionCandidate(0), IsPointer(0), IsVarArg(0), IsThrows(0) {
       static_assert(sizeof(*this) == 4 * sizeof(unsigned), "flags are too big");
     }
 
@@ -149,6 +153,9 @@ namespace ISD {
 
     bool isVarArg() const { return IsVarArg; }
     void setVarArg() { IsVarArg = 1; }
+
+    bool isThrows() const { return IsThrows; }
+    void setThrows() { IsThrows = 1; }
 
     Align getNonZeroMemAlign() const {
       return decodeMaybeAlign(MemAlign).valueOrOne();
