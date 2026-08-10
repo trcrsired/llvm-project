@@ -996,6 +996,11 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
 
   SmallVector<ISD::OutputArg, 4> Outs;
   GetReturnInfo(CLI.CallConv, CLI.RetTy, getReturnAttrs(CLI), Outs, TLI, DL);
+  // Propagate the throws (herbception) discriminant flag to the return values
+  // so that the caller-side return lowering can use a discriminant mechanism.
+  if (CLI.IsThrows)
+    for (ISD::OutputArg &Out : Outs)
+      Out.Flags.setThrows();
 
   bool CanLowerReturn = TLI.CanLowerReturn(
       CLI.CallConv, *FuncInfo.MF, CLI.IsVarArg, Outs, CLI.RetTy->getContext(), CLI.RetTy);
@@ -1015,6 +1020,8 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
         Flags.setZExt();
       if (CLI.IsInReg)
         Flags.setInReg();
+      if (CLI.IsThrows)
+        Flags.setThrows();
       ISD::InputArg Ret(Flags, RegisterVT, VT, CLI.RetTy, CLI.IsReturnValueUsed,
                         ISD::InputArg::NoArgIndex, 0);
       CLI.Ins.push_back(Ret);
