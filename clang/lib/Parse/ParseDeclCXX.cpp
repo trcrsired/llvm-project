@@ -3941,7 +3941,8 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
 
   // Handle delayed parsing of exception-specifications.
   if (Delayed) {
-    if (Tok.isNot(tok::kw_throw) && Tok.isNot(tok::kw_noexcept))
+    if (Tok.isNot(tok::kw_throw) && Tok.isNot(tok::kw_noexcept) &&
+        Tok.isNot(tok::kw_throws) && Tok.isNot(tok::kw_fails))
       return EST_None;
 
     // Consume and cache the starting token.
@@ -3982,6 +3983,40 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         SpecificationRange, DynamicExceptions, DynamicExceptionRanges);
     assert(DynamicExceptions.size() == DynamicExceptionRanges.size() &&
            "Produced different number of exception types and ranges.");
+  }
+
+  // Herbception: 'throws' (C++ only, implicit std::error) or 'fails{E}'
+  // (C++ and C, explicit error type).
+  if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_fails)) {
+    bool IsThrows = Tok.is(tok::kw_throws);
+    SourceLocation KwLoc = ConsumeToken();
+    if (IsThrows) {
+      if (!getLangOpts().CPlusPlus) {
+        Diag(KwLoc, diag::err_throws_requires_cxx);
+        return EST_None;
+      }
+      SpecificationRange = SourceRange(KwLoc, KwLoc);
+      return EST_BasicThrows;
+    }
+
+    // fails{E}: parse the explicit error type.
+    BalancedDelimiterTracker T(*this, tok::l_brace);
+    if (T.consumeOpen()) {
+      Diag(Tok, diag::err_expected_lbrace_after) << "fails";
+      return EST_None;
+    }
+    if (Tok.is(tok::r_brace)) {
+      Diag(Tok, diag::err_expected_type) << "fails";
+      T.consumeClose();
+      return EST_None;
+    }
+    ParsedType ErrorTy = ParseTypeName().get();
+    SourceLocation EndLoc = Tok.getLocation();
+    T.consumeClose();
+    DynamicExceptions.push_back(ErrorTy);
+    DynamicExceptionRanges.push_back(SourceRange(KwLoc, EndLoc));
+    SpecificationRange = SourceRange(KwLoc, EndLoc);
+    return EST_ThrowsTyped;
   }
 
   // If there's no noexcept specification, we're done.

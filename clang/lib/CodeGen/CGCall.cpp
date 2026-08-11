@@ -251,7 +251,8 @@ arrangeLLVMFunctionInfo(CodeGenTypes &CGT, bool instanceMethod,
       instanceMethod ? FnInfoOpts::IsInstanceMethod : FnInfoOpts::None;
   return CGT.arrangeLLVMFunctionInfo(resultType, opts, prefix,
                                      FTP->getExtInfo(), paramInfos, Required,
-                                     /*ABIInfoFD=*/nullptr);
+                                     /*ABIInfoFD=*/nullptr,
+                                     FTP.getTypePtr()->hasThrowsSpec());
 }
 
 using CanQualTypeList = SmallVector<CanQualType, 16>;
@@ -264,7 +265,6 @@ CodeGenTypes::arrangeFreeFunctionType(CanQual<FunctionProtoType> FTP) {
   return ::arrangeLLVMFunctionInfo(*this, /*instanceMethod=*/false, argTypes,
                                    FTP);
 }
-
 static CallingConv getCallingConventionForDecl(const ObjCMethodDecl *D,
                                                bool IsTargetDefaultMSABI) {
   // Set the appropriate calling convention for the Function.
@@ -371,7 +371,7 @@ CodeGenTypes::arrangeCXXMethodType(const CXXRecordDecl *RD,
   return arrangeLLVMFunctionInfo(
       CanonicalFTP->getReturnType().getUnqualifiedType(),
       FnInfoOpts::IsInstanceMethod, argTypes, CanonicalFTP->getExtInfo(),
-      paramInfos, required, MD);
+      paramInfos, required, MD, FTP->hasThrowsSpec());
 }
 
 /// Set calling convention for CUDA/HIP kernel.
@@ -410,7 +410,8 @@ CodeGenTypes::arrangeCXXMethodDeclaration(const CXXMethodDecl *MD) {
   return arrangeLLVMFunctionInfo(
       prototype->getReturnType().getUnqualifiedType(), FnInfoOpts::None,
       argTypes, prototype->getExtInfo(), paramInfos,
-      RequiredArgs::forPrototypePlus(prototype.getTypePtr(), 0), MD);
+      RequiredArgs::forPrototypePlus(prototype.getTypePtr(), 0), MD,
+      prototype.getTypePtr()->hasThrowsSpec());
 }
 
 bool CodeGenTypes::inheritingCtorHasParams(
@@ -580,7 +581,8 @@ CodeGenTypes::arrangeFunctionDeclaration(const GlobalDecl GD) {
   return arrangeLLVMFunctionInfo(FTP->getReturnType().getUnqualifiedType(),
                                  FnInfoOpts::None, argTypes, FTP->getExtInfo(),
                                  paramInfos,
-                                 RequiredArgs::forPrototypePlus(FTP, 0), FD);
+                                 RequiredArgs::forPrototypePlus(FTP, 0), FD,
+                                 FTP.getTypePtr()->hasThrowsSpec());
 }
 
 /// Arrange the argument and result information for the declaration or
@@ -723,9 +725,13 @@ arrangeFreeFunctionLikeCall(CodeGenTypes &CGT, CodeGenModule &CGM,
   for (const auto &arg : args)
     argTypes.push_back(CGT.getContext().getCanonicalParamType(arg.Ty));
   FnInfoOpts opts = chainCall ? FnInfoOpts::IsChainCall : FnInfoOpts::None;
+  bool HasThrowsReturn = false;
+  if (const FunctionProtoType *proto = dyn_cast<FunctionProtoType>(fnType))
+    HasThrowsReturn = proto->hasThrowsSpec();
   return CGT.arrangeLLVMFunctionInfo(GetReturnType(fnType->getReturnType()),
                                      opts, argTypes, fnType->getExtInfo(),
-                                     paramInfos, required, ABIInfoFD);
+                                     paramInfos, required, ABIInfoFD,
+                                     HasThrowsReturn);
 }
 
 /// Figure out the rules for calling a function with the given formal
@@ -862,9 +868,9 @@ const CGFunctionInfo &CodeGenTypes::arrangeCall(const CGFunctionInfo &signature,
 
   const CGFunctionInfo *newFI = findOrInsertCGFunctionInfo(
       signature.isInstanceMethod(), signature.isChainCall(),
-      signature.isDelegateCall(), X86ABIAVXLevel, signature.getExtInfo(),
-      paramInfos, signature.getRequiredArgs(), signature.getReturnType(),
-      argTypes);
+      signature.isDelegateCall(), X86ABIAVXLevel,
+      signature.hasThrowsReturn(), signature.getExtInfo(), paramInfos,
+      signature.getRequiredArgs(), signature.getReturnType(), argTypes);
   return *newFI;
 }
 
@@ -1061,7 +1067,8 @@ const CGFunctionInfo &CodeGenTypes::arrangeLLVMFunctionInfo(
     CanQualType resultType, FnInfoOpts opts, ArrayRef<CanQualType> argTypes,
     FunctionType::ExtInfo info,
     ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
-    RequiredArgs required, const FunctionDecl *ABIInfoFD) {
+    RequiredArgs required, const FunctionDecl *ABIInfoFD,
+    bool HasThrowsReturn) {
   assert(llvm::all_of(argTypes,
                       [](CanQualType T) { return T.isCanonicalAsParam(); }));
 
@@ -1076,21 +1083,22 @@ const CGFunctionInfo &CodeGenTypes::arrangeLLVMFunctionInfo(
   unsigned X86ABIAVXLevel = CGM.getABIInfo().getX86ABIAVXLevel(ABIInfoFD, info);
 
   const CGFunctionInfo *newFI = findOrInsertCGFunctionInfo(
-      isInstanceMethod, isChainCall, isDelegateCall, X86ABIAVXLevel, info,
-      paramInfos, required, resultType, argTypes);
+      isInstanceMethod, isChainCall, isDelegateCall, X86ABIAVXLevel,
+      HasThrowsReturn, info, paramInfos, required, resultType, argTypes);
   return *newFI;
 }
 
 CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
     bool isInstanceMethod, bool isChainCall, bool isDelegateCall,
-    unsigned X86ABIAVXLevel, const FunctionType::ExtInfo &info,
+    unsigned X86ABIAVXLevel, bool HasThrowsReturn,
+    const FunctionType::ExtInfo &info,
     ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
     RequiredArgs required, CanQualType resultType,
     ArrayRef<CanQualType> argTypes) {
   llvm::FoldingSetNodeID ID;
   CGFunctionInfo::Profile(ID, isInstanceMethod, isChainCall, isDelegateCall,
-                          X86ABIAVXLevel, info, paramInfos, required,
-                          resultType, argTypes);
+                          X86ABIAVXLevel, HasThrowsReturn, info, paramInfos,
+                          required, resultType, argTypes);
 
   void *insertPos = nullptr;
   CGFunctionInfo *FI = FunctionInfos.FindNodeOrInsertPos(ID, insertPos);
@@ -1101,8 +1109,8 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
 
   // Construct the function info.  We co-allocate the ArgInfos.
   FI = CGFunctionInfo::create(CC, isInstanceMethod, isChainCall, isDelegateCall,
-                              X86ABIAVXLevel, info, paramInfos, resultType,
-                              argTypes, required);
+                              X86ABIAVXLevel, HasThrowsReturn, info, paramInfos,
+                              resultType, argTypes, required);
   FunctionInfos.InsertNode(FI, insertPos);
 
   bool inserted = FunctionsBeingProcessed.insert(FI).second;
@@ -1133,6 +1141,19 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
   if (retInfo.canHaveCoerceToType() && retInfo.getCoerceToType() == nullptr)
     retInfo.setCoerceToType(ConvertType(FI->getReturnType()));
 
+  // Herbception (throws): the function returns {T, i1} instead of just T, so
+  // that the discriminant can be returned out-of-band. Force a Direct return
+  // whose coerce type is the {T, i1} struct, and let the middle-end/backend
+  // carry the i1 via the target's discriminant mechanism (the 'throws'
+  // attribute marks it as such).
+  if (HasThrowsReturn) {
+    llvm::Type *RetTy = ConvertType(FI->getReturnType());
+    llvm::StructType *StructTy = llvm::StructType::get(
+        getLLVMContext(),
+        {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
+    retInfo = ABIArgInfo::getDirect(StructTy);
+  }
+
   for (auto &I : FI->arguments())
     if (I.info.canHaveCoerceToType() && I.info.getCoerceToType() == nullptr)
       I.info.setCoerceToType(ConvertType(I.type));
@@ -1146,7 +1167,8 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
 
 CGFunctionInfo *CGFunctionInfo::create(
     unsigned llvmCC, bool instanceMethod, bool chainCall, bool delegateCall,
-    unsigned X86ABIAVXLevel, const FunctionType::ExtInfo &info,
+    unsigned X86ABIAVXLevel, bool HasThrowsReturn,
+    const FunctionType::ExtInfo &info,
     ArrayRef<ExtParameterInfo> paramInfos, CanQualType resultType,
     ArrayRef<CanQualType> argTypes, RequiredArgs required) {
   assert(paramInfos.empty() || paramInfos.size() == argTypes.size());
@@ -1166,6 +1188,7 @@ CGFunctionInfo *CGFunctionInfo::create(
   FI->CmseNSCall = info.getCmseNSCall();
   FI->NoReturn = info.getNoReturn();
   FI->ReturnsRetained = info.getProducesResult();
+  FI->HasThrowsReturn = HasThrowsReturn;
   FI->NoCallerSavedRegs = info.getNoCallerSavedRegs();
   FI->NoCfCheck = info.getNoCfCheck();
   FI->Required = required;
@@ -2743,6 +2766,8 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
   if (FI.isCmseNSCall())
     FuncAttrs.addAttribute("cmse_nonsecure_call");
+  if (FI.hasThrowsReturn())
+    FuncAttrs.addAttribute(llvm::Attribute::Throws);
 
   // Collect function IR attributes from the callee prototype if we have one.
   AddAttributesFromFunctionProtoType(getContext(), FuncAttrs,
@@ -4558,6 +4583,15 @@ void CodeGenFunction::EmitFunctionEpilog(
 
   llvm::Instruction *Ret;
   if (RV) {
+    // Herbception (throws): read the discriminant from its slot. Plain
+    // `return` leaves it false; `throw throws` / failure stores true.
+    if (FI.hasThrowsReturn()) {
+      assert(isa<llvm::StructType>(RV->getType()) &&
+             RV->getType()->getStructNumElements() == 2 &&
+             "throws return must be a {T, i1} struct");
+      llvm::Value *Disc = Builder.CreateLoad(HerbceptionDiscriminant);
+      RV = Builder.CreateInsertValue(
+          RV, Disc, RV->getType()->getStructNumElements() - 1);    }
     if (CurFuncDecl && CurFuncDecl->hasAttr<CmseNSEntryAttr>()) {
       // For certain return types, clear padding bits, as they may reveal
       // sensitive information.

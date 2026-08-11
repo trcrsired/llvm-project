@@ -639,6 +639,11 @@ class CGFunctionInfo final
   LLVM_PREFERRED_TYPE(bool)
   unsigned ReturnsRetained : 1;
 
+  /// Whether this function returns a herbception (throws/fails) discriminant
+  /// alongside its value. The LLVM return type is lowered to {T, i1}.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned HasThrowsReturn : 1;
+
   /// Whether this function saved caller registers.
   LLVM_PREFERRED_TYPE(bool)
   unsigned NoCallerSavedRegs : 1;
@@ -689,7 +694,7 @@ class CGFunctionInfo final
 public:
   static CGFunctionInfo *
   create(unsigned llvmCC, bool instanceMethod, bool chainCall,
-         bool delegateCall, unsigned X86ABIAVXLevel,
+         bool delegateCall, unsigned X86ABIAVXLevel, bool HasThrowsReturn,
          const FunctionType::ExtInfo &extInfo,
          ArrayRef<ExtParameterInfo> paramInfos, CanQualType resultType,
          ArrayRef<CanQualType> argTypes, RequiredArgs required);
@@ -741,6 +746,10 @@ public:
   /// In ARC, whether this function retains its return value.  This
   /// is not always reliable for call sites.
   bool isReturnsRetained() const { return ReturnsRetained; }
+
+  /// Whether this function returns a herbception (throws/fails) discriminant.
+  bool hasThrowsReturn() const { return HasThrowsReturn; }
+  void setHasThrowsReturn(bool V = true) { HasThrowsReturn = V; }
 
   /// Whether this function no longer saves caller registers.
   bool isNoCallerSavedRegs() const { return NoCallerSavedRegs; }
@@ -843,7 +852,7 @@ public:
   }
   static void Profile(llvm::FoldingSetNodeID &ID, bool InstanceMethod,
                       bool ChainCall, bool IsDelegateCall,
-                      unsigned X86ABIAVXLevel,
+                      unsigned X86ABIAVXLevel, bool HasThrowsReturn,
                       const FunctionType::ExtInfo &info,
                       ArrayRef<ExtParameterInfo> paramInfos,
                       RequiredArgs required, CanQualType resultType,
@@ -854,6 +863,7 @@ public:
     ID.AddBoolean(IsDelegateCall);
     ID.AddBoolean(info.getNoReturn());
     ID.AddBoolean(info.getProducesResult());
+    ID.AddBoolean(HasThrowsReturn);
     ID.AddBoolean(info.getNoCallerSavedRegs());
     ID.AddBoolean(info.getHasRegParm());
     ID.AddInteger(info.getRegParm());

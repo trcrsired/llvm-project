@@ -8521,7 +8521,10 @@ public:
   //// ActOnCXXThrow -  Parse throw expressions.
   ExprResult ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *expr);
   ExprResult BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
-                           bool IsThrownVarInScope);
+                           bool IsThrownVarInScope, bool IsHerbception = false);
+  /// ActOnCXXThrowThrows - Parse `throw throws expr` (herbception).
+  ExprResult ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
+                                 SourceLocation ThrowsLoc, Expr *Ex);
 
   /// CheckCXXThrowOperand - Validate the operand of a throw.
   bool CheckCXXThrowOperand(SourceLocation ThrowLoc, QualType ThrowTy, Expr *E);

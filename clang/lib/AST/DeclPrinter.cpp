@@ -808,6 +808,16 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
           Proto += FT->getExceptionType(I).getAsString(SubPolicy);
         }
       Proto += ")";
+    } else if (FT && FT->hasBasicThrowsSpec()) {
+      Proto += " throws";
+    } else if (FT && FT->hasFailsSpec()) {
+      Proto += " fails{";
+      for (unsigned I = 0, N = FT->getNumExceptions(); I != N; ++I) {
+        if (I)
+          Proto += ", ";
+        Proto += FT->getExceptionType(I).getAsString(SubPolicy);
+      }
+      Proto += "}";
     } else if (FT && isNoexceptExceptionSpec(FT->getExceptionSpecType())) {
       Proto += " noexcept";
       if (isComputedNoexcept(FT->getExceptionSpecType())) {

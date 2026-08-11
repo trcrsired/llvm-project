@@ -5047,6 +5047,18 @@ static bool isCanonicalExceptionSpecification(
     const FunctionProtoType::ExceptionSpecInfo &ESI, bool NoexceptInType) {
   if (ESI.Type == EST_None)
     return true;
+
+  // Herbception (throws/fails) is always part of the canonical type because it
+  // changes the function ABI (the return type is lowered to {T, i1}).
+  if (ESI.Type == EST_BasicThrows)
+    return true;
+  if (ESI.Type == EST_ThrowsTyped) {
+    for (QualType ET : ESI.Exceptions)
+      if (!ET.isCanonical())
+        return false;
+    return true;
+  }
+
   if (!NoexceptInType)
     return false;
 
@@ -5175,6 +5187,17 @@ QualType ASTContext::getFunctionTypeInternal(
       case EST_NoexceptTrue:
       case EST_NoThrow:
         CanonicalEPI.ExceptionSpec.Type = EST_BasicNoexcept;
+        break;
+
+      case EST_BasicThrows:
+        CanonicalEPI.ExceptionSpec.Type = EST_BasicThrows;
+        break;
+
+      case EST_ThrowsTyped:
+        CanonicalEPI.ExceptionSpec.Type = EST_ThrowsTyped;
+        for (QualType ET : EPI.ExceptionSpec.Exceptions)
+          ExceptionTypeStorage.push_back(getCanonicalType(ET));
+        CanonicalEPI.ExceptionSpec.Exceptions = ExceptionTypeStorage;
         break;
 
       case EST_DependentNoexcept:

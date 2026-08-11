@@ -1258,6 +1258,15 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   } else {
     ReturnValue = CreateIRTempWithoutCast(RetTy, "retval");
 
+    // Herbception (throws): create a slot for the discriminant (the i1 of the
+    // {T, i1} return). A plain `return` stores false; `throw throws` / failure
+    // stores true. The epilogue reads it back.
+    if (CurFnInfo->hasThrowsReturn()) {
+      HerbceptionDiscriminant =
+          CreateIRTempWithoutCast(getContext().BoolTy, "herbception.disc");
+      Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
+    }
+
     // Tell the epilog emitter to autorelease the result.  We do this
     // now so that various specialized functions can suppress it
     // during their IR-generation.
