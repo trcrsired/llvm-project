@@ -18,6 +18,16 @@ int foo(int x) throws {
 // CHECK-NEXT: entry:
 int plin(int a, int b) { return a + b; }
 
+// try(expr) auto-propagates the error of a throws call. The caller extracts
+// the discriminant, branches on it, and on error returns {err, true}.
+// CHECK-LABEL: define dso_local { i32, i1 } @_Z6calleri(i32 noundef %x)
+// CHECK:         call { i32, i1 } @_Z3fooi
+// CHECK:         extractvalue { i32, i1 } %{{.*}}, 1
+// CHECK:         br i1 %{{.*}}, label %try.err, label %try.ok
+int caller(int x) throws {
+  return try(foo(x));
+}
+
 // CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }
 
 // Without -fherbceptions, 'throws' is not a keyword.

@@ -1974,6 +1974,12 @@ void ASTStmtReader::VisitCXXThrowExpr(CXXThrowExpr *E) {
   E->CXXThrowExprBits.IsThrownVariableInScope = Record.readInt();
 }
 
+void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
+  VisitExpr(E);
+  E->TryLoc = readSourceLocation();
+  E->SubExpr = Record.readSubExpr();
+}
+
 void ASTStmtReader::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {
   VisitExpr(E);
   E->Param = readDeclAs<ParmVarDecl>();

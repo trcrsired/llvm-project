@@ -887,6 +887,41 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
                        /*IsHerbception=*/true);
 }
 
+ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
+  if (!getLangOpts().HerbExceptions) {
+    Diag(TryLoc, diag::err_herbception_disabled);
+    return ExprError();
+  }
+
+  // `try(expr)` is only valid inside a function declared with 'throws' or
+  // 'fails{E}'.
+  const FunctionDecl *CurFD = getCurFunctionDecl();
+  if (!CurFD || !CurFD->getType()->getAs<FunctionProtoType>()->hasThrowsSpec()) {
+    Diag(TryLoc, diag::err_try_throws_outside_throws_function);
+    return ExprError();
+  }
+
+  if (!Ex) {
+    Diag(TryLoc, diag::err_herbception_try_requires_operand);
+    return ExprError();
+  }
+
+  // The subexpression must call a function with a throws/fails spec.
+  const FunctionProtoType *CalleeFPT = nullptr;
+  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
+      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
+  if (!CalleeFPT || !CalleeFPT->hasThrowsSpec()) {
+    Diag(Ex->getBeginLoc(), diag::err_try_expr_requires_throws_call);
+    return ExprError();
+  }
+
+  // The result type of the try expression is the success value type (T),
+  // stripped of the discriminant.
+  QualType Ty = Ex->getType();
+  return new (Context) CXXTryExpr(Ex, Ty, TryLoc);
+}
+
 ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
                                bool IsThrownVarInScope, bool IsHerbception) {
   const llvm::Triple &T = Context.getTargetInfo().getTriple();

@@ -4840,6 +4840,11 @@ private:
   /// \endverbatim
   ExprResult ParseThrowExpression();
 
+  /// ParseHerbceptionTryExpression - This handles the herbception
+  /// `try(expr)` expression, which auto-propagates the error of a throws/fails
+  /// call on failure.
+  ExprResult ParseHerbceptionTryExpression();
+
   //===--------------------------------------------------------------------===//
   // C++ 2.13.5: C++ Boolean Literals
 

@@ -1991,6 +1991,13 @@ void ASTStmtWriter::VisitCXXThrowExpr(CXXThrowExpr *E) {
   Code = serialization::EXPR_CXX_THROW;
 }
 
+void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getTryLoc());
+  Record.AddStmt(E->getSubExpr());
+  Code = serialization::EXPR_CXX_TRY;
+}
+
 void ASTStmtWriter::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {
   VisitExpr(E);
   Record.AddDeclRef(E->getParam());

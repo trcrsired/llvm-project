@@ -8603,6 +8603,8 @@ public:
   /// ActOnCXXThrowThrows - Parse `throw throws expr` (herbception).
   ExprResult ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
                                  SourceLocation ThrowsLoc, Expr *Ex);
+  /// ActOnHerbceptionTry - Parse `try(expr)` (herbception auto-propagate).
+  ExprResult ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex);
 
   /// CheckCXXThrowOperand - Validate the operand of a throw.
   bool CheckCXXThrowOperand(SourceLocation ThrowLoc, QualType ThrowTy, Expr *E);

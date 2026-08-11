@@ -3495,8 +3495,13 @@ public:
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
   ExprResult RebuildCXXThrowExpr(SourceLocation ThrowLoc, Expr *Sub,
-                                 bool IsThrownVariableInScope) {
+                                  bool IsThrownVariableInScope) {
     return getSema().BuildCXXThrow(ThrowLoc, Sub, IsThrownVariableInScope);
+  }
+
+  /// Build a new herbception try expression.
+  ExprResult RebuildCXXTryExpr(SourceLocation TryLoc, Expr *Sub) {
+    return getSema().ActOnHerbceptionTry(TryLoc, Sub);
   }
 
   /// Build a new C++ default-argument expression.
@@ -15043,6 +15048,18 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
 
   return getDerived().RebuildCXXThrowExpr(E->getThrowLoc(), SubExpr.get(),
                                           E->isThrownVariableInScope());
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
+  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
+    return E;
+
+  return getDerived().RebuildCXXTryExpr(E->getTryLoc(), SubExpr.get());
 }
 
 template<typename Derived>
