@@ -1265,6 +1265,16 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       HerbceptionDiscriminant =
           CreateIRTempWithoutCast(getContext().BoolTy, "herbception.disc");
       Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
+
+      // In a coroutine, keep the discriminant on the stack (not in the
+      // coroutine frame). The frame is deallocated by the resume path before
+      // the ramp reads the discriminant back for the {T, i1} return, so it
+      // must not live in the frame.
+      if (auto *Alloca = dyn_cast<llvm::AllocaInst>(
+              HerbceptionDiscriminant.emitRawPointer(*this)))
+        Alloca->setMetadata(
+            llvm::LLVMContext::MD_coro_outside_frame,
+            llvm::MDNode::get(CGM.getLLVMContext(), {}));
     }
 
     // Tell the epilog emitter to autorelease the result.  We do this
