@@ -2173,6 +2173,11 @@ void StmtProfiler::VisitCXXTryExpr(const CXXTryExpr *S) {
   VisitStmt(S->getSubExpr());
 }
 
+void StmtProfiler::VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *S) {
+  VisitExpr(S);
+  VisitStmt(S->getSubExpr());
+}
+
 void StmtProfiler::VisitCXXDefaultArgExpr(const CXXDefaultArgExpr *S) {
   VisitExpr(S);
   VisitDecl(S->getParam());

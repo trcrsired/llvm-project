@@ -1314,6 +1314,50 @@ public:
   }
 };
 
+/// Represents a herbception `catch fails(expr)` expression: evaluate \p SubExpr
+/// (which must call a `throws`/`fails{E}` function) and produce an
+/// `either{T, E}` value with `.positive`, `.left` and `.right` fields.
+class CXXCatchFailsExpr : public Expr {
+  friend class ASTStmtReader;
+
+  /// The subexpression being "caught".
+  Stmt *SubExpr;
+
+  /// The location of the "catch".
+  SourceLocation CatchLoc;
+
+public:
+  /// \p Ty is the `either{T, E}` type. \p Loc is the location of the catch
+  /// keyword.
+  CXXCatchFailsExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc)
+      : Expr(CXXCatchFailsExprClass, Ty, VK_PRValue, OK_Ordinary),
+        SubExpr(SubExpr), CatchLoc(Loc) {
+    setDependence(computeDependence(this));
+  }
+  CXXCatchFailsExpr(EmptyShell Empty) : Expr(CXXCatchFailsExprClass, Empty) {}
+
+  const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
+  Expr *getSubExpr() { return cast<Expr>(SubExpr); }
+
+  SourceLocation getCatchLoc() const { return CatchLoc; }
+
+  SourceLocation getBeginLoc() const { return CatchLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    return getSubExpr()->getEndLoc();
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXCatchFailsExprClass;
+  }
+
+  // Iterators
+  child_range children() { return child_range(&SubExpr, &SubExpr + 1); }
+
+  const_child_range children() const {
+    return const_child_range(&SubExpr, &SubExpr + 1);
+  }
+};
+
 /// A default argument (C++ [dcl.fct.default]).
 ///
 /// This wraps up a function call argument that was created from the

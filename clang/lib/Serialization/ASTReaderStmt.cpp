@@ -1980,6 +1980,12 @@ void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
   E->SubExpr = Record.readSubExpr();
 }
 
+void ASTStmtReader::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+  VisitExpr(E);
+  E->CatchLoc = readSourceLocation();
+  E->SubExpr = Record.readSubExpr();
+}
+
 void ASTStmtReader::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {
   VisitExpr(E);
   E->Param = readDeclAs<ParmVarDecl>();

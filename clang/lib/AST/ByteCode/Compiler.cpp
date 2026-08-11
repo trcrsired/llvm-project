@@ -3766,6 +3766,11 @@ bool Compiler<Emitter>::VisitCXXTryExpr(const CXXTryExpr *E) {
 }
 
 template <class Emitter>
+bool Compiler<Emitter>::VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
+  return this->emitInvalid(E);
+}
+
+template <class Emitter>
 bool Compiler<Emitter>::VisitCXXReinterpretCastExpr(
     const CXXReinterpretCastExpr *E) {
   const Expr *SubExpr = E->getSubExpr();

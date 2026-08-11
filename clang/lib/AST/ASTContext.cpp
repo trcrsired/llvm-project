@@ -8715,6 +8715,36 @@ QualType ASTContext::getBlockDescriptorType() const {
   return getCanonicalTagType(BlockDescriptorType);
 }
 
+QualType ASTContext::getEitherType(QualType T, QualType E) const {
+  CanQualType CT = getCanonicalType(T);
+  CanQualType CE = getCanonicalType(E);
+  auto Key = std::make_pair(CT, CE);
+  auto It = EitherTypes.find(Key);
+  if (It != EitherTypes.end())
+    return getCanonicalTagType(It->second);
+
+  RecordDecl *RD = buildImplicitRecord("either");
+  RD->startDefinition();
+
+  // Fields: .positive (bool), .left (T), .right (E).
+  struct EitherField {
+    const char *Name;
+    QualType Ty;
+  } Fields[] = {{"positive", BoolTy}, {"left", T}, {"right", E}};
+  for (const auto &F : Fields) {
+    FieldDecl *Field = FieldDecl::Create(
+        *this, RD, SourceLocation(), SourceLocation(),
+        &Idents.get(F.Name), F.Ty, /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr, /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    RD->addDecl(Field);
+  }
+
+  RD->completeDefinition();
+  EitherTypes[Key] = RD;
+  return getCanonicalTagType(RD);
+}
+
 QualType ASTContext::getBlockDescriptorExtendedType() const {
   if (BlockDescriptorExtendedType)
     return getCanonicalTagType(BlockDescriptorExtendedType);
