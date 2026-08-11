@@ -3504,6 +3504,11 @@ public:
     return getSema().ActOnHerbceptionTry(TryLoc, Sub);
   }
 
+  /// Build a new herbception catch fails expression.
+  ExprResult RebuildCXXCatchFailsExpr(SourceLocation CatchLoc, Expr *Sub) {
+    return getSema().ActOnHerbceptionCatchFails(CatchLoc, CatchLoc, Sub);
+  }
+
   /// Build a new C++ default-argument expression.
   ///
   /// By default, builds a new default-argument expression, which does not
@@ -15060,6 +15065,19 @@ ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
     return E;
 
   return getDerived().RebuildCXXTryExpr(E->getTryLoc(), SubExpr.get());
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXCatchFailsExpr(
+    CXXCatchFailsExpr *E) {
+  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
+    return E;
+
+  return getDerived().RebuildCXXCatchFailsExpr(E->getCatchLoc(), SubExpr.get());
 }
 
 template<typename Derived>

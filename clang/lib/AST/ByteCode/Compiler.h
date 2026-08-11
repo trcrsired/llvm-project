@@ -200,6 +200,7 @@ public:
   bool VisitPredefinedExpr(const PredefinedExpr *E);
   bool VisitCXXThrowExpr(const CXXThrowExpr *E);
   bool VisitCXXTryExpr(const CXXTryExpr *E);
+  bool VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E);
   bool VisitCXXReinterpretCastExpr(const CXXReinterpretCastExpr *E);
   bool VisitCXXDynamicCastExpr(const CXXDynamicCastExpr *E);
   bool VisitCXXNoexceptExpr(const CXXNoexceptExpr *E);

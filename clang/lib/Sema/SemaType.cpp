@@ -5371,7 +5371,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         SmallVector<SourceRange, 2> DynamicExceptionRanges;
         Expr *NoexceptExpr = nullptr;
 
-        if (FTI.getExceptionSpecType() == EST_Dynamic) {
+        if (FTI.getExceptionSpecType() == EST_Dynamic ||
+            FTI.getExceptionSpecType() == EST_ThrowsTyped) {
           // FIXME: It's rather inefficient to have to split into two vectors
           // here.
           unsigned N = FTI.getNumExceptions();

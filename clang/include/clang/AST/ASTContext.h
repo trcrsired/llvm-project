@@ -504,6 +504,11 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// serialized.
   mutable RecordDecl *BlockDescriptorType = nullptr;
 
+  /// Cache of herbception `either{T, E}` record types, keyed by the
+  /// canonicalized (T, E) pair.
+  mutable llvm::DenseMap<std::pair<CanQualType, CanQualType>, RecordDecl *>
+      EitherTypes;
+
   /// Type for the Block descriptor for Blocks CodeGen.
   ///
   /// Since this is only used for generation of debug info, it is not
@@ -1683,6 +1688,11 @@ public:
   /// Gets the struct used to keep track of the descriptor for pointer to
   /// blocks.
   QualType getBlockDescriptorType() const;
+
+  /// Return the herbception `either{T, E}` type: a record with fields
+  /// `.positive` (bool), `.left` (T) and `.right` (E), used by
+  /// `catch fails(expr)`.
+  QualType getEitherType(QualType T, QualType E) const;
 
   /// Return a read_only pipe type for the specified type.
   QualType getReadPipeType(QualType T) const;

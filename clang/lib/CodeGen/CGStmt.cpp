@@ -1818,6 +1818,59 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   llvm_unreachable("try expression of aggregate type is unsupported");
 }
 
+RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
+  const Expr *Sub = E->getSubExpr()->IgnoreParenImpCasts();
+  const CallExpr *Call = cast<CallExpr>(Sub);
+
+  // Emit the call. It returns {T, i1} (value-or-error, discriminant).
+  llvm::CallBase *CallOrInvoke = nullptr;
+  EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
+  assert(CallOrInvoke && "throws call did not produce a call instruction");
+  assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
+         CallOrInvoke->getType()->getStructNumElements() == 2 &&
+         "throws call must return {T, i1}");
+
+  llvm::Value *Payload = Builder.CreateExtractValue(CallOrInvoke, 0);
+  llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+
+  // Build the either{T, E} value: { positive = !disc, left = payload, right =
+  // payload }.
+  QualType EitherTy = E->getType();
+  const RecordDecl *RD = EitherTy->getAsRecordDecl();
+  assert(RD && "either type must be a record");
+  (void)RD;
+
+  llvm::Type *EitherIRTy = ConvertType(EitherTy);
+  llvm::Value *EitherVal = llvm::PoisonValue::get(EitherIRTy);
+
+  // Field types as stored in the IR struct (bool fields widen to i8).
+  llvm::Type *PositiveIRTy = EitherIRTy->getStructElementType(0);
+  llvm::Type *LeftIRTy = EitherIRTy->getStructElementType(1);
+  llvm::Type *RightIRTy = EitherIRTy->getStructElementType(2);
+
+  llvm::Value *Positive = Builder.CreateNot(Disc);
+  if (PositiveIRTy->isIntegerTy() && Positive->getType()->isIntegerTy())
+    Positive = Builder.CreateIntCast(Positive, PositiveIRTy, false);
+  EitherVal = Builder.CreateInsertValue(EitherVal, Positive, 0);
+
+  // .left is the success value; .right is the error value. Both come from the
+  // same payload slot (the value-or-error union). Truncate/extend as needed.
+  auto CoerceField = [&](llvm::Type *FieldIRTy) -> llvm::Value * {
+    if (FieldIRTy == Payload->getType())
+      return Payload;
+    if (FieldIRTy->isIntegerTy() && Payload->getType()->isIntegerTy())
+      return Builder.CreateIntCast(Payload, FieldIRTy, false);
+    return Builder.CreateBitCast(Payload, FieldIRTy);
+  };
+  EitherVal = Builder.CreateInsertValue(EitherVal, CoerceField(LeftIRTy), 1);
+  EitherVal = Builder.CreateInsertValue(EitherVal, CoerceField(RightIRTy), 2);
+
+  // Return the either as an aggregate RValue (store to a temp).
+  Address Addr = CreateMemTempWithoutCast(EitherTy, "either");
+  Builder.CreateStore(EitherVal, Addr);
+  return RValue::getAggregate(Addr);
+}
+
 void CodeGenFunction::EmitDeclStmt(const DeclStmt &S) {
   // As long as debug info is modeled with instructions, we have to ensure we
   // have a place to insert here and write the stop point here.

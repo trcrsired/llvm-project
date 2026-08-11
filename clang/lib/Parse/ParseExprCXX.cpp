@@ -1790,6 +1790,25 @@ ExprResult Parser::ParseHerbceptionTryExpression() {
   return Actions.ActOnHerbceptionTry(TryLoc, Expr.get());
 }
 
+ExprResult Parser::ParseHerbceptionCatchFailsExpression() {
+  assert(Tok.is(tok::kw_catch) && "Not catch!");
+  SourceLocation CatchLoc = ConsumeToken();  // Eat the catch token.
+  assert(Tok.is(tok::kw_fails) && "Expected 'fails' after catch");
+  SourceLocation FailsLoc = ConsumeToken();  // Eat the fails token.
+  assert(Tok.is(tok::l_paren) && "Expected '(' after fails");
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_expression);
+    return ExprError();
+  }
+  ExprResult Expr = ParseExpression();
+  if (Expr.isInvalid())
+    return Expr;
+  T.consumeClose();
+  return Actions.ActOnHerbceptionCatchFails(CatchLoc, FailsLoc, Expr.get());
+}
+
 ExprResult Parser::ParseCoyieldExpression() {
   assert(Tok.is(tok::kw_co_yield) && "Not co_yield!");
 

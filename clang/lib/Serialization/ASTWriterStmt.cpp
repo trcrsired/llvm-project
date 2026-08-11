@@ -1998,6 +1998,13 @@ void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
   Code = serialization::EXPR_CXX_TRY;
 }
 
+void ASTStmtWriter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getCatchLoc());
+  Record.AddStmt(E->getSubExpr());
+  Code = serialization::EXPR_CXX_CATCH_FAILS;
+}
+
 void ASTStmtWriter::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {
   VisitExpr(E);
   Record.AddDeclRef(E->getParam());

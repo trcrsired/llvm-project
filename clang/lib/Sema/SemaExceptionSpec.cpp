@@ -612,6 +612,30 @@ static bool CheckEquivalentExceptionSpecImpl(
       return false;
   }
 
+  // Herbception specifications must match: 'throws' matches 'throws', and
+  // 'fails{E}' matches 'fails{E}' with the same error type. These change the
+  // ABI (return type is lowered to {T, i1}), so they cannot be freely
+  // mixed with other specification kinds.
+  if (OldEST == EST_BasicThrows && NewEST == EST_BasicThrows)
+    return false;
+  if (OldEST == EST_ThrowsTyped && NewEST == EST_ThrowsTyped) {
+    bool Success = true;
+    llvm::SmallPtrSet<CanQualType, 8> OldTypes, NewTypes;
+    for (const auto &I : Old->exceptions())
+      OldTypes.insert(S.Context.getCanonicalType(I).getUnqualifiedType());
+    for (const auto &I : New->exceptions()) {
+      CanQualType TypePtr = S.Context.getCanonicalType(I).getUnqualifiedType();
+      if (OldTypes.count(TypePtr))
+        NewTypes.insert(TypePtr);
+      else {
+        Success = false;
+        break;
+      }
+    }
+    if (Success && OldTypes.size() == NewTypes.size())
+      return false;
+  }
+
   // As a special compatibility feature, under C++0x we accept no spec and
   // throw(std::bad_alloc) as equivalent for operator new and operator new[].
   // This is because the implicit declaration changed, but old code would break.

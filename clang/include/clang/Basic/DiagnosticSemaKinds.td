@@ -8791,6 +8791,9 @@ def err_herbception_try_requires_operand : Error<
 def err_try_expr_requires_throws_call : Error<
   "'try' expression operand must be a call to a function declared 'throws' or "
   "'fails{...}'">;
+def err_catch_fails_expr_requires_throws_call : Error<
+  "'catch fails' expression operand must be a call to a function declared "
+  "'throws' or 'fails{...}'">;
 def err_catch_sizeless : Error<
   "cannot catch %select{|reference to }0sizeless type %1">;
 def err_catch_rvalue_ref : Error<"cannot catch exceptions by rvalue reference">;
