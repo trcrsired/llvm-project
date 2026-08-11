@@ -129,6 +129,7 @@ Design Documents
    HardwareAssistedAddressSanitizerDesign
    ConstantInterpreter
    LLVMExceptionHandlingCodeGen
+   Herbceptions
 
 Indices and tables
 ==================
