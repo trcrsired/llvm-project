@@ -129,6 +129,7 @@ Design Documents
    HardwareAssistedAddressSanitizerDesign.rst
    ConstantInterpreter
    LLVMExceptionHandlingCodeGen
+   Herbceptions
 
 Indices and tables
 ==================
