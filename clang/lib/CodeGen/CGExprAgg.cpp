@@ -233,6 +233,10 @@ public:
   void EmitNullInitializationToLValue(LValue Address);
   //  case Expr::ChooseExprClass:
   void VisitCXXThrowExpr(const CXXThrowExpr *E) { CGF.EmitCXXThrowExpr(E); }
+  void VisitCXXTryExpr(const CXXTryExpr *E) {
+    RValue Res = CGF.EmitHerbceptionTry(E);
+    EmitFinalDestCopy(E->getType(), Res);
+  }
   void VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
     RValue Res = CGF.EmitHerbceptionCatchFails(E);
     EmitFinalDestCopy(E->getType(), Res);

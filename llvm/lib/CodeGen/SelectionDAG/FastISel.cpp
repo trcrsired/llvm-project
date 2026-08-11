@@ -1194,6 +1194,12 @@ bool FastISel::selectCall(const User *I) {
   if (const auto *II = dyn_cast<IntrinsicInst>(Call))
     return selectIntrinsicCall(II);
 
+  // Herbception (throws) calls return a {T, i1} value where the discriminant
+  // is carried in a target-specific mechanism (e.g. the carry flag on x86).
+  // FastISel does not implement this, so fall back to SelectionDAG ISel.
+  if (Call->hasFnAttr(Attribute::Throws))
+    return false;
+
   return lowerCall(Call);
 }
 
