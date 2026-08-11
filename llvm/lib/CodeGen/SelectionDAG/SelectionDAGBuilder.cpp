@@ -2311,8 +2311,10 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
         if (RetInReg)
           Flags.setInReg();
 
-        // Herbception (throws) functions return with a discriminant.
-        if (F->getAttributes().hasFnAttr(Attribute::Throws))
+        // Herbception (throws) functions return with a discriminant. The
+        // discriminant is the last part of the {T, i1} return value.
+        if (F->getAttributes().hasFnAttr(Attribute::Throws) &&
+            j == NumValues - 1)
           Flags.setThrows();
 
         if (I.getOperand(0)->getType()->isPointerTy()) {
@@ -11370,11 +11372,11 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
 
   SmallVector<ISD::OutputArg, 4> Outs;
   GetReturnInfo(CLI.CallConv, CLI.RetTy, getReturnAttrs(CLI), Outs, *this, DL);
-  // Propagate the throws (herbception) discriminant flag to the return values
-  // so that the caller-side return lowering can use a discriminant mechanism.
-  if (CLI.IsThrows)
-    for (ISD::OutputArg &Out : Outs)
-      Out.Flags.setThrows();
+  // Propagate the throws (herbception) discriminant flag to the last return
+  // value so that the caller-side return lowering can use a discriminant
+  // mechanism.
+  if (CLI.IsThrows && !Outs.empty())
+    Outs.back().Flags.setThrows();
 
   bool CanLowerReturn =
       this->CanLowerReturn(CLI.CallConv, CLI.DAG.getMachineFunction(),
@@ -11433,7 +11435,9 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
           Ret.Flags.setZExt();
         if (CLI.IsInReg)
           Ret.Flags.setInReg();
-        if (CLI.IsThrows)
+        // Herbception (throws): the discriminant is the last part of the
+        // {T, i1} return value.
+        if (CLI.IsThrows && I == RetVTs.size() - 1)
           Ret.Flags.setThrows();
         CLI.Ins.push_back(Ret);
       }

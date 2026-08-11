@@ -802,6 +802,9 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   CCInfo.AnalyzeReturn(Outs, RetCC_X86);
 
   SmallVector<std::pair<Register, SDValue>, 4> RetVals;
+  // If this function returns the throws (herbception) discriminant, it is
+  // carried in the carry flag (CF) instead of a return register.
+  SDValue ThrowsDiscriminant;
   for (unsigned I = 0, OutsIndex = 0, E = RVLocs.size(); I != E;
        ++I, ++OutsIndex) {
     CCValAssign &VA = RVLocs[I];
@@ -810,6 +813,12 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     // Add the register to the CalleeSaveDisableRegs list.
     if (ShouldDisableCalleeSavedRegister)
       MF.getRegInfo().disableCalleeSavedRegister(VA.getLocReg());
+
+    if (Outs[OutsIndex].Flags.isThrows()) {
+      // The throws discriminant is returned via the carry flag.
+      ThrowsDiscriminant = OutVals[OutsIndex];
+      continue;
+    }
 
     SDValue ValToCopy = OutVals[OutsIndex];
     EVT ValVT = ValToCopy.getValueType();
@@ -907,6 +916,24 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     Glue = Chain.getValue(1);
     RetOps.push_back(
         DAG.getRegister(RetVal.first, RetVal.second.getValueType()));
+  }
+
+  // Herbception (throws): return the discriminant in the carry flag. Use the
+  // ADD-with-AllOnes trick so that CF = (disc != 0) = disc, and glue the flag
+  // into the RET so nothing clobbers it before the return.
+  if (ThrowsDiscriminant.getNode()) {
+    EVT DiscVT = ThrowsDiscriminant.getValueType();
+    assert(DiscVT.isInteger() && "throws discriminant must be an integer");
+    MVT RegVT = DiscVT == MVT::i1 ? MVT::i8 : DiscVT.getSimpleVT();
+    SDValue Disc = DAG.getNode(ISD::ZERO_EXTEND, dl, RegVT,
+                               ThrowsDiscriminant);
+    SDValue AllOnes = DAG.getAllOnesConstant(dl, RegVT);
+    SDValue Add = DAG.getNode(X86ISD::ADD, dl,
+                              DAG.getVTList(RegVT, MVT::i32), Disc, AllOnes);
+    // Add.getValue(1) is EFLAGS with carry set iff Disc != 0.
+    Chain = DAG.getCopyToReg(Chain, dl, X86::EFLAGS, Add.getValue(1), Glue);
+    Glue = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(X86::EFLAGS, MVT::i32));
   }
 
   // Swift calling convention does not require we copy the sret argument
@@ -1149,8 +1176,8 @@ static SDValue getPopFromX87Reg(SelectionDAG &DAG, SDValue Chain,
 SDValue X86TargetLowering::LowerCallResult(
     SDValue Chain, SDValue InGlue, CallingConv::ID CallConv, bool isVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl,
-    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals,
-    uint32_t *RegMask) const {
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals, uint32_t *RegMask,
+    Register ThrowsDiscriminantReg) const {
 
   const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
   // Assign locations to each value returned by this call.
@@ -1164,6 +1191,21 @@ SDValue X86TargetLowering::LowerCallResult(
        ++I, ++InsIndex) {
     CCValAssign &VA = RVLocs[I];
     EVT CopyVT = VA.getLocVT();
+
+    // Herbception (throws): the discriminant was materialized from the carry
+    // flag into a virtual register right after the call (before CALLSEQ_END
+    // could clobber EFLAGS); read it back into a value of the register type
+    // (i8) expected by the middle-end.
+    if (Ins[InsIndex].Flags.isThrows()) {
+      assert(ThrowsDiscriminantReg && "missing throws discriminant register");
+      SDValue Disc =
+          DAG.getCopyFromReg(Chain, dl, ThrowsDiscriminantReg, MVT::i8, InGlue);
+      Chain = Disc.getValue(1);
+      InGlue = Disc.getValue(2);
+      InVals.push_back(
+          DAG.getNode(ISD::ZERO_EXTEND, dl, Ins[InsIndex].VT, Disc));
+      continue;
+    }
 
     // In some calling conventions we need to remove the used registers
     // from the register mask.
@@ -2755,6 +2797,26 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   DAG.addNoMergeSiteInfo(Chain.getNode(), CLI.NoMerge);
   DAG.addCallSiteInfo(Chain.getNode(), std::move(CSInfo));
 
+  // Herbception (throws): read the carry flag (CF) immediately after the call,
+  // before CALLSEQ_END could clobber it. The discriminant is the last Ins
+  // entry (the i1 of {T, i1}). Use a custom READ_CF node (chained + glued
+  // directly to the call) so that the setb is scheduled right after the call;
+  // CALLSEQ_END (which may clobber EFLAGS via the stack adjustment) is then
+  // sequenced after it. The value is copied into a virtual register and read
+  // back in LowerCallResult.
+  Register ThrowsDiscriminantReg;
+  if (CLI.IsThrows) {
+    SDValue ReadCF = DAG.getNode(
+        X86ISD::READ_CF, dl, DAG.getVTList(MVT::i8, MVT::Other, MVT::Glue),
+        Chain, InGlue);
+    Chain = ReadCF.getValue(1);
+    InGlue = ReadCF.getValue(2);
+    ThrowsDiscriminantReg = MF.getRegInfo().createVirtualRegister(
+        &X86::GR8RegClass);
+    Chain = DAG.getCopyToReg(Chain, dl, ThrowsDiscriminantReg, ReadCF,
+                             InGlue);
+    InGlue = Chain.getValue(1);
+  }
   // Save heapallocsite metadata.
   if (CLI.CB)
     if (MDNode *HeapAlloc = CLI.CB->getMetadata("heapallocsite"))
@@ -2791,7 +2853,7 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Handle result values, copying them out of physregs into vregs that we
   // return.
   return LowerCallResult(Chain, InGlue, CallConv, isVarArg, Ins, dl, DAG,
-                         InVals, RegMask);
+                         InVals, RegMask, ThrowsDiscriminantReg);
 }
 
 //===----------------------------------------------------------------------===//

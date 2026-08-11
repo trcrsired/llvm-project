@@ -1831,7 +1831,8 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
   unsigned NumValues = Types.size();
   if (NumValues == 0) return;
 
-  for (Type *Ty : Types) {
+  for (unsigned I = 0, E = NumValues; I != E; ++I) {
+    Type *Ty = Types[I];
     EVT VT = TLI.getValueType(DL, Ty);
     ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
 
@@ -1853,9 +1854,9 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
     if (attr.hasRetAttr(Attribute::InReg))
       Flags.setInReg();
 
-    // Propagate the throws (herbception) discriminant flag from the function
-    // so that return value lowering can use a discriminant mechanism.
-    if (attr.hasFnAttr(Attribute::Throws))
+    // Propagate the throws (herbception) discriminant flag from the function.
+    // The discriminant is the last part of the {T, i1} return value.
+    if (attr.hasFnAttr(Attribute::Throws) && I == E - 1)
       Flags.setThrows();
 
     // Propagate extension type if any
