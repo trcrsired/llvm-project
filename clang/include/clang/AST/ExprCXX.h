@@ -1221,10 +1221,11 @@ public:
   // \p Operand is the expression in the throw statement, and can be
   // null if not present.
   CXXThrowExpr(Expr *Operand, QualType Ty, SourceLocation Loc,
-               bool IsThrownVariableInScope)
+               bool IsThrownVariableInScope, bool IsHerbception = false)
       : Expr(CXXThrowExprClass, Ty, VK_PRValue, OK_Ordinary), Operand(Operand) {
     CXXThrowExprBits.ThrowLoc = Loc;
     CXXThrowExprBits.IsThrownVariableInScope = IsThrownVariableInScope;
+    CXXThrowExprBits.IsHerbception = IsHerbception;
     setDependence(computeDependence(this));
   }
   CXXThrowExpr(EmptyShell Empty) : Expr(CXXThrowExprClass, Empty) {}
@@ -1233,6 +1234,9 @@ public:
   Expr *getSubExpr() { return cast_or_null<Expr>(Operand); }
 
   SourceLocation getThrowLoc() const { return CXXThrowExprBits.ThrowLoc; }
+
+  /// Whether this is a herbception `throw throws expr` (deterministic error).
+  bool isHerbception() const { return CXXThrowExprBits.IsHerbception; }
 
   /// Determines whether the variable thrown by this expression (if any!)
   /// is within the innermost try block.

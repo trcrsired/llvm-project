@@ -5544,6 +5544,7 @@ public:
 
     bool requiresFunctionProtoTypeExtraBitfields() const {
       return ExceptionSpec.Type == EST_Dynamic ||
+             ExceptionSpec.Type == EST_ThrowsTyped ||
              requiresFunctionProtoTypeArmAttributes() ||
              requiresFunctionProtoTypeExtraAttributeInfo() ||
              !FunctionEffects.empty();
@@ -5645,9 +5646,13 @@ private:
     case EST_BasicNoexcept:
     case EST_Unparsed:
     case EST_NoThrow:
+    case EST_BasicThrows:
       return {0, 0, 0};
 
     case EST_Dynamic:
+    case EST_ThrowsTyped:
+      // EST_ThrowsTyped stores the explicit error type E in the exceptions
+      // slot.
       return {NumExceptions, 0, 0};
 
     case EST_DependentNoexcept:
@@ -5743,6 +5748,24 @@ public:
     return isNoexceptExceptionSpec(getExceptionSpecType());
   }
 
+  /// Return whether this function has a herbception (throws/fails) spec.
+  bool hasThrowsSpec() const {
+    return getExceptionSpecType() == EST_BasicThrows ||
+           getExceptionSpecType() == EST_ThrowsTyped;
+  }
+
+  /// Return whether this function has a herbception 'throws' spec (implicit
+  /// std::error).
+  bool hasBasicThrowsSpec() const {
+    return getExceptionSpecType() == EST_BasicThrows;
+  }
+
+  /// Return whether this function has a herbception 'fails{E}' spec (explicit
+  /// error type).
+  bool hasFailsSpec() const {
+    return getExceptionSpecType() == EST_ThrowsTyped;
+  }
+
   /// Return whether this function has a dependent exception spec.
   bool hasDependentExceptionSpec() const;
 
@@ -5754,7 +5777,7 @@ public:
   ExceptionSpecInfo getExceptionSpecInfo() const {
     ExceptionSpecInfo Result;
     Result.Type = getExceptionSpecType();
-    if (Result.Type == EST_Dynamic) {
+    if (Result.Type == EST_Dynamic || Result.Type == EST_ThrowsTyped) {
       Result.Exceptions = exceptions();
     } else if (isComputedNoexcept(Result.Type)) {
       Result.NoexceptExpr = getNoexceptExpr();
@@ -5769,7 +5792,8 @@ public:
 
   /// Return the number of types in the exception specification.
   unsigned getNumExceptions() const {
-    return getExceptionSpecType() == EST_Dynamic
+    return (getExceptionSpecType() == EST_Dynamic ||
+            getExceptionSpecType() == EST_ThrowsTyped)
                ? getTrailingObjects<FunctionTypeExtraBitfields>()
                      ->NumExceptionType
                : 0;

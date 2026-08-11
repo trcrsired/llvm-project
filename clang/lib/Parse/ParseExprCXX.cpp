@@ -1744,6 +1744,16 @@ ExprResult Parser::ParseThrowExpression() {
   assert(Tok.is(tok::kw_throw) && "Not throw!");
   SourceLocation ThrowLoc = ConsumeToken();           // Eat the throw token.
 
+  // Herbception: `throw throws expr` is a deterministic error throw.
+  if (Tok.is(tok::kw_throws)) {
+    SourceLocation ThrowsLoc = ConsumeToken();
+    ExprResult Expr = ParseAssignmentExpression();
+    if (Expr.isInvalid())
+      return Expr;
+    return Actions.ActOnCXXThrowThrows(getCurScope(), ThrowLoc, ThrowsLoc,
+                                       Expr.get());
+  }
+
   // If the current token isn't the start of an assignment-expression,
   // then the expression is not present.  This handles things like:
   //   "C ? throw : (void)42", which is crazy but legal.

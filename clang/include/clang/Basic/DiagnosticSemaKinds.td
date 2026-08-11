@@ -8444,8 +8444,7 @@ def err_rethrow_used_outside_catch : Error<
   "@throw (rethrow) used outside of a @catch block">;
 def err_attribute_multiple_objc_gc : Error<
   "multiple garbage collection attributes specified for type">;
-def err_catch_param_not_objc_type : Error<
-  "@catch parameter is not a pointer to an interface type">;
+def err_catch_param_not_objc_type : Error<  "@catch parameter is not a pointer to an interface type">;
 def err_illegal_qualifiers_on_catch_parm : Error<
   "illegal qualifiers on @catch parameter">;
 def err_storage_spec_on_catch_parm : Error<
@@ -8786,6 +8785,15 @@ def err_catch_incomplete_ptr : Error<
 def err_catch_incomplete_ref : Error<
   "cannot catch reference to incomplete type %0">;
 def err_catch_incomplete : Error<"cannot catch incomplete type %0">;
+def err_throw_throws_outside_throws_function : Error<
+  "'throw throws' is only allowed inside a function declared 'throws' or "
+  "'fails{...}'">;
+def err_throw_throws_requires_operand : Error<
+  "'throw throws' requires an error value operand">;
+def err_try_throws_outside_throws_function : Error<
+  "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
+def err_herbception_try_requires_operand : Error<
+  "'try' requires an expression operand">;
 def err_catch_sizeless : Error<
   "cannot catch %select{|reference to }0sizeless type %1">;
 def err_catch_rvalue_ref : Error<"cannot catch exceptions by rvalue reference">;

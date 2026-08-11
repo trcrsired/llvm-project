@@ -860,6 +860,11 @@ protected:
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsThrownVariableInScope : 1;
 
+    /// Whether this is a herbception `throw throws expr` (deterministic
+    /// error) instead of a traditional C++ throw.
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsHerbception : 1;
+
     /// The location of the "throw".
     SourceLocation ThrowLoc;
   };
