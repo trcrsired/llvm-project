@@ -87,6 +87,11 @@ ExprResult Parser::ParseAssignmentExpression(
   if (getLangOpts().HerbExceptions && Tok.is(tok::kw_try) &&
       GetLookAheadToken(1).is(tok::l_paren))
     return ParseHerbceptionTryExpression();
+  // Herbception: `catch fails(expr)` produces an `either{T, E}` value.
+  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_catch) &&
+      GetLookAheadToken(1).is(tok::kw_fails) &&
+      GetLookAheadToken(2).is(tok::l_paren))
+    return ParseHerbceptionCatchFailsExpression();
   if (Tok.is(tok::kw_co_yield))
     return ParseCoyieldExpression();
 

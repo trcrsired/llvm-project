@@ -5286,6 +5286,10 @@ public:
   /// auto-propagate its error on failure. Returns the success value.
   RValue EmitHerbceptionTry(const CXXTryExpr *E);
 
+  /// Emit a herbception `catch fails(expr)`: evaluate the throws/fails call
+  /// and produce an `either{T, E}` value (positive, left, right).
+  RValue EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E);
+
   RValue EmitAtomicExpr(AtomicExpr *E);
 
   void EmitFakeUse(Address Addr);

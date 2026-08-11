@@ -922,6 +922,42 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   return new (Context) CXXTryExpr(Ex, Ty, TryLoc);
 }
 
+ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
+                                            SourceLocation FailsLoc, Expr *Ex) {
+  if (!getLangOpts().HerbExceptions) {
+    Diag(CatchLoc, diag::err_herbception_disabled);
+    return ExprError();
+  }
+
+  if (!Ex) {
+    Diag(FailsLoc, diag::err_herbception_try_requires_operand);
+    return ExprError();
+  }
+
+  // The subexpression must call a function with a throws/fails spec.
+  const FunctionProtoType *CalleeFPT = nullptr;
+  QualType ValueTy;
+  // For fails{E}, the error type is the explicit E; for throws it is the
+  // implicit std::error. Until std::error is available in-tree, use the
+  // value type so either{T, T} matches the {T, i1} payload layout.
+  QualType ErrorTy;
+  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl())) {
+      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
+      ValueTy = FD->getReturnType();
+      ErrorTy = CalleeFPT && CalleeFPT->hasFailsSpec()
+                    ? CalleeFPT->getExceptionType(0)
+                    : ValueTy;
+    }
+  if (!CalleeFPT || !CalleeFPT->hasThrowsSpec()) {
+    Diag(Ex->getBeginLoc(), diag::err_catch_fails_expr_requires_throws_call);
+    return ExprError();
+  }
+
+  QualType EitherTy = Context.getEitherType(ValueTy, ErrorTy);
+  return new (Context) CXXCatchFailsExpr(Ex, EitherTy, CatchLoc);
+}
+
 ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
                                bool IsThrownVarInScope, bool IsHerbception) {
   const llvm::Triple &T = Context.getTargetInfo().getTriple();

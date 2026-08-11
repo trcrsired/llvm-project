@@ -344,6 +344,10 @@ ExprDependence clang::computeDependence(CXXTryExpr *E) {
   return E->getSubExpr()->getDependence() & ~ExprDependence::TypeValue;
 }
 
+ExprDependence clang::computeDependence(CXXCatchFailsExpr *E) {
+  return E->getSubExpr()->getDependence() & ~ExprDependence::TypeValue;
+}
+
 ExprDependence clang::computeDependence(CXXBindTemporaryExpr *E) {
   return E->getSubExpr()->getDependence();
 }

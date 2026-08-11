@@ -19833,7 +19833,7 @@ void Sema::checkExceptionSpecification(
     FunctionProtoType::ExceptionSpecInfo &ESI) {
   Exceptions.clear();
   ESI.Type = EST;
-  if (EST == EST_Dynamic) {
+  if (EST == EST_Dynamic || EST == EST_ThrowsTyped) {
     Exceptions.reserve(DynamicExceptions.size());
     for (unsigned ei = 0, ee = DynamicExceptions.size(); ei != ee; ++ei) {
       // FIXME: Preserve type source info.
