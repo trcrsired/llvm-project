@@ -1767,6 +1767,65 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
   EmitBranchThroughCleanup(ReturnBlock);
 }
 
+RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
+  assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
+         "herbception try outside a throws function");
+
+  const Expr *Sub = E->getSubExpr()->IgnoreParenImpCasts();
+  const CallExpr *Call = cast<CallExpr>(Sub);
+  QualType CallTy = Call->getType();
+
+  // Emit the call. It returns {T, i1}; capture the raw call so we can read
+  // both the success value and the discriminant.
+  llvm::CallBase *CallOrInvoke = nullptr;
+  EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
+  assert(CallOrInvoke && "throws call did not produce a call instruction");
+  assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
+         CallOrInvoke->getType()->getStructNumElements() == 2 &&
+         "throws call must return {T, i1}");
+
+  llvm::Value *Success = Builder.CreateExtractValue(CallOrInvoke, 0);
+  llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+
+  llvm::BasicBlock *OkBB = createBasicBlock("try.ok");
+  llvm::BasicBlock *ErrBB = createBasicBlock("try.err");
+  Builder.CreateCondBr(Disc, ErrBB, OkBB);
+
+  // Error path: auto-propagate. Store the error value, set the discriminant
+  // slot to true, run the scope cleanups, and return.
+  EmitBlock(ErrBB);
+  {
+    RunCleanupsScope CleanupScope(*this);
+    if (!FnRetTy->isVoidType()) {
+      if (getEvaluationKind(CallTy) == TEK_Scalar) {
+        auto *I = Builder.CreateStore(Success, ReturnValue);
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
+      } else if (getEvaluationKind(CallTy) == TEK_Complex) {
+        EmitComplexExprIntoLValue(Call, MakeAddrLValue(ReturnValue, CallTy),
+                                  /*isInit*/ true);
+      } else {
+        EmitAggExpr(Call,
+                    AggValueSlot::forAddr(ReturnValue, Qualifiers(),
+                                          AggValueSlot::IsDestructed,
+                                          AggValueSlot::DoesNotNeedGCBarriers,
+                                          AggValueSlot::IsNotAliased,
+                                          getOverlapForReturnValue()));
+      }
+    }
+    Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
+    CleanupScope.ForceCleanup();
+    EmitBranchThroughCleanup(ReturnBlock);
+  }
+
+  // Success path: the try expression's value is the success value.
+  EmitBlock(OkBB);
+  if (getEvaluationKind(CallTy) == TEK_Scalar)
+    return RValue::get(Success);
+  if (getEvaluationKind(CallTy) == TEK_Complex)
+    return RValue::getComplex(std::make_pair(Success, Disc));
+  llvm_unreachable("try expression of aggregate type is unsupported");
+}
+
 void CodeGenFunction::EmitDeclStmt(const DeclStmt &S) {
   // As long as debug info is modeled with instructions, we have to ensure we
   // have a place to insert here and write the stop point here.

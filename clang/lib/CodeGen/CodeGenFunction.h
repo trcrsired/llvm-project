@@ -5282,6 +5282,10 @@ public:
   /// discriminant (the trailing i1 of {T, i1}) set to true.
   void EmitHerbceptionThrow(const Expr *ErrorValue, SourceLocation Loc);
 
+  /// Emit a herbception `try(expr)`: evaluate the throws/fails call and
+  /// auto-propagate its error on failure. Returns the success value.
+  RValue EmitHerbceptionTry(const CXXTryExpr *E);
+
   RValue EmitAtomicExpr(AtomicExpr *E);
 
   void EmitFakeUse(Address Addr);

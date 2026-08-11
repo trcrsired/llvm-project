@@ -83,6 +83,10 @@ ExprResult Parser::ParseAssignmentExpression(
 
   if (Tok.is(tok::kw_throw))
     return ParseThrowExpression();
+  // Herbception: `try(expr)` auto-propagates the error of a throws/fails call.
+  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_try) &&
+      GetLookAheadToken(1).is(tok::l_paren))
+    return ParseHerbceptionTryExpression();
   if (Tok.is(tok::kw_co_yield))
     return ParseCoyieldExpression();
 
