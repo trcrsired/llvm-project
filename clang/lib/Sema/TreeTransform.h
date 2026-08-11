@@ -3496,8 +3496,10 @@ public:
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
   ExprResult RebuildCXXThrowExpr(SourceLocation ThrowLoc, Expr *Sub,
-                                  bool IsThrownVariableInScope) {
-    return getSema().BuildCXXThrow(ThrowLoc, Sub, IsThrownVariableInScope);
+                                  bool IsThrownVariableInScope,
+                                  bool IsHerbception = false) {
+    return getSema().BuildCXXThrow(ThrowLoc, Sub, IsThrownVariableInScope,
+                                   IsHerbception);
   }
 
   /// Build a new herbception try expression.
@@ -15070,14 +15072,18 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
   if (SubExpr.isInvalid())
     return ExprError();
 
-  getSema().DiagnoseExceptionUse(E->getThrowLoc(), /* IsTry= */ false);
+  // Herbception `throw throws expr` uses the deterministic error channel and
+  // is independent of -fno-exceptions.
+  if (!E->isHerbception())
+    getSema().DiagnoseExceptionUse(E->getThrowLoc(), /* IsTry= */ false);
 
   if (!getDerived().AlwaysRebuild() &&
       SubExpr.get() == E->getSubExpr())
     return E;
 
   return getDerived().RebuildCXXThrowExpr(E->getThrowLoc(), SubExpr.get(),
-                                          E->isThrownVariableInScope());
+                                          E->isThrownVariableInScope(),
+                                          E->isHerbception());
 }
 
 template <typename Derived>
