@@ -8609,6 +8609,15 @@ public:
   ExprResult ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
                                         SourceLocation FailsLoc, Expr *Ex);
 
+  /// Whether the currently parsed expression is the operand of a herbception
+  /// `try(expr)` or `catch fails(expr)` expression. When nonzero, bare calls
+  /// to throws functions are not implicitly wrapped in `try`.
+  unsigned HerbceptionOperandDepth = 0;
+
+  /// Return whether \p Ex is a call to a function (or function template)
+  /// declared with a herbception 'throws'/'fails{E}' spec.
+  bool isHerbceptionThrowsCall(const Expr *Ex);
+
   /// CheckCXXThrowOperand - Validate the operand of a throw.
   bool CheckCXXThrowOperand(SourceLocation ThrowLoc, QualType ThrowTy, Expr *E);
 

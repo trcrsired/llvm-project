@@ -7386,7 +7386,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
     LocalEndLoc = RParenLoc;
     EndLoc = RParenLoc;
 
-    if (getLangOpts().CPlusPlus) {
+    if (getLangOpts().CPlusPlus || getLangOpts().HerbExceptions) {
       // FIXME: Accept these components in any order, and produce fixits to
       // correct the order if the user gets it wrong. Ideally we should deal
       // with the pure-specifier in the same way.
@@ -7475,9 +7475,11 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   // Collect non-parameter declarations from the prototype if this is a function
   // declaration. They will be moved into the scope of the function. Only do
   // this in C and not C++, where the decls will continue to live in the
-  // surrounding context.
+  // surrounding context. Herbception 'fails{...}' is an exception
+  // specification, which cannot coexist with declarations in the prototype.
   SmallVector<NamedDecl *, 0> DeclsInPrototype;
-  if (getCurScope()->isFunctionDeclarationScope() && !getLangOpts().CPlusPlus) {
+  if (getCurScope()->isFunctionDeclarationScope() && !getLangOpts().CPlusPlus &&
+      ESpecType == EST_None) {
     for (Decl *D : getCurScope()->decls()) {
       NamedDecl *ND = dyn_cast<NamedDecl>(D);
       if (!ND || isa<ParmVarDecl>(ND))

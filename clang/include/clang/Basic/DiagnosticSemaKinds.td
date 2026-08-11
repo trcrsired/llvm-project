@@ -8794,6 +8794,11 @@ def err_try_expr_requires_throws_call : Error<
 def err_catch_fails_expr_requires_throws_call : Error<
   "'catch fails' expression operand must be a call to a function declared "
   "'throws' or 'fails{...}'">;
+def err_fails_call_without_wrapper : Error<
+  "calling function with 'fails{...}' specifier requires 'try()' or "
+  "'catch fails()' wrapper">;
+def note_fails_function_declared_here : Note<
+  "function declared with 'fails{...}' here">;
 def err_catch_sizeless : Error<
   "cannot catch %select{|reference to }0sizeless type %1">;
 def err_catch_rvalue_ref : Error<"cannot catch exceptions by rvalue reference">;

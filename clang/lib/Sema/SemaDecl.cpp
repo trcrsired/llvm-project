@@ -10624,7 +10624,8 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       }
     }
 
-    if (!getLangOpts().CPlusPlus) {
+    if (!getLangOpts().CPlusPlus &&
+        FTI.getExceptionSpecType() == EST_None) {
       // In C, find all the tag declarations from the prototype and move them
       // into the function DeclContext. Remove them from the surrounding tag
       // injection context of the function, which is typically but not always

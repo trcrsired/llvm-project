@@ -856,6 +856,23 @@ Sema::ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *Ex) {
   return BuildCXXThrow(OpLoc, Ex, IsThrownVarInScope);
 }
 
+/// Return whether \p Ex is a call to a function (or function template)
+/// declared with a herbception 'throws'/'fails{E}' spec.
+bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
+  const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts());
+  if (!Call)
+    return false;
+
+  const FunctionProtoType *CalleeFPT = nullptr;
+  if (const Decl *Callee = Call->getCalleeDecl()) {
+    if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(Callee))
+      Callee = FTD->getTemplatedDecl();
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
+      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
+  }
+  return CalleeFPT && CalleeFPT->hasThrowsSpec();
+}
+
 ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
                                      SourceLocation ThrowsLoc, Expr *Ex) {
   // Herbception `throw throws expr` is only valid inside a function declared
@@ -906,12 +923,10 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
     return ExprError();
   }
 
-  // The subexpression must call a function with a throws/fails spec.
-  const FunctionProtoType *CalleeFPT = nullptr;
-  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
-    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
-      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
-  if (!CalleeFPT || !CalleeFPT->hasThrowsSpec()) {
+  // The subexpression must call a function with a throws/fails spec. When the
+  // call is dependent (e.g. inside a template), defer the check to
+  // instantiation time.
+  if (!Ex->isTypeDependent() && !isHerbceptionThrowsCall(Ex)) {
     Diag(Ex->getBeginLoc(), diag::err_try_expr_requires_throws_call);
     return ExprError();
   }
@@ -934,25 +949,29 @@ ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
     return ExprError();
   }
 
-  // The subexpression must call a function with a throws/fails spec.
-  const FunctionProtoType *CalleeFPT = nullptr;
-  QualType ValueTy;
-  // For fails{E}, the error type is the explicit E; for throws it is the
-  // implicit std::error. Until std::error is available in-tree, use the
-  // value type so either{T, T} matches the {T, i1} payload layout.
-  QualType ErrorTy;
-  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
-    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl())) {
-      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
-      ValueTy = FD->getReturnType();
-      ErrorTy = CalleeFPT && CalleeFPT->hasFailsSpec()
-                    ? CalleeFPT->getExceptionType(0)
-                    : ValueTy;
-    }
-  if (!CalleeFPT || !CalleeFPT->hasThrowsSpec()) {
+  // The subexpression must call a function with a throws/fails spec. When the
+  // call is dependent (e.g. inside a template), defer the check to
+  // instantiation time.
+  if (!Ex->isTypeDependent() && !isHerbceptionThrowsCall(Ex)) {
     Diag(Ex->getBeginLoc(), diag::err_catch_fails_expr_requires_throws_call);
     return ExprError();
   }
+
+  // Determine the success value type T and the error type E of the
+  // either{T, E} result. For fails{E}, the error type is the explicit E; for
+  // throws it is the implicit std::error. Until std::error is available
+  // in-tree, use the value type so either{T, T} matches the {T, i1} payload
+  // layout.
+  QualType ValueTy = Ex->getType();
+  QualType ErrorTy = ValueTy;
+  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
+      if (const auto *CalleeFPT =
+              FD->getType()->getAs<FunctionProtoType>()) {
+        ValueTy = FD->getReturnType();
+        if (CalleeFPT->hasFailsSpec())
+          ErrorTy = CalleeFPT->getExceptionType(0);
+      }
 
   QualType EitherTy = Context.getEitherType(ValueTy, ErrorTy);
   return new (Context) CXXCatchFailsExpr(Ex, EitherTy, CatchLoc);
