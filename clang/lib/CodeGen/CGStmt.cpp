@@ -12,6 +12,7 @@
 
 #include "CGDebugInfo.h"
 #include "CGOpenMPRuntime.h"
+#include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
@@ -1740,8 +1741,44 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
     EmitAnyExpr(EV);
   } else if (getEvaluationKind(EV->getType()) == TEK_Scalar) {
     llvm::Value *V = EmitScalarExpr(EV);
-    auto *I = Builder.CreateStore(V, ReturnValue);
-    addInstToCurrentSourceAtom(I, I->getValueOperand());
+    // Coerce the error value to the return slot type. The {T, i1} payload
+    // slot is sized for the return type, so truncate/bitcast to avoid a
+    // wider store corrupting adjacent stack slots.
+    llvm::Type *SlotTy = ReturnValue.getElementType();
+    if (V->getType() != SlotTy) {
+      if (V->getType()->isIntegerTy() && SlotTy->isIntegerTy()) {
+        V = Builder.CreateIntCast(V, SlotTy, false);
+      } else if (V->getType()->isPointerTy() && SlotTy->isIntegerTy()) {
+        V = Builder.CreatePtrToInt(V, SlotTy);
+      } else if (V->getType()->isIntegerTy() && SlotTy->isPointerTy()) {
+        V = Builder.CreateIntToPtr(V, SlotTy);
+      } else if (SlotTy->isStructTy() || SlotTy->isArrayTy()) {
+        // Scalar error value stored into an aggregate slot (e.g. a struct
+        // return type): store through a bitcast of the address to the value
+        // type so the scalar occupies the first bytes of the slot, truncated
+        // to the slot size so the store cannot overflow into adjacent slots.
+        unsigned SlotBits = CGM.getDataLayout().getTypeAllocSize(SlotTy) * 8;
+        llvm::Type *IntTy = Builder.getIntNTy(SlotBits);
+        llvm::Value *Scalar = V;
+        if (!Scalar->getType()->isIntegerTy())
+          Scalar = Builder.CreatePtrToInt(
+              Scalar, Builder.getInt64Ty());
+        if (Scalar->getType()->getPrimitiveSizeInBits() > SlotBits)
+          Scalar = Builder.CreateTrunc(Scalar, IntTy);
+        llvm::Value *P = Builder.CreateBitCast(
+            ReturnValue.emitRawPointer(*this), Builder.getPtrTy());
+        auto *I = Builder.CreateAlignedStore(
+            Scalar, P, ReturnValue.getAlignment());
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
+        V = nullptr;
+      } else {
+        V = Builder.CreateBitCast(V, SlotTy);
+      }
+    }
+    if (V && V->getType() == SlotTy) {
+      auto *I = Builder.CreateStore(V, ReturnValue);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+    }
   } else if (getEvaluationKind(EV->getType()) == TEK_Complex) {
     EmitComplexExprIntoLValue(EV, MakeAddrLValue(ReturnValue, EV->getType()),
                               /*isInit*/ true);
@@ -1796,12 +1833,14 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
         EmitComplexExprIntoLValue(Call, MakeAddrLValue(ReturnValue, CallTy),
                                   /*isInit*/ true);
       } else {
-        EmitAggExpr(Call,
-                    AggValueSlot::forAddr(ReturnValue, Qualifiers(),
-                                          AggValueSlot::IsDestructed,
-                                          AggValueSlot::DoesNotNeedGCBarriers,
-                                          AggValueSlot::IsNotAliased,
-                                          getOverlapForReturnValue()));
+        // Aggregate success value: the {T, i1} payload already holds it, so
+        // store it into the return slot instead of re-calling.
+        Address Addr = ReturnValue;
+        llvm::Value *Coerced = Success;
+        if (Coerced->getType() != Addr.getElementType())
+          Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
+        auto *I = Builder.CreateStore(Coerced, Addr);
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
       }
     }
     Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
@@ -1815,7 +1854,16 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     return RValue::get(Success);
   if (getEvaluationKind(CallTy) == TEK_Complex)
     return RValue::getComplex(std::make_pair(Success, Disc));
-  llvm_unreachable("try expression of aggregate type is unsupported");
+  {
+    // Aggregate: materialize the payload into a temp and return it as an
+    // aggregate RValue.
+    Address Addr = CreateMemTempWithoutCast(CallTy, "try.agg");
+    llvm::Value *Coerced = Success;
+    if (Coerced->getType() != Addr.getElementType())
+      Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
+    Builder.CreateStore(Coerced, Addr);
+    return RValue::getAggregate(Addr);
+  }
 }
 
 RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
@@ -1838,36 +1886,45 @@ RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
   QualType EitherTy = E->getType();
   const RecordDecl *RD = EitherTy->getAsRecordDecl();
   assert(RD && "either type must be a record");
-  (void)RD;
 
-  llvm::Type *EitherIRTy = ConvertType(EitherTy);
-  llvm::Value *EitherVal = llvm::PoisonValue::get(EitherIRTy);
+  // Allocate a temp for the either{T, E} value and initialize each field via
+  // its LLVM field number. This is robust to empty (zero-size) field types,
+  // which would be elided from the IR struct type.
+  const CGRecordLayout &RL = getTypes().getCGRecordLayout(RD);
+  Address Addr = CreateMemTempWithoutCast(EitherTy, "either");
 
-  // Field types as stored in the IR struct (bool fields widen to i8).
-  llvm::Type *PositiveIRTy = EitherIRTy->getStructElementType(0);
-  llvm::Type *LeftIRTy = EitherIRTy->getStructElementType(1);
-  llvm::Type *RightIRTy = EitherIRTy->getStructElementType(2);
+  auto FindField = [&](StringRef Name) -> const FieldDecl * {
+    for (const FieldDecl *F : RD->fields())
+      if (F->getName() == Name)
+        return F;
+    return nullptr;
+  };
 
-  llvm::Value *Positive = Builder.CreateNot(Disc);
-  if (PositiveIRTy->isIntegerTy() && Positive->getType()->isIntegerTy())
-    Positive = Builder.CreateIntCast(Positive, PositiveIRTy, false);
-  EitherVal = Builder.CreateInsertValue(EitherVal, Positive, 0);
+  auto StoreField = [&](const FieldDecl *F, llvm::Value *V) {
+    if (!F || !RL.containsFieldDecl(F))
+      return;
+    unsigned Idx = RL.getLLVMFieldNo(F);
+    llvm::Type *FieldIRTy =
+        RL.getLLVMType()->getStructElementType(Idx);
+    if (FieldIRTy->isIntegerTy() && V->getType()->isIntegerTy())
+      V = Builder.CreateIntCast(V, FieldIRTy, false);
+    else if (FieldIRTy != V->getType())
+      V = Builder.CreateBitCast(V, FieldIRTy);
+    Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
+    Builder.CreateStore(V, FieldAddr);
+  };
+
+  // .positive = !disc
+  const FieldDecl *PositiveField = FindField("positive");
+  StoreField(PositiveField, Builder.CreateNot(Disc));
 
   // .left is the success value; .right is the error value. Both come from the
-  // same payload slot (the value-or-error union). Truncate/extend as needed.
-  auto CoerceField = [&](llvm::Type *FieldIRTy) -> llvm::Value * {
-    if (FieldIRTy == Payload->getType())
-      return Payload;
-    if (FieldIRTy->isIntegerTy() && Payload->getType()->isIntegerTy())
-      return Builder.CreateIntCast(Payload, FieldIRTy, false);
-    return Builder.CreateBitCast(Payload, FieldIRTy);
-  };
-  EitherVal = Builder.CreateInsertValue(EitherVal, CoerceField(LeftIRTy), 1);
-  EitherVal = Builder.CreateInsertValue(EitherVal, CoerceField(RightIRTy), 2);
+  // same payload slot (the value-or-error union).
+  const FieldDecl *LeftField = FindField("left");
+  const FieldDecl *RightField = FindField("right");
+  StoreField(LeftField, Payload);
+  StoreField(RightField, Payload);
 
-  // Return the either as an aggregate RValue (store to a temp).
-  Address Addr = CreateMemTempWithoutCast(EitherTy, "either");
-  Builder.CreateStore(EitherVal, Addr);
   return RValue::getAggregate(Addr);
 }
 
