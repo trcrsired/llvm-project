@@ -1783,7 +1783,9 @@ ExprResult Parser::ParseHerbceptionTryExpression() {
     Diag(Tok, diag::err_expected_expression);
     return ExprError();
   }
+  ++Actions.HerbceptionOperandDepth;
   ExprResult Expr = ParseExpression();
+  --Actions.HerbceptionOperandDepth;
   if (Expr.isInvalid())
     return Expr;
   T.consumeClose();
@@ -1802,7 +1804,9 @@ ExprResult Parser::ParseHerbceptionCatchFailsExpression() {
     Diag(Tok, diag::err_expected_expression);
     return ExprError();
   }
+  ++Actions.HerbceptionOperandDepth;
   ExprResult Expr = ParseExpression();
+  --Actions.HerbceptionOperandDepth;
   if (Expr.isInvalid())
     return Expr;
   T.consumeClose();
