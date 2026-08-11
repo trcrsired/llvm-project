@@ -2168,6 +2168,11 @@ void StmtProfiler::VisitCXXThrowExpr(const CXXThrowExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitCXXTryExpr(const CXXTryExpr *S) {
+  VisitExpr(S);
+  VisitStmt(S->getSubExpr());
+}
+
 void StmtProfiler::VisitCXXDefaultArgExpr(const CXXDefaultArgExpr *S) {
   VisitExpr(S);
   VisitDecl(S->getParam());

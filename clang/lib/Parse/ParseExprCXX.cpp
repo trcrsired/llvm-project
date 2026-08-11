@@ -1773,6 +1773,23 @@ ExprResult Parser::ParseThrowExpression() {
   }
 }
 
+ExprResult Parser::ParseHerbceptionTryExpression() {
+  assert(Tok.is(tok::kw_try) && "Not try!");
+  SourceLocation TryLoc = ConsumeToken();  // Eat the try token.
+  assert(Tok.is(tok::l_paren) && "Expected '(' after try");
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_expression);
+    return ExprError();
+  }
+  ExprResult Expr = ParseExpression();
+  if (Expr.isInvalid())
+    return Expr;
+  T.consumeClose();
+  return Actions.ActOnHerbceptionTry(TryLoc, Expr.get());
+}
+
 ExprResult Parser::ParseCoyieldExpression() {
   assert(Tok.is(tok::kw_co_yield) && "Not co_yield!");
 

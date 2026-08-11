@@ -827,6 +827,11 @@ public:
     return nullptr;
   }
 
+  Value *VisitCXXTryExpr(const CXXTryExpr *E) {
+    RValue RV = CGF.EmitHerbceptionTry(E);
+    return RV.getScalarVal();
+  }
+
   Value *VisitCXXNoexceptExpr(const CXXNoexceptExpr *E) {
     return Builder.getInt1(E->getValue());
   }

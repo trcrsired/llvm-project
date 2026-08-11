@@ -2361,6 +2361,12 @@ void StmtPrinter::VisitCXXThrowExpr(CXXThrowExpr *Node) {
   }
 }
 
+void StmtPrinter::VisitCXXTryExpr(CXXTryExpr *Node) {
+  OS << "try(";
+  PrintExpr(Node->getSubExpr());
+  OS << ")";
+}
+
 void StmtPrinter::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *Node) {
   // Nothing to print: we picked up the default argument.
 }

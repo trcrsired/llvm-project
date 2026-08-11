@@ -1268,6 +1268,52 @@ public:
   }
 };
 
+/// Represents a herbception `try(expr)` expression: evaluate \p SubExpr
+/// (which must call a `throws`/`fails{E}` function) and auto-propagate its
+/// error on failure. On success, the expression's value is the success value.
+class CXXTryExpr : public Expr {
+  friend class ASTStmtReader;
+
+  /// The subexpression being "tried".
+  Stmt *SubExpr;
+
+  /// The location of the "try".
+  SourceLocation TryLoc;
+
+public:
+  /// \p Ty is the type of the success value. \p Loc is the location of the
+  /// try keyword.
+  CXXTryExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc,
+             bool IsLValue = false)
+      : Expr(CXXTryExprClass, Ty,
+             IsLValue ? VK_LValue : VK_PRValue, OK_Ordinary),
+        SubExpr(SubExpr), TryLoc(Loc) {
+    setDependence(computeDependence(this));
+  }
+  CXXTryExpr(EmptyShell Empty) : Expr(CXXTryExprClass, Empty) {}
+
+  const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
+  Expr *getSubExpr() { return cast<Expr>(SubExpr); }
+
+  SourceLocation getTryLoc() const { return TryLoc; }
+
+  SourceLocation getBeginLoc() const { return TryLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    return getSubExpr()->getEndLoc();
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXTryExprClass;
+  }
+
+  // Iterators
+  child_range children() { return child_range(&SubExpr, &SubExpr + 1); }
+
+  const_child_range children() const {
+    return const_child_range(&SubExpr, &SubExpr + 1);
+  }
+};
+
 /// A default argument (C++ [dcl.fct.default]).
 ///
 /// This wraps up a function call argument that was created from the
