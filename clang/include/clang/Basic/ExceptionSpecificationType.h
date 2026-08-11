@@ -29,7 +29,9 @@ enum ExceptionSpecificationType {
   EST_NoexceptTrue,     ///< noexcept(expression), evals to 'true'
   EST_Unevaluated,      ///< not evaluated yet, for special member function
   EST_Uninstantiated,   ///< not instantiated yet
-  EST_Unparsed          ///< not parsed yet
+  EST_Unparsed,         ///< not parsed yet
+  EST_BasicThrows,      ///< throws (herbception): implicit std::error
+  EST_ThrowsTyped       ///< throws(T) / fails{T}: explicit error type
 };
 
 inline bool isDynamicExceptionSpec(ExceptionSpecificationType ESpecType) {
@@ -58,6 +60,7 @@ inline bool isExplicitThrowExceptionSpec(ExceptionSpecificationType ESpecType) {
 /// Possible results from evaluation of a noexcept expression.
 enum CanThrowResult {
   CT_Cannot,
+  CT_Deterministic,  ///< herbception: can "fail" but cannot throw C++ exceptions
   CT_Dependent,
   CT_Can
 };

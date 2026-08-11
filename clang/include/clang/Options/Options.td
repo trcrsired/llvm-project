@@ -2284,6 +2284,11 @@ defm cxx_exceptions: BoolFOption<"cxx-exceptions",
   LangOpts<"CXXExceptions">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable C++ exceptions">,
   NegFlag<SetFalse>>;
+defm herbceptions: BoolFOption<"herbceptions",
+  LangOpts<"HerbExceptions">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable herbception (zero-overhead deterministic exceptions)">,
+  NegFlag<SetFalse>>;
 defm async_exceptions: BoolFOption<"async-exceptions",
   LangOpts<"EHAsynch">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

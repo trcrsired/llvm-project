@@ -856,13 +856,48 @@ Sema::ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *Ex) {
   return BuildCXXThrow(OpLoc, Ex, IsThrownVarInScope);
 }
 
+ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
+                                     SourceLocation ThrowsLoc, Expr *Ex) {
+  // Herbception `throw throws expr` is only valid inside a function declared
+  // with 'throws' or 'fails{E}'.
+  if (!getLangOpts().HerbExceptions) {
+    Diag(OpLoc, diag::err_herbception_disabled);
+    return ExprError();
+  }
+
+  const FunctionDecl *CurFD = getCurFunctionDecl();
+  if (!CurFD || !CurFD->getType()->getAs<FunctionProtoType>()->hasThrowsSpec()) {
+    Diag(ThrowsLoc, diag::err_throw_throws_outside_throws_function);
+    return ExprError();
+  }
+
+  if (!Ex) {
+    Diag(ThrowsLoc, diag::err_throw_throws_requires_operand);
+    return ExprError();
+  }
+
+  // Diagnose if this is in a CUDA device function, etc., like a normal throw.
+  if (getCurScope() && getCurScope()->isOpenMPSimdDirectiveScope())
+    Diag(OpLoc, diag::err_omp_simd_region_cannot_use_stmt) << "throw";
+
+  // The operand is the error value. Check that it is an enum convertible to
+  // the function's error type. For now accept any value; the error type is
+  // implicit (std::error) for `throws`.
+  return BuildCXXThrow(OpLoc, Ex, /*IsThrownVarInScope=*/false,
+                       /*IsHerbception=*/true);
+}
+
 ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
-                               bool IsThrownVarInScope) {
+                               bool IsThrownVarInScope, bool IsHerbception) {
   const llvm::Triple &T = Context.getTargetInfo().getTriple();
   const bool IsOpenMPGPUTarget =
       getLangOpts().OpenMPIsTargetDevice && T.isGPU();
 
-  DiagnoseExceptionUse(OpLoc, /* IsTry= */ false);
+  // Herbception `throw throws expr` uses the deterministic error channel and
+  // is independent of traditional exceptions, so skip the exception-disabled
+  // check for it.
+  if (!IsHerbception)
+    DiagnoseExceptionUse(OpLoc, /* IsTry= */ false);
 
   // In OpenMP target regions, we replace 'throw' with a trap on GPU targets.
   if (IsOpenMPGPUTarget)
@@ -918,7 +953,8 @@ ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
     PPC().CheckPPCMMAType(Ex->getType(), Ex->getBeginLoc());
 
   return new (Context)
-      CXXThrowExpr(Ex, Context.VoidTy, OpLoc, IsThrownVarInScope);
+      CXXThrowExpr(Ex, Context.VoidTy, OpLoc, IsThrownVarInScope,
+                   IsHerbception);
 }
 
 static void

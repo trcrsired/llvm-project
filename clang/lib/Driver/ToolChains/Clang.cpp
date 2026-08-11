@@ -155,6 +155,12 @@ static bool addExceptionArgs(const ArgList &Args, types::ID InputType,
     return false;
   }
 
+  // Herbception is an independent toggle from traditional exceptions:
+  // -fherbceptions enables deterministic error returns, -fno-exceptions
+  // disables traditional EH. Forward the flag to cc1.
+  Args.AddLastArg(CmdArgs, options::OPT_fherbceptions,
+                  options::OPT_fno_herbceptions);
+
   // See if the user explicitly enabled exceptions.
   bool EH = Args.hasFlag(options::OPT_fexceptions, options::OPT_fno_exceptions,
                          false);

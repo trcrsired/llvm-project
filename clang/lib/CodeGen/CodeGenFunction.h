@@ -598,6 +598,11 @@ public:
   /// In ARC, whether we should autorelease the return value.
   bool AutoreleaseResult = false;
 
+  /// For a herbception (throws) function: the slot holding the discriminant
+  /// (the trailing i1 of the {T, i1} return). Plain `return` stores false;
+  /// `throw throws` / failure stores true.
+  Address HerbceptionDiscriminant = Address::invalid();
+
   /// Whether we processed a Microsoft-style asm block during CodeGen. These can
   /// potentially set the return value.
   bool SawAsmBlock = false;
@@ -5248,6 +5253,10 @@ public:
   void EmitSynthesizedCXXCopyCtor(Address Dest, Address Src, const Expr *Exp);
 
   void EmitCXXThrowExpr(const CXXThrowExpr *E, bool KeepInsertionPoint = true);
+
+  /// Emit a herbception `throw throws expr`: return the error value with the
+  /// discriminant (the trailing i1 of {T, i1}) set to true.
+  void EmitHerbceptionThrow(const Expr *ErrorValue, SourceLocation Loc);
 
   RValue EmitAtomicExpr(AtomicExpr *E);
 

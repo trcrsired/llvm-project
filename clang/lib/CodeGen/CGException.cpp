@@ -451,6 +451,17 @@ llvm::Value *CodeGenFunction::getSelectorFromSlot() {
 
 void CodeGenFunction::EmitCXXThrowExpr(const CXXThrowExpr *E,
                                        bool KeepInsertionPoint) {
+  // Herbception `throw throws expr`: return the error value with the
+  // discriminant set to true. This is not a traditional throw.
+  if (E->isHerbception()) {
+    const Expr *SubExpr = E->getSubExpr();
+    assert(SubExpr && "herbception throw requires an operand");
+    EmitHerbceptionThrow(SubExpr, E->getExprLoc());
+    if (KeepInsertionPoint)
+      EmitBlock(createBasicBlock("throw.cont"));
+    return;
+  }
+
   // If the exception is being emitted in an OpenMP target region,
   // and the target is a GPU, we do not support exception handling.
   // Therefore, we emit a trap which will abort the program, and

@@ -1720,6 +1720,45 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
   EmitBranchThroughCleanup(ReturnBlock);
 }
 
+void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
+                                           SourceLocation Loc) {
+  assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
+         "herbception throw outside a throws function");
+  assert(ReturnValue.isValid() && "throws function has no return value slot");
+
+  // Evaluate the error value into the return slot, then take the error path:
+  // run the scope cleanups and branch to the return block with the
+  // discriminant set to true.
+  RunCleanupsScope ThrowScope(*this);
+  const Expr *EV = ErrorValue;
+  if (const auto *EWC = dyn_cast_or_null<ExprWithCleanups>(EV))
+    EV = EWC->getSubExpr();
+
+  if (FnRetTy->isVoidType()) {
+    // A void throws function only returns the discriminant; still evaluate the
+    // error expression for side effects.
+    EmitAnyExpr(EV);
+  } else if (getEvaluationKind(EV->getType()) == TEK_Scalar) {
+    llvm::Value *V = EmitScalarExpr(EV);
+    auto *I = Builder.CreateStore(V, ReturnValue);
+    addInstToCurrentSourceAtom(I, I->getValueOperand());
+  } else if (getEvaluationKind(EV->getType()) == TEK_Complex) {
+    EmitComplexExprIntoLValue(EV, MakeAddrLValue(ReturnValue, EV->getType()),
+                              /*isInit*/ true);
+  } else {
+    EmitAggExpr(EV,
+                AggValueSlot::forAddr(ReturnValue, Qualifiers(),
+                                      AggValueSlot::IsDestructed,
+                                      AggValueSlot::DoesNotNeedGCBarriers,
+                                      AggValueSlot::IsNotAliased,
+                                      getOverlapForReturnValue()));
+  }
+
+  Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
+  ThrowScope.ForceCleanup();
+  EmitBranchThroughCleanup(ReturnBlock);
+}
+
 void CodeGenFunction::EmitDeclStmt(const DeclStmt &S) {
   // As long as debug info is modeled with instructions, we have to ensure we
   // have a place to insert here and write the stop point here.
