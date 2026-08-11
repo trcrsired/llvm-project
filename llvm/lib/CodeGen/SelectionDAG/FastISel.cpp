@@ -996,11 +996,11 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
 
   SmallVector<ISD::OutputArg, 4> Outs;
   GetReturnInfo(CLI.CallConv, CLI.RetTy, getReturnAttrs(CLI), Outs, TLI, DL);
-  // Propagate the throws (herbception) discriminant flag to the return values
-  // so that the caller-side return lowering can use a discriminant mechanism.
-  if (CLI.IsThrows)
-    for (ISD::OutputArg &Out : Outs)
-      Out.Flags.setThrows();
+  // Propagate the throws (herbception) discriminant flag to the last return
+  // value so that the caller-side return lowering can use a discriminant
+  // mechanism.
+  if (CLI.IsThrows && !Outs.empty())
+    Outs.back().Flags.setThrows();
 
   bool CanLowerReturn = TLI.CanLowerReturn(
       CLI.CallConv, *FuncInfo.MF, CLI.IsVarArg, Outs, CLI.RetTy->getContext(), CLI.RetTy);
@@ -1009,7 +1009,8 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
   if (!CanLowerReturn)
     return false;
 
-  for (EVT VT : RetTys) {
+  for (unsigned I = 0, E = RetTys.size(); I != E; ++I) {
+    EVT VT = RetTys[I];
     MVT RegisterVT = TLI.getRegisterType(CLI.RetTy->getContext(), VT);
     unsigned NumRegs = TLI.getNumRegisters(CLI.RetTy->getContext(), VT);
     for (unsigned i = 0; i != NumRegs; ++i) {
@@ -1020,7 +1021,9 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
         Flags.setZExt();
       if (CLI.IsInReg)
         Flags.setInReg();
-      if (CLI.IsThrows)
+      // Herbception (throws): the discriminant is the last part of the
+      // {T, i1} return value.
+      if (CLI.IsThrows && I == RetTys.size() - 1)
         Flags.setThrows();
       ISD::InputArg Ret(Flags, RegisterVT, VT, CLI.RetTy, CLI.IsReturnValueUsed,
                         ISD::InputArg::NoArgIndex, 0);
