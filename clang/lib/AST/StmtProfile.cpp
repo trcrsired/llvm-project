@@ -361,6 +361,12 @@ void StmtProfiler::VisitCXXCatchStmt(const CXXCatchStmt *S) {
   VisitType(S->getCaughtType());
 }
 
+void StmtProfiler::VisitCXXCatchThrowsStmt(const CXXCatchThrowsStmt *S) {
+  VisitStmt(S);
+  if (VarDecl *VD = S->getExceptionDecl())
+    VisitType(VD->getType());
+}
+
 void StmtProfiler::VisitCXXTryStmt(const CXXTryStmt *S) {
   VisitStmt(S);
 }

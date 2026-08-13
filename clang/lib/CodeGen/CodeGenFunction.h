@@ -603,6 +603,30 @@ public:
   /// `throw throws` / failure stores true.
   Address HerbceptionDiscriminant = Address::invalid();
 
+  /// An active herbception `catch throws(E e)` handler. When a bare call to a
+  /// throws/fails function inside the try block fails, the error value is
+  /// stored into ErrorSlot and control branches to HandlerBlock instead of
+  /// being ignored or propagating.
+  struct HerbceptionCatchScope {
+    HerbceptionCatchScope(JumpDest H, Address S, llvm::Type *T)
+        : Handler(H), ErrorSlot(S), ErrorType(T) {}
+    /// The jump destination of the handler block, at the scope depth of the
+    /// enclosing try statement (so the try block's cleanups run first).
+    JumpDest Handler;
+    /// The slot holding the error value read by the handler.
+    Address ErrorSlot;
+    /// The LLVM type of the error value (the payload of the {T, i1} return).
+    llvm::Type *ErrorType;
+  };
+  /// The stack of active herbception catch-throws scopes.
+  SmallVector<HerbceptionCatchScope, 4> HerbceptionCatchScopes;
+
+  /// Whether we are currently emitting the operand of a `try(expr)` /
+  /// `catch fails(expr)` expression. While set, calls inside are already being
+  /// handled by EmitHerbceptionTry/EmitHerbceptionCatchFails and must not be
+  /// routed to an enclosing herbception catch scope.
+  bool InHerbceptionOperand = false;
+
   /// Whether we processed a Microsoft-style asm block during CodeGen. These can
   /// potentially set the return value.
   bool SawAsmBlock = false;
@@ -3717,6 +3741,9 @@ public:
   void ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
 
   void EmitCXXTryStmt(const CXXTryStmt &S);
+  /// Emit a `try { } catch throws(E e) { }` block handler using discriminant
+  /// routing instead of the traditional EH machinery.
+  void EmitHerbceptionCatchTry(const CXXTryStmt &S);
   void EmitSEHTryStmt(const SEHTryStmt &S);
   void EmitSEHLeaveStmt(const SEHLeaveStmt &S);
   void EnterSEHTryStmt(const SEHTryStmt &S);

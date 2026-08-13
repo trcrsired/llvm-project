@@ -2746,6 +2746,54 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
 
   SourceLocation CatchLoc = ConsumeToken();
 
+  // Herbception: `catch throws(E e) { ... }` or `catch fails(E e) { ... }`
+  // block handler. The caught type is the error type, not a traditional C++
+  // exception type.
+  if (getLangOpts().HerbExceptions &&
+      (Tok.is(tok::kw_throws) || Tok.is(tok::kw_fails))) {
+    SourceLocation SpecLoc = ConsumeToken();
+
+    BalancedDelimiterTracker T(*this, tok::l_paren);
+    if (T.expectAndConsume())
+      return StmtError();
+
+    ParseScope CatchScope(
+        this, Scope::DeclScope | Scope::ControlScope | Scope::CatchScope |
+                  (FnCatch ? Scope::FnTryCatchScope : Scope::NoScope));
+
+    // exception-declaration is equivalent to '...' or a parameter-declaration
+    // without default arguments.
+    Decl *ExceptionDecl = nullptr;
+    if (Tok.isNot(tok::ellipsis)) {
+      ParsedAttributes Attributes(AttrFactory);
+      MaybeParseCXX11Attributes(Attributes);
+
+      DeclSpec DS(AttrFactory);
+
+      if (ParseCXXTypeSpecifierSeq(DS))
+        return StmtError();
+
+      Declarator ExDecl(DS, Attributes, DeclaratorContext::CXXCatch);
+      ParseDeclarator(ExDecl);
+      ExceptionDecl = Actions.ActOnExceptionDeclarator(getCurScope(), ExDecl);
+    } else
+      ConsumeToken();
+
+    T.consumeClose();
+    if (T.getCloseLocation().isInvalid())
+      return StmtError();
+
+    if (Tok.isNot(tok::l_brace))
+      return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
+
+    StmtResult Block(ParseCompoundStatement());
+    if (Block.isInvalid())
+      return Block;
+
+    return Actions.ActOnCXXCatchThrowsBlock(CatchLoc, SpecLoc, ExceptionDecl,
+                                            Block.get());
+  }
+
   BalancedDelimiterTracker T(*this, tok::l_paren);
   if (T.expectAndConsume())
     return StmtError();

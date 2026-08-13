@@ -11384,6 +11384,13 @@ public:
   StmtResult ActOnCXXCatchBlock(SourceLocation CatchLoc, Decl *ExDecl,
                                 Stmt *HandlerBlock);
 
+  /// ActOnCXXCatchThrowsBlock - Takes an exception declaration and a handler
+  /// block for a herbception `catch throws(E e) { ... }` /
+  /// `catch fails(E e) { ... }` handler.
+  StmtResult ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc,
+                                      SourceLocation SpecLoc, Decl *ExDecl,
+                                      Stmt *HandlerBlock);
+
   /// ActOnCXXTryBlock - Takes a try compound-statement and a number of
   /// handlers and creates a try statement from them.
   StmtResult ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,

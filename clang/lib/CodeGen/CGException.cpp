@@ -640,6 +640,18 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
 }
 
 void CodeGenFunction::EmitCXXTryStmt(const CXXTryStmt &S) {
+  // Herbception: a `try { } catch throws(E e) { }` (or `catch fails(E e)`)
+  // handler catches the discriminant of bare throws/fails calls inside the try
+  // block. This does not use the traditional EH machinery.
+  bool HasHerbceptionHandler = false;
+  for (unsigned I = 0; I != S.getNumHandlers(); ++I)
+    if (isa<CXXCatchThrowsStmt>(S.getHandler(I)))
+      HasHerbceptionHandler = true;
+  if (HasHerbceptionHandler) {
+    EmitHerbceptionCatchTry(S);
+    return;
+  }
+
   const llvm::Triple &T = Target.getTriple();
   // If we encounter a try statement on in an OpenMP target region offloaded to
   // a GPU, we treat it as a basic block.
@@ -652,12 +664,83 @@ void CodeGenFunction::EmitCXXTryStmt(const CXXTryStmt &S) {
     ExitCXXTryStmt(S);
 }
 
+void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
+  // Continuation block, reached after the try block succeeds or a handler
+  // completes.
+  llvm::BasicBlock *ContBB = createBasicBlock("herb.try.cont");
+
+  // The scope depth at which the handlers live: the try statement's own scope.
+  // Branching to a handler from inside the try body runs the try block's
+  // cleanups.
+  EHScopeStack::stable_iterator TryDepth = EHStack.stable_begin();
+  unsigned SavedScopes = HerbceptionCatchScopes.size();
+
+  struct HandlerInfo {
+    const CXXCatchThrowsStmt *Stmt;
+    llvm::BasicBlock *Block;
+    Address ErrorSlot;
+  };
+  SmallVector<HandlerInfo, 4> Handlers;
+
+  // Create the handler blocks and error slots up front so that bare calls
+  // inside the try body can route to them.
+  for (unsigned I = 0; I != S.getNumHandlers(); ++I) {
+    auto *CT = dyn_cast<CXXCatchThrowsStmt>(S.getHandler(I));
+    if (!CT)
+      continue;
+    llvm::BasicBlock *HandlerBB = createBasicBlock("catch.throws");
+    llvm::Type *ErrorTy =
+        CT->getExceptionDecl()
+            ? ConvertType(CT->getExceptionDecl()->getType())
+            : ConvertType(getContext().VoidPtrTy);
+    Address ErrorSlot = CreateDefaultAlignTempAlloca(ErrorTy, "herb.error");
+    JumpDest HandlerDest(HandlerBB, TryDepth, 0);
+    HerbceptionCatchScopes.push_back({HandlerDest, ErrorSlot, ErrorTy});
+    Handlers.push_back({CT, HandlerBB, ErrorSlot});
+  }
+
+  // Emit the try block. Bare throws/fails calls inside it route the
+  // discriminant to the handler (see EmitCall).
+  EmitStmt(S.getTryBlock());
+  if (HaveInsertPoint())
+    Builder.CreateBr(ContBB);
+
+  // The handlers are emitted with the catch scopes no longer active.
+  HerbceptionCatchScopes.truncate(SavedScopes);
+
+  // Emit the handlers: bind the exception variable from the error slot and run
+  // the handler body.
+  for (auto &H : Handlers) {
+    EmitBlock(H.Block);
+    RunCleanupsScope CatchScope(*this);
+    if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
+      CodeGenFunction::AutoVarEmission var = EmitAutoVarAlloca(*VD);
+      Address Addr = var.getObjectAddress(*this);
+      llvm::Value *ErrVal = Builder.CreateLoad(H.ErrorSlot);
+      auto *I = Builder.CreateStore(ErrVal, Addr);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+      EmitAutoVarCleanups(var);
+    }
+    EmitStmt(H.Stmt->getHandlerBlock());
+    CatchScope.ForceCleanup();
+    if (HaveInsertPoint())
+      Builder.CreateBr(ContBB);
+  }
+
+  EmitBlock(ContBB);
+}
+
 void CodeGenFunction::EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
   unsigned NumHandlers = S.getNumHandlers();
   EHCatchScope *CatchScope = EHStack.pushCatch(NumHandlers);
 
   for (unsigned I = 0; I != NumHandlers; ++I) {
-    const CXXCatchStmt *C = S.getHandler(I);
+    // Herbception `catch throws`/`catch fails` handlers are not traditional
+    // C++ catch blocks: they do not participate in the EH catch dispatch, so
+    // record a null handler slot for them.
+    if (isa<CXXCatchThrowsStmt>(S.getHandler(I)))
+      continue;
+    const CXXCatchStmt *C = S.getCatchHandler(I);
 
     llvm::BasicBlock *Handler = createBasicBlock("catch");
     if (C->getExceptionDecl()) {
@@ -1292,7 +1375,7 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
     EmitBlockAfterUses(CatchBlock);
 
     // Catch the exception if this isn't a catch-all.
-    const CXXCatchStmt *C = S.getHandler(I-1);
+    const CXXCatchStmt *C = S.getCatchHandler(I-1);
 
     // Enter a cleanup scope, including the catch variable and the
     // end-catch.

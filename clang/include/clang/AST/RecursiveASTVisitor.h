@@ -2575,6 +2575,11 @@ DEF_TRAVERSE_STMT(CXXCatchStmt, {
   // children() iterates over the handler block.
 })
 
+DEF_TRAVERSE_STMT(CXXCatchThrowsStmt, {
+  TRY_TO(TraverseDecl(S->getExceptionDecl()));
+  // children() iterates over the handler block.
+})
+
 DEF_TRAVERSE_STMT(DeclStmt, {
   for (auto *I : S->decls()) {
     TRY_TO(TraverseDecl(I));

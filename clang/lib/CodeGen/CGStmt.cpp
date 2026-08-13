@@ -1692,6 +1692,14 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
       if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::Indirect) {
         EmitStoreOfScalar(Ret, MakeAddrLValue(ReturnValue, RV->getType()),
                           /*isInit*/ true);
+      } else if (CurFnInfo->hasThrowsReturn()) {
+        // Herbception (throws): the payload slot is sized to hold the larger
+        // of the value and the error type, so store the value through a
+        // bitcast of the slot address to the value's type.
+        llvm::Type *RetTy2 = Ret->getType();
+        auto *I = Builder.CreateStore(
+            Ret, ReturnValue.withElementType(RetTy2));
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
       } else {
         auto *I = Builder.CreateStore(Ret, ReturnValue);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
@@ -1736,9 +1744,9 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
     EV = EWC->getSubExpr();
 
   if (FnRetTy->isVoidType()) {
-    // A void throws function only returns the discriminant; still evaluate the
-    // error expression for side effects.
-    EmitAnyExpr(EV);
+    // A void throws function returns {E, i1}; the payload slot holds the
+    // error value (std::error / E). Store the error expression into it.
+    EmitAnyExprToMem(EV, ReturnValue, Qualifiers(), /*IsInitializer=*/false);
   } else if (getEvaluationKind(EV->getType()) == TEK_Scalar) {
     llvm::Value *V = EmitScalarExpr(EV);
     // Coerce the error value to the return slot type. The {T, i1} payload
@@ -1805,9 +1813,14 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   QualType CallTy = Call->getType();
 
   // Emit the call. It returns {T, i1}; capture the raw call so we can read
-  // both the success value and the discriminant.
+  // both the success value and the discriminant. Suppress routing to an
+  // enclosing herbception catch scope: this expression handles the
+  // discriminant itself.
   llvm::CallBase *CallOrInvoke = nullptr;
-  EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
+  {
+    SaveAndRestore<bool> SaveInOperand(InHerbceptionOperand, true);
+    EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
+  }
   assert(CallOrInvoke && "throws call did not produce a call instruction");
   assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
          CallOrInvoke->getType()->getStructNumElements() == 2 &&
@@ -1815,6 +1828,13 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
 
   llvm::Value *Success = Builder.CreateExtractValue(CallOrInvoke, 0);
   llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+
+  // The payload slot is sized to hold the larger of the callee's success type
+  // and its error type (a union). On success it holds the value; on error it
+  // holds the error. When the payload type is wider than the success type, the
+  // success value occupies the low bytes, so reinterpreting it requires a
+  // trip through memory rather than a value bitcast.
+  llvm::Type *PayloadTy = Success->getType();
 
   llvm::BasicBlock *OkBB = createBasicBlock("try.ok");
   llvm::BasicBlock *ErrBB = createBasicBlock("try.err");
@@ -1850,18 +1870,32 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
 
   // Success path: the try expression's value is the success value.
   EmitBlock(OkBB);
-  if (getEvaluationKind(CallTy) == TEK_Scalar)
-    return RValue::get(Success);
+  if (getEvaluationKind(CallTy) == TEK_Scalar) {
+    if (PayloadTy == ConvertType(CallTy))
+      return RValue::get(Success);
+    // The payload is wider than the scalar success value; reinterpret it
+    // through memory, reading the low bytes as the value type.
+    Address PayloadAddr =
+        CreateDefaultAlignTempAlloca(PayloadTy, "try.payload");
+    auto *I = Builder.CreateStore(Success, PayloadAddr);
+    addInstToCurrentSourceAtom(I, I->getValueOperand());
+    llvm::Value *V = Builder.CreateLoad(
+        PayloadAddr.withElementType(ConvertType(CallTy)));
+    return RValue::get(V);
+  }
   if (getEvaluationKind(CallTy) == TEK_Complex)
     return RValue::getComplex(std::make_pair(Success, Disc));
   {
     // Aggregate: materialize the payload into a temp and return it as an
-    // aggregate RValue.
-    Address Addr = CreateMemTempWithoutCast(CallTy, "try.agg");
-    llvm::Value *Coerced = Success;
-    if (Coerced->getType() != Addr.getElementType())
-      Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
-    Builder.CreateStore(Coerced, Addr);
+    // aggregate RValue. The payload may be wider than the aggregate success
+    // type, so go through a payload-typed temp and reinterpret the address.
+    Address PayloadAddr =
+        CreateDefaultAlignTempAlloca(PayloadTy, "try.payload");
+    auto *I = Builder.CreateStore(Success, PayloadAddr);
+    addInstToCurrentSourceAtom(I, I->getValueOperand());
+    llvm::Type *AggTy = ConvertType(CallTy);
+    Address Addr =
+        AggTy == PayloadTy ? PayloadAddr : PayloadAddr.withElementType(AggTy);
     return RValue::getAggregate(Addr);
   }
 }
@@ -1871,8 +1905,13 @@ RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
   const CallExpr *Call = cast<CallExpr>(Sub);
 
   // Emit the call. It returns {T, i1} (value-or-error, discriminant).
+  // Suppress routing to an enclosing herbception catch scope: this expression
+  // handles the discriminant itself.
   llvm::CallBase *CallOrInvoke = nullptr;
-  EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
+  {
+    SaveAndRestore<bool> SaveInOperand(InHerbceptionOperand, true);
+    EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
+  }
   assert(CallOrInvoke && "throws call did not produce a call instruction");
   assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
          CallOrInvoke->getType()->getStructNumElements() == 2 &&
@@ -1906,12 +1945,28 @@ RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
     unsigned Idx = RL.getLLVMFieldNo(F);
     llvm::Type *FieldIRTy =
         RL.getLLVMType()->getStructElementType(Idx);
-    if (FieldIRTy->isIntegerTy() && V->getType()->isIntegerTy())
-      V = Builder.CreateIntCast(V, FieldIRTy, false);
-    else if (FieldIRTy != V->getType())
-      V = Builder.CreateBitCast(V, FieldIRTy);
-    Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
-    Builder.CreateStore(V, FieldAddr);
+    if (FieldIRTy == V->getType()) {
+      Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
+      Builder.CreateStore(V, FieldAddr);
+    } else if (FieldIRTy->isIntegerTy() && V->getType()->isIntegerTy()) {
+      Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
+      auto *I = Builder.CreateStore(
+          Builder.CreateIntCast(V, FieldIRTy, false), FieldAddr);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+    } else {
+      // The payload may be wider than the either field (e.g. the error type
+      // std::error is wider than an int field); reinterpret it through memory,
+      // reading the low bytes as the field type.
+      Address PayloadAddr =
+          CreateDefaultAlignTempAlloca(V->getType(), "either.payload");
+      auto *SI = Builder.CreateStore(V, PayloadAddr);
+      addInstToCurrentSourceAtom(SI, SI->getValueOperand());
+      llvm::Value *Coerced =
+          Builder.CreateLoad(PayloadAddr.withElementType(FieldIRTy));
+      Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
+      auto *I = Builder.CreateStore(Coerced, FieldAddr);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+    }
   };
 
   // .positive = !disc

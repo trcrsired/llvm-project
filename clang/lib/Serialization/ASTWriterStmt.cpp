@@ -1731,6 +1731,15 @@ void ASTStmtWriter::VisitCXXCatchStmt(CXXCatchStmt *S) {
   Code = serialization::STMT_CXX_CATCH;
 }
 
+void ASTStmtWriter::VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+  VisitStmt(S);
+  Record.AddSourceLocation(S->getCatchLoc());
+  Record.AddSourceLocation(S->getSpecLoc());
+  Record.AddDeclRef(S->getExceptionDecl());
+  Record.AddStmt(S->getHandlerBlock());
+  Code = serialization::STMT_CXX_CATCH_THROWS;
+}
+
 void ASTStmtWriter::VisitCXXTryStmt(CXXTryStmt *S) {
   VisitStmt(S);
   Record.push_back(S->getNumHandlers());

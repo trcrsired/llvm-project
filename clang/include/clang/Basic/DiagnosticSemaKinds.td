@@ -8782,6 +8782,8 @@ def err_catch_incomplete : Error<"cannot catch incomplete type %0">;
 def err_throw_throws_outside_throws_function : Error<
   "'throw throws' is only allowed inside a function declared 'throws' or "
   "'fails{...}'">;
+def err_herbception_disabled : Error<
+    "herbception is disabled; use -fherbceptions to enable it">;
 def err_throw_throws_requires_operand : Error<
   "'throw throws' requires an error value operand">;
 def err_try_throws_outside_throws_function : Error<

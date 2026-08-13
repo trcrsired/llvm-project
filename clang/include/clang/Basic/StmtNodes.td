@@ -53,6 +53,7 @@ def ObjCAutoreleasePoolStmt : StmtNode<Stmt>;
 
 // C++ statements
 def CXXCatchStmt : StmtNode<Stmt>;
+def CXXCatchThrowsStmt : StmtNode<Stmt>;
 def CXXTryStmt : StmtNode<Stmt>;
 def CXXForRangeStmt : StmtNode<Stmt>;
 
