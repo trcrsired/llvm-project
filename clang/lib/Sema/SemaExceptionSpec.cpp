@@ -812,6 +812,40 @@ bool Sema::CheckExceptionSpecSubset(
          !isUnresolvedExceptionSpec(SubEST) &&
          "Shouldn't see unknown exception specifications here");
 
+  // Herbception (throws/fails): the specifier is part of the canonical
+  // function type because it changes the calling convention ({T, i1} return
+  // instead of T). There is no subset relation: two throws/fails specs are
+  // compatible only when they are identical, and a throws/fails type is
+  // incompatible with a plain or noexcept type in either direction.
+  bool SuperHerb = hasHerbceptionExceptionSpec(SuperEST);
+  bool SubHerb = hasHerbceptionExceptionSpec(SubEST);
+  if (SuperHerb || SubHerb) {
+    if (SuperHerb && SubHerb) {
+      if (SuperEST == EST_BasicThrows && SubEST == EST_BasicThrows)
+        return false;
+      if (SuperEST == EST_ThrowsTyped && SubEST == EST_ThrowsTyped) {
+        // fails{E}: error types must be equivalent.
+        ArrayRef<QualType> SuperExc = Superset->exceptions();
+        ArrayRef<QualType> SubExc = Subset->exceptions();
+        if (SuperExc.size() == 1 && SubExc.size() == 1 &&
+            Context.hasSameType(SuperExc[0], SubExc[0]))
+          return false;
+      }
+    }
+    // Emit a precise diagnostic: the two function types have different
+    // herbception specs (throws/fails vs throws/fails with a different error
+    // type, or vs a plain/noexcept type), which is a calling-convention
+    // mismatch rather than an exception-spec subset issue.
+    if (DiagID.getDiagID() == diag::err_override_exception_spec ||
+        DiagID.getDiagID() == diag::ext_override_exception_spec)
+      Diag(SubLoc, diag::err_herbception_override_spec_mismatch);
+    else
+      Diag(SubLoc, diag::err_herbception_spec_mismatch);
+    if (NoteID.getDiagID() != 0)
+      Diag(SuperLoc, NoteID);
+    return true;
+  }
+
   // If there are dependent noexcept specs, assume everything is fine. Unlike
   // with the equivalency check, this is safe in this case, because we don't
   // want to merge declarations. Checks after instantiation will catch any

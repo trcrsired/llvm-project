@@ -1725,8 +1725,9 @@ bool Parser::isCXXFunctionDeclarator(
     else {
       const Token &Next = NextToken();
       if (Next.isOneOf(tok::amp, tok::ampamp, tok::kw_const, tok::kw_volatile,
-                       tok::kw_throw, tok::kw_noexcept, tok::l_square,
-                       tok::l_brace, tok::kw_try, tok::equal, tok::arrow) ||
+                       tok::kw_throw, tok::kw_throws, tok::kw_fails,
+                       tok::kw_noexcept, tok::l_square, tok::l_brace,
+                       tok::kw_try, tok::equal, tok::arrow) ||
           isCXX11VirtSpecifier(Next))
         // The next token cannot appear after a constructor-style initializer,
         // and can appear next in a function definition. This must be a function
@@ -1900,6 +1901,17 @@ Parser::TryParseFunctionDeclarator(bool MayHaveTrailingReturnType) {
       // Find the matching rparen.
       ConsumeParen();
       if (!SkipUntil(tok::r_paren, StopAtSemi))
+        return TPResult::Error;
+    }
+  }
+
+  // Herbception exception-specification: 'throws' (implicit std::error) or
+  // 'fails{E}' (explicit error type).
+  if (Tok.isOneOf(tok::kw_throws, tok::kw_fails)) {
+    ConsumeToken();
+    if (Tok.is(tok::l_brace)) {
+      ConsumeBrace();
+      if (!SkipUntil(tok::r_brace, StopAtSemi))
         return TPResult::Error;
     }
   }
