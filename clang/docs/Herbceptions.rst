@@ -312,7 +312,7 @@ Known limitations
 * ``failure(expr)`` is not yet a fully general builtin in C; the current
   implementation primarily supports ``throw throws`` / ``return failure(...)``
   where implemented.
-* ``catch throws(E e) { }`` block handlers are partially implemented;
+* ``catch throws(E e) { }`` block handlers are implemented for a single handler;
   ``try(expr)`` and ``catch fails(expr)`` are the fully working forms.
 * Traditional exceptions cannot be converted to herbception errors
   (C++ exception -> ``std::error`` is not supported).

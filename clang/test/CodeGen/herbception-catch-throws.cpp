@@ -1,0 +1,34 @@
+// RUN: %clang -fherbceptions -S -emit-llvm -o - %s | FileCheck %s
+
+// Herbception `catch throws(E e) { ... }` block handler: a bare call to a
+// throws function inside the try block returns {T, i1}, and on failure the
+// error value is routed to the handler (which binds the exception variable)
+// instead of being silently dropped in a noexcept function.
+
+using size_t = __SIZE_TYPE__;
+
+namespace std {
+struct error {
+  void *domain;
+  size_t code;
+};
+}
+
+// CHECK: define dso_local void @_Z6calleem(i64 noundef %i) #[[ATTR:[0-9]+]] {
+// CHECK: call { { ptr, i64 }, i1 } @_Z3barm
+// CHECK: extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
+// CHECK: br i1 %{{.*}}, label %herb.catch.err, label %herb.catch.ok
+// CHECK: store {{.*}} %{{.*}}, ptr %e, align 8
+void bar(size_t i) throws {
+  if (i == 0) throw throws std::error{nullptr, 4};
+}
+
+void callee(size_t i) noexcept {
+  try {
+    bar(i);
+  } catch throws(std::error e) {
+    (void)e.code;
+  }
+}
+
+// CHECK: attributes #[[ATTR]] = { {{.*}} }

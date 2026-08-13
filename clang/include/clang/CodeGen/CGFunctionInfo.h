@@ -644,6 +644,12 @@ class CGFunctionInfo final
   LLVM_PREFERRED_TYPE(bool)
   unsigned HasThrowsReturn : 1;
 
+  /// The LLVM type of the error value carried by a herbception (throws/fails)
+  /// function. For `throws` this is the 2-register `std::error` type; for
+  /// `fails{E}` it is the explicit error type E. Null if not a throws/fails
+  /// function.
+  llvm::Type *HerbceptionErrorType = nullptr;
+
   /// Whether this function saved caller registers.
   LLVM_PREFERRED_TYPE(bool)
   unsigned NoCallerSavedRegs : 1;
@@ -695,7 +701,7 @@ public:
   static CGFunctionInfo *
   create(unsigned llvmCC, bool instanceMethod, bool chainCall,
          bool delegateCall, unsigned X86ABIAVXLevel, bool HasThrowsReturn,
-         const FunctionType::ExtInfo &extInfo,
+         llvm::Type *ErrorType, const FunctionType::ExtInfo &extInfo,
          ArrayRef<ExtParameterInfo> paramInfos, CanQualType resultType,
          ArrayRef<CanQualType> argTypes, RequiredArgs required);
   void operator delete(void *p) { ::operator delete(p); }
@@ -750,6 +756,11 @@ public:
   /// Whether this function returns a herbception (throws/fails) discriminant.
   bool hasThrowsReturn() const { return HasThrowsReturn; }
   void setHasThrowsReturn(bool V = true) { HasThrowsReturn = V; }
+
+  /// The LLVM type of the error value carried by a herbception function, or
+  /// null for a normal function.
+  llvm::Type *getHerbceptionErrorType() const { return HerbceptionErrorType; }
+  void setHerbceptionErrorType(llvm::Type *T) { HerbceptionErrorType = T; }
 
   /// Whether this function no longer saves caller registers.
   bool isNoCallerSavedRegs() const { return NoCallerSavedRegs; }
@@ -846,6 +857,8 @@ public:
       for (auto paramInfo : getExtParameterInfos())
         ID.AddInteger(paramInfo.getOpaqueValue());
     }
+    if (HasThrowsReturn)
+      ID.AddPointer(HerbceptionErrorType);
     getReturnType().Profile(ID);
     for (const auto &I : arguments())
       I.type.Profile(ID);
@@ -853,6 +866,7 @@ public:
   static void Profile(llvm::FoldingSetNodeID &ID, bool InstanceMethod,
                       bool ChainCall, bool IsDelegateCall,
                       unsigned X86ABIAVXLevel, bool HasThrowsReturn,
+                      llvm::Type *ErrorType,
                       const FunctionType::ExtInfo &info,
                       ArrayRef<ExtParameterInfo> paramInfos,
                       RequiredArgs required, CanQualType resultType,
@@ -864,6 +878,8 @@ public:
     ID.AddBoolean(info.getNoReturn());
     ID.AddBoolean(info.getProducesResult());
     ID.AddBoolean(HasThrowsReturn);
+    if (HasThrowsReturn)
+      ID.AddPointer(ErrorType);
     ID.AddBoolean(info.getNoCallerSavedRegs());
     ID.AddBoolean(info.getHasRegParm());
     ID.AddInteger(info.getRegParm());

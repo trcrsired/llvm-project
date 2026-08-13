@@ -19048,7 +19048,7 @@ static void SearchForReturnInStmt(Sema &Self, Stmt *S) {
 
 void Sema::DiagnoseReturnInConstructorExceptionHandler(CXXTryStmt *TryBlock) {
   for (unsigned I = 0, E = TryBlock->getNumHandlers(); I != E; ++I) {
-    CXXCatchStmt *Handler = TryBlock->getHandler(I);
+    CXXCatchStmt *Handler = TryBlock->getCatchHandler(I);
     SearchForReturnInStmt(*this, Handler);
   }
 }

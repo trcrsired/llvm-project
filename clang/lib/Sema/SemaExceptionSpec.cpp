@@ -1638,7 +1638,7 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
     auto *TS = cast<CXXTryStmt>(S);
     // try /*...*/ catch (...) { H } can throw only if H can throw.
     // Any other try-catch can throw if any substatement can throw.
-    const CXXCatchStmt *FinalHandler = TS->getHandler(TS->getNumHandlers() - 1);
+    const CXXCatchStmt *FinalHandler = TS->getCatchHandler(TS->getNumHandlers() - 1);
     if (!FinalHandler->getExceptionDecl())
       return canThrow(FinalHandler->getHandlerBlock());
     return canSubStmtsThrow(*this, S);

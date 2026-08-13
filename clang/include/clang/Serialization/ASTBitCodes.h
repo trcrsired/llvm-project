@@ -1848,6 +1848,10 @@ enum StmtCode {
   /// A CXXCatchStmt record.
   STMT_CXX_CATCH,
 
+  /// A herbception `catch throws(E e) { ... }` / `catch fails(E e) { ... }`
+  /// record.
+  STMT_CXX_CATCH_THROWS,
+
   /// A CXXTryStmt record.
   STMT_CXX_TRY,
   /// A CXXForRangeStmt record.

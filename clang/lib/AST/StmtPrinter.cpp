@@ -122,6 +122,7 @@ namespace {
     void PrintRawDeclStmt(const DeclStmt *S);
     void PrintRawIfStmt(IfStmt *If);
     void PrintRawCXXCatchStmt(CXXCatchStmt *Catch);
+    void PrintRawCXXCatchThrowsStmt(const CXXCatchThrowsStmt *Catch);
     void PrintCallArgs(CallExpr *E);
     void PrintRawSEHExceptHandler(SEHExceptStmt *S);
     void PrintRawSEHFinallyStmt(SEHFinallyStmt *S);
@@ -708,18 +709,38 @@ void StmtPrinter::PrintRawCXXCatchStmt(CXXCatchStmt *Node) {
   PrintRawCompoundStmt(cast<CompoundStmt>(Node->getHandlerBlock()));
 }
 
+void StmtPrinter::PrintRawCXXCatchThrowsStmt(const CXXCatchThrowsStmt *Node) {
+  OS << "catch throws(";
+  if (Decl *ExDecl = Node->getExceptionDecl())
+    PrintRawDecl(ExDecl);
+  else
+    OS << "...";
+  OS << ") ";
+  PrintRawCompoundStmt(cast<CompoundStmt>(Node->getHandlerBlock()));
+}
+
 void StmtPrinter::VisitCXXCatchStmt(CXXCatchStmt *Node) {
   Indent();
   PrintRawCXXCatchStmt(Node);
   OS << NL;
 }
 
+void StmtPrinter::VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *Node) {
+  Indent();
+  PrintRawCXXCatchThrowsStmt(Node);
+  OS << NL;
+}
+
+
 void StmtPrinter::VisitCXXTryStmt(CXXTryStmt *Node) {
   Indent() << "try ";
   PrintRawCompoundStmt(Node->getTryBlock());
   for (unsigned i = 0, e = Node->getNumHandlers(); i < e; ++i) {
     OS << " ";
-    PrintRawCXXCatchStmt(Node->getHandler(i));
+    if (const auto *CT = dyn_cast<CXXCatchThrowsStmt>(Node->getHandler(i)))
+      PrintRawCXXCatchThrowsStmt(CT);
+    else
+      PrintRawCXXCatchStmt(Node->getCatchHandler(i));
   }
   OS << NL;
 }

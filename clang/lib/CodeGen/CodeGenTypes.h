@@ -97,7 +97,7 @@ class CodeGenTypes {
   // Helper to insert CGFunctionInfo objects
   CGFunctionInfo *findOrInsertCGFunctionInfo(
       bool isInstanceMethod, bool isChainCall, bool isDelegateCall,
-      unsigned X86ABIAVXLevel, bool HasThrowsReturn,
+      unsigned X86ABIAVXLevel, bool HasThrowsReturn, llvm::Type *ErrorType,
       const FunctionType::ExtInfo &info,
       ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
       RequiredArgs required, CanQualType resultType,
@@ -296,7 +296,7 @@ public:
       FunctionType::ExtInfo info,
       ArrayRef<FunctionProtoType::ExtParameterInfo> paramInfos,
       RequiredArgs args, const FunctionDecl *ABIInfoFD,
-      bool HasThrowsReturn = false);
+      bool HasThrowsReturn = false, llvm::Type *ErrorType = nullptr);
 
   /// Compute a new LLVM record layout object for the given record.
   std::unique_ptr<CGRecordLayout> ComputeRecordLayout(const RecordDecl *D,
