@@ -1756,6 +1756,14 @@ void ASTStmtReader::VisitCXXCatchStmt(CXXCatchStmt *S) {
   S->HandlerBlock = Record.readSubStmt();
 }
 
+void ASTStmtReader::VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+  VisitStmt(S);
+  S->CatchLoc = readSourceLocation();
+  S->SpecLoc = readSourceLocation();
+  S->ExceptionDecl = readDeclAs<VarDecl>();
+  S->HandlerBlock = Record.readSubStmt();
+}
+
 void ASTStmtReader::VisitCXXTryStmt(CXXTryStmt *S) {
   VisitStmt(S);
   assert(Record.peekInt() == S->getNumHandlers() && "NumStmtFields is wrong ?");
@@ -3686,6 +3694,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case STMT_CXX_CATCH:
       S = new (Context) CXXCatchStmt(Empty);
+      break;
+
+    case STMT_CXX_CATCH_THROWS:
+      S = new (Context) CXXCatchThrowsStmt(Empty);
       break;
 
     case STMT_CXX_TRY:

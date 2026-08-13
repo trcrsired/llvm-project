@@ -4356,6 +4356,18 @@ Sema::ActOnCXXCatchBlock(SourceLocation CatchLoc, Decl *ExDecl,
       CXXCatchStmt(CatchLoc, cast_or_null<VarDecl>(ExDecl), HandlerBlock);
 }
 
+StmtResult
+Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
+                               Decl *ExDecl, Stmt *HandlerBlock) {
+  if (!getLangOpts().HerbExceptions) {
+    Diag(CatchLoc, diag::err_herbception_disabled);
+    return StmtError();
+  }
+  // There's nothing to test that ActOnExceptionDecl didn't already test.
+  return new (Context) CXXCatchThrowsStmt(
+      CatchLoc, SpecLoc, cast_or_null<VarDecl>(ExDecl), HandlerBlock);
+}
+
 namespace {
 class CatchHandlerType {
   QualType QT;
@@ -4491,6 +4503,10 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
   llvm::DenseMap<QualType, CXXCatchStmt *> HandledBaseTypes;
   llvm::DenseMap<CatchHandlerType, CXXCatchStmt *> HandledTypes;
   for (unsigned i = 0; i < NumHandlers; ++i) {
+    // Herbception (catch throws/catch fails) handlers do not participate in
+    // the traditional C++ exception-type matching machinery.
+    if (isa<CXXCatchThrowsStmt>(Handlers[i]))
+      continue;
     CXXCatchStmt *H = cast<CXXCatchStmt>(Handlers[i]);
 
     // Diagnose when the handler is a catch-all handler, but it isn't the last

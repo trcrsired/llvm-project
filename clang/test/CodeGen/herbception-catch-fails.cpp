@@ -18,8 +18,8 @@ int bar(int x) fails{int} {
 // CHECK:         %call = call { i32, i1 } @_Z3bari
 // CHECK:         %[[DISC:.*]] = extractvalue { i32, i1 } %call, 1
 // CHECK:         %[[POS:.*]] = xor i1 %[[DISC]], true
-// CHECK:         %[[POS8:.*]] = zext i1 %[[POS]] to i8
 // CHECK:         getelementptr inbounds nuw %struct.either, ptr %either, i32 0, i32 0
+// CHECK:         %[[POS8:.*]] = zext i1 %[[POS]] to i8
 // CHECK:         store i8 %[[POS8]], ptr %{{.*}}, align 4
 // CHECK:         getelementptr inbounds nuw %struct.either, ptr %either, i32 0, i32 1
 // CHECK:         store i32 %{{.*}}, ptr %{{.*}}, align 4

@@ -2674,6 +2674,19 @@ public:
                                                       Handler));
   }
 
+  /// Build a new herbception `catch throws`/`catch fails` statement.
+  ///
+  /// By default, performs semantic analysis to build the new statement.
+  /// Subclasses may override this routine to provide different behavior.
+  StmtResult RebuildCXXCatchThrowsStmt(SourceLocation CatchLoc,
+                                       SourceLocation SpecLoc,
+                                       VarDecl *ExceptionDecl,
+                                       Stmt *Handler) {
+    return Owned(new (getSema().Context)
+                     CXXCatchThrowsStmt(CatchLoc, SpecLoc, ExceptionDecl,
+                                        Handler));
+  }
+
   /// Build a new C++ try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -9310,6 +9323,37 @@ StmtResult TreeTransform<Derived>::TransformCXXCatchStmt(CXXCatchStmt *S) {
 }
 
 template <typename Derived>
+StmtResult
+TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+  // Transform the exception declaration, if any.
+  VarDecl *Var = nullptr;
+  if (VarDecl *ExceptionDecl = S->getExceptionDecl()) {
+    TypeSourceInfo *T =
+        getDerived().TransformType(ExceptionDecl->getTypeSourceInfo());
+    if (!T)
+      return StmtError();
+
+    Var = getDerived().RebuildExceptionDecl(
+        ExceptionDecl, T, ExceptionDecl->getInnerLocStart(),
+        ExceptionDecl->getLocation(), ExceptionDecl->getIdentifier());
+    if (!Var || Var->isInvalidDecl())
+      return StmtError();
+  }
+
+  // Transform the actual exception handler.
+  StmtResult Handler = getDerived().TransformStmt(S->getHandlerBlock());
+  if (Handler.isInvalid())
+    return StmtError();
+
+  if (!getDerived().AlwaysRebuild() && !Var &&
+      Handler.get() == S->getHandlerBlock())
+    return S;
+
+  return getDerived().RebuildCXXCatchThrowsStmt(
+      S->getCatchLoc(), S->getSpecLoc(), Var, Handler.get());
+}
+
+template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
   // Transform the try block itself.
   StmtResult TryBlock = getDerived().TransformCompoundStmt(S->getTryBlock());
@@ -9320,7 +9364,11 @@ StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
   bool HandlerChanged = false;
   SmallVector<Stmt *, 8> Handlers;
   for (unsigned I = 0, N = S->getNumHandlers(); I != N; ++I) {
-    StmtResult Handler = getDerived().TransformCXXCatchStmt(S->getHandler(I));
+    StmtResult Handler;
+    if (auto *CT = dyn_cast<CXXCatchThrowsStmt>(S->getHandler(I)))
+      Handler = getDerived().TransformCXXCatchThrowsStmt(CT);
+    else
+      Handler = getDerived().TransformCXXCatchStmt(S->getCatchHandler(I));
     if (Handler.isInvalid())
       return StmtError();
 

@@ -612,6 +612,7 @@ namespace clang {
     // FIXME: SEHLeaveStmt
     // FIXME: CapturedStmt
     ExpectedStmt VisitCXXCatchStmt(CXXCatchStmt *S);
+    ExpectedStmt VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *S);
     ExpectedStmt VisitCXXTryStmt(CXXTryStmt *S);
     ExpectedStmt VisitCXXForRangeStmt(CXXForRangeStmt *S);
     ExpectedStmt VisitCXXExpansionStmtPattern(CXXExpansionStmtPattern *S);
@@ -7371,6 +7372,20 @@ ExpectedStmt ASTNodeImporter::VisitCXXCatchStmt(CXXCatchStmt *S) {
       ToCatchLoc, ToExceptionDecl, ToHandlerBlock);
 }
 
+ExpectedStmt ASTNodeImporter::VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+
+  Error Err = Error::success();
+  auto ToCatchLoc = importChecked(Err, S->getCatchLoc());
+  auto ToSpecLoc = importChecked(Err, S->getSpecLoc());
+  auto ToExceptionDecl = importChecked(Err, S->getExceptionDecl());
+  auto ToHandlerBlock = importChecked(Err, S->getHandlerBlock());
+  if (Err)
+    return std::move(Err);
+
+  return new (Importer.getToContext()) CXXCatchThrowsStmt (
+      ToCatchLoc, ToSpecLoc, ToExceptionDecl, ToHandlerBlock);
+}
+
 ExpectedStmt ASTNodeImporter::VisitCXXTryStmt(CXXTryStmt *S) {
   ExpectedSLoc ToTryLocOrErr = import(S->getTryLoc());
   if (!ToTryLocOrErr)
@@ -7382,7 +7397,7 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryStmt(CXXTryStmt *S) {
 
   SmallVector<Stmt *, 1> ToHandlers(S->getNumHandlers());
   for (unsigned HI = 0, HE = S->getNumHandlers(); HI != HE; ++HI) {
-    CXXCatchStmt *FromHandler = S->getHandler(HI);
+    Stmt *FromHandler = S->getHandler(HI);
     if (auto ToHandlerOrErr = import(FromHandler))
       ToHandlers[HI] = *ToHandlerOrErr;
     else
