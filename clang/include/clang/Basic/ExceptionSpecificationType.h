@@ -57,6 +57,13 @@ inline bool isExplicitThrowExceptionSpec(ExceptionSpecificationType ESpecType) {
          ESpecType == EST_NoexceptFalse;
 }
 
+/// Whether this exception specification is a herbception `throws`/`fails{E}`
+/// spec. Such specs are part of the canonical function type (they change the
+/// calling convention), so they are only compatible with an identical spec.
+inline bool hasHerbceptionExceptionSpec(ExceptionSpecificationType ESpecType) {
+  return ESpecType == EST_BasicThrows || ESpecType == EST_ThrowsTyped;
+}
+
 /// Possible results from evaluation of a noexcept expression.
 enum CanThrowResult {
   CT_Cannot,

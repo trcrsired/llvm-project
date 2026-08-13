@@ -2047,6 +2047,12 @@ def err_override_exception_spec : Error<
   "base version">;
 def ext_override_exception_spec : ExtWarn<err_override_exception_spec.Summary>,
   InGroup<MicrosoftExceptionSpec>;
+def err_herbception_spec_mismatch : Error<
+  "function pointer or reference types with different herbception "
+  "('throws'/'fails{...}') specs are incompatible">;
+def err_herbception_override_spec_mismatch : Error<
+  "overriding function has a different herbception ('throws'/'fails{...}') "
+  "specifier than the base version, which changes the calling convention">;
 def err_incompatible_exception_specs : Error<
   "target exception specification is not superset of source">;
 def warn_incompatible_exception_specs : Warning<
