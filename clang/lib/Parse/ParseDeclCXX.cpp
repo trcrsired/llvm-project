@@ -3950,6 +3950,29 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     Token StartTok = Tok;
     SpecificationRange = SourceRange(ConsumeToken());
 
+    // Herbception: 'throws' or 'fails{E}' in a member function declaration.
+    // These are cached for delayed parsing just like noexcept.
+    if (StartTok.is(tok::kw_throws) || StartTok.is(tok::kw_fails)) {
+      bool IsThrows = StartTok.is(tok::kw_throws);
+      if (IsThrows) {
+        ExceptionSpecTokens = new CachedTokens;
+        ExceptionSpecTokens->push_back(StartTok);
+        return EST_Unparsed;
+      }
+      // fails{E}: cache the whole spec for delayed parsing.
+      if (Tok.is(tok::l_brace)) {
+        ExceptionSpecTokens = new CachedTokens;
+        ExceptionSpecTokens->push_back(StartTok);
+        if (!ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
+                                  /*StopAtSemi=*/true,
+                                  /*ConsumeFinalToken=*/true))
+          return EST_None;
+        SpecificationRange.setEnd(
+            ExceptionSpecTokens->back().getLocation());
+        return EST_Unparsed;
+      }
+    }
+
     // Check for a '('.
     if (!Tok.is(tok::l_paren)) {
       // If this is a bare 'noexcept', we're done.
