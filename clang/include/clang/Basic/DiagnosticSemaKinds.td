@@ -8794,6 +8794,9 @@ def err_throw_throws_requires_operand : Error<
   "'throw throws' requires an error value operand">;
 def err_throw_throws_no_error_domain : Error<
   "'throw throws' operand type %0 has no std::error_domain specialization">;
+def err_throw_throws_no_catch_handler : Error<
+  "'throw throws' in a plain (non-'throws') function must be inside a "
+  "'try { } catch throws' block">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
 def err_herbception_try_requires_operand : Error<
