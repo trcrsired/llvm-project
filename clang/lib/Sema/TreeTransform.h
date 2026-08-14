@@ -15153,7 +15153,13 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
 
 template <typename Derived>
 ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
+  // Mirror the parser: while transforming the operand of an explicit
+  // try(expr)/catch fails(expr), suppress the automatic propagation that
+  // ActOnCallExpr applies to bare throws/fails calls. Otherwise a call inside
+  // try(expr) would be re-wrapped during instantiation.
+  ++getSema().HerbceptionOperandDepth;
   ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  --getSema().HerbceptionOperandDepth;
   if (SubExpr.isInvalid())
     return ExprError();
 
@@ -15166,7 +15172,9 @@ ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
 template <typename Derived>
 ExprResult TreeTransform<Derived>::TransformCXXCatchFailsExpr(
     CXXCatchFailsExpr *E) {
+  ++getSema().HerbceptionOperandDepth;
   ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  --getSema().HerbceptionOperandDepth;
   if (SubExpr.isInvalid())
     return ExprError();
 

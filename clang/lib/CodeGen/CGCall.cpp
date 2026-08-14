@@ -852,9 +852,10 @@ const CGFunctionInfo &CodeGenTypes::arrangeCXXMethodCall(
   CanQualTypeList argTypes = getArgTypesForCall(Context, args);
 
   FunctionType::ExtInfo info = proto->getExtInfo();
-  return arrangeLLVMFunctionInfo(GetReturnType(proto->getReturnType()),
-                                 FnInfoOpts::IsInstanceMethod, argTypes, info,
-                                 paramInfos, required, ABIInfoFD);
+  return arrangeLLVMFunctionInfo(
+      GetReturnType(proto->getReturnType()), FnInfoOpts::IsInstanceMethod,
+      argTypes, info, paramInfos, required, ABIInfoFD, proto->hasThrowsSpec(),
+      getHerbceptionErrorType(*this, proto));
 }
 
 const CGFunctionInfo &CodeGenTypes::arrangeNullaryFunction() {
