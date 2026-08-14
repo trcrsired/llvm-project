@@ -1739,6 +1739,33 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
 
 void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
                                            SourceLocation Loc) {
+  const Expr *EV = ErrorValue;
+  if (const auto *EWC = dyn_cast_or_null<ExprWithCleanups>(EV))
+    EV = EWC->getSubExpr();
+
+  // A `throw throws` is routed to the nearest active `try { } catch throws`
+  // handler when one encloses it (like a traditional throw is caught by its
+  // enclosing handler), even in a plain (non-'throws') function.
+  if (!HerbceptionCatchScopes.empty()) {
+    const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
+    RunCleanupsScope ThrowScope(*this);
+    // Evaluate the error value into the handler's error slot, then run the
+    // cleanups (including those of the try block scope) and branch to the
+    // handler.
+    EmitAnyExprToMem(EV, Scope.ErrorSlot, Qualifiers(),
+                     /*IsInitializer=*/false);
+    ThrowScope.ForceCleanup();
+    EmitBranchThroughCleanup(Scope.Handler);
+    return;
+  }
+
+  if (!CurFnInfo->hasThrowsReturn()) {
+    // A `throw throws` in a plain function with no enclosing catch-throws
+    // handler has nowhere to go.
+    CGM.getDiags().Report(Loc, diag::err_throw_throws_no_catch_handler);
+    return;
+  }
+
   assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
          "herbception throw outside a throws function");
   assert(ReturnValue.isValid() && "throws function has no return value slot");
@@ -1747,9 +1774,6 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
   // run the scope cleanups and branch to the return block with the
   // discriminant set to true.
   RunCleanupsScope ThrowScope(*this);
-  const Expr *EV = ErrorValue;
-  if (const auto *EWC = dyn_cast_or_null<ExprWithCleanups>(EV))
-    EV = EWC->getSubExpr();
 
   if (FnRetTy->isVoidType()) {
     // A void throws function returns {E, i1}; the payload slot holds the
