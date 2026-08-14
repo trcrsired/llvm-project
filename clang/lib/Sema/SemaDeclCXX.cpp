@@ -17466,7 +17466,8 @@ Decl *Sema::ActOnEmptyDeclaration(Scope *S,
 VarDecl *Sema::BuildExceptionDeclaration(Scope *S, TypeSourceInfo *TInfo,
                                          SourceLocation StartLoc,
                                          SourceLocation Loc,
-                                         const IdentifierInfo *Name) {
+                                         const IdentifierInfo *Name,
+                                         bool IsHerbception) {
   bool Invalid = false;
   QualType ExDeclType = TInfo->getType();
 
@@ -17548,7 +17549,14 @@ VarDecl *Sema::BuildExceptionDeclaration(Scope *S, TypeSourceInfo *TInfo,
   if (getLangOpts().ObjCAutoRefCount && ObjC().inferObjCARCLifetime(ExDecl))
     Invalid = true;
 
-  if (!Invalid && !ExDeclType->isDependentType()) {
+  // For a herbception `catch throws(E e)` / `catch fails(E e)`, the exception
+  // variable is bound directly from the error payload; the compiler does not
+  // copy-initialize it from an exception object (and std::error cannot be
+  // copied at all). Skip the traditional copy-init / destructibility checks.
+  if (IsHerbception)
+    Invalid = ExDecl->isInvalidDecl();
+
+  if (!Invalid && !IsHerbception && !ExDeclType->isDependentType()) {
     if (auto *ClassDecl = ExDeclType->getAsCXXRecordDecl()) {
       // Insulate this from anything else we might currently be parsing.
       EnterExpressionEvaluationContext scope(
@@ -17597,7 +17605,8 @@ VarDecl *Sema::BuildExceptionDeclaration(Scope *S, TypeSourceInfo *TInfo,
   return ExDecl;
 }
 
-Decl *Sema::ActOnExceptionDeclarator(Scope *S, Declarator &D) {
+Decl *Sema::ActOnExceptionDeclarator(Scope *S, Declarator &D,
+                                     bool IsHerbception) {
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   bool Invalid = D.isInvalidType();
 
@@ -17634,7 +17643,8 @@ Decl *Sema::ActOnExceptionDeclarator(Scope *S, Declarator &D) {
   }
 
   VarDecl *ExDecl = BuildExceptionDeclaration(
-      S, TInfo, D.getBeginLoc(), D.getIdentifierLoc(), D.getIdentifier());
+      S, TInfo, D.getBeginLoc(), D.getIdentifierLoc(), D.getIdentifier(),
+      IsHerbception);
   if (Invalid)
     ExDecl->setInvalidDecl();
 

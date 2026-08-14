@@ -2000,6 +2000,15 @@ void ASTStmtWriter::VisitCXXThrowExpr(CXXThrowExpr *E) {
   Code = serialization::EXPR_CXX_THROW;
 }
 
+void ASTStmtWriter::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getThrowLoc());
+  Record.AddStmt(E->getOperand());
+  Record.AddStmt(E->getDomainCall());
+  Record.AddStmt(E->getCodeCall());
+  Code = serialization::EXPR_CXX_ERROR_VALUE;
+}
+
 void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getTryLoc());

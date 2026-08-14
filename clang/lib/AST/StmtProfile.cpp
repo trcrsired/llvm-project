@@ -2174,6 +2174,13 @@ void StmtProfiler::VisitCXXThrowExpr(const CXXThrowExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitCXXErrorValueExpr(const CXXErrorValueExpr *S) {
+  VisitExpr(S);
+  VisitStmt(S->getOperand());
+  VisitStmt(S->getDomainCall());
+  VisitStmt(S->getCodeCall());
+}
+
 void StmtProfiler::VisitCXXTryExpr(const CXXTryExpr *S) {
   VisitExpr(S);
   VisitStmt(S->getSubExpr());

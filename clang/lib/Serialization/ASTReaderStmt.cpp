@@ -1982,6 +1982,14 @@ void ASTStmtReader::VisitCXXThrowExpr(CXXThrowExpr *E) {
   E->CXXThrowExprBits.IsThrownVariableInScope = Record.readInt();
 }
 
+void ASTStmtReader::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
+  VisitExpr(E);
+  E->Loc = readSourceLocation();
+  E->Operand = Record.readSubExpr();
+  E->DomainCall = Record.readSubExpr();
+  E->CodeCall = Record.readSubExpr();
+}
+
 void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   E->TryLoc = readSourceLocation();
@@ -4389,6 +4397,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case EXPR_CXX_THROW:
       S = new (Context) CXXThrowExpr(Empty);
+      break;
+
+    case EXPR_CXX_ERROR_VALUE:
+      S = new (Context) CXXErrorValueExpr(Empty);
       break;
 
     case EXPR_CXX_DEFAULT_ARG:

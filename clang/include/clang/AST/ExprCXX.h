@@ -1268,6 +1268,68 @@ public:
   }
 };
 
+/// Represents the compiler-fabricated `std::error` value for a herbception
+/// `throw throws e`. Users cannot construct `std::error` (its constructors are
+/// deleted and all data members are private); only the compiler can, by going
+/// through `error_domain<T>::domain()` and `error_domain<T>::code(e)` for the
+/// operand's type T. This node wraps the operand and the two resolved member
+/// call expressions so CodeGen can emit those calls and build the two-word
+/// `{domain, code}` value.
+class CXXErrorValueExpr : public Expr {
+  friend class ASTStmtReader;
+
+  /// The value being thrown (e.g. an enum with an `error_domain<T>`
+  /// specialization).
+  Stmt *Operand;
+
+  /// `error_domain<T>::domain()` — the domain singleton lookup call.
+  Stmt *DomainCall;
+
+  /// `error_domain<T>::code(operand)` — the code lookup call.
+  Stmt *CodeCall;
+
+  /// The location of the 'throw'.
+  SourceLocation Loc;
+
+public:
+  CXXErrorValueExpr(Expr *Operand, Expr *DomainCall, Expr *CodeCall,
+                    QualType Ty, SourceLocation Loc)
+      : Expr(CXXErrorValueExprClass, Ty, VK_PRValue, OK_Ordinary),
+        Operand(Operand), DomainCall(DomainCall), CodeCall(CodeCall), Loc(Loc) {
+    setDependence(computeDependence(this));
+  }
+  CXXErrorValueExpr(EmptyShell Empty) : Expr(CXXErrorValueExprClass, Empty) {}
+
+  const Expr *getOperand() const { return cast<Expr>(Operand); }
+  Expr *getOperand() { return cast<Expr>(Operand); }
+
+  /// The `error_domain<T>::domain()` call expression.
+  const Expr *getDomainCall() const { return cast<Expr>(DomainCall); }
+  Expr *getDomainCall() { return cast<Expr>(DomainCall); }
+
+  /// The `error_domain<T>::code(operand)` call expression.
+  const Expr *getCodeCall() const { return cast<Expr>(CodeCall); }
+  Expr *getCodeCall() { return cast<Expr>(CodeCall); }
+
+  SourceLocation getThrowLoc() const { return Loc; }
+
+  SourceLocation getBeginLoc() const { return Loc; }
+  SourceLocation getEndLoc() const LLVM_READONLY { return getOperand()->getEndLoc(); }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXErrorValueExprClass;
+  }
+
+  // Iterators
+  child_range children() {
+    return child_range(&Operand, &CodeCall + 1);
+  }
+
+  const_child_range children() const {
+    return const_child_range(&Operand, &CodeCall + 1);
+  }
+};
+
 /// Represents a herbception `try(expr)` expression: evaluate \p SubExpr
 /// (which must call a `throws`/`fails{E}` function) and auto-propagate its
 /// error on failure. On success, the expression's value is the success value.
