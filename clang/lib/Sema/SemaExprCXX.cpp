@@ -883,7 +883,22 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   }
 
   const FunctionDecl *CurFD = getCurFunctionDecl();
-  if (!CurFD || !CurFD->getType()->getAs<FunctionProtoType>()->hasThrowsSpec()) {
+
+  // Determine whether we are inside a `try` block (whose `catch throws` handler
+  // is parsed after the body, so it is not visible here yet). The handler
+  // routing happens in CodeGen via the active herbception catch scopes.
+  bool InTry = false;
+  for (const Scope *S = getCurScope(); S; S = S->getParent()) {
+    if (S->isTryScope()) {
+      InTry = true;
+      break;
+    }
+  }
+
+  const FunctionProtoType *CurFPT =
+      CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
+  const bool InThrowsFunction = CurFPT && CurFPT->hasThrowsSpec();
+  if (!InThrowsFunction && !InTry) {
     Diag(ThrowsLoc, diag::err_throw_throws_outside_throws_function);
     return ExprError();
   }
@@ -901,9 +916,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   // type is the implicit `std::error`, which users cannot construct: only the
   // compiler can, by going through `error_domain<T>` to call its `domain()`
   // and `code()` functions. Fabricate that value here.
-  const FunctionProtoType *CurFPT =
-      CurFD->getType()->getAs<FunctionProtoType>();
-  if (CurFPT && CurFPT->hasBasicThrowsSpec()) {
+  if (!CurFPT || !CurFPT->hasFailsSpec()) {
     ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
     if (Fabricated.isInvalid())
       return ExprError();
@@ -1152,7 +1165,7 @@ ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
     Diag(OpLoc, diag::err_acc_branch_in_out_compute_construct)
         << /*throw*/ 2 << /*out of*/ 0;
 
-  if (Ex && !Ex->isTypeDependent()) {
+  if (Ex && !Ex->isTypeDependent() && !IsHerbception) {
     // Initialize the exception result.  This implicitly weeds out
     // abstract types or types with inaccessible copy constructors.
 
