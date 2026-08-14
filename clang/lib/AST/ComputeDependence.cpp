@@ -340,6 +340,10 @@ ExprDependence clang::computeDependence(CXXThrowExpr *E) {
   return Op->getDependence() & ~ExprDependence::TypeValue;
 }
 
+ExprDependence clang::computeDependence(CXXErrorValueExpr *E) {
+  return E->getOperand()->getDependence();
+}
+
 ExprDependence clang::computeDependence(CXXTryExpr *E) {
   // Unlike CXXThrowExpr (whose result type is void), the try expression's
   // result type is the success value type of the operand call, so it is

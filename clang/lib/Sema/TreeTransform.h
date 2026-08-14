@@ -3518,6 +3518,16 @@ public:
                                    IsHerbception);
   }
 
+  /// Rebuild a herbception error value expression by re-fabricating it from
+  /// the (transformed) operand and call expressions, preserving the original
+  /// fabricated type (std::error).
+  ExprResult RebuildCXXErrorValueExpr(SourceLocation ThrowLoc, Expr *Operand,
+                                      Expr *DomainCall, Expr *CodeCall,
+                                      QualType Ty) {
+    return getSema().RebuildErrorValueExpr(ThrowLoc, Operand, DomainCall,
+                                           CodeCall, Ty);
+  }
+
   /// Build a new herbception try expression.
   ExprResult RebuildCXXTryExpr(SourceLocation TryLoc, Expr *Sub) {
     return getSema().ActOnHerbceptionTry(TryLoc, Sub);
@@ -15167,6 +15177,28 @@ ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
     return E;
 
   return getDerived().RebuildCXXTryExpr(E->getTryLoc(), SubExpr.get());
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXErrorValueExpr(
+    CXXErrorValueExpr *E) {
+  ++getSema().HerbceptionOperandDepth;
+  ExprResult Operand = getDerived().TransformExpr(E->getOperand());
+  ExprResult DomainCall = getDerived().TransformExpr(E->getDomainCall());
+  ExprResult CodeCall = getDerived().TransformExpr(E->getCodeCall());
+  --getSema().HerbceptionOperandDepth;
+  if (Operand.isInvalid() || DomainCall.isInvalid() || CodeCall.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && Operand.get() == E->getOperand() &&
+      DomainCall.get() == E->getDomainCall() && CodeCall.get() == E->getCodeCall())
+    return E;
+
+  return getDerived().RebuildCXXErrorValueExpr(E->getThrowLoc(),
+                                               Operand.get(),
+                                               DomainCall.get(),
+                                               CodeCall.get(),
+                                               E->getType());
 }
 
 template <typename Derived>

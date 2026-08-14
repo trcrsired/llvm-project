@@ -720,12 +720,26 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     EmitBlock(H.Block);
     RunCleanupsScope CatchScope(*this);
     if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
+      // Herbception catch: bind the exception variable directly from the error
+      // payload slot. The error value (std::error for `throws`) is a
+      // compiler-fabricated two-word value that must not be default/copy-
+      // constructed or destroyed (its constructors are deleted and its fields
+      // are private). EmitAutoVarAlloca only allocates and registers the
+      // variable; skip EmitAutoVarInit/EmitAutoVarCleanups so no ctor/dtor is
+      // emitted, then store the payload into the slot.
       CodeGenFunction::AutoVarEmission var = EmitAutoVarAlloca(*VD);
       Address Addr = var.getObjectAddress(*this);
       llvm::Value *ErrVal = Builder.CreateLoad(H.ErrorSlot);
+      if (ErrVal->getType() != Addr.getElementType()) {
+        Address PayloadAddr =
+            CreateDefaultAlignTempAlloca(ErrVal->getType(), "herb.payload");
+        auto *PI = Builder.CreateStore(ErrVal, PayloadAddr);
+        addInstToCurrentSourceAtom(PI, PI->getValueOperand());
+        ErrVal = Builder.CreateLoad(
+            PayloadAddr.withElementType(Addr.getElementType()));
+      }
       auto *I = Builder.CreateStore(ErrVal, Addr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
-      EmitAutoVarCleanups(var);
     }
     EmitStmt(H.Stmt->getHandlerBlock());
     CatchScope.ForceCleanup();

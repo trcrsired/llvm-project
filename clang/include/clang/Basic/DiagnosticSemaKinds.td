@@ -8798,6 +8798,8 @@ def err_herbception_disabled : Error<
     "herbception is disabled; use -fherbceptions to enable it">;
 def err_throw_throws_requires_operand : Error<
   "'throw throws' requires an error value operand">;
+def err_throw_throws_no_error_domain : Error<
+  "'throw throws' operand type %0 has no std::error_domain specialization">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
 def err_herbception_try_requires_operand : Error<

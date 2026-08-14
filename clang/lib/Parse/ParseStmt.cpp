@@ -2775,7 +2775,11 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
 
       Declarator ExDecl(DS, Attributes, DeclaratorContext::CXXCatch);
       ParseDeclarator(ExDecl);
-      ExceptionDecl = Actions.ActOnExceptionDeclarator(getCurScope(), ExDecl);
+      // The exception variable of a herbception catch is bound from the error
+      // payload directly (not copy-initialized), so tell Sema.
+      ExceptionDecl =
+          Actions.ActOnExceptionDeclarator(getCurScope(), ExDecl,
+                                           /*IsHerbception=*/true);
     } else
       ConsumeToken();
 
