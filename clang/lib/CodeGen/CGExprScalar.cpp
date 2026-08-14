@@ -826,6 +826,11 @@ public:
     return nullptr;
   }
 
+  Value *VisitCXXErrorValueExpr(const CXXErrorValueExpr *E) {
+    RValue RV = CGF.EmitErrorValueExpr(E);
+    return RV.getScalarVal();
+  }
+
   Value *VisitCXXTryExpr(const CXXTryExpr *E) {
     RValue RV = CGF.EmitHerbceptionTry(E);
     return RV.getScalarVal();

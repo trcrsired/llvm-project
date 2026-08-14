@@ -180,6 +180,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::GNUNullExprClass:
   case Expr::OffsetOfExprClass:
   case Expr::CXXThrowExprClass:
+  case Expr::CXXErrorValueExprClass:
   case Expr::CXXTryExprClass:
   case Expr::CXXCatchFailsExprClass:
   case Expr::ShuffleVectorExprClass:

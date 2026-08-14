@@ -2375,6 +2375,11 @@ void StmtPrinter::VisitCXXThrowExpr(CXXThrowExpr *Node) {
   }
 }
 
+void StmtPrinter::VisitCXXErrorValueExpr(CXXErrorValueExpr *Node) {
+  OS << "throw throws ";
+  PrintExpr(Node->getOperand());
+}
+
 void StmtPrinter::VisitCXXTryExpr(CXXTryExpr *Node) {
   OS << "try(";
   PrintExpr(Node->getSubExpr());

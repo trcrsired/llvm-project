@@ -2990,6 +2990,11 @@ DEF_TRAVERSE_STMT(CXXPseudoDestructorExpr, {
 
 DEF_TRAVERSE_STMT(CXXThisExpr, {})
 DEF_TRAVERSE_STMT(CXXThrowExpr, {})
+DEF_TRAVERSE_STMT(CXXErrorValueExpr, {
+  TRY_TO(TraverseStmt(S->getOperand()));
+  TRY_TO(TraverseStmt(S->getDomainCall()));
+  TRY_TO(TraverseStmt(S->getCodeCall()));
+})
 DEF_TRAVERSE_STMT(CXXTryExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
 DEF_TRAVERSE_STMT(CXXCatchFailsExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
 DEF_TRAVERSE_STMT(UserDefinedLiteral, {})

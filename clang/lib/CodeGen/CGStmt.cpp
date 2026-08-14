@@ -1804,6 +1804,28 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
   EmitBranchThroughCleanup(ReturnBlock);
 }
 
+RValue CodeGenFunction::EmitErrorValueExpr(const CXXErrorValueExpr *E) {
+  // Fabricate the {domain, code} two-word std::error value:
+  //   %domain = call error_domain<T>::domain()
+  //   %code   = call error_domain<T>::code(%operand)
+  // Users cannot construct std::error; only this compiler path may build it.
+  llvm::Value *Domain = EmitScalarExpr(E->getDomainCall());
+  llvm::Value *Code = EmitScalarExpr(E->getCodeCall());
+
+  llvm::Type *ErrTy = ConvertType(E->getType());
+  if (!ErrTy->isStructTy())
+    ErrTy = CurFnInfo->getHerbceptionErrorType();
+
+  llvm::Value *V = llvm::UndefValue::get(ErrTy);
+  V = Builder.CreateInsertValue(V, Domain, 0);
+  V = Builder.CreateInsertValue(V, Code, 1);
+
+  Address Addr = CreateDefaultAlignTempAlloca(ErrTy, "herb.error");
+  auto *I = Builder.CreateStore(V, Addr);
+  addInstToCurrentSourceAtom(I, I->getValueOperand());
+  return RValue::getAggregate(Addr);
+}
+
 RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
          "herbception try outside a throws function");

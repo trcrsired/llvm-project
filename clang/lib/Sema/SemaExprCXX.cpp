@@ -897,11 +897,156 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   if (getCurScope() && getCurScope()->isOpenMPSimdDirectiveScope())
     Diag(OpLoc, diag::err_omp_simd_region_cannot_use_stmt) << "throw";
 
-  // The operand is the error value. Check that it is an enum convertible to
-  // the function's error type. For now accept any value; the error type is
-  // implicit (std::error) for `throws`.
+  // The operand is the error value. For a basic `throws` function the error
+  // type is the implicit `std::error`, which users cannot construct: only the
+  // compiler can, by going through `error_domain<T>` to call its `domain()`
+  // and `code()` functions. Fabricate that value here.
+  const FunctionProtoType *CurFPT =
+      CurFD->getType()->getAs<FunctionProtoType>();
+  if (CurFPT && CurFPT->hasBasicThrowsSpec()) {
+    ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
+    if (Fabricated.isInvalid())
+      return ExprError();
+    Ex = Fabricated.get();
+  }
+
   return BuildCXXThrow(OpLoc, Ex, /*IsThrownVarInScope=*/false,
                        /*IsHerbception=*/true);
+}
+
+/// Look up the std::error_domain<T> class template specialization for \p T.
+CXXRecordDecl *Sema::lookupErrorDomain(SourceLocation Loc, QualType T) {
+  NamespaceDecl *Std = getStdNamespace();
+  if (!Std)
+    return nullptr;
+
+  IdentifierInfo &II = PP.getIdentifierTable().get("error_domain");
+  LookupResult R(*this, &II, Loc, LookupOrdinaryName);
+  if (!LookupQualifiedName(R, Std) || R.empty())
+    return nullptr;
+
+  ClassTemplateDecl *CTD = R.getAsSingle<ClassTemplateDecl>();
+  if (!CTD)
+    return nullptr;
+
+  // Form the specialization error_domain<T>.
+  TemplateArgumentListInfo Args(Loc, Loc);
+  Args.addArgument(TemplateArgumentLoc(
+      TemplateArgument(T), Context.getTrivialTypeSourceInfo(T, Loc)));
+  QualType DomainTy = CheckTemplateIdType(ElaboratedTypeKeyword::None,
+                                          TemplateName(CTD), Loc, Args,
+                                          /*Scope=*/nullptr,
+                                          /*ForNestedNameSpecifier=*/false);
+  if (DomainTy.isNull())
+    return nullptr;
+  if (RequireCompleteType(Loc, DomainTy, diag::err_throw_throws_no_error_domain))
+    return nullptr;
+  return DomainTy->getAsCXXRecordDecl();
+}
+
+/// Find a static member function \p Name on \p RD (e.g. error_domain<T>).
+static CXXMethodDecl *findStaticMember(Sema &S, const CXXRecordDecl *RD,
+                                       StringRef Name, SourceLocation Loc) {
+  DeclarationName DN = &S.PP.getIdentifierTable().get(Name);
+  LookupResult R(S, DN, Loc, Sema::LookupOrdinaryName);
+  if (!S.LookupQualifiedName(R, const_cast<CXXRecordDecl *>(RD)) || R.empty())
+    return nullptr;
+  auto *MD = R.getAsSingle<CXXMethodDecl>();
+  if (!MD || !MD->isStatic())
+    return nullptr;
+  return MD;
+}
+
+/// Build a call to a static member function \p Fn with the given arguments.
+static ExprResult buildStaticMemberCall(Sema &S, CXXMethodDecl *Fn,
+                                        MultiExprArg Args,
+                                        SourceLocation Loc) {
+  if (!Fn)
+    return ExprError();
+  DeclRefExpr *DRE = S.BuildDeclRefExprForStaticMember(Fn, Loc);
+  if (!DRE)
+    return ExprError();
+  return S.BuildCallExpr(nullptr, DRE, Loc, Args, Loc);
+}
+
+/// Build a DeclRefExpr referring to the static member function \p Fn.
+DeclRefExpr *Sema::BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
+                                                   SourceLocation Loc) {
+  DeclarationNameInfo NameInfo(Fn->getDeclName(), Loc);
+  return BuildDeclRefExpr(Fn, Fn->getType(), VK_PRValue, NameInfo,
+                          /*NNS=*/NestedNameSpecifierLoc(), /*FoundD=*/Fn,
+                          /*TemplateKWLoc=*/SourceLocation(),
+                          /*TemplateArgs=*/nullptr);
+}
+
+/// Build the compiler-fabricated `std::error` value for `throw throws e`.
+ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
+  QualType T = Operand->getType();
+
+  // If the operand is already a std::error value (e.g. rethrowing a caught
+  // error), pass it through unchanged — the compiler does not fabricate it.
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"), Loc,
+                   LookupTagName);
+    if (LookupQualifiedName(R, Std)) {
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        if (Context.hasSameUnqualifiedType(
+                T, Context.getTypeDeclType(
+                       static_cast<const TypeDecl *>(RD))))
+          return Operand;
+    }
+  }
+
+  CXXRecordDecl *Domain = lookupErrorDomain(Loc, T);
+  if (!Domain) {
+    Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
+    return ExprError();
+  }
+
+  // error_domain<T>::domain() — no arguments.
+  CXXMethodDecl *DomainFn = findStaticMember(*this, Domain, "domain", Loc);
+  if (!DomainFn) {
+    Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
+    return ExprError();
+  }
+
+  // error_domain<T>::code(T) — one argument (the thrown value).
+  CXXMethodDecl *CodeFn = findStaticMember(*this, Domain, "code", Loc);
+  if (!CodeFn || CodeFn->getNumParams() != 1) {
+    Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
+    return ExprError();
+  }
+
+  ExprResult DomainCall = buildStaticMemberCall(*this, DomainFn, {}, Loc);
+  if (DomainCall.isInvalid())
+    return ExprError();
+  ExprResult CodeCall =
+      buildStaticMemberCall(*this, CodeFn, MultiExprArg(Operand), Loc);
+  if (CodeCall.isInvalid())
+    return ExprError();
+
+  // The fabricated value's type is std::error, looked up by name. Its layout
+  // ({domain, code}) is what the ABI carries; users can never construct one.
+  QualType ErrorTy;
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"), Loc,
+                   LookupTagName);
+    if (LookupQualifiedName(R, Std)) {
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        ErrorTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+    }
+  }
+
+  return new (Context) CXXErrorValueExpr(Operand, DomainCall.get(),
+                                         CodeCall.get(), ErrorTy, Loc);
+}
+
+/// Rebuild a CXXErrorValueExpr after template instantiation.
+ExprResult Sema::RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
+                                       Expr *DomainCall, Expr *CodeCall,
+                                       QualType Ty) {
+  return new (Context) CXXErrorValueExpr(Operand, DomainCall, CodeCall, Ty,
+                                         Loc);
 }
 
 ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {

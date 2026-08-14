@@ -6419,11 +6419,13 @@ public:
   VarDecl *BuildExceptionDeclaration(Scope *S, TypeSourceInfo *TInfo,
                                      SourceLocation StartLoc,
                                      SourceLocation IdLoc,
-                                     const IdentifierInfo *Id);
+                                     const IdentifierInfo *Id,
+                                     bool IsHerbception = false);
 
   /// ActOnExceptionDeclarator - Parsed the exception-declarator in a C++ catch
   /// handler.
-  Decl *ActOnExceptionDeclarator(Scope *S, Declarator &D);
+  Decl *ActOnExceptionDeclarator(Scope *S, Declarator &D,
+                                 bool IsHerbception = false);
 
   void DiagnoseReturnInConstructorExceptionHandler(CXXTryStmt *TryBlock);
 
@@ -8603,6 +8605,21 @@ public:
   /// ActOnCXXThrowThrows - Parse `throw throws expr` (herbception).
   ExprResult ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
                                  SourceLocation ThrowsLoc, Expr *Ex);
+  /// Build the compiler-fabricated `std::error` value for `throw throws e`:
+  /// resolve `error_domain<T>` for the operand's type T, build the
+  /// `error_domain<T>::domain()` and `error_domain<T>::code(e)` calls, and
+  /// wrap everything in a CXXErrorValueExpr so CodeGen can emit them.
+  ExprResult BuildErrorValueExpr(SourceLocation Loc, Expr *Operand);
+  /// Rebuild a CXXErrorValueExpr after template instantiation.
+  ExprResult RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
+                                   Expr *DomainCall, Expr *CodeCall,
+                                   QualType Ty);
+  /// Look up the std::error_domain<T> class template specialization for \p T.
+  /// Returns the record decl or null if there is no such specialization.
+  CXXRecordDecl *lookupErrorDomain(SourceLocation Loc, QualType T);
+  /// Build a DeclRefExpr referring to the static member function \p Fn.
+  DeclRefExpr *BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
+                                               SourceLocation Loc);
   /// ActOnHerbceptionTry - Parse `try(expr)` (herbception auto-propagate).
   ExprResult ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex);
   /// ActOnHerbceptionCatchFails - Parse `catch fails(expr)`.

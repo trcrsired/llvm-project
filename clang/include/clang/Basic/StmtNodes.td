@@ -144,6 +144,7 @@ def CXXBoolLiteralExpr : StmtNode<Expr>;
 def CXXNullPtrLiteralExpr : StmtNode<Expr>;
 def CXXThisExpr : StmtNode<Expr>;
 def CXXThrowExpr : StmtNode<Expr>;
+def CXXErrorValueExpr : StmtNode<Expr>;
 def CXXTryExpr : StmtNode<Expr>;
 def CXXCatchFailsExpr : StmtNode<Expr>;
 def CXXDefaultArgExpr : StmtNode<Expr>;

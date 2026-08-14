@@ -5285,6 +5285,11 @@ public:
   /// discriminant (the trailing i1 of {T, i1}) set to true.
   void EmitHerbceptionThrow(const Expr *ErrorValue, SourceLocation Loc);
 
+  /// Emit the compiler-fabricated `std::error` value for a herbception
+  /// `throw throws e`: call error_domain<T>::domain() and ::code(e) and build
+  /// the {domain, code} two-word value. Returns it as an aggregate RValue.
+  RValue EmitErrorValueExpr(const CXXErrorValueExpr *E);
+
   /// Emit a herbception `try(expr)`: evaluate the throws/fails call and
   /// auto-propagate its error on failure. Returns the success value.
   RValue EmitHerbceptionTry(const CXXTryExpr *E);
