@@ -8,11 +8,15 @@ namespace std {
 struct error_domain_singleton {};
 template <typename T> struct error_domain;
 
+namespace {
+constinit error_domain_singleton dummy_domain{};
+}
+
 enum class win32_errc : unsigned { success = 0, file_not_found = 2 };
 template <> struct error_domain<win32_errc> {
   using errc_type = win32_errc;
   static constexpr error_domain_singleton const *domain() noexcept {
-    return nullptr;
+    return &dummy_domain;
   }
   static constexpr unsigned long code(errc_type e) noexcept {
     return static_cast<unsigned long>(e);
@@ -23,7 +27,7 @@ enum class myerr : unsigned { a = 1 };
 template <> struct error_domain<myerr> {
   using errc_type = myerr;
   static constexpr error_domain_singleton const *domain() noexcept {
-    return nullptr;
+    return &dummy_domain;
   }
   static constexpr unsigned long code(errc_type e) noexcept {
     return static_cast<unsigned long>(e);
