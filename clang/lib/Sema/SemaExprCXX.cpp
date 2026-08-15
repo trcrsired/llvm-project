@@ -1137,11 +1137,26 @@ ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
     return ExprError();
   }
 
+  // `catch fails(expr)` yields an explicit error type E. A `throws` function's
+  // error type is the implicit compiler-fabricated std::error, which is only
+  // ever handled by a `try { } catch throws(std::error e) { }` block handler;
+  // it cannot flow through a `catch fails` aggregate. Reject it here.
+  if (!Ex->isTypeDependent()) {
+    const FunctionDecl *FD = nullptr;
+    if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+      FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl());
+    if (const auto *FPT = FD ? FD->getType()->getAs<FunctionProtoType>()
+                             : nullptr;
+        FPT && FPT->hasBasicThrowsSpec() && !FPT->hasFailsSpec()) {
+      Diag(Ex->getBeginLoc(), diag::err_catch_fails_expr_throws_function);
+      return ExprError();
+    }
+  }
+
   // Determine the success value type T and the error type E of the
-  // either{T, E} result. For fails{E}, the error type is the explicit E; for
-  // throws it is the implicit std::error. Until std::error is available
-  // in-tree, use the value type so either{T, T} matches the {T, i1} payload
-  // layout.
+  // catch-fails aggregate. `throws` functions were rejected above (their
+  // implicit std::error can only be handled by a `catch throws` block
+  // handler), so E is always the explicit `fails{E}` error type.
   QualType ValueTy = Ex->getType();
   QualType ErrorTy = ValueTy;
   if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
