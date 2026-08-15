@@ -19864,6 +19864,29 @@ void Sema::checkExceptionSpecification(
       // drop it if not.
       if (!CheckSpecifiedExceptionType(ET, DynamicExceptionRanges[ei]))
         Exceptions.push_back(ET);
+
+      // `fails{std::error}` is invalid: std::error is a compiler-fabricated
+      // value that may only be carried by the implicit `throws` channel, never
+      // returned as an explicit fails error type.
+      if (EST == EST_ThrowsTyped) {
+        if (NamespaceDecl *Std = getStdNamespace()) {
+          LookupResult R(*this, &PP.getIdentifierTable().get("error"),
+                         DynamicExceptionRanges[ei].getBegin(),
+                         LookupTagName);
+          if (LookupQualifiedName(R, Std)) {
+            if (RecordDecl *RD = R.getAsSingle<RecordDecl>()) {
+              QualType StdErrorTy =
+                  Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+              if (Context.hasSameUnqualifiedType(ET, StdErrorTy)) {
+                Diag(DynamicExceptionRanges[ei].getBegin(),
+                     diag::err_fails_std_error_type)
+                    << DynamicExceptionRanges[ei];
+                continue;
+              }
+            }
+          }
+        }
+      }
     }
     ESI.Exceptions = Exceptions;
     return;

@@ -1836,6 +1836,62 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
   EmitBranchThroughCleanup(ReturnBlock);
 }
 
+/// Emit a direct call to a static member function \p MD with the given
+/// argument values, returning the scalar result.
+static llvm::Value *EmitStaticMemberCall(CodeGenFunction &CGF,
+                                         const CXXMethodDecl *MD,
+                                         ArrayRef<llvm::Value *> ArgVals,
+                                         SourceLocation Loc) {
+  GlobalDecl GD(const_cast<CXXMethodDecl *>(MD));
+  llvm::Constant *FnPtr =
+      CGF.CGM.GetAddrOfFunction(GD, CGF.getTypes().GetFunctionType(GD));
+  CGCallee Callee = CGCallee::forDirect(FnPtr, GD);
+
+  CallArgList Args;
+  for (unsigned I = 0, E = ArgVals.size(); I != E; ++I)
+    Args.add(RValue::get(ArgVals[I]), MD->getParamDecl(I)->getType());
+  RValue RV = CGF.EmitCall(CGF.getTypes().arrangeGlobalDeclaration(GD), Callee,
+                           ReturnValueSlot(), Args,
+                           /*CallOrInvoke=*/nullptr, /*IsMustTail=*/false, Loc);
+  assert(RV.isScalar() && "error_domain member call must return a scalar");
+  return RV.getScalarVal();
+}
+
+llvm::Value *
+CodeGenFunction::EmitFailsErrorToStdError(const CXXTryExpr *E,
+                                          llvm::Value *ErrVal) {
+  CXXRecordDecl *Domain = E->getErrorDomain();
+  if (!Domain)
+    return nullptr;
+
+  // error_domain<E>::domain() — the domain singleton pointer.
+  CXXMethodDecl *DomainFn = nullptr;
+  CXXMethodDecl *CodeFn = nullptr;
+  for (const Decl *D : Domain->decls()) {
+    const auto *MD = dyn_cast<CXXMethodDecl>(D);
+    if (!MD || !MD->isStatic())
+      continue;
+    if (MD->getDeclName().isIdentifier() && MD->getName() == "domain")
+      DomainFn = const_cast<CXXMethodDecl *>(MD);
+    else if (MD->getDeclName().isIdentifier() && MD->getName() == "code")
+      CodeFn = const_cast<CXXMethodDecl *>(MD);
+  }
+  if (!DomainFn || !CodeFn)
+    return nullptr;
+
+  SourceLocation Loc = E->getBeginLoc();
+  llvm::Value *DomainVal =
+      EmitStaticMemberCall(*this, DomainFn, {}, Loc);
+  llvm::Value *CodeVal =
+      EmitStaticMemberCall(*this, CodeFn, {ErrVal}, Loc);
+
+  llvm::Type *ErrTy = CurFnInfo->getHerbceptionErrorType();
+  llvm::Value *V = llvm::UndefValue::get(ErrTy);
+  V = Builder.CreateInsertValue(V, DomainVal, 0);
+  V = Builder.CreateInsertValue(V, CodeVal, 1);
+  return V;
+}
+
 RValue CodeGenFunction::EmitErrorValueExpr(const CXXErrorValueExpr *E) {
   // Fabricate the {domain, code} two-word std::error value:
   //   %domain = call error_domain<T>::domain()
@@ -1899,23 +1955,44 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   EmitBlock(ErrBB);
   {
     RunCleanupsScope CleanupScope(*this);
-    if (!FnRetTy->isVoidType()) {
-      if (getEvaluationKind(CallTy) == TEK_Scalar) {
-        auto *I = Builder.CreateStore(Success, ReturnValue);
-        addInstToCurrentSourceAtom(I, I->getValueOperand());
-      } else if (getEvaluationKind(CallTy) == TEK_Complex) {
-        EmitComplexExprIntoLValue(Call, MakeAddrLValue(ReturnValue, CallTy),
-                                  /*isInit*/ true);
-      } else {
-        // Aggregate success value: the {T, i1} payload already holds it, so
-        // store it into the return slot instead of re-calling.
+
+    // If this is a `fails{E}` call being auto-propagated into a `throws`
+    // function, the E error payload must first be converted to std::error via
+    // error_domain<E>::domain() and error_domain<E>::code(e).
+    if (E->getErrorDomain()) {
+      llvm::Value *StdErr = EmitFailsErrorToStdError(E, Success);
+      if (StdErr) {
         Address Addr = ReturnValue;
-        llvm::Value *Coerced = Success;
+        llvm::Value *Coerced = StdErr;
         if (Coerced->getType() != Addr.getElementType())
           Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
         auto *I = Builder.CreateStore(Coerced, Addr);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
       }
+    } else if (FnRetTy->isVoidType()) {
+      // A void throws function's return slot holds the error value
+      // (std::error / E); store the payload into it on the error path.
+      llvm::Type *SlotTy = ReturnValue.getElementType();
+      llvm::Value *Coerced = Success;
+      if (Coerced->getType() != SlotTy)
+        Coerced = Builder.CreateBitCast(Coerced, SlotTy);
+      auto *I = Builder.CreateStore(Coerced, ReturnValue);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+    } else if (getEvaluationKind(CallTy) == TEK_Scalar) {
+      auto *I = Builder.CreateStore(Success, ReturnValue);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+    } else if (getEvaluationKind(CallTy) == TEK_Complex) {
+      EmitComplexExprIntoLValue(Call, MakeAddrLValue(ReturnValue, CallTy),
+                                /*isInit*/ true);
+    } else {
+      // Aggregate success value: the {T, i1} payload already holds it, so
+      // store it into the return slot instead of re-calling.
+      Address Addr = ReturnValue;
+      llvm::Value *Coerced = Success;
+      if (Coerced->getType() != Addr.getElementType())
+        Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
+      auto *I = Builder.CreateStore(Coerced, Addr);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
     }
     Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
     CleanupScope.ForceCleanup();
