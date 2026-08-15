@@ -30,6 +30,7 @@
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/Basic/CodeGenOptions.h"
+#include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/CodeGen/SwiftCallingConv.h"
@@ -6824,44 +6825,64 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // it (in a throws function). Calls that are the operand of `try(expr)` or
   // `catch fails(expr)` are handled by those expressions (InHerbceptionOperand
   // is set), and calls with a plain (non-{T,i1}) return are untouched.
-  if (!InHerbceptionOperand && !HerbceptionCatchScopes.empty() &&
-      isa<llvm::StructType>(CI->getType()) &&
+  if (!InHerbceptionOperand && isa<llvm::StructType>(CI->getType()) &&
       CI->getType()->getStructNumElements() == 2) {
     llvm::Value *Payload = Builder.CreateExtractValue(CI, 0);
     llvm::Value *Disc = Builder.CreateExtractValue(CI, 1);
 
-    llvm::BasicBlock *OkBB = createBasicBlock("herb.catch.ok");
-    llvm::BasicBlock *ErrBB = createBasicBlock("herb.catch.err");
-    Builder.CreateCondBr(Disc, ErrBB, OkBB);
+    if (!HerbceptionCatchScopes.empty()) {
+      llvm::BasicBlock *OkBB = createBasicBlock("herb.catch.ok");
+      llvm::BasicBlock *ErrBB = createBasicBlock("herb.catch.err");
+      Builder.CreateCondBr(Disc, ErrBB, OkBB);
 
-    // Error path: store the error value into the handler's error slot and
-    // branch to the handler block, running cleanups (including those of the
-    // try block scope) on the way.
-    EmitBlock(ErrBB);
-    {
-      RunCleanupsScope CleanupScope(*this);
-      const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
-      llvm::Value *Coerced = Payload;
-      if (Coerced->getType() != Scope.ErrorSlot.getElementType()) {
-        // The payload may be a different (but same-layout) type than the
-        // handler's exception variable (e.g. a literal vs a named struct), so
-        // coerce through memory rather than a value bitcast.
-        Address PayloadAddr =
-            CreateDefaultAlignTempAlloca(Coerced->getType(), "herb.payload");
-        auto *PI = Builder.CreateStore(Coerced, PayloadAddr);
-        addInstToCurrentSourceAtom(PI, PI->getValueOperand());
-        llvm::Value *Loaded =
-            Builder.CreateLoad(PayloadAddr.withElementType(
-                Scope.ErrorSlot.getElementType()));
-        Coerced = Loaded;
+      // Error path: store the error value into the handler's error slot and
+      // branch to the handler block, running cleanups (including those of the
+      // try block scope) on the way.
+      EmitBlock(ErrBB);
+      {
+        RunCleanupsScope CleanupScope(*this);
+        const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
+        llvm::Value *Coerced = Payload;
+        if (Coerced->getType() != Scope.ErrorSlot.getElementType()) {
+          // The payload may be a different (but same-layout) type than the
+          // handler's exception variable (e.g. a literal vs a named struct), so
+          // coerce through memory rather than a value bitcast.
+          Address PayloadAddr =
+              CreateDefaultAlignTempAlloca(Coerced->getType(), "herb.payload");
+          auto *PI = Builder.CreateStore(Coerced, PayloadAddr);
+          addInstToCurrentSourceAtom(PI, PI->getValueOperand());
+          llvm::Value *Loaded =
+              Builder.CreateLoad(PayloadAddr.withElementType(
+                  Scope.ErrorSlot.getElementType()));
+          Coerced = Loaded;
+        }
+        auto *I = Builder.CreateStore(Coerced, Scope.ErrorSlot);
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
+        CleanupScope.ForceCleanup();
+        EmitBranchThroughCleanup(Scope.Handler);
       }
-      auto *I = Builder.CreateStore(Coerced, Scope.ErrorSlot);
-      addInstToCurrentSourceAtom(I, I->getValueOperand());
-      CleanupScope.ForceCleanup();
-      EmitBranchThroughCleanup(Scope.Handler);
-    }
 
-    EmitBlock(OkBB);
+      EmitBlock(OkBB);
+    } else if (!CurFnInfo->hasThrowsReturn()) {
+      // A bare throws call escaping into a function that cannot propagate the
+      // error (noexcept or plain). This is only valid in main(), which traps
+      // on error; anywhere else it is a compile-time error (handled by Sema,
+      // enforced here defensively).
+      const FunctionDecl *CurFD =
+          dyn_cast_or_null<FunctionDecl>(CurFuncDecl);
+      if (CurFD && CurFD->isMain()) {
+        llvm::BasicBlock *OkBB = createBasicBlock("herb.main.ok");
+        llvm::BasicBlock *TrapBB = createBasicBlock("herb.main.trap");
+        Builder.CreateCondBr(Disc, TrapBB, OkBB);
+        EmitBlock(TrapBB);
+        EmitTrapCall(llvm::Intrinsic::trap);
+        Builder.CreateUnreachable();
+        EmitBlock(OkBB);
+      } else {
+        CGM.getDiags().Report(
+            Loc, diag::err_herbception_noexcept_calls_throws);
+      }
+    }
   }
 
   return Ret;

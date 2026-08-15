@@ -1092,7 +1092,29 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   // The result type of the try expression is the success value type (T),
   // stripped of the discriminant.
   QualType Ty = Ex->getType();
-  return new (Context) CXXTryExpr(Ex, Ty, TryLoc);
+
+  // If this call is `fails{E}` and the enclosing function is `throws` (whose
+  // implicit error type is std::error), the auto-propagated E error value must
+  // be converted to std::error via error_domain<E>. Resolve it here so CodeGen
+  // can emit domain()/code() on the error path.
+  CXXRecordDecl *ErrorDomain = nullptr;
+  if (const FunctionDecl *CurFD = getCurFunctionDecl()) {
+    if (const auto *CurFPT =
+            CurFD->getType()->getAs<FunctionProtoType>();
+        CurFPT && CurFPT->hasBasicThrowsSpec()) {
+      if (const CallExpr *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+        if (const FunctionDecl *FD =
+                dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
+          if (const auto *CalleeFPT =
+                  FD->getType()->getAs<FunctionProtoType>();
+              CalleeFPT && CalleeFPT->hasFailsSpec())
+            ErrorDomain = lookupErrorDomain(TryLoc,
+                                            CalleeFPT->getExceptionType(0));
+    }
+  }
+
+  return new (Context) CXXTryExpr(Ex, Ty, TryLoc, /*IsLValue=*/false,
+                                  ErrorDomain);
 }
 
 ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
@@ -1133,6 +1155,34 @@ ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
 
   QualType EitherTy = Context.getEitherType(ValueTy, ErrorTy);
   return new (Context) CXXCatchFailsExpr(Ex, EitherTy, CatchLoc);
+}
+
+ExprResult Sema::ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex) {
+  if (!getLangOpts().HerbExceptions) {
+    Diag(FailureLoc, diag::err_herbception_disabled);
+    return ExprError();
+  }
+
+  if (!Ex) {
+    Diag(FailureLoc, diag::err_herbception_try_requires_operand);
+    return ExprError();
+  }
+
+  // `failure(expr)` is only valid inside a `fails{E}` function, and the operand
+  // must be of the explicit error type E.
+  const FunctionDecl *CurFD = getCurFunctionDecl();
+  const FunctionProtoType *CurFPT =
+      CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
+  if (!CurFPT || !CurFPT->hasFailsSpec()) {
+    Diag(FailureLoc, diag::err_failure_outside_fails_function);
+    return ExprError();
+  }
+
+  // Reuse the compiler-fabricated error value path: failure(expr) is the
+  // C-style way to return an error via the failure channel, equivalent to
+  // `throw throws expr` for a fails{E} function.
+  return BuildCXXThrow(FailureLoc, Ex, /*IsThrownVarInScope=*/false,
+                       /*IsHerbception=*/true);
 }
 
 ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,

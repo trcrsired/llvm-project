@@ -115,6 +115,37 @@ ExprResult Sema::ActOnNoexceptSpec(Expr *NoexceptExpr,
   return Converted;
 }
 
+ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
+                                 ExceptionSpecificationType &EST) {
+  // `throws` (no argument) defaults to EST_BasicThrows. With an argument,
+  // `throws(true)` is EST_BasicThrows; `throws(false)` means the function
+  // cannot fail (like noexcept).
+  if (!ThrowsExpr) {
+    EST = EST_BasicThrows;
+    return ExprResult();
+  }
+
+  if (ThrowsExpr->isTypeDependent() ||
+      ThrowsExpr->containsUnexpandedParameterPack()) {
+    EST = EST_BasicThrows;
+    return ThrowsExpr;
+  }
+
+  llvm::APSInt Result;
+  ExprResult Converted = CheckConvertedConstantExpression(
+      ThrowsExpr, Context.BoolTy, Result, CCEKind::Noexcept);
+  if (Converted.isInvalid()) {
+    EST = EST_BasicThrows;
+    return ExprError();
+  }
+  if (Converted.get()->isValueDependent()) {
+    EST = EST_BasicThrows;
+    return Converted;
+  }
+  EST = Result.getBoolValue() ? EST_BasicThrows : EST_BasicNoexcept;
+  return Converted;
+}
+
 bool Sema::CheckSpecifiedExceptionType(QualType &T, SourceRange Range) {
   // C++11 [except.spec]p2:
   //   A type cv T, "array of T", or "function returning T" denoted

@@ -1792,6 +1792,22 @@ ExprResult Parser::ParseHerbceptionTryExpression() {
   return Actions.ActOnHerbceptionTry(TryLoc, Expr.get());
 }
 
+ExprResult Parser::ParseHerbceptionFailureExpression() {
+  assert(Tok.is(tok::kw_failure) && "Not failure!");
+  SourceLocation FailureLoc = ConsumeToken();  // Eat the failure token.
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_expression);
+    return ExprError();
+  }
+  ExprResult Expr = ParseExpression();
+  if (Expr.isInvalid())
+    return Expr;
+  T.consumeClose();
+  return Actions.ActOnHerbceptionFailure(FailureLoc, Expr.get());
+}
+
 ExprResult Parser::ParseHerbceptionCatchFailsExpression() {
   assert(Tok.is(tok::kw_catch) && "Not catch!");
   SourceLocation CatchLoc = ConsumeToken();  // Eat the catch token.

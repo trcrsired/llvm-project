@@ -4849,6 +4849,11 @@ private:
   /// `catch fails(expr)` expression, which produces an `either{T, E}` value.
   ExprResult ParseHerbceptionCatchFailsExpression();
 
+  /// ParseHerbceptionFailureExpression - This handles the herbception
+  /// `failure(expr)` expression, which returns \p expr via the failure channel
+  /// of a `fails{E}` function.
+  ExprResult ParseHerbceptionFailureExpression();
+
   //===--------------------------------------------------------------------===//
   // C++ 2.13.5: C++ Boolean Literals
 

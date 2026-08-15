@@ -5290,6 +5290,14 @@ public:
   /// the {domain, code} two-word value. Returns it as an aggregate RValue.
   RValue EmitErrorValueExpr(const CXXErrorValueExpr *E);
 
+  /// Convert a `fails{E}` error payload value \p ErrVal into a `std::error`
+  /// value by calling error_domain<E>::domain() and error_domain<E>::code(e)
+  /// (where \p E is \p E->getErrorDomain()). Used when auto-propagating a
+  /// fails{E} error into a throws function. Returns the {void*, size_t} value,
+  /// or null if the conversion cannot be built.
+  llvm::Value *EmitFailsErrorToStdError(const CXXTryExpr *E,
+                                        llvm::Value *ErrVal);
+
   /// Emit a herbception `try(expr)`: evaluate the throws/fails call and
   /// auto-propagate its error on failure. Returns the success value.
   RValue EmitHerbceptionTry(const CXXTryExpr *E);

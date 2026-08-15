@@ -8797,6 +8797,15 @@ def err_throw_throws_no_error_domain : Error<
 def err_throw_throws_no_catch_handler : Error<
   "'throw throws' in a plain (non-'throws') function must be inside a "
   "'try { } catch throws' block">;
+def err_herbception_noexcept_calls_throws : Error<
+  "call to 'throws' function in a noexcept (non-'throws') function must be "
+  "handled by an enclosing 'try { } catch throws' block">;
+def err_failure_outside_fails_function : Error<
+  "'failure(expr)' is only allowed inside a function declared 'fails{...}'">;
+def err_fails_std_error_type : Error<
+  "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
+  "implicit error type of 'throws' and cannot be returned as an explicit "
+  "fails error type">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
 def err_herbception_try_requires_operand : Error<
