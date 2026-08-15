@@ -1923,7 +1923,16 @@ RValue CodeGenFunction::EmitErrorValueExpr(const CXXErrorValueExpr *E) {
   if (!ErrTy->isStructTy())
     ErrTy = CurFnInfo->getHerbceptionErrorType();
 
+  // Coerce the fabricated domain/code values to the struct field types: the
+  // code() call returns size_t, but the std::error code field may be a
+  // differently-sized integer on some targets (e.g. unsigned long on MSVC).
   llvm::Value *V = llvm::UndefValue::get(ErrTy);
+  llvm::Type *DomainFieldTy = ErrTy->getStructElementType(0);
+  llvm::Type *CodeFieldTy = ErrTy->getStructElementType(1);
+  if (Domain->getType() != DomainFieldTy)
+    Domain = Builder.CreateBitCast(Domain, DomainFieldTy);
+  if (Code->getType() != CodeFieldTy)
+    Code = Builder.CreateIntCast(Code, CodeFieldTy, /*isSigned=*/false);
   V = Builder.CreateInsertValue(V, Domain, 0);
   V = Builder.CreateInsertValue(V, Code, 1);
 
@@ -1938,16 +1947,21 @@ CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
   // The thrown object pointer of the currently-caught legacy C++ exception,
   // used as the `code` of the fabricated std::error. This is personality-
   // dependent:
-  //   - Itanium: __cxa_get_exception_ptr(exn) returns the adjusted thrown
-  //     object pointer (exn.slot is populated by the landing pad).
+  //   - Itanium / SjLj: __cxa_get_exception_ptr(exn) returns the adjusted
+  //     thrown object pointer (exn.slot is populated by the landing pad).
   //   - MSVC (funclet pads): the exception pointer is obtained from the
   //     catchpad token via llvm.eh.exceptionpointer.
+  //   - Wasm: wasm.get.exception at the shared catch.start already stored the
+  //     thrown object pointer in exn.slot, so it is used directly.
   llvm::Value *Obj = nullptr;
-  if (EHPersonality::get(*this).usesFuncletPads()) {
+  const EHPersonality &Personality = EHPersonality::get(*this);
+  if (Personality.isMSVCXXPersonality()) {
     llvm::Function *GetExnFn =
         CGM.getIntrinsic(llvm::Intrinsic::eh_exceptionpointer, Int8PtrTy);
     assert(CurrentFuncletPad && "legacy conversion outside a funclet catchpad");
     Obj = Builder.CreateCall(GetExnFn, CurrentFuncletPad);
+  } else if (Personality.isWasmPersonality()) {
+    Obj = getExceptionFromSlot();
   } else {
     llvm::FunctionCallee Fn = CGM.CreateRuntimeFunction(
         llvm::FunctionType::get(Int8PtrTy, Int8PtrTy, /*isVarArg=*/false),

@@ -754,9 +754,11 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     EmitBlock(LegacyConvertBB);
     // In the funclet model (MSVC), the catch-all dispatch inserted a catchpad
     // as the first instruction of this block; the exception pointer is derived
-    // from that token.
+    // from that token. (Wasm also uses funclet pads, but it stores the
+    // exception in exn.slot via wasm.get.exception at the shared catch.start,
+    // and the handler blocks do not begin with a catchpad.)
     SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
-    if (EHPersonality::get(*this).usesFuncletPads()) {
+    if (EHPersonality::get(*this).isMSVCXXPersonality()) {
       llvm::Instruction *First = &*LegacyConvertBB->begin();
       if (auto *CPI = dyn_cast<llvm::CatchPadInst>(First))
         CurrentFuncletPad = CPI;
