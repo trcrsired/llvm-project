@@ -42,10 +42,14 @@ struct error_domain;
 
 enum class win32_errc : unsigned { success = 0, invalid_function = 1, file_not_found = 2 };
 
+namespace {
+constinit error_domain_singleton dummy_domain{};
+}
+
 template<>
 struct error_domain<win32_errc> {
   using errc_type = win32_errc;
-  static constexpr error_domain_singleton const* domain() noexcept { return nullptr; }
+  static constexpr error_domain_singleton const* domain() noexcept { return &dummy_domain; }
   static constexpr unsigned long code(errc_type e) noexcept {
     return static_cast<unsigned long>(e);
   }

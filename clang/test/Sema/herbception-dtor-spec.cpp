@@ -13,7 +13,8 @@ struct DtorThrowsTrue {
 };
 
 struct DtorFails {
-  ~DtorFails() fails{int}; // expected-error {{destructor cannot be declared with a herbception ('throws'/'fails{...}') exception specification; destructors cannot propagate errors}}
+  ~DtorFails() fails{int}; // expected-error {{destructor cannot be declared with a herbception ('throws'/'fails{...}') exception specification; destructors cannot propagate errors}} \
+                          // expected-error {{'fails{...}' is a C-style feature and may only be attached to free (non-member) functions; it is not allowed on member functions (including static members), lambdas, or function templates}}
 };
 
 // noexcept destructors remain fine.
