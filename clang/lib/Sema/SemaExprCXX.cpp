@@ -957,6 +957,25 @@ CXXRecordDecl *Sema::lookupErrorDomain(SourceLocation Loc, QualType T) {
   return DomainTy->getAsCXXRecordDecl();
 }
 
+/// Look up the `domain_alias_type` member of an `error_domain<T>` specialization
+/// and resolve it to the aliased `error_domain<U>` record. An aliased domain
+/// shares the same category as T (e.g. two libraries each define their own
+/// `win32_errc` but map to one category); the compiler fabricates the error
+/// value using the alias's `domain()`.
+static CXXRecordDecl *lookupErrorDomainAlias(Sema &S, SourceLocation Loc,
+                                             const CXXRecordDecl *Domain) {
+  DeclarationName DN = &S.PP.getIdentifierTable().get("domain_alias_type");
+  LookupResult R(S, DN, Loc, Sema::LookupOrdinaryName);
+  if (!S.LookupQualifiedName(R, const_cast<CXXRecordDecl *>(Domain)) ||
+      R.empty())
+    return nullptr;
+  auto *TD = R.getAsSingle<TypeDecl>();
+  if (!TD)
+    return nullptr;
+  QualType AliasTy = S.Context.getTypeDeclType(TD);
+  return AliasTy->getAsCXXRecordDecl();
+}
+
 /// Find a static member function \p Name on \p RD (e.g. error_domain<T>).
 static CXXMethodDecl *findStaticMember(Sema &S, const CXXRecordDecl *RD,
                                        StringRef Name, SourceLocation Loc) {
@@ -1016,8 +1035,15 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
     return ExprError();
   }
 
-  // error_domain<T>::domain() — no arguments.
+  // error_domain<T>::domain() — no arguments. If the specialization declares a
+  // `domain_alias_type` instead (aliasing another error_domain<U> that shares
+  // the same category), follow the alias and use U::domain() for the fabricated
+  // domain pointer, so T and U values compare equal.
   CXXMethodDecl *DomainFn = findStaticMember(*this, Domain, "domain", Loc);
+  if (!DomainFn) {
+    if (CXXRecordDecl *AliasDomain = lookupErrorDomainAlias(*this, Loc, Domain))
+      DomainFn = findStaticMember(*this, AliasDomain, "domain", Loc);
+  }
   if (!DomainFn) {
     Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
     return ExprError();
