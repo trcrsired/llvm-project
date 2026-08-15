@@ -280,6 +280,9 @@ def err_expected_statement : Error<"expected statement">;
 def err_expected_lparen_after : Error<"expected '(' after '%0'">;
 def err_expected_lbrace_after : Error<"expected '{' after '%0'">;
 def err_throws_requires_cxx : Error<"'throws' is only available in C++">;
+def err_throws_noexcept_false : Error<
+  "'throws' and 'noexcept(false)' cannot be combined: a 'throws' function "
+  "implies noexcept(true)">;
 def err_fails_paren_not_allowed : Error<
   "'fails' takes a type in braces (e.g. 'fails{T}'); parentheses are for the "
   "'throws' condition, not for the fails error type">;

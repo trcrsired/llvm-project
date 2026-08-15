@@ -1016,16 +1016,21 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   QualType T = Operand->getType();
 
   // If the operand is already a std::error value (e.g. rethrowing a caught
-  // error), pass it through unchanged — the compiler does not fabricate it.
+  // error) or a std::coroutine_error carrier, pass it through unchanged — the
+  // compiler does not fabricate it. coroutine_error is the coroutine-frame
+  // carrier: standard-layout, same {domain, code} layout as std::error, but
+  // movable and nullable, so it can be stored in and moved out of a frame.
   if (NamespaceDecl *Std = getStdNamespace()) {
-    LookupResult R(*this, &PP.getIdentifierTable().get("error"), Loc,
-                   LookupTagName);
-    if (LookupQualifiedName(R, Std)) {
-      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
-        if (Context.hasSameUnqualifiedType(
-                T, Context.getTypeDeclType(
-                       static_cast<const TypeDecl *>(RD))))
-          return Operand;
+    for (const char *Name : {"error", "coroutine_error"}) {
+      LookupResult R(*this, &PP.getIdentifierTable().get(Name), Loc,
+                     LookupTagName);
+      if (LookupQualifiedName(R, Std)) {
+        if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+          if (Context.hasSameUnqualifiedType(
+                  T, Context.getTypeDeclType(
+                         static_cast<const TypeDecl *>(RD))))
+            return Operand;
+      }
     }
   }
 

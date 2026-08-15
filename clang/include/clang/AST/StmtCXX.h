@@ -388,6 +388,7 @@ class CoroutineBodyStmt final
     InitSuspend,   ///< The initial suspend statement, run before the body.
     FinalSuspend,  ///< The final suspend statement, run after the body.
     OnException,   ///< Handler for exceptions thrown in the body.
+    OnHerbception, ///< Handler for herbception (throws) errors in the body.
     OnFallthrough, ///< Handler for control flow falling off the body.
     Allocate,      ///< Coroutine frame memory allocation.
     Deallocate,    ///< Coroutine frame memory deallocation.
@@ -415,6 +416,7 @@ public:
     Expr *InitialSuspend = nullptr;
     Expr *FinalSuspend = nullptr;
     Stmt *OnException = nullptr;
+    Stmt *OnHerbception = nullptr;
     Stmt *OnFallthrough = nullptr;
     Expr *Allocate = nullptr;
     Expr *Deallocate = nullptr;
@@ -461,6 +463,9 @@ public:
 
   Stmt *getExceptionHandler() const {
     return getStoredStmts()[SubStmt::OnException];
+  }
+  Stmt *getHerbceptionHandler() const {
+    return getStoredStmts()[SubStmt::OnHerbception];
   }
   Stmt *getFallthroughHandler() const {
     return getStoredStmts()[SubStmt::OnFallthrough];

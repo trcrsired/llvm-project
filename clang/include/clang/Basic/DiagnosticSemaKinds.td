@@ -8813,6 +8813,10 @@ def err_fails_only_free_function : Error<
 def err_herbception_domain_nullptr : Error<
   "std::error_domain<T>::domain() must not return nullptr; the fabricated "
   "std::error dereferences the domain pointer">;
+def err_herbception_catch_coroutine_error : Error<
+  "'catch throws(std::coroutine_error)' is not allowed: std::coroutine_error "
+  "is a coroutine-frame carrier that may only be 'throw throws'n, never "
+  "caught; catch the full std::error instead">;
 def err_fails_std_error_type : Error<
   "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
   "implicit error type of 'throws' and cannot be returned as an explicit "
@@ -13101,6 +13105,9 @@ def note_coroutine_promise_suspend_implicitly_required : Note<
   "required by the %select{initial suspend point|final suspend point}0">;
 def err_coroutine_promise_unhandled_exception_required : Error<
   "%0 is required to declare the member 'unhandled_exception()'">;
+def err_coroutine_promise_unhandled_herbception_required : Error<
+  "%0 is required to declare the member 'unhandled_herbception()' for a "
+  "'throws' coroutine">;
 def warn_coroutine_promise_unhandled_exception_required_with_exceptions : Warning<
   "%0 is required to declare the member 'unhandled_exception()' when exceptions are enabled">,
   InGroup<CoroutineMissingUnhandledException>;

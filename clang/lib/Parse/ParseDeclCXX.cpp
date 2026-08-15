@@ -3926,6 +3926,52 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
     return Diag(Tok, diag::err_expected) << tok::l_paren;
 }
 
+void Parser::cacheNoexceptAfterThrows(CachedTokens *&ExceptionSpecTokens) {
+  // After `throws` (optionally `throws(expr)`), a `noexcept(...)` may follow.
+  // Cache it as part of the exception spec so the delayed re-parse sees both.
+  if (Tok.isNot(tok::kw_noexcept))
+    return;
+  ExceptionSpecTokens->push_back(Tok);        // 'noexcept'
+  ConsumeToken();                             // 'noexcept'
+  if (Tok.is(tok::l_paren)) {
+    // 'noexcept' followed by '('. Consume and store until the matching ')',
+    // as the plain noexcept delayed path does.
+    ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
+                         /*StopAtSemi=*/true,
+                         /*ConsumeFinalToken=*/true);
+  }
+}
+
+ExceptionSpecificationType Parser::tryParseNoexceptAfterThrows(
+    ExceptionSpecificationType ThrowsType) {
+  // `throws` implies noexcept(true). A following `noexcept(false)` contradicts
+  // that and is rejected (later work will handle legacy C++ EH inside throws
+  // functions); `noexcept(true)` or a bare `noexcept` is consistent and the
+  // function stays `throws`.
+  if (Tok.isNot(tok::kw_noexcept))
+    return ThrowsType;
+
+  SourceLocation KeywordLoc = ConsumeToken();
+  if (Tok.is(tok::l_paren)) {
+    BalancedDelimiterTracker T(*this, tok::l_paren);
+    T.consumeOpen();
+    EnterExpressionEvaluationContext ConstantEvaluated(
+        Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+    ExprResult NoexceptExpr = ParseConstantExpressionInExprEvalContext();
+    T.consumeClose();
+    if (!NoexceptExpr.isInvalid()) {
+      ExceptionSpecificationType NoexceptType = EST_None;
+      NoexceptExpr = Actions.ActOnNoexceptSpec(NoexceptExpr.get(), NoexceptType);
+      if (NoexceptType == EST_NoexceptFalse)
+        Diag(KeywordLoc, diag::err_throws_noexcept_false);
+    }
+    return ThrowsType;
+  }
+
+  // Bare `noexcept` — consistent with `throws`.
+  return ThrowsType;
+}
+
 ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     bool Delayed, SourceRange &SpecificationRange,
     SmallVectorImpl<ParsedType> &DynamicExceptions,
@@ -3961,10 +4007,12 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
                                /*ConsumeFinalToken=*/true);
           SpecificationRange.setEnd(
               ExceptionSpecTokens->back().getLocation());
+          cacheNoexceptAfterThrows(ExceptionSpecTokens);
           return EST_Unparsed;
         }
         ExceptionSpecTokens = new CachedTokens;
         ExceptionSpecTokens->push_back(StartTok);
+        cacheNoexceptAfterThrows(ExceptionSpecTokens);
         return EST_Unparsed;
       }
       // fails{E}: cache the whole spec for delayed parsing. Consume the
@@ -3994,6 +4042,19 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
       if (IsNoexcept) {
         Diag(Tok, diag::warn_cxx98_compat_noexcept_decl);
         NoexceptExpr = nullptr;
+        // `noexcept throws` may follow: cache the throws so the delayed
+        // re-parse sees the full spec.
+        if (Tok.is(tok::kw_throws)) {
+          ExceptionSpecTokens = new CachedTokens;
+          ExceptionSpecTokens->push_back(StartTok); // 'noexcept'
+          ExceptionSpecTokens->push_back(Tok);      // 'throws'
+          ConsumeToken();
+          if (Tok.is(tok::l_paren))
+            ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
+                                 /*StopAtSemi=*/true,
+                                 /*ConsumeFinalToken=*/true);
+          return EST_Unparsed;
+        }
         return EST_BasicNoexcept;
       }
 
@@ -4011,6 +4072,20 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
                          /*StopAtSemi=*/true,
                          /*ConsumeFinalToken=*/true);
     SpecificationRange.setEnd(ExceptionSpecTokens->back().getLocation());
+
+    // `noexcept(...) throws` may follow: cache the throws (and any trailing
+    // noexcept) so the delayed re-parse sees the whole spec.
+    if (StartTok.is(tok::kw_noexcept)) {
+      if (Tok.is(tok::kw_throws)) {
+        ExceptionSpecTokens->push_back(Tok); // 'throws'
+        ConsumeToken();
+        if (Tok.is(tok::l_paren)) {
+          ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
+                               /*StopAtSemi=*/true,
+                               /*ConsumeFinalToken=*/true);
+        }
+      }
+    }
 
     return EST_Unparsed;
   }
@@ -4048,14 +4123,14 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
           ExceptionSpecificationType ThrowsType = EST_BasicThrows;
           Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
           SpecificationRange = SourceRange(KwLoc, T.getCloseLocation());
-          return ThrowsType;
+          return tryParseNoexceptAfterThrows(ThrowsType);
         }
         // Fall back to a plain throws for recovery.
         SpecificationRange = SourceRange(KwLoc, T.getCloseLocation());
-        return EST_BasicThrows;
+        return tryParseNoexceptAfterThrows(EST_BasicThrows);
       }
       SpecificationRange = SourceRange(KwLoc, KwLoc);
-      return EST_BasicThrows;
+      return tryParseNoexceptAfterThrows(EST_BasicThrows);
     }
 
     // fails{E}: parse the explicit error type in braces.
@@ -4097,7 +4172,6 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
   // recovery, but emit a diagnostic and don't store the results.
   SourceRange NoexceptRange;
   ExceptionSpecificationType NoexceptType = EST_None;
-
   SourceLocation KeywordLoc = ConsumeToken();
   if (Tok.is(tok::l_paren)) {
     // There is an argument.
@@ -4125,6 +4199,32 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
   if (Result == EST_None) {
     SpecificationRange = NoexceptRange;
     Result = NoexceptType;
+
+    // A 'throws' function implies noexcept(true); 'noexcept(false) throws' is
+    // rejected (later work will handle legacy C++ EH inside throws functions).
+    if (Tok.is(tok::kw_throws)) {
+      if (NoexceptType == EST_NoexceptFalse)
+        Diag(Tok, diag::err_throws_noexcept_false);
+      // `throws` or `throws(expr)` follows the noexcept. Evaluate the throws
+      // expression (throws(true) = throws, throws(false) = cannot fail) and
+      // combine with the noexcept.
+      SourceLocation ThrowsLoc = ConsumeToken();
+      ExceptionSpecificationType ThrowsType = EST_BasicThrows;
+      if (Tok.is(tok::l_paren)) {
+        BalancedDelimiterTracker T(*this, tok::l_paren);
+        T.consumeOpen();
+        EnterExpressionEvaluationContext ConstantEvaluated(
+            Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+        ExprResult ThrowsExpr = ParseConstantExpressionInExprEvalContext();
+        T.consumeClose();
+        if (!ThrowsExpr.isInvalid())
+          Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+      }
+      // noexcept(true) throws is just `throws`. noexcept(false) throws was
+      // rejected above; recover as `throws`.
+      (void)ThrowsLoc;
+      return ThrowsType;
+    }
 
     // If there's a dynamic specification after a noexcept specification,
     // parse that and ignore the results.
