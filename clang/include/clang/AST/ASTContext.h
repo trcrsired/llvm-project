@@ -505,10 +505,10 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// serialized.
   mutable RecordDecl *BlockDescriptorType = nullptr;
 
-  /// Cache of herbception `either{T, E}` record types, keyed by the
-  /// canonicalized (T, E) pair.
+  /// Cache of the `catch fails(expr)` record types (`{union{T,E}, bool}`),
+  /// keyed by the canonicalized (T, E) pair.
   mutable llvm::DenseMap<std::pair<CanQualType, CanQualType>, RecordDecl *>
-      EitherTypes;
+      CatchFailsTypes;
 
   /// Type for the Block descriptor for Blocks CodeGen.
   ///
@@ -1705,10 +1705,10 @@ public:
   /// blocks.
   QualType getBlockDescriptorType() const;
 
-  /// Return the herbception `either{T, E}` type: a record with fields
-  /// `.positive` (bool), `.left` (T) and `.right` (E), used by
-  /// `catch fails(expr)`.
-  QualType getEitherType(QualType T, QualType E) const;
+  /// Return the `catch fails(expr)` result type, matching N2289:
+  /// `struct { union { T value; E error; }; bool failed; }`. The discriminant
+  /// is `.failed`; `.value`/`.error` share a union.
+  QualType getCatchFailsType(QualType T, QualType E) const;
 
   /// Return a read_only pipe type for the specified type.
   QualType getReadPipeType(QualType T) const;
