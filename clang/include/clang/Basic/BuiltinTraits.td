@@ -373,6 +373,16 @@ def RemoveCVRef : TransformTypeTrait {
   let StdName = "remove_cvref";
 }
 
+// Herbception: extract the error type E of a `fails{E}` function type, like
+// invoke_result_t extracts a callable's return type. The result is E if the
+// argument is a function type (or pointer/reference to one) with a fails{E}
+// spec, and void otherwise.
+def InvokeHerbceptionFailsType : TransformTypeTrait {
+  let Spelling = "__invoke_herbception_fails_t";
+  let StdName = "invoke_herbception_fails_t";
+  let KeyFlags = [KEYHERB];
+}
+
 def RemoveExtent : TransformTypeTrait {
   let Spelling = "__remove_extent";
   let StdName = "remove_extent";
@@ -589,6 +599,63 @@ def IsConvertible : BinaryTrait {
 
 def IsNothrowConvertible : BinaryTrait {
   let Spelling = "__is_nothrow_convertible";
+}
+
+//===----------------------------------------------------------------------===//
+// Herbception type traits (KEYHERB; only available with -fherbceptions).
+//
+// Each mirrors the corresponding is_nothrow_* builtin that clang actually
+// implements (not the libc++/libstdc++ header-sugar names like
+// is_nothrow_default_constructible / is_nothrow_invocable, which belong in the
+// standard library). They test the `throws` channel (implicit std::error);
+// there are no `fails{E}` variants because fails{E} is a C-style feature
+// restricted to free functions.
+//
+//   __is_herbception_throws_*  tests whether the operation can propagate an
+//                              error via the `throws` channel (std::error).
+//   __is_herbception_throwsable<T>  tests whether T can be thrown (i.e. has a
+//                              usable std::error_domain<T> specialization).
+//===----------------------------------------------------------------------===//
+
+def IsHerbceptionThrowsConstructible : VariadicTrait {
+  let Spelling = "__is_herbception_throws_constructible";
+  let KeyFlags = [KEYHERB];
+}
+def IsHerbceptionThrowsAssignable : BinaryTrait {
+  let Spelling = "__is_herbception_throws_assignable";
+  let KeyFlags = [KEYHERB];
+}
+def IsHerbceptionThrowsConvertible : BinaryTrait {
+  let Spelling = "__is_herbception_throws_convertible";
+  let KeyFlags = [KEYHERB];
+}
+def HasHerbceptionThrowsConstructor : UnaryTrait {
+  let Spelling = "__has_herbception_throws_constructor";
+  let KeyFlags = [KEYHERB];
+}
+def HasHerbceptionThrowsCopy : UnaryTrait {
+  let Spelling = "__has_herbception_throws_copy";
+  let KeyFlags = [KEYHERB];
+}
+def HasHerbceptionThrowsAssign : UnaryTrait {
+  let Spelling = "__has_herbception_throws_assign";
+  let KeyFlags = [KEYHERB];
+}
+def HasHerbceptionThrowsMoveAssign : UnaryTrait {
+  let Spelling = "__has_herbception_throws_move_assign";
+  let KeyFlags = [KEYHERB];
+}
+def IsHerbceptionThrowsable : UnaryTrait {
+  let Spelling = "__is_herbception_throwsable";
+  let KeyFlags = [KEYHERB];
+}
+
+// Whether F is a function type (or function pointer/reference) declared with a
+// `fails{E}` herbception spec, named to mirror invoke_result_t/invoke_return_t.
+// To obtain the error type E, use __invoke_herbception_fails_t(F).
+def IsInvokeHerbceptionFails : UnaryTrait {
+  let Spelling = "__is_invoke_herbceptions_fails";
+  let KeyFlags = [KEYHERB];
 }
 
 def ArrayRank : ArrayTrait {
