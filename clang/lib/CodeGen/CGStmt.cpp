@@ -2051,65 +2051,94 @@ RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
   llvm::Value *Payload = Builder.CreateExtractValue(CallOrInvoke, 0);
   llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
 
-  // Build the either{T, E} value: { positive = !disc, left = payload, right =
-  // payload }.
+  // Build the catch-fails value. C++: either{T, E} with .positive/.left/.right;
+  // C (N2289): struct { union { T value; E error; }; bool failed; }.
   QualType EitherTy = E->getType();
   const RecordDecl *RD = EitherTy->getAsRecordDecl();
   assert(RD && "either type must be a record");
 
-  // Allocate a temp for the either{T, E} value and initialize each field via
-  // its LLVM field number. This is robust to empty (zero-size) field types,
-  // which would be elided from the IR struct type.
+  // Allocate a temp for the result value and initialize each field via its LLVM
+  // field number. This is robust to empty (zero-size) field types, which would
+  // be elided from the IR struct type.
   const CGRecordLayout &RL = getTypes().getCGRecordLayout(RD);
-  Address Addr = CreateMemTempWithoutCast(EitherTy, "either");
+  Address Addr = CreateMemTempWithoutCast(EitherTy, "herb.catch");
 
-  auto FindField = [&](StringRef Name) -> const FieldDecl * {
-    for (const FieldDecl *F : RD->fields())
+  // Find the (outer field, inner field) pair for a member named \p Name.
+  // For a plain field, both are the same FieldDecl. For a member reached
+  // through the anonymous union, outer is the anonymous-union FieldDecl and
+  // inner is the union sub-field.
+  auto FindField =
+      [&](StringRef Name) -> std::pair<const FieldDecl *, const FieldDecl *> {
+    for (const FieldDecl *F : RD->fields()) {
       if (F->getName() == Name)
-        return F;
-    return nullptr;
+        return {F, F};
+      if (F->isAnonymousStructOrUnion()) {
+        if (const auto *FR = F->getType()->getAsRecordDecl())
+          for (const FieldDecl *Sub : FR->fields())
+            if (Sub->getName() == Name)
+              return {F, Sub};
+      }
+    }
+    return {nullptr, nullptr};
   };
 
-  auto StoreField = [&](const FieldDecl *F, llvm::Value *V) {
-    if (!F || !RL.containsFieldDecl(F))
+  // Store \p V into the field found by \p FindField, descending through an
+  // anonymous union if present.
+  auto StoreField = [&](StringRef Name, llvm::Value *V) {
+    auto [Outer, Inner] = FindField(Name);
+    if (!Inner)
       return;
-    unsigned Idx = RL.getLLVMFieldNo(F);
-    llvm::Type *FieldIRTy =
-        RL.getLLVMType()->getStructElementType(Idx);
+    const FieldDecl *F = Inner;
+    const CGRecordLayout *TargetRL = &RL;
+    Address TargetAddr = Address::invalid();
+    if (Outer != Inner) {
+      // The field lives in an anonymous union: GEP to the union member first,
+      // then use the union's own record layout for the sub-field.
+      if (!RL.containsFieldDecl(Outer))
+        return;
+      Address UnionAddr =
+          Builder.CreateStructGEP(Addr, RL.getLLVMFieldNo(Outer));
+      const RecordDecl *UR = Outer->getType()->getAsRecordDecl();
+      const CGRecordLayout &URL = getTypes().getCGRecordLayout(UR);
+      if (!URL.containsFieldDecl(F))
+        return;
+      TargetAddr = Builder.CreateStructGEP(UnionAddr, URL.getLLVMFieldNo(F));
+      TargetRL = &URL;
+    } else {
+      if (!RL.containsFieldDecl(F))
+        return;
+      TargetAddr = Builder.CreateStructGEP(Addr, RL.getLLVMFieldNo(F));
+    }
+
+    llvm::Type *FieldIRTy = TargetRL->getLLVMType()->getStructElementType(
+        TargetRL->getLLVMFieldNo(F));
     if (FieldIRTy == V->getType()) {
-      Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
-      Builder.CreateStore(V, FieldAddr);
+      Builder.CreateStore(V, TargetAddr);
     } else if (FieldIRTy->isIntegerTy() && V->getType()->isIntegerTy()) {
-      Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
       auto *I = Builder.CreateStore(
-          Builder.CreateIntCast(V, FieldIRTy, false), FieldAddr);
+          Builder.CreateIntCast(V, FieldIRTy, false), TargetAddr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
     } else {
-      // The payload may be wider than the either field (e.g. the error type
+      // The payload may be wider than the field (e.g. the error type
       // std::error is wider than an int field); reinterpret it through memory,
       // reading the low bytes as the field type.
       Address PayloadAddr =
-          CreateDefaultAlignTempAlloca(V->getType(), "either.payload");
+          CreateDefaultAlignTempAlloca(V->getType(), "herb.payload");
       auto *SI = Builder.CreateStore(V, PayloadAddr);
       addInstToCurrentSourceAtom(SI, SI->getValueOperand());
       llvm::Value *Coerced =
           Builder.CreateLoad(PayloadAddr.withElementType(FieldIRTy));
-      Address FieldAddr = Builder.CreateStructGEP(Addr, Idx);
-      auto *I = Builder.CreateStore(Coerced, FieldAddr);
+      auto *I = Builder.CreateStore(Coerced, TargetAddr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
     }
   };
 
-  // .positive = !disc
-  const FieldDecl *PositiveField = FindField("positive");
-  StoreField(PositiveField, Builder.CreateNot(Disc));
-
-  // .left is the success value; .right is the error value. Both come from the
-  // same payload slot (the value-or-error union).
-  const FieldDecl *LeftField = FindField("left");
-  const FieldDecl *RightField = FindField("right");
-  StoreField(LeftField, Payload);
-  StoreField(RightField, Payload);
+  // N2289 form: .failed = disc, and the payload is stored into both union
+  // arms (they share storage, so only one is observable; storing both keeps
+  // the IR simple and layout-agnostic).
+  StoreField("failed", Disc);
+  StoreField("value", Payload);
+  StoreField("error", Payload);
 
   return RValue::getAggregate(Addr);
 }
