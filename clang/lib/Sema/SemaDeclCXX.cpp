@@ -2395,6 +2395,16 @@ CheckConstexprFunctionStmt(Sema &SemaRef, const FunctionDecl *Dcl, Stmt *S,
       return false;
     return true;
 
+  case Stmt::CXXCatchThrowsStmtClass:
+    // Herbception `catch throws` handler: same treatment as a traditional
+    // catch (the enclosing try-block already allowed this in constexpr).
+    if (!CheckConstexprFunctionStmt(
+            SemaRef, Dcl,
+            cast<CXXCatchThrowsStmt>(S)->getHandlerBlock(), ReturnStmts,
+            Cxx1yLoc, Cxx2aLoc, Cxx2bLoc, Kind))
+      return false;
+    return true;
+
   default:
     if (!isa<Expr>(S))
       break;

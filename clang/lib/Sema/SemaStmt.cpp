@@ -4484,7 +4484,19 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
   const bool IsOpenMPGPUTarget =
       getLangOpts().OpenMPIsTargetDevice && T.isGPU();
 
-  DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
+  // Herbception `try { } catch throws(...)` / `catch fails(...)` block handlers
+  // use deterministic error propagation, not traditional C++ EH. They are
+  // allowed even with -fno-exceptions (and need no EH infrastructure), so skip
+  // the exceptions-disabled diagnostic when every handler is a herbception
+  // handler.
+  const bool AllHerbceptionHandlers =
+      !Handlers.empty() &&
+      llvm::all_of(Handlers, [](const Stmt *H) {
+        return isa<CXXCatchThrowsStmt>(H);
+      });
+
+  if (!AllHerbceptionHandlers)
+    DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
 
   // In OpenMP target regions, we assume that catch is never reached on GPU
   // targets.

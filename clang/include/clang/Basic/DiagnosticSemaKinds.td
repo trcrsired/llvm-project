@@ -8822,6 +8822,9 @@ def err_try_expr_requires_throws_call : Error<
 def err_catch_fails_expr_requires_throws_call : Error<
   "'catch fails' expression operand must be a call to a function declared "
   "'throws' or 'fails{...}'">;
+def err_catch_fails_expr_throws_function : Error<
+  "'catch fails' cannot be applied to a 'throws' function; use a "
+  "'try { } catch throws(std::error e) { }' block handler instead">;
 def err_fails_call_without_wrapper : Error<
   "calling function with 'fails{...}' specifier requires 'try()' or "
   "'catch fails()' wrapper">;
