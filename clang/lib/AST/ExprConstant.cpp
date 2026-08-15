@@ -9089,15 +9089,22 @@ public:
     if (RD) {
       DomainVal = APValue(APValue::UninitStruct(), /*NumBases=*/0,
                           RD->getNumFields());
-      // Zero-initialize each field: a null function pointer is an LValue with
-      // a null base.
+      // Zero-initialize each field. Pointer/reference/member-pointer fields
+      // are null; other fields (arrays, scalars) default to a null APValue.
       unsigned Idx = 0;
       for (const FieldDecl *F : RD->fields()) {
         if (F->isUnnamedBitField())
           continue;
-        LValue NullLV;
-        NullLV.setNull(Info.Ctx, F->getType());
-        NullLV.moveInto(DomainVal.getStructField(Idx++));
+        QualType FieldTy = F->getType();
+        if (FieldTy->isPointerType() || FieldTy->isReferenceType() ||
+            FieldTy->isMemberPointerType()) {
+          LValue NullLV;
+          NullLV.setNull(Info.Ctx, FieldTy);
+          NullLV.moveInto(DomainVal.getStructField(Idx));
+        } else {
+          DomainVal.getStructField(Idx) = APValue();
+        }
+        ++Idx;
       }
     } else {
       DomainVal = APValue();
