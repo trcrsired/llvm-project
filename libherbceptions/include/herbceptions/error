@@ -1,0 +1,507 @@
+#pragma once
+/*
+Herbception error core types.
+
+std::errc handling: the only <system_error> dependency is std::errc. On hosted
+builds the real std::errc from <system_error> is used when available. On
+freestanding builds <system_error> is avoided entirely (it is hosted-only in
+some implementations, e.g. libstdc++'s requires_hosted.h gate) and a minimal
+std::errc enum is defined locally with the same layout as every major
+implementation (libstdc++, libc++, MSVC STL) so the {domain, code} ABI slot
+and the do_to_errc signature are identical either way. This mirrors the "hack"
+fast_io uses for errc.
+*/
+
+// Prevent macro pollution from Windows headers and from the <system_error>
+// include: save and undef common macros so they cannot break this header or
+// the types defined here. They are restored at the end of the header.
+#pragma push_macro("min")
+#undef min
+#pragma push_macro("max")
+#undef max
+#pragma push_macro("new")
+#undef new
+#pragma push_macro("interface")
+#undef interface
+#pragma push_macro("refresh")
+#undef refresh
+#pragma push_macro("move")
+#undef move
+#pragma push_macro("erase")
+#undef erase
+#pragma push_macro("ERROR")
+#undef ERROR
+#pragma push_macro("Success")
+#undef Success
+
+#include <type_traits>
+#include <cstddef>
+#include <cstdint>
+#include <concepts>
+
+// Use the real std::errc only on hosted builds where <system_error> is
+// available; otherwise define a freestanding std::errc with the standard
+// enumerators and values.
+#if defined(__STDC_HOSTED__) && __STDC_HOSTED__ == 1 && __has_include(<system_error>)
+#include <system_error>
+#else
+namespace std
+{
+enum class errc : int
+{
+    address_family_not_supported = 97,
+    address_in_use = 98,
+    address_not_available = 99,
+    already_connected = 113,
+    argument_list_too_long = 7,
+    argument_out_of_domain = 33,
+    bad_address = 14,
+    bad_file_descriptor = 9,
+    bad_message = 74,
+    broken_pipe = 32,
+    connection_aborted = 103,
+    connection_already_in_progress = 114,
+    connection_refused = 111,
+    connection_reset = 104,
+    cross_device_link = 18,
+    destination_address_required = 89,
+    device_or_resource_busy = 16,
+    directory_not_empty = 39,
+    executable_format_error = 8,
+    file_exists = 17,
+    file_too_large = 27,
+    filename_too_long = 36,
+    function_not_supported = 38,
+    host_unreachable = 113,
+    identifier_removed = 43,
+    illegal_byte_sequence = 84,
+    inappropriate_io_control_operation = 25,
+    interrupted = 4,
+    invalid_argument = 22,
+    invalid_seek = 29,
+    io_error = 5,
+    is_a_directory = 21,
+    message_size = 90,
+    network_down = 100,
+    network_reset = 102,
+    network_unreachable = 101,
+    no_buffer_space = 105,
+    no_child_process = 10,
+    no_link = 67,
+    no_lock_available = 37,
+    no_message_available = 61,
+    no_message = 42,
+    no_protocol_option = 92,
+    no_space_on_device = 28,
+    no_such_device_or_address = 6,
+    no_such_device = 19,
+    no_such_file_or_directory = 2,
+    no_such_process = 3,
+    not_a_directory = 20,
+    not_a_socket = 88,
+    not_connected = 107,
+    not_enough_memory = 12,
+    not_supported = 95,
+    operation_canceled = 125,
+    operation_in_progress = 115,
+    operation_not_permitted = 1,
+    operation_not_supported = 95,
+    operation_would_block = 11,
+    owner_dead = 130,
+    permission_denied = 13,
+    protocol_error = 71,
+    protocol_not_supported = 93,
+    read_only_file_system = 30,
+    resource_deadlock_would_occur = 35,
+    resource_unavailable_try_again = 11,
+    result_out_of_range = 34,
+    state_not_recoverable = 131,
+    stream_timeout = 6,
+    text_file_busy = 26,
+    timed_out = 110,
+    too_many_files_open_in_system = 23,
+    too_many_files_open = 24,
+    too_many_links = 31,
+    too_many_symbolic_link_levels = 40,
+    value_too_large = 75,
+    wrong_protocol_type = 91
+};
+}
+#endif
+
+
+namespace std
+{
+
+class error;
+
+enum class cxa_exception_abi
+{
+itanium=0,
+microsoft=1,
+#if defined(_MSC_VER)
+platform=microsoft
+#else
+platform=itanium
+#endif
+};
+
+struct io_scatter_t
+{
+    void const* base;
+    ::std::size_t len;
+};
+enum class error_reporter_encoding
+{
+utf8,
+utf16,
+utf32,
+gb18030,
+utfebcdic
+};
+
+using error_reporter_io_cookie_function = void (*)(::std::error_reporter_encoding, void*, ::std::io_scatter_t const* , ::std::size_t) noexcept;
+
+struct error_domain_singleton
+{
+    void (*do_cleanup)(::std::size_t) noexcept = nullptr;
+    bool (*do_equivalent)(::std::size_t, ::std::error_domain_singleton const*, ::std::size_t) noexcept = nullptr;
+    void (*do_name)(::std::size_t, ::std::error_reporter_encoding, void*, ::std::error_reporter_io_cookie_function) noexcept = nullptr;
+    void (*do_message)(::std::size_t, ::std::error_reporter_encoding, void*, ::std::error_reporter_io_cookie_function) noexcept = nullptr;
+    ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
+    void (*do_throw_cxa_exception)(::std::size_t, ::std::cxa_exception_abi) = nullptr;
+// reserve two fields for extensions
+    void* __reserved[2]{};
+};
+
+namespace __details
+{
+template<typename __T>
+concept __error_domain_has_domain_alias_type = requires()
+{
+    typename __T::domain_alias_type;
+};
+}
+// The error_domain customization point. It is declared but not defined: only
+// specializations exist. T need not be an enum — any type with an
+// error_domain<T> specialization can be thrown via `throw throws`.
+template<typename __T>
+class error_domain;
+
+// std::error is defined by the standard library, but it is not a type users
+// can create, copy, or store. The compiler is the only manufacturer: for
+// `throw throws e;` it evaluates error_domain<T>::domain() and
+// error_domain<T>::code(e) and fabricates the {domain, code} value.
+// Consequently:
+//   - the default constructor is deleted;
+//   - copy/move constructors and assignments are all deleted;
+//   - there is only a destructor and helper methods;
+//   - all data members are private.
+class error
+{
+public:
+    error() = delete;
+    error(error const&) = delete;
+    error(error&&) = delete;
+    error& operator=(error const&) = delete;
+    error& operator=(error&&) = delete;
+
+    constexpr ~error() noexcept
+    {
+        auto __docleanup{__domain_opaque->do_cleanup};
+        if (__docleanup)
+        {
+            __docleanup(__code_opaque);
+        }
+    }
+
+    [[nodiscard]] constexpr ::std::error_domain_singleton const* domain() const noexcept
+    {
+        return __domain_opaque;
+    }
+    [[nodiscard]] constexpr ::std::size_t code() const noexcept
+    {
+        return __code_opaque;
+    }
+
+    template<typename __Other>
+    requires (::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
+    constexpr bool do_equivalent(__Other __ec) const noexcept
+    {
+        using __other_error_domain_type = ::std::error_domain<__Other>;
+        if constexpr(::std::__details::__error_domain_has_domain_alias_type<__other_error_domain_type>)
+        {
+            using __domain_alias_type = typename __other_error_domain_type::domain_alias_type;
+            return __domain_opaque->do_equivalent(
+                __code_opaque,
+                __domain_alias_type::domain(),
+                __other_error_domain_type::code(__ec));
+        }
+        else
+        {
+            return __domain_opaque->do_equivalent(
+                __code_opaque,
+                __other_error_domain_type::domain(),
+                __other_error_domain_type::code(__ec));
+        }
+    }
+    constexpr ::std::errc do_to_errc() const noexcept
+    {
+        return __domain_opaque->do_to_errc(__code_opaque);
+    }
+
+    void do_throw_cxa_exception() const
+#if defined(__cpp_exceptions)
+    {
+        auto __dothrowcxaexception{__domain_opaque->do_throw_cxa_exception};
+        if (__dothrowcxaexception)
+        {
+            // if the function returns then the EH was not thrown for whatever reason
+            // such as we are using an itanium that throws msvc eh
+            __dothrowcxaexception(static_cast<::std::size_t>(this->code()),::std::cxa_exception_abi::platform);
+        }
+#if defined(__STDC_HOSTED__) && __STDC_HOSTED__ == 1 && __has_include(<system_error>)
+        // EH thrown fail by the domain vtable. we throw a generic error by errc
+        throw ::std::system_error(static_cast<int>(this->do_to_errc()),::std::generic_category());
+#else
+        __builtin_trap();
+#endif
+    }
+#else
+    = delete; // cxa exception disabled
+#endif
+    template<typename __Other>
+    requires (::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
+    inline constexpr bool is_code_of() const noexcept
+    {
+        using __other_error_domain_type = ::std::error_domain<__Other>;
+        if constexpr(::std::__details::__error_domain_has_domain_alias_type<__other_error_domain_type>)
+        {
+            using __domain_alias_type = typename __other_error_domain_type::domain_alias_type;
+            return __domain_alias_type::domain() == __domain_opaque;
+        }
+        else
+        {
+            return __other_error_domain_type::domain() == __domain_opaque;
+        }
+    }
+private:
+    // The {domain, code} payload, laid out as exactly two words so the value
+    // flows through the {void*, size_t} ABI slot unchanged.
+    ::std::error_domain_singleton const* __domain_opaque{};
+    ::std::size_t __code_opaque{};
+
+    // a magic function compiler will know how to construct it
+    explicit constexpr error(void const* __domain, ::std::size_t __code) noexcept
+        : __domain_opaque(static_cast<::std::error_domain_singleton const*>(__domain)), __code_opaque(__code)
+    {
+    }
+};
+
+namespace error_domains
+{
+extern "C"
+[[__gnu__::__const__]]
+::std::error_domain_singleton const* __cxa_error_domain_win32() noexcept;
+
+extern "C"
+[[__gnu__::__const__]]
+::std::error_domain_singleton const* __cxa_error_domain_posix() noexcept;
+
+
+extern "C"
+[[__gnu__::__const__]]
+::std::error_domain_singleton const* __cxa_error_domain_nt() noexcept;
+
+extern "C"
+[[__gnu__::__const__]]
+::std::error_domain_singleton const* __cxa_error_domain_com() noexcept;
+
+extern "C"
+[[__gnu__::__const__]]
+::std::error_domain_singleton const* __cxa_error_domain_wine() noexcept;
+}
+
+
+/*
+this is much more flexible than the template specialization one. since different libraries may have the their implementation of errc win32_errc for example. This allow them
+to have only one category as long as the code function is a template to help constexpr and potentially reduce binary bloat.
+*/
+
+/*
+pesudo throws should do
+template<typename T>
+requires (::std::is_class_v<T> || ::std::is_enum_v<T>)
+inline constexpr void pesudo_throws(T x)
+{
+  using error_domain_type = get_error_domain(::std::error_domain_tag, x);
+  throw ::std::error{error_domain_type::domain(), error_domain_type::code(x)};
+}
+
+*/
+
+template<typename __Other>
+requires (::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
+constexpr bool operator==(::std::error const& __ec, __Other const& __other) noexcept
+{
+    using __other_error_domain_type = ::std::error_domain<__Other>;
+    if constexpr(::std::__details::__error_domain_has_domain_alias_type<__other_error_domain_type>)
+    {
+        using __other_domain_alias_type = typename __other_error_domain_type::domain_alias_type;
+        return __other_error_domain_type::code(__other) == __ec.code() &&
+            __other_domain_alias_type::domain() == __ec.domain();
+    }
+    else
+    {
+        return __other_error_domain_type::code(__other) == __ec.code() &&
+            __other_error_domain_type::domain() == __ec.domain();
+    }
+
+}
+
+template<typename __Other>
+requires (::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
+constexpr bool operator==(__Other const __other, ::std::error const& __e) noexcept
+{
+    return __e==__other;
+}
+
+template<typename __Other>
+requires requires(::std::error __e)
+{
+    {::std::error_domain<__Other>::from_std_error(__e)}->std::same_as<__Other>;
+}
+constexpr auto herbception_cast(::std::error const &__e) noexcept
+{
+    using __other_error_domain_type = ::std::error_domain<__Other>;
+    return __other_error_domain_type::from_std_error(__e);
+}
+
+// ---------------------------------------------------------------------------
+// Herbception type traits.
+//
+// These are thin wrappers over the compiler's `__is_herbception_*` /
+// `__has_herbception_*` builtins (available under -fherbceptions), providing
+// standard-library-style trait variable templates. They test the `throws`
+// channel (implicit std::error); there are no `fails{E}` variants because
+// fails{E} is a C-style feature restricted to free functions.
+// ---------------------------------------------------------------------------
+#if defined(__HERBCEPTIONS__)
+template<typename __T>
+inline constexpr bool is_herbception_throwsable_v = __is_herbception_throwsable(__T);
+
+template<typename __T>
+struct is_herbception_throwsable
+    : ::std::bool_constant<is_herbception_throwsable_v<__T>>
+{
+};
+
+template<typename __F>
+inline constexpr bool is_invoke_herbceptions_fails_v =
+    __is_invoke_herbceptions_fails(__F);
+
+template<typename __F>
+struct is_invoke_herbceptions_fails
+    : ::std::bool_constant<is_invoke_herbceptions_fails_v<__F>>
+{
+};
+
+// __invoke_herbception_fails_result<F> yields a synthetic struct with
+// value_type (the success return type) and error_type (the fails{E} error
+// type, void when F is not a fails function). Query it via the trailing _t
+// aliases below.
+template<typename __F>
+using invoke_herbception_fails_result_t = __invoke_herbception_fails_result<__F>;
+
+template<typename __F>
+using invoke_herbception_fails_value_t = typename invoke_herbception_fails_result_t<__F>::value_type;
+
+template<typename __F>
+using invoke_herbception_fails_error_t = typename invoke_herbception_fails_result_t<__F>::error_type;
+
+// Whether a type's throws-constructible/assignable/convertible operations can
+// propagate a herbception error through the `throws` channel.
+template<typename __T, typename... __A>
+inline constexpr bool is_herbception_throws_constructible_v =
+    __is_herbception_throws_constructible(__T, __A...);
+
+template<typename __T, typename... __A>
+struct is_herbception_throws_constructible
+    : ::std::bool_constant<is_herbception_throws_constructible_v<__T, __A...>>
+{
+};
+
+template<typename __T, typename __U>
+inline constexpr bool is_herbception_throws_assignable_v =
+    __is_herbception_throws_assignable(__T, __U);
+
+template<typename __T, typename __U>
+struct is_herbception_throws_assignable
+    : ::std::bool_constant<is_herbception_throws_assignable_v<__T, __U>>
+{
+};
+
+template<typename __T, typename __U>
+inline constexpr bool is_herbception_throws_convertible_v =
+    __is_herbception_throws_convertible(__T, __U);
+
+template<typename __T, typename __U>
+struct is_herbception_throws_convertible
+    : ::std::bool_constant<is_herbception_throws_convertible_v<__T, __U>>
+{
+};
+
+template<typename __T>
+inline constexpr bool has_herbception_throws_constructor_v =
+    __has_herbception_throws_constructor(__T);
+
+template<typename __T>
+struct has_herbception_throws_constructor
+    : ::std::bool_constant<has_herbception_throws_constructor_v<__T>>
+{
+};
+
+template<typename __T>
+inline constexpr bool has_herbception_throws_copy_v =
+    __has_herbception_throws_copy(__T);
+
+template<typename __T>
+struct has_herbception_throws_copy
+    : ::std::bool_constant<has_herbception_throws_copy_v<__T>>
+{
+};
+
+template<typename __T>
+inline constexpr bool has_herbception_throws_assign_v =
+    __has_herbception_throws_assign(__T);
+
+template<typename __T>
+struct has_herbception_throws_assign
+    : ::std::bool_constant<has_herbception_throws_assign_v<__T>>
+{
+};
+
+template<typename __T>
+inline constexpr bool has_herbception_throws_move_assign_v =
+    __has_herbception_throws_move_assign(__T);
+
+template<typename __T>
+struct has_herbception_throws_move_assign
+    : ::std::bool_constant<has_herbception_throws_move_assign_v<__T>>
+{
+};
+
+#endif // __HERBCEPTIONS__
+
+}
+
+// Restore the macros saved above, in reverse order.
+#pragma pop_macro("Success")
+#pragma pop_macro("ERROR")
+#pragma pop_macro("erase")
+#pragma pop_macro("move")
+#pragma pop_macro("refresh")
+#pragma pop_macro("interface")
+#pragma pop_macro("new")
+#pragma pop_macro("max")
+#pragma pop_macro("min")
