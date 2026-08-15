@@ -3967,16 +3967,23 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         ExceptionSpecTokens->push_back(StartTok);
         return EST_Unparsed;
       }
-      // fails{E}: cache the whole spec for delayed parsing.
+      // fails{E}: cache the whole spec for delayed parsing. Consume the
+      // brace-enclosed type as a unit: consume '{', the type tokens, and '}',
+      // storing everything so the delayed parse can re-parse the type.
       if (Tok.is(tok::l_brace)) {
         ExceptionSpecTokens = new CachedTokens;
         ExceptionSpecTokens->push_back(StartTok);
+        ExceptionSpecTokens->push_back(Tok);   // '{'
+        SourceLocation BraceOpen = ConsumeBrace();
         if (!ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
-                                  /*StopAtSemi=*/true,
-                                  /*ConsumeFinalToken=*/true))
+                                  /*StopAtSemi=*/false,
+                                  /*ConsumeFinalToken=*/true)) {
+          delete ExceptionSpecTokens;
+          ExceptionSpecTokens = nullptr;
           return EST_None;
-        SpecificationRange.setEnd(
-            ExceptionSpecTokens->back().getLocation());
+        }
+        SpecificationRange = SourceRange(StartTok.getLocation(),
+                                         ExceptionSpecTokens->back().getLocation());
         return EST_Unparsed;
       }
     }

@@ -19773,6 +19773,18 @@ void Sema::actOnDelayedExceptionSpecification(
   if (!FD)
     return;
 
+  // Herbception: a destructor cannot be declared 'throws' or 'fails{...}'.
+  // Destruction must be able to run during unwinding/cleanup, so it cannot
+  // itself fail through the herbception channel.
+  if (isa<CXXDestructorDecl>(FD) &&
+      hasHerbceptionExceptionSpec(EST)) {
+    Diag(SpecificationRange.getBegin(),
+         diag::err_herbception_destructor_spec)
+        << SpecificationRange;
+    // Keep the (diagnosed) spec so the function type stays well-formed; the
+    // declaration is already erroneous and never used for code generation.
+  }
+
   // Check the exception specification.
   llvm::SmallVector<QualType, 4> Exceptions;
   FunctionProtoType::ExceptionSpecInfo ESI;
