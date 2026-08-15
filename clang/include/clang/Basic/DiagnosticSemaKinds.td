@@ -8808,6 +8808,10 @@ def err_herbception_noexcept_calls_throws : Error<
   "handled by an enclosing 'try { } catch throws' block">;
 def err_failure_outside_fails_function : Error<
   "'failure(expr)' is only allowed inside a function declared 'fails{...}'">;
+def err_herbception_destructor_spec : Error<
+  "destructor cannot be declared with a herbception "
+  "('throws'/'fails{...}') exception specification; destructors cannot "
+  "propagate errors">;
 def err_fails_std_error_type : Error<
   "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
   "implicit error type of 'throws' and cannot be returned as an explicit "
