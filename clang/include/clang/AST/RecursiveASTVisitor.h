@@ -2990,6 +2990,7 @@ DEF_TRAVERSE_STMT(CXXErrorValueExpr, {
   TRY_TO(TraverseStmt(S->getDomainCall()));
   TRY_TO(TraverseStmt(S->getCodeCall()));
 })
+DEF_TRAVERSE_STMT(CXXCxaExceptionExpr, {})
 DEF_TRAVERSE_STMT(CXXTryExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
 DEF_TRAVERSE_STMT(CXXCatchFailsExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
 DEF_TRAVERSE_STMT(UserDefinedLiteral, {})

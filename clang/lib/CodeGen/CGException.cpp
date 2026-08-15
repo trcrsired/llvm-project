@@ -562,6 +562,14 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
     // noexcept functions are simple terminate scopes.
     if (!getLangOpts().EHAsynch) // -EHa: HW exception still can occur
       EHStack.pushTerminate();
+  } else if (Proto->getExceptionSpecType() == EST_ThrowsTyped) {
+    // A default `fails{E}` function implies noexcept(true): any legacy C++
+    // exception that escapes it calls std::terminate (exactly like a noexcept
+    // function). A `fails{E} noexcept(false)` (EST_ThrowsTypedNoexceptFalse)
+    // instead allows traditional C++ exceptions to propagate, so it gets no
+    // terminate scope.
+    if (!getLangOpts().EHAsynch)
+      EHStack.pushTerminate();
   }
 }
 
@@ -638,8 +646,9 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
     EHFilterScope &filterScope = cast<EHFilterScope>(*EHStack.begin());
     emitFilterDispatchBlock(*this, filterScope);
     EHStack.popFilter();
-  } else if (Proto->canThrow() == CT_Cannot &&
-              /* possible empty when under async exceptions */
+  } else if ((Proto->canThrow() == CT_Cannot ||
+              Proto->getExceptionSpecType() == EST_ThrowsTyped) &&
+             /* possible empty when under async exceptions */
              !EHStack.empty()) {
     EHStack.popTerminate();
   }
@@ -685,8 +694,18 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     const CXXCatchThrowsStmt *Stmt;
     llvm::BasicBlock *Block;
     Address ErrorSlot;
+    JumpDest HandlerDest;
   };
   SmallVector<HandlerInfo, 4> Handlers;
+
+  // A std::error handler may also catch legacy C++ exceptions: the compiler
+  // wraps the try block in a catch-all EH landing pad and converts the caught
+  // exception to a fabricated std::error. Record the first such handler to
+  // route the conversion to, and whether any handler needs the landing pad.
+  const CXXCatchThrowsStmt *LegacyHandlerStmt = nullptr;
+  Address LegacyErrorSlot = Address::invalid();
+  JumpDest LegacyHandlerDest;
+  llvm::BasicBlock *LegacyConvertBB = createBasicBlock("herb.legacy.convert");
 
   // Create the handler blocks and error slots up front so that bare calls
   // inside the try body can route to them.
@@ -702,7 +721,23 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     Address ErrorSlot = CreateDefaultAlignTempAlloca(ErrorTy, "herb.error");
     JumpDest HandlerDest(HandlerBB, TryDepth, 0);
     HerbceptionCatchScopes.push_back({HandlerDest, ErrorSlot, ErrorTy});
-    Handlers.push_back({CT, HandlerBB, ErrorSlot});
+    Handlers.push_back({CT, HandlerBB, ErrorSlot, HandlerDest});
+    if (CT->getLegacyExceptionErrorValue() && !LegacyHandlerStmt) {
+      LegacyHandlerStmt = CT;
+      LegacyErrorSlot = ErrorSlot;
+      LegacyHandlerDest = HandlerDest;
+    }
+  }
+
+  // If a std::error handler is present, push a catch-all EH scope so calls to
+  // noexcept(false) functions inside the try block become invokes that land in
+  // the conversion block (which fabricates a std::error and routes it here).
+  bool NeedLegacyLandingPad = LegacyHandlerStmt != nullptr;
+  EHScopeStack::stable_iterator LegacyScope = EHStack.stable_end();
+  if (NeedLegacyLandingPad) {
+    EHCatchScope *CatchScope = EHStack.pushCatch(1);
+    CatchScope->setCatchAllHandler(0, LegacyConvertBB);
+    LegacyScope = EHStack.stable_begin();
   }
 
   // Emit the try block. Bare throws/fails calls inside it route the
@@ -713,6 +748,33 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
 
   // The handlers are emitted with the catch scopes no longer active.
   HerbceptionCatchScopes.truncate(SavedScopes);
+  if (NeedLegacyLandingPad)
+    popCatchScope();
+
+  // Emit the legacy-EH conversion block. It is the destination of the
+  // catch-all landing pad: exn.slot holds the exception, and the fabricated
+  // std::error (domain = error_domain<cxa_exception_code>::domain(), code =
+  // thrown object pointer) is stored into the std::error handler's error slot
+  // before running the try block's cleanups and branching to the handler.
+  if (NeedLegacyLandingPad) {
+    EmitBlock(LegacyConvertBB);
+    // In the funclet model (MSVC), the catch-all dispatch inserted a catchpad
+    // as the first instruction of this block; the exception pointer is derived
+    // from that token.
+    SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
+    if (EHPersonality::get(*this).usesFuncletPads()) {
+      llvm::Instruction *First = &*LegacyConvertBB->begin();
+      if (auto *CPI = dyn_cast<llvm::CatchPadInst>(First))
+        CurrentFuncletPad = CPI;
+    }
+    RunCleanupsScope LegacyConvertScope(*this);
+    const Expr *Conv = LegacyHandlerStmt->getLegacyExceptionErrorValue();
+    EmitAnyExprToMem(Conv, LegacyErrorSlot, Qualifiers(),
+                     /*IsInitializer=*/false);
+    LegacyConvertScope.ForceCleanup();
+    // Route to the (first) std::error handler, running the try-block cleanups.
+    EmitBranchThroughCleanup(LegacyHandlerDest);
+  }
 
   // Emit the handlers: bind the exception variable from the error slot and run
   // the handler body.
@@ -721,12 +783,15 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     RunCleanupsScope CatchScope(*this);
     if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
       // Herbception catch: bind the exception variable directly from the error
-      // payload slot. The error value (std::error for `throws`) is a
-      // compiler-fabricated two-word value that must not be default/copy-
-      // constructed or destroyed (its constructors are deleted and its fields
-      // are private). EmitAutoVarAlloca only allocates and registers the
-      // variable; skip EmitAutoVarInit/EmitAutoVarCleanups so no ctor/dtor is
-      // emitted, then store the payload into the slot.
+      // payload slot. The error value (std::error for `throws`,
+      // std::coroutine_error for a coroutine carrier, or E for `fails{E}`) is a
+      // compiler-fabricated value whose constructors are deleted and fields
+      // private, so it is not default/copy-constructed. EmitAutoVarAlloca only
+      // allocates and registers the variable; skip EmitAutoVarInit, then store
+      // the payload into the slot. The variable's destructor IS registered so
+      // that ~std::error()/~coroutine_error() run do_cleanup exactly once when
+      // the handler exits. The error slot above is plain storage and is never
+      // destroyed, so the catch variable is the sole owner of the value.
       CodeGenFunction::AutoVarEmission var = EmitAutoVarAlloca(*VD);
       Address Addr = var.getObjectAddress(*this);
       llvm::Value *ErrVal = Builder.CreateLoad(H.ErrorSlot);
@@ -740,6 +805,7 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
       }
       auto *I = Builder.CreateStore(ErrVal, Addr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
+      EmitAutoVarCleanups(var);
     }
     EmitStmt(H.Stmt->getHandlerBlock());
     CatchScope.ForceCleanup();

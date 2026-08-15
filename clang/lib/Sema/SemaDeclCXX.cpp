@@ -19853,7 +19853,8 @@ void Sema::checkExceptionSpecification(
     FunctionProtoType::ExceptionSpecInfo &ESI) {
   Exceptions.clear();
   ESI.Type = EST;
-  if (EST == EST_Dynamic || EST == EST_ThrowsTyped) {
+  if (EST == EST_Dynamic || EST == EST_ThrowsTyped ||
+      EST == EST_ThrowsTypedNoexceptFalse) {
     Exceptions.reserve(DynamicExceptions.size());
     for (unsigned ei = 0, ee = DynamicExceptions.size(); ei != ee; ++ei) {
       // FIXME: Preserve type source info.
@@ -19878,7 +19879,7 @@ void Sema::checkExceptionSpecification(
       // `fails{std::error}` is invalid: std::error is a compiler-fabricated
       // value that may only be carried by the implicit `throws` channel, never
       // returned as an explicit fails error type.
-      if (EST == EST_ThrowsTyped) {
+      if (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) {
         if (NamespaceDecl *Std = getStdNamespace()) {
           LookupResult R(*this, &PP.getIdentifierTable().get("error"),
                          DynamicExceptionRanges[ei].getBegin(),
@@ -19895,6 +19896,20 @@ void Sema::checkExceptionSpecification(
               }
             }
           }
+        }
+
+        // The `fails{E}` error type must be trivially copyable, matching the C
+        // behavior where the error value flows through the {T, i1} ABI slot by
+        // value.
+        if (RequireCompleteType(DynamicExceptionRanges[ei].getBegin(), ET,
+                                diag::err_incomplete_type)) {
+          continue;
+        }
+        if (!ET.isTriviallyCopyableType(Context)) {
+          Diag(DynamicExceptionRanges[ei].getBegin(),
+               diag::err_fails_type_not_trivially_copyable)
+              << ET << DynamicExceptionRanges[ei];
+          continue;
         }
       }
     }
@@ -19948,7 +19963,8 @@ void Sema::actOnDelayedExceptionSpecification(
   // functions. Member functions (including static members) and lambda call
   // operators reach this delayed path, so diagnose them here.
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
-      EST == EST_ThrowsTyped && FD->isCXXClassMember()) {
+      (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) &&
+      FD->isCXXClassMember()) {
     Diag(SpecificationRange.getBegin(), diag::err_fails_only_free_function)
         << SpecificationRange;
     FD->setInvalidDecl();

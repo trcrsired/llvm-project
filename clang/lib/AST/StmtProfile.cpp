@@ -2184,6 +2184,10 @@ void StmtProfiler::VisitCXXErrorValueExpr(const CXXErrorValueExpr *S) {
   VisitStmt(S->getCodeCall());
 }
 
+void StmtProfiler::VisitCXXCxaExceptionExpr(const CXXCxaExceptionExpr *S) {
+  VisitExpr(S);
+}
+
 void StmtProfiler::VisitCXXTryExpr(const CXXTryExpr *S) {
   VisitExpr(S);
   VisitStmt(S->getSubExpr());

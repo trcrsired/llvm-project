@@ -78,16 +78,23 @@ class CXXCatchThrowsStmt : public Stmt {
   VarDecl *ExceptionDecl;
   /// The handler block.
   Stmt *HandlerBlock;
+  /// When this handler catches std::error from a legacy C++ exception, the
+  /// compiler-fabricated conversion expression (a CXXErrorValueExpr whose
+  /// domain is error_domain<std::cxa_exception_code> and whose code is the
+  /// thrown object pointer). Null when the handler is not a std::error catch.
+  Expr *LegacyExceptionErrorValue;
 
 public:
   CXXCatchThrowsStmt(SourceLocation catchLoc, SourceLocation specLoc,
-                     VarDecl *exDecl, Stmt *handlerBlock)
+                     VarDecl *exDecl, Stmt *handlerBlock,
+                     Expr *legacyErrorValue = nullptr)
       : Stmt(CXXCatchThrowsStmtClass), CatchLoc(catchLoc), SpecLoc(specLoc),
-        ExceptionDecl(exDecl), HandlerBlock(handlerBlock) {}
+        ExceptionDecl(exDecl), HandlerBlock(handlerBlock),
+        LegacyExceptionErrorValue(legacyErrorValue) {}
 
   CXXCatchThrowsStmt(EmptyShell Empty)
       : Stmt(CXXCatchThrowsStmtClass), ExceptionDecl(nullptr),
-        HandlerBlock(nullptr) {}
+        HandlerBlock(nullptr), LegacyExceptionErrorValue(nullptr) {}
 
   SourceLocation getBeginLoc() const LLVM_READONLY { return CatchLoc; }
   SourceLocation getEndLoc() const LLVM_READONLY {
@@ -98,6 +105,9 @@ public:
   SourceLocation getSpecLoc() const { return SpecLoc; }
   VarDecl *getExceptionDecl() const { return ExceptionDecl; }
   Stmt *getHandlerBlock() const { return HandlerBlock; }
+  Expr *getLegacyExceptionErrorValue() const {
+    return LegacyExceptionErrorValue;
+  }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXCatchThrowsStmtClass;

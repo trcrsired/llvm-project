@@ -283,6 +283,9 @@ def err_throws_requires_cxx : Error<"'throws' is only available in C++">;
 def err_throws_noexcept_false : Error<
   "'throws' and 'noexcept(false)' cannot be combined: a 'throws' function "
   "implies noexcept(true)">;
+def err_throws_fails_combined : Error<
+  "'throws' and 'fails{...}' cannot be combined: they are mutually exclusive "
+  "herbception specifiers">;
 def err_fails_paren_not_allowed : Error<
   "'fails' takes a type in braces (e.g. 'fails{T}'); parentheses are for the "
   "'throws' condition, not for the fails error type">;

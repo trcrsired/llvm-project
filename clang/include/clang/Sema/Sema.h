@@ -8552,6 +8552,11 @@ public:
   ExprResult RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
                                    Expr *DomainCall, Expr *CodeCall,
                                    QualType Ty);
+  /// Build the compiler-fabricated `std::error` value that captures a legacy
+  /// C++ exception: {error_domain<std::cxa_exception_code>::domain(),
+  /// thrown-object-pointer}. Used when a legacy exception is converted to the
+  /// herbception channel.
+  ExprResult BuildCxaExceptionErrorValue(SourceLocation Loc);
   /// Look up the std::error_domain<T> class template specialization for \p T.
   /// Returns the record decl or null if there is no such specialization.
   CXXRecordDecl *lookupErrorDomain(SourceLocation Loc, QualType T);
