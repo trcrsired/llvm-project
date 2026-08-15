@@ -16850,6 +16850,42 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
 
+  // Herbception: error_domain<T>::domain() must not return nullptr. The
+  // fabricated std::error dereferences the domain pointer in ~error(), so a
+  // null domain would be a null-pointer dereference. Diagnose a definition
+  // whose body returns nullptr.
+  if (getLangOpts().HerbExceptions && FD && Body &&
+      !FD->isInvalidDecl() && FD->getDeclName().isIdentifier() &&
+      FD->getName() == "domain" && FD->isStatic() &&
+      isa<CXXRecordDecl>(FD->getDeclContext()) &&
+      cast<CXXRecordDecl>(FD->getDeclContext())->getName() == "error_domain") {
+    const Stmt *BodyS = Body;
+    if (const auto *CS = dyn_cast<CompoundStmt>(BodyS)) {
+      auto Begin = CS->body_begin();
+      auto End = CS->body_end();
+      if (Begin != End && std::next(Begin) == End)
+        BodyS = *Begin;
+    }
+    if (const auto *Ret = dyn_cast<ReturnStmt>(BodyS)) {
+      if (const Expr *Val = Ret->getRetValue()) {
+        Val = Val->IgnoreParenImpCasts();
+        if (auto *Lit = dyn_cast<CXXNullPtrLiteralExpr>(Val)) {
+          Diag(Lit->getExprLoc(),
+               diag::err_herbception_domain_nullptr)
+              << FD->getReturnType();
+          FD->setInvalidDecl();
+        } else if (auto *IL = dyn_cast<IntegerLiteral>(Val)) {
+          if (IL->getValue() == 0) {
+            Diag(IL->getExprLoc(),
+                 diag::err_herbception_domain_nullptr)
+                << FD->getReturnType();
+            FD->setInvalidDecl();
+          }
+        }
+      }
+    }
+  }
+
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));
 
