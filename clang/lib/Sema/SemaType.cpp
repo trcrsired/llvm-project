@@ -10358,6 +10358,25 @@ QualType Sema::BuildUnaryTransformType(QualType BaseType, UTTKind UKind,
     Result = BuiltinRemovePointer(BaseType, Loc);
     break;
   }
+  case UnaryTransformType::InvokeHerbceptionFailsType: {
+    // Extract the error type E of a `fails{E}` function type. void if the
+    // argument is not a function type with a fails{E} spec.
+    if (BaseType->isDependentType()) {
+      Result = BaseType;
+      break;
+    }
+    QualType FnTy = BaseType;
+    if (const auto *PT = FnTy->getAs<PointerType>())
+      FnTy = PT->getPointeeType();
+    else if (const auto *RT = FnTy->getAs<ReferenceType>())
+      FnTy = RT->getPointeeType();
+    if (const auto *FPT = FnTy->getAs<FunctionProtoType>();
+        FPT && FPT->hasFailsSpec())
+      Result = FPT->getExceptionType(0);
+    else
+      Result = Context.VoidTy;
+    break;
+  }
   case UnaryTransformType::Decay: {
     Result = BuiltinDecay(BaseType, Loc);
     break;

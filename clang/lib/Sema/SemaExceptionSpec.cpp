@@ -1085,6 +1085,158 @@ static CanThrowResult canSubStmtsThrow(Sema &Self, const Stmt *S) {
   return R;
 }
 
+/// Determine whether the callee described by \p FT propagates a herbception
+/// error through the given channel: a null E tests the `throws` channel
+/// (EST_BasicThrows); a non-null E tests the `fails{E}` channel
+/// (EST_ThrowsTyped whose exception type is E).
+static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
+                                   QualType E) {
+  ExceptionSpecificationType EST = FT->getExceptionSpecType();
+  if (EST == EST_BasicThrows)
+    return E.isNull();
+  if (EST == EST_ThrowsTyped) {
+    if (E.isNull())
+      return false;
+    return S.getASTContext().hasSameUnqualifiedType(FT->getExceptionType(0),
+                                                    E);
+  }
+  return false;
+}
+
+/// Determine whether the callee of \p CE can propagate a herbception error
+/// through the channel \p E. Returns true when the callee is declared with a
+/// matching `throws`/`fails{E}` spec.
+static bool canCalleeHerbceptionThrow(Sema &S, const CallExpr *CE, QualType E) {
+  const Expr *Callee = CE->getCallee()->IgnoreParenImpCasts();
+  QualType T = Callee->getType();
+  if (T->isSpecificPlaceholderType(BuiltinType::BoundMember)) {
+    if (const auto *ME = dyn_cast<MemberExpr>(Callee))
+      T = ME->getMemberDecl()->getType();
+    else if (const auto *BE = dyn_cast<BinaryOperator>(Callee)) {
+      assert((BE->getOpcode() == BO_PtrMemD || BE->getOpcode() == BO_PtrMemI) &&
+             "unexpected bound member operator");
+      T = BE->getRHS()->getType()->castAs<MemberPointerType>()->getPointeeType();
+    } else
+      return false;
+  }
+
+  const FunctionProtoType *FT = nullptr;
+  if ((FT = T->getAs<FunctionProtoType>())) {
+  } else if (const PointerType *PT = T->getAs<PointerType>())
+    FT = PT->getPointeeType()->getAs<FunctionProtoType>();
+  else if (const ReferenceType *RT = T->getAs<ReferenceType>())
+    FT = RT->getPointeeType()->getAs<FunctionProtoType>();
+  else if (const MemberPointerType *MT = T->getAs<MemberPointerType>())
+    FT = MT->getPointeeType()->getAs<FunctionProtoType>();
+  else if (const BlockPointerType *BT = T->getAs<BlockPointerType>())
+    FT = BT->getPointeeType()->getAs<FunctionProtoType>();
+
+  if (!FT)
+    return false;
+
+  FT = S.ResolveExceptionSpec(CE->getBeginLoc(), FT);
+  if (!FT)
+    return false;
+  return calleeHerbceptionThrow(S, FT, E);
+}
+
+bool Sema::canHerbceptionThrow(const Stmt *S_, QualType E) {
+  if (!getLangOpts().HerbExceptions)
+    return false;
+  switch (S_->getStmtClass()) {
+  case Expr::ConstantExprClass:
+    return canHerbceptionThrow(cast<ConstantExpr>(S_)->getSubExpr(), E);
+
+  case Expr::CallExprClass:
+  case Expr::CXXMemberCallExprClass:
+  case Expr::CXXOperatorCallExprClass:
+  case Expr::UserDefinedLiteralClass: {
+    const CallExpr *CE = cast<CallExpr>(S_);
+    if (CE->isTypeDependent())
+      return false;
+    if (canCalleeHerbceptionThrow(*this, CE, E))
+      return true;
+    for (const Stmt *Sub : CE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXConstructExprClass:
+  case Expr::CXXTemporaryObjectExprClass: {
+    const auto *CE = cast<CXXConstructExpr>(S_);
+    if (const FunctionProtoType *FT = CE->getConstructor()
+                                          ? CE->getConstructor()->getType()
+                                                ->getAs<FunctionProtoType>()
+                                          : nullptr)
+      if (calleeHerbceptionThrow(*this, FT, E))
+        return true;
+    for (const Stmt *Sub : CE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXBindTemporaryExprClass: {
+    const auto *BTE = cast<CXXBindTemporaryExpr>(S_);
+    if (const CXXDestructorDecl *DD =
+            BTE->getTemporary()->getDestructor())
+      if (const FunctionProtoType *FT =
+              DD->getType()->getAs<FunctionProtoType>())
+        if (calleeHerbceptionThrow(*this, FT, E))
+          return true;
+    return canHerbceptionThrow(BTE->getSubExpr(), E);
+  }
+
+  case Expr::CXXNewExprClass: {
+    const auto *NE = cast<CXXNewExpr>(S_);
+    if (const FunctionProtoType *FT = NE->getOperatorNew()
+                                          ? NE->getOperatorNew()->getType()
+                                                ->getAs<FunctionProtoType>()
+                                          : nullptr)
+      if (calleeHerbceptionThrow(*this, FT, E))
+        return true;
+    for (const Stmt *Sub : NE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXDeleteExprClass: {
+    const auto *DE = cast<CXXDeleteExpr>(S_);
+    if (const CXXRecordDecl *RD =
+            DE->getDestroyedType()->getAsCXXRecordDecl()) {
+      if (const CXXDestructorDecl *DD = RD->getDestructor())
+        if (const FunctionProtoType *FT =
+                DD->getType()->getAs<FunctionProtoType>())
+          if (calleeHerbceptionThrow(*this, FT, E))
+            return true;
+    }
+    if (const FunctionProtoType *FT = DE->getOperatorDelete()
+                                          ? DE->getOperatorDelete()->getType()
+                                                ->getAs<FunctionProtoType>()
+                                          : nullptr)
+      if (calleeHerbceptionThrow(*this, FT, E))
+        return true;
+    for (const Stmt *Sub : DE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXDefaultArgExprClass:
+    return canHerbceptionThrow(cast<CXXDefaultArgExpr>(S_)->getExpr(), E);
+  case Expr::CXXDefaultInitExprClass:
+    return canHerbceptionThrow(cast<CXXDefaultInitExpr>(S_)->getExpr(), E);
+
+  default:
+    for (const Stmt *Sub : S_->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+}
+
 CanThrowResult Sema::canCalleeThrow(Sema &S, const Expr *E, const Decl *D,
                                     SourceLocation Loc) {
   // As an extension, we assume that __attribute__((nothrow)) functions don't
