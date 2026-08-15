@@ -1990,6 +1990,11 @@ void ASTStmtReader::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
   E->CodeCall = Record.readSubExpr();
 }
 
+void ASTStmtReader::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  VisitExpr(E);
+  E->Loc = readSourceLocation();
+}
+
 void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   E->TryLoc = readSourceLocation();

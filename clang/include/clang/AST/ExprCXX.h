@@ -1329,6 +1329,38 @@ public:
   }
 };
 
+/// Represents the thrown object pointer of a legacy C++ exception being
+/// converted to a herbception error value. It is a magic expression, only
+/// valid inside the conversion block that catches a legacy exception: CodeGen
+/// lowers it to `__cxa_get_exception_ptr(getExceptionFromSlot())` and treats
+/// the result as the `code` of the fabricated `std::error` (whose domain is
+/// `error_domain<std::cxa_exception_code>`).
+class CXXCxaExceptionExpr : public Expr {
+  friend class ASTStmtReader;
+
+  /// The location of the conversion.
+  SourceLocation Loc;
+
+public:
+  CXXCxaExceptionExpr(QualType Ty, SourceLocation Loc)
+      : Expr(CXXCxaExceptionExprClass, Ty, VK_PRValue, OK_Ordinary), Loc(Loc) {}
+
+  explicit CXXCxaExceptionExpr(EmptyShell Empty)
+      : Expr(CXXCxaExceptionExprClass, Empty) {}
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return Loc; }
+  SourceLocation getEndLoc() const LLVM_READONLY { return Loc; }
+
+  static bool classof(const Expr *T) {
+    return T->getStmtClass() == CXXCxaExceptionExprClass;
+  }
+
+  child_range children() { return child_range(StmtIterator(), StmtIterator()); }
+  const_child_range children() const {
+    return const_child_range(ConstStmtIterator(), ConstStmtIterator());
+  }
+};
+
 /// Represents a herbception `try(expr)` expression: evaluate \p SubExpr
 /// (which must call a `throws`/`fails{E}` function) and auto-propagate its
 /// error on failure. On success, the expression's value is the success value.

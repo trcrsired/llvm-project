@@ -5290,6 +5290,12 @@ public:
   /// the {domain, code} two-word value. Returns it as an aggregate RValue.
   RValue EmitErrorValueExpr(const CXXErrorValueExpr *E);
 
+  /// The thrown object pointer of the currently-caught legacy C++ exception,
+  /// i.e. `__cxa_get_exception_ptr(getExceptionFromSlot())`. Used as the code
+  /// of a fabricated std::error when converting a legacy exception to the
+  /// herbception channel. Returns a pointer value.
+  llvm::Value *EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E);
+
   /// Convert a `fails{E}` error payload value \p ErrVal into a `std::error`
   /// value by calling error_domain<E>::domain() and error_domain<E>::code(e)
   /// (where \p E is \p E->getErrorDomain()). Used when auto-propagating a

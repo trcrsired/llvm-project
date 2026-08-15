@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "CGCleanup.h"
 #include "CGDebugInfo.h"
 #include "CGOpenMPRuntime.h"
 #include "CGRecordLayout.h"
@@ -1930,6 +1931,32 @@ RValue CodeGenFunction::EmitErrorValueExpr(const CXXErrorValueExpr *E) {
   auto *I = Builder.CreateStore(V, Addr);
   addInstToCurrentSourceAtom(I, I->getValueOperand());
   return RValue::getAggregate(Addr);
+}
+
+llvm::Value *
+CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
+  // The thrown object pointer of the currently-caught legacy C++ exception,
+  // used as the `code` of the fabricated std::error. This is personality-
+  // dependent:
+  //   - Itanium: __cxa_get_exception_ptr(exn) returns the adjusted thrown
+  //     object pointer (exn.slot is populated by the landing pad).
+  //   - MSVC (funclet pads): the exception pointer is obtained from the
+  //     catchpad token via llvm.eh.exceptionpointer.
+  llvm::Value *Obj = nullptr;
+  if (EHPersonality::get(*this).usesFuncletPads()) {
+    llvm::Function *GetExnFn =
+        CGM.getIntrinsic(llvm::Intrinsic::eh_exceptionpointer, Int8PtrTy);
+    assert(CurrentFuncletPad && "legacy conversion outside a funclet catchpad");
+    Obj = Builder.CreateCall(GetExnFn, CurrentFuncletPad);
+  } else {
+    llvm::FunctionCallee Fn = CGM.CreateRuntimeFunction(
+        llvm::FunctionType::get(Int8PtrTy, Int8PtrTy, /*isVarArg=*/false),
+        "__cxa_get_exception_ptr");
+    Obj = EmitNounwindRuntimeCall(Fn, getExceptionFromSlot());
+  }
+  // The code slot is size_t, so the pointer is returned as its integer
+  // representation.
+  return Builder.CreatePtrToInt(Obj, ConvertType(E->getType()));
 }
 
 RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {

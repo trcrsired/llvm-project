@@ -5372,7 +5372,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         Expr *NoexceptExpr = nullptr;
 
         if (FTI.getExceptionSpecType() == EST_Dynamic ||
-            FTI.getExceptionSpecType() == EST_ThrowsTyped) {
+            FTI.getExceptionSpecType() == EST_ThrowsTyped ||
+            FTI.getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse) {
           // FIXME: It's rather inefficient to have to split into two vectors
           // here.
           unsigned N = FTI.getNumExceptions();

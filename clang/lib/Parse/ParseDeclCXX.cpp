@@ -3942,12 +3942,60 @@ void Parser::cacheNoexceptAfterThrows(CachedTokens *&ExceptionSpecTokens) {
   }
 }
 
+ExceptionSpecificationType
+Parser::tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType) {
+  // `fails{E}` implies noexcept(true) by default; `fails{E} noexcept(false)`
+  // additionally allows traditional C++ exceptions alongside the herbception
+  // error channel (EST_ThrowsTypedNoexceptFalse). `noexcept(true)` or a bare
+  // `noexcept` keeps the plain fails spec. 'throws' and 'fails{...}' are
+  // mutually exclusive.
+  if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_fails)) {
+    Diag(Tok, diag::err_throws_fails_combined);
+    ConsumeToken();
+    if (Tok.is(tok::l_paren))
+      SkipUntil(tok::r_paren, StopAtSemi);
+    return FailsType;
+  }
+  if (Tok.isNot(tok::kw_noexcept))
+    return FailsType;
+
+  SourceLocation KeywordLoc = ConsumeToken();
+  if (Tok.is(tok::l_paren)) {
+    BalancedDelimiterTracker T(*this, tok::l_paren);
+    T.consumeOpen();
+    EnterExpressionEvaluationContext ConstantEvaluated(
+        Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+    ExprResult NoexceptExpr = ParseConstantExpressionInExprEvalContext();
+    T.consumeClose();
+    if (!NoexceptExpr.isInvalid()) {
+      ExceptionSpecificationType NoexceptType = EST_None;
+      NoexceptExpr =
+          Actions.ActOnNoexceptSpec(NoexceptExpr.get(), NoexceptType);
+      if (NoexceptType == EST_NoexceptFalse)
+        return EST_ThrowsTypedNoexceptFalse;
+    }
+    return FailsType;
+  }
+
+  // Bare `noexcept` — consistent with `fails` (noexcept by default).
+  return FailsType;
+}
+
 ExceptionSpecificationType Parser::tryParseNoexceptAfterThrows(
     ExceptionSpecificationType ThrowsType) {
   // `throws` implies noexcept(true). A following `noexcept(false)` contradicts
   // that and is rejected (later work will handle legacy C++ EH inside throws
   // functions); `noexcept(true)` or a bare `noexcept` is consistent and the
-  // function stays `throws`.
+  // function stays `throws`. 'throws' and 'fails{...}' are mutually exclusive.
+  if (Tok.is(tok::kw_fails) || Tok.is(tok::kw_throws)) {
+    Diag(Tok, diag::err_throws_fails_combined);
+    ConsumeToken();
+    if (Tok.is(tok::l_brace))
+      SkipUntil(tok::r_brace, StopAtSemi);
+    else if (Tok.is(tok::l_paren))
+      SkipUntil(tok::r_paren, StopAtSemi);
+    return ThrowsType;
+  }
   if (Tok.isNot(tok::kw_noexcept))
     return ThrowsType;
 
@@ -4032,6 +4080,16 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         }
         SpecificationRange = SourceRange(StartTok.getLocation(),
                                          ExceptionSpecTokens->back().getLocation());
+        // `fails{E} noexcept(...)` may follow: cache the noexcept so the
+        // delayed re-parse sees the whole spec.
+        if (Tok.is(tok::kw_noexcept)) {
+          ExceptionSpecTokens->push_back(Tok); // 'noexcept'
+          ConsumeToken();
+          if (Tok.is(tok::l_paren))
+            ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
+                                 /*StopAtSemi=*/true,
+                                 /*ConsumeFinalToken=*/true);
+        }
         return EST_Unparsed;
       }
     }
@@ -4043,7 +4101,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         Diag(Tok, diag::warn_cxx98_compat_noexcept_decl);
         NoexceptExpr = nullptr;
         // `noexcept throws` may follow: cache the throws so the delayed
-        // re-parse sees the full spec.
+        // re-parse sees the full spec. Likewise `noexcept fails{E}`.
         if (Tok.is(tok::kw_throws)) {
           ExceptionSpecTokens = new CachedTokens;
           ExceptionSpecTokens->push_back(StartTok); // 'noexcept'
@@ -4052,6 +4110,17 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
           if (Tok.is(tok::l_paren))
             ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
                                  /*StopAtSemi=*/true,
+                                 /*ConsumeFinalToken=*/true);
+          return EST_Unparsed;
+        }
+        if (Tok.is(tok::kw_fails)) {
+          ExceptionSpecTokens = new CachedTokens;
+          ExceptionSpecTokens->push_back(StartTok); // 'noexcept'
+          ExceptionSpecTokens->push_back(Tok);      // 'fails'
+          ConsumeToken();
+          if (Tok.is(tok::l_brace))
+            ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
+                                 /*StopAtSemi=*/false,
                                  /*ConsumeFinalToken=*/true);
           return EST_Unparsed;
         }
@@ -4074,7 +4143,8 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     SpecificationRange.setEnd(ExceptionSpecTokens->back().getLocation());
 
     // `noexcept(...) throws` may follow: cache the throws (and any trailing
-    // noexcept) so the delayed re-parse sees the whole spec.
+    // noexcept) so the delayed re-parse sees the whole spec. Likewise for
+    // `noexcept(...) fails{E}`.
     if (StartTok.is(tok::kw_noexcept)) {
       if (Tok.is(tok::kw_throws)) {
         ExceptionSpecTokens->push_back(Tok); // 'throws'
@@ -4082,6 +4152,14 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         if (Tok.is(tok::l_paren)) {
           ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
                                /*StopAtSemi=*/true,
+                               /*ConsumeFinalToken=*/true);
+        }
+      } else if (Tok.is(tok::kw_fails)) {
+        ExceptionSpecTokens->push_back(Tok); // 'fails'
+        ConsumeToken();
+        if (Tok.is(tok::l_brace)) {
+          ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
+                               /*StopAtSemi=*/false,
                                /*ConsumeFinalToken=*/true);
         }
       }
@@ -4159,7 +4237,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     DynamicExceptions.push_back(ErrorTy);
     DynamicExceptionRanges.push_back(SourceRange(KwLoc, EndLoc));
     SpecificationRange = SourceRange(KwLoc, EndLoc);
-    return EST_ThrowsTyped;
+    return tryParseNoexceptAfterFails(EST_ThrowsTyped);
   }
 
   // If there's no noexcept specification, we're done.
@@ -4224,6 +4302,30 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
       // rejected above; recover as `throws`.
       (void)ThrowsLoc;
       return ThrowsType;
+    }
+
+    // `noexcept(...) fails{E}`: a noexcept(false) fails{E} adds the
+    // traditional C++ exception channel alongside the herbception error
+    // channel; noexcept(true) keeps the plain fails spec.
+    if (Tok.is(tok::kw_fails)) {
+      SourceLocation FailsLoc = ConsumeToken();
+      BalancedDelimiterTracker TBrace(*this, tok::l_brace);
+      if (TBrace.consumeOpen()) {
+        Diag(Tok, diag::err_expected_lbrace_after) << "fails";
+        return EST_None;
+      }
+      if (Tok.is(tok::r_brace)) {
+        Diag(Tok, diag::err_expected_type) << "fails";
+        TBrace.consumeClose();
+        return EST_None;
+      }
+      ParsedType ErrorTy = ParseTypeName().get();
+      TBrace.consumeClose();
+      DynamicExceptions.push_back(ErrorTy);
+      DynamicExceptionRanges.push_back(
+          SourceRange(FailsLoc, Tok.getLocation()));
+      return (NoexceptType == EST_NoexceptFalse) ? EST_ThrowsTypedNoexceptFalse
+                                                 : EST_ThrowsTyped;
     }
 
     // If there's a dynamic specification after a noexcept specification,

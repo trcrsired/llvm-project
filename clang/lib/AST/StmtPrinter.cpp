@@ -2380,6 +2380,10 @@ void StmtPrinter::VisitCXXErrorValueExpr(CXXErrorValueExpr *Node) {
   PrintExpr(Node->getOperand());
 }
 
+void StmtPrinter::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *Node) {
+  OS << "__cxa_exception_ptr";
+}
+
 void StmtPrinter::VisitCXXTryExpr(CXXTryExpr *Node) {
   OS << "try(";
   PrintExpr(Node->getSubExpr());

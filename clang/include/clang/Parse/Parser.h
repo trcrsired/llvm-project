@@ -2971,6 +2971,12 @@ private:
   ExceptionSpecificationType tryParseNoexceptAfterThrows(
       ExceptionSpecificationType ThrowsType);
 
+  /// Parse a `noexcept` specifier that follows a `fails{E}` specifier.
+  /// `fails{E} noexcept(false)` adds the traditional C++ exception channel
+  /// alongside the herbception error channel.
+  ExceptionSpecificationType
+  tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType);
+
   /// Cache a `noexcept(...)` that follows `throws` so the delayed re-parse of
   /// a member function exception spec sees both specifiers.
   void cacheNoexceptAfterThrows(CachedTokens *&ExceptionSpecTokens);

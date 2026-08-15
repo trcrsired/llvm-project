@@ -35,7 +35,7 @@ static bool canCalleeHerbceptionThrowFails(const Sema &S,
                                            const FunctionProtoType *FT,
                                            QualType E) {
   ExceptionSpecificationType EST = FT->getExceptionSpecType();
-  if (EST != EST_ThrowsTyped)
+  if (EST != EST_ThrowsTyped && EST != EST_ThrowsTypedNoexceptFalse)
     return false;
   return S.getASTContext().hasSameUnqualifiedType(FT->getExceptionType(0), E);
 }
