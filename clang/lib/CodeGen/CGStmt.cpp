@@ -1856,17 +1856,43 @@ CodeGenFunction::EmitFailsErrorToStdError(const CXXTryExpr *E,
   if (!Domain)
     return nullptr;
 
-  // error_domain<E>::domain() — the domain singleton pointer.
-  CXXMethodDecl *DomainFn = nullptr;
+  // error_domain<E>::domain() — the domain singleton pointer. If the
+  // specialization declares a `domain_alias_type` (aliasing another
+  // error_domain<U> sharing the same category), use the alias's domain().
+  auto FindDomain = [](CXXRecordDecl *RD) {
+    for (const Decl *D : RD->decls()) {
+      const auto *MD = dyn_cast<CXXMethodDecl>(D);
+      if (!MD || !MD->isStatic())
+        continue;
+      if (MD->getDeclName().isIdentifier() && MD->getName() == "domain")
+        return const_cast<CXXMethodDecl *>(MD);
+    }
+    return static_cast<CXXMethodDecl *>(nullptr);
+  };
+
+  CXXMethodDecl *DomainFn = FindDomain(Domain);
   CXXMethodDecl *CodeFn = nullptr;
   for (const Decl *D : Domain->decls()) {
     const auto *MD = dyn_cast<CXXMethodDecl>(D);
     if (!MD || !MD->isStatic())
       continue;
-    if (MD->getDeclName().isIdentifier() && MD->getName() == "domain")
-      DomainFn = const_cast<CXXMethodDecl *>(MD);
-    else if (MD->getDeclName().isIdentifier() && MD->getName() == "code")
+    if (MD->getDeclName().isIdentifier() && MD->getName() == "code")
       CodeFn = const_cast<CXXMethodDecl *>(MD);
+  }
+  if (!DomainFn) {
+    // Follow the alias to error_domain<U>::domain(). The alias is declared as
+    // a member type `domain_alias_type`; resolve it via qualified lookup on
+    // the record.
+    ASTContext &Ctx = getContext();
+    DeclarationName DN = &Ctx.Idents.get("domain_alias_type");
+    DeclContext::lookup_result Lookup = Domain->lookup(DN);
+    if (!Lookup.empty()) {
+      if (auto *TD = dyn_cast<TypeDecl>(Lookup.front())) {
+        if (CXXRecordDecl *AliasDomain =
+                Ctx.getTypeDeclType(TD)->getAsCXXRecordDecl())
+          DomainFn = FindDomain(AliasDomain);
+      }
+    }
   }
   if (!DomainFn || !CodeFn)
     return nullptr;

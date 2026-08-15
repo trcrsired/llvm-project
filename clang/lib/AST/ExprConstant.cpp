@@ -11620,7 +11620,10 @@ namespace {
               cast<CallExpr>(E->getDomainCall()->IgnoreParenImpCasts()),
               Domain, nullptr))
         return false;
-      // Build the std::error value {domain_opaque, code_opaque}.
+      // Build the std::error value {domain_opaque, code_opaque}. The field
+      // names are implementation-defined (some headers use a __-prefixed
+      // spelling), so identify them by type: the domain is the pointer field,
+      // the code is the integral field.
       const RecordDecl *RD = E->getType()->getAsRecordDecl();
       if (!RD)
         return Error(E);
@@ -11629,9 +11632,9 @@ namespace {
       for (const FieldDecl *F : RD->fields()) {
         if (F->isUnnamedBitField())
           continue;
-        if (F->getName() == "domain_opaque")
+        if (F->getType()->isPointerType())
           V.getStructField(Idx) = std::move(Domain);
-        else if (F->getName() == "code_opaque")
+        else if (F->getType()->isIntegralOrEnumerationType())
           V.getStructField(Idx) = std::move(Code);
         ++Idx;
       }
