@@ -8806,6 +8806,10 @@ def err_herbception_destructor_spec : Error<
   "destructor cannot be declared with a herbception "
   "('throws'/'fails{...}') exception specification; destructors cannot "
   "propagate errors">;
+def err_fails_only_free_function : Error<
+  "'fails{...}' is a C-style feature and may only be attached to free "
+  "(non-member) functions; it is not allowed on member functions (including "
+  "static members), lambdas, or function templates">;
 def err_fails_std_error_type : Error<
   "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
   "implicit error type of 'throws' and cannot be returned as an explicit "

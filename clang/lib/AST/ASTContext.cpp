@@ -8778,6 +8778,34 @@ QualType ASTContext::getCatchFailsType(QualType T, QualType E) const {
   return getCanonicalTagType(RD);
 }
 
+QualType
+ASTContext::getInvokeHerbceptionFailsResultType(QualType V, QualType E) const {
+  CanQualType CV = getCanonicalType(V);
+  CanQualType CE = getCanonicalType(E);
+  auto Key = std::make_pair(CV, CE);
+  auto It = InvokeHerbceptionFailsResultTypes.find(Key);
+  if (It != InvokeHerbceptionFailsResultTypes.end())
+    return getCanonicalTagType(It->second);
+
+  // struct { using value_type = V; using error_type = E; }
+  RecordDecl *RD = buildImplicitRecord("__herb_invoke_fails_result");
+  RD->startDefinition();
+
+  auto addTypedef = [&](StringRef Name, QualType Ty) {
+    TypedefDecl *TD = TypedefDecl::Create(
+        *const_cast<ASTContext *>(this), RD, SourceLocation(),
+        SourceLocation(), &Idents.get(Name), getTrivialTypeSourceInfo(Ty));
+    TD->setAccess(AS_public);
+    RD->addDecl(TD);
+  };
+  addTypedef("value_type", V);
+  addTypedef("error_type", E);
+
+  RD->completeDefinition();
+  InvokeHerbceptionFailsResultTypes[Key] = RD;
+  return getCanonicalTagType(RD);
+}
+
 QualType ASTContext::getBlockDescriptorExtendedType() const {
   if (BlockDescriptorExtendedType)
     return getCanonicalTagType(BlockDescriptorExtendedType);

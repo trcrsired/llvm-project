@@ -6735,6 +6735,16 @@ public:
   /// E, D and Loc are all optional.
   static CanThrowResult canCalleeThrow(Sema &S, const Expr *E, const Decl *D,
                                        SourceLocation Loc = SourceLocation());
+
+  /// Determine whether the given statement/expression can propagate a
+  /// herbception error through the given channel.
+  ///
+  /// \param E The channel to test: a null QualType tests the `throws` channel
+  /// (implicit std::error, EST_BasicThrows); a non-null E tests the
+  /// `fails{E}` channel (EST_ThrowsTyped with exception type E). Returns true
+  /// if some potentially-evaluated callee in \p S is declared with a matching
+  /// herbception spec.
+  bool canHerbceptionThrow(const Stmt *S, QualType E);
   const FunctionProtoType *ResolveExceptionSpec(SourceLocation Loc,
                                                 const FunctionProtoType *FPT);
   void UpdateExceptionSpec(FunctionDecl *FD,

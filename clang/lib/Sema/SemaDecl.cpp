@@ -10684,6 +10684,21 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // Finally, we know we have the right number of parameters, install them.
   NewFD->setParams(Params);
 
+  // Herbception `fails{E}` is a C-style feature: it may only be attached to
+  // free (non-member) functions. It is disallowed on member functions
+  // (including static members), lambdas, and function templates, which keeps
+  // the fails{E} machinery (and its type traits) simple. (Coroutines are
+  // rejected separately when the body is parsed, since coroutine-ness is only
+  // known then.)
+  if (const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>()) {
+    if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
+        FPT->hasFailsSpec() &&
+        (NewFD->isCXXClassMember() || NewFD->getDescribedFunctionTemplate())) {
+      Diag(D.getIdentifierLoc(), diag::err_fails_only_free_function);
+      NewFD->setInvalidDecl();
+    }
+  }
+
   // If this declarator is a declaration and not a definition, its parameters
   // will not be pushed onto a scope chain. That means we will not issue any
   // reserved identifier warnings for the declaration, but we will for the

@@ -696,6 +696,18 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
   if (!checkCoroutineContext(*this, KWLoc, Keyword))
     return false;
 
+  // Herbception `fails{E}` is a C-style feature restricted to free functions;
+  // coroutines are not plain free functions, so reject a fails spec here.
+  if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
+    if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
+      if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
+          FPT && FPT->hasFailsSpec()) {
+        Diag(KWLoc, diag::err_fails_only_free_function);
+        const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
+      }
+    }
+  }
+
   // Support for coroutines is not stable on 32 bits windows
   // Warn about it.
   if (Context.getTargetInfo().getCXXABI().isMicrosoft() &&

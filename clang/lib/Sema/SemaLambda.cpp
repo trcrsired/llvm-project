@@ -1088,6 +1088,14 @@ void Sema::CompleteLambdaCallOperator(
                                                  TemplateParams, MethodTyInfo));
   Method->setConstexprKind(ConstexprKind);
   Method->setStorageClass(SC);
+
+  // Herbception `fails{E}` is a C-style feature restricted to free (non-member)
+  // functions; a lambda's call operator is a member of its closure type.
+  if (getLangOpts().HerbExceptions &&
+      Method->getType()->getAs<FunctionProtoType>()->hasFailsSpec()) {
+    Diag(LambdaLoc, diag::err_fails_only_free_function);
+    Method->setInvalidDecl();
+  }
   if (!Params.empty()) {
     CheckParmsForFunctionDef(Params, /*CheckParameterNames=*/false);
     Method->setParams(Params);

@@ -19785,6 +19785,16 @@ void Sema::actOnDelayedExceptionSpecification(
     // declaration is already erroneous and never used for code generation.
   }
 
+  // Herbception `fails{E}` is a C-style feature restricted to free (non-member)
+  // functions. Member functions (including static members) and lambda call
+  // operators reach this delayed path, so diagnose them here.
+  if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
+      EST == EST_ThrowsTyped && FD->isCXXClassMember()) {
+    Diag(SpecificationRange.getBegin(), diag::err_fails_only_free_function)
+        << SpecificationRange;
+    FD->setInvalidDecl();
+  }
+
   // Check the exception specification.
   llvm::SmallVector<QualType, 4> Exceptions;
   FunctionProtoType::ExceptionSpecInfo ESI;
