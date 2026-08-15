@@ -1153,7 +1153,9 @@ ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
           ErrorTy = CalleeFPT->getExceptionType(0);
       }
 
-  QualType EitherTy = Context.getEitherType(ValueTy, ErrorTy);
+  // `catch fails(expr)` yields the N2289 aggregate
+  // `struct { union { T value; E error; }; bool failed; }` in both C and C++.
+  QualType EitherTy = Context.getCatchFailsType(ValueTy, ErrorTy);
   return new (Context) CXXCatchFailsExpr(Ex, EitherTy, CatchLoc);
 }
 

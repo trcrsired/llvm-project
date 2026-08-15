@@ -8713,33 +8713,68 @@ QualType ASTContext::getBlockDescriptorType() const {
   return getCanonicalTagType(BlockDescriptorType);
 }
 
-QualType ASTContext::getEitherType(QualType T, QualType E) const {
+QualType ASTContext::getCatchFailsType(QualType T, QualType E) const {
   CanQualType CT = getCanonicalType(T);
   CanQualType CE = getCanonicalType(E);
   auto Key = std::make_pair(CT, CE);
-  auto It = EitherTypes.find(Key);
-  if (It != EitherTypes.end())
+  auto It = CatchFailsTypes.find(Key);
+  if (It != CatchFailsTypes.end())
     return getCanonicalTagType(It->second);
 
-  RecordDecl *RD = buildImplicitRecord("either");
+  // N2289: struct { union { T value; E error; }; bool failed; }.
+  RecordDecl *RD = buildImplicitRecord("__herb_catch_fails");
   RD->startDefinition();
 
-  // Fields: .positive (bool), .left (T), .right (E).
-  struct EitherField {
-    const char *Name;
-    QualType Ty;
-  } Fields[] = {{"positive", BoolTy}, {"left", T}, {"right", E}};
-  for (const auto &F : Fields) {
+  // The anonymous union member { T value; E error; }.
+  RecordDecl *Union = buildImplicitRecord("", RecordDecl::TagKind::Union);
+  Union->startDefinition();
+  Union->setAnonymousStructOrUnion(true);
+  for (const auto &F : {std::pair<const char *, QualType>{"value", T},
+                        std::pair<const char *, QualType>{"error", E}}) {
     FieldDecl *Field = FieldDecl::Create(
-        *this, RD, SourceLocation(), SourceLocation(),
-        &Idents.get(F.Name), F.Ty, /*TInfo=*/nullptr,
-        /*BitWidth=*/nullptr, /*Mutable=*/false, ICIS_NoInit);
+        *this, Union, SourceLocation(), SourceLocation(), &Idents.get(F.first),
+        F.second, /*TInfo=*/nullptr, /*BitWidth=*/nullptr, /*Mutable=*/false,
+        ICIS_NoInit);
     Field->setAccess(AS_public);
-    RD->addDecl(Field);
+    Union->addDecl(Field);
+  }
+  Union->completeDefinition();
+
+  FieldDecl *UnionField = FieldDecl::Create(
+      *this, RD, SourceLocation(), SourceLocation(),
+      /*Id=*/nullptr, getTypeDeclType(static_cast<const TypeDecl *>(Union)),
+      /*TInfo=*/nullptr,
+      /*BitWidth=*/nullptr, /*Mutable=*/false, ICIS_NoInit);
+  UnionField->setImplicit();
+  UnionField->setAccess(AS_public);
+  RD->addDecl(UnionField);
+
+  // Inject `value`/`error` as IndirectFieldDecls so `r.value` / `r.error`
+  // resolve through the anonymous union.
+  for (const FieldDecl *Sub : Union->fields()) {
+    if (!Sub->getDeclName())
+      continue;
+    auto *Chain =
+        new (*const_cast<ASTContext *>(this)) NamedDecl *[2];
+    Chain[0] = UnionField;
+    Chain[1] = const_cast<FieldDecl *>(Sub);
+    IndirectFieldDecl *Ind = IndirectFieldDecl::Create(
+        *const_cast<ASTContext *>(this), RD, Sub->getLocation(),
+        Sub->getIdentifier(), Sub->getType(), {Chain, 2});
+    Ind->setImplicit();
+    Ind->setAccess(AS_public);
+    RD->addDecl(Ind);
   }
 
+  FieldDecl *FailedField = FieldDecl::Create(
+      *this, RD, SourceLocation(), SourceLocation(), &Idents.get("failed"),
+      BoolTy, /*TInfo=*/nullptr, /*BitWidth=*/nullptr, /*Mutable=*/false,
+      ICIS_NoInit);
+  FailedField->setAccess(AS_public);
+  RD->addDecl(FailedField);
+
   RD->completeDefinition();
-  EitherTypes[Key] = RD;
+  CatchFailsTypes[Key] = RD;
   return getCanonicalTagType(RD);
 }
 
