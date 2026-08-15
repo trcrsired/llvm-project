@@ -14019,6 +14019,12 @@ ASTContext::getUnnamedGlobalConstantDecl(QualType Ty,
   return New;
 }
 
+UnnamedGlobalConstantDecl *
+ASTContext::createUnnamedGlobalConstantDecl(QualType Ty,
+                                            const APValue &APVal) const {
+  return UnnamedGlobalConstantDecl::Create(*this, Ty, APVal);
+}
+
 TemplateParamObjectDecl *
 ASTContext::getTemplateParamObjectDecl(QualType T, const APValue &V) const {
   assert(T->isRecordType() && "template param object of unexpected type");

@@ -3657,6 +3657,14 @@ public:
   UnnamedGlobalConstantDecl *
   getUnnamedGlobalConstantDecl(QualType Ty, const APValue &Value) const;
 
+  /// Return a fresh (non-uniquified) anonymous global constant for the given
+  /// APValue. Unlike getUnnamedGlobalConstantDecl, each call returns a distinct
+  /// decl, so two values with identical content get distinct addresses. Used by
+  /// the constexpr herbception machinery to fabricate per-domain opaque
+  /// pointers.
+  UnnamedGlobalConstantDecl *
+  createUnnamedGlobalConstantDecl(QualType Ty, const APValue &Value) const;
+
   /// Return the template parameter object of the given type with the given
   /// value.
   TemplateParamObjectDecl *getTemplateParamObjectDecl(QualType T,
