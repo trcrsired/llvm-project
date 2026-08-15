@@ -4394,8 +4394,33 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
     }
   }
   // There's nothing to test that ActOnExceptionDecl didn't already test.
-  return new (Context) CXXCatchThrowsStmt(
-      CatchLoc, SpecLoc, cast_or_null<VarDecl>(ExDecl), HandlerBlock);
+  // When the handler catches `std::error`, build the conversion expression
+  // that fabricates a std::error from a caught legacy C++ exception (so a
+  // `noexcept(false)` call inside the try block throwing is auto-converted and
+  // caught here). The conversion is only attached when std::error and the
+  // cxa_exception_code domain are available; otherwise it degrades to catching
+  // only herbception throws.
+  Expr *LegacyErrorValue = nullptr;
+  if (const auto *VD = dyn_cast_or_null<VarDecl>(ExDecl)) {
+    if (NamespaceDecl *Std = getStdNamespace()) {
+      LookupResult R(*this, &PP.getIdentifierTable().get("error"), CatchLoc,
+                     LookupTagName);
+      if (LookupQualifiedName(R, Std)) {
+        if (RecordDecl *RD = R.getAsSingle<RecordDecl>()) {
+          QualType StdErrorTy =
+              Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+          if (Context.hasSameUnqualifiedType(VD->getType(), StdErrorTy)) {
+            ExprResult Conv = BuildCxaExceptionErrorValue(CatchLoc);
+            if (!Conv.isInvalid())
+              LegacyErrorValue = Conv.get();
+          }
+        }
+      }
+    }
+  }
+  return new (Context)
+      CXXCatchThrowsStmt(CatchLoc, SpecLoc, cast_or_null<VarDecl>(ExDecl),
+                         HandlerBlock, LegacyErrorValue);
 }
 
 namespace {

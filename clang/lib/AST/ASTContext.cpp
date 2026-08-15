@@ -5052,7 +5052,7 @@ static bool isCanonicalExceptionSpecification(
   // changes the function ABI (the return type is lowered to {T, i1}).
   if (ESI.Type == EST_BasicThrows)
     return true;
-  if (ESI.Type == EST_ThrowsTyped) {
+  if (ESI.Type == EST_ThrowsTyped || ESI.Type == EST_ThrowsTypedNoexceptFalse) {
     for (QualType ET : ESI.Exceptions)
       if (!ET.isCanonical())
         return false;
@@ -5194,7 +5194,8 @@ QualType ASTContext::getFunctionTypeInternal(
         break;
 
       case EST_ThrowsTyped:
-        CanonicalEPI.ExceptionSpec.Type = EST_ThrowsTyped;
+      case EST_ThrowsTypedNoexceptFalse:
+        CanonicalEPI.ExceptionSpec.Type = EPI.ExceptionSpec.Type;
         for (QualType ET : EPI.ExceptionSpec.Exceptions)
           ExceptionTypeStorage.push_back(getCanonicalType(ET));
         CanonicalEPI.ExceptionSpec.Exceptions = ExceptionTypeStorage;

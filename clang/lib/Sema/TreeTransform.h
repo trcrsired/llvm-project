@@ -15185,6 +15185,13 @@ ExprResult TreeTransform<Derived>::TransformCXXErrorValueExpr(
 }
 
 template <typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  // A magic expression with no subexpressions: it always rebuilds unchanged.
+  return E;
+}
+
+template <typename Derived>
 ExprResult TreeTransform<Derived>::TransformCXXCatchFailsExpr(
     CXXCatchFailsExpr *E) {
   ++getSema().HerbceptionOperandDepth;

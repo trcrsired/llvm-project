@@ -2009,6 +2009,12 @@ void ASTStmtWriter::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
   Code = serialization::EXPR_CXX_ERROR_VALUE;
 }
 
+void ASTStmtWriter::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getBeginLoc());
+  Code = serialization::EXPR_CXX_CXA_EXCEPTION;
+}
+
 void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getTryLoc());

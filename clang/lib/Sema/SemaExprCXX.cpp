@@ -1093,6 +1093,65 @@ ExprResult Sema::RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
                                          Loc);
 }
 
+/// Build the compiler-fabricated `std::error` value that captures a legacy
+/// C++ exception: `{error_domain<std::cxa_exception_code>::domain(),
+/// __cxa_get_exception_ptr(...)}`. This is used when a legacy exception
+/// (thrown by a `noexcept(false)` function) is converted to the herbception
+/// channel: inside a `try { } catch throws(std::error e)` block, or escaping
+/// a `throws` function. The thrown-object pointer is the `code`; the domain is
+/// looked up through the user's `error_domain<std::cxa_exception_code>`
+/// specialization (the compiler does not hardcode the singleton).
+ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
+  // Best-effort conversion: locate std::cxa_exception_code, its
+  // error_domain specialization, and std::error. When any of these is missing
+  // (e.g. the cxa_exception_code header is not included), return ExprError
+  // silently so the catch-throws handler still catches herbception throws —
+  // the legacy-EH conversion is simply unavailable.
+  QualType CxaCodeTy;
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("cxa_exception_code"),
+                   Loc, LookupTagName);
+    if (LookupQualifiedName(R, Std)) {
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        CxaCodeTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+    }
+  }
+  if (CxaCodeTy.isNull())
+    return ExprError();
+
+  // error_domain<std::cxa_exception_code>::domain() — the domain singleton.
+  CXXRecordDecl *Domain = lookupErrorDomain(Loc, CxaCodeTy);
+  CXXMethodDecl *DomainFn =
+      Domain ? findStaticMember(*this, Domain, "domain", Loc) : nullptr;
+  if (!DomainFn)
+    return ExprError();
+  ExprResult DomainCall = buildStaticMemberCall(*this, DomainFn, {}, Loc);
+  if (DomainCall.isInvalid())
+    return ExprError();
+
+  // The fabricated std::error type, looked up by name.
+  QualType ErrorTy;
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"), Loc,
+                   LookupTagName);
+    if (LookupQualifiedName(R, Std)) {
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        ErrorTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+    }
+  }
+  if (ErrorTy.isNull())
+    return ExprError();
+
+  // The magic thrown-object-pointer operand: CodeGen lowers it to
+  // __cxa_get_exception_ptr, and its value IS the code. It is a scalar
+  // (size_t) expression matching the {void*, size_t} std::error code slot.
+  Expr *CxaOperand =
+      new (Context) CXXCxaExceptionExpr(Context.getSizeType(), Loc);
+
+  return new (Context) CXXErrorValueExpr(CxaOperand, DomainCall.get(),
+                                         /*CodeCall=*/CxaOperand, ErrorTy, Loc);
+}
+
 ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
     Diag(TryLoc, diag::err_herbception_disabled);

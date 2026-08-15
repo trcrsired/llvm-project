@@ -671,6 +671,7 @@ namespace clang {
     ExpectedStmt VisitCXXThrowExpr(CXXThrowExpr *E);
     ExpectedStmt VisitCXXTryExpr(CXXTryExpr *E);
     ExpectedStmt VisitCXXErrorValueExpr(CXXErrorValueExpr *E);
+    ExpectedStmt VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E);
     ExpectedStmt VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E);
     ExpectedStmt VisitCXXNoexceptExpr(CXXNoexceptExpr *E);
     ExpectedStmt VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E);
@@ -8455,6 +8456,16 @@ ExpectedStmt ASTNodeImporter::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
 
   return new (Importer.getToContext())
       CXXErrorValueExpr(ToOperand, ToDomainCall, ToCodeCall, ToType, ToLoc);
+}
+
+ExpectedStmt ASTNodeImporter::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  Error Err = Error::success();
+  auto ToType = importChecked(Err, E->getType());
+  auto ToLoc = importChecked(Err, E->getBeginLoc());
+  if (Err)
+    return std::move(Err);
+
+  return new (Importer.getToContext()) CXXCxaExceptionExpr(ToType, ToLoc);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXTryExpr(CXXTryExpr *E) {

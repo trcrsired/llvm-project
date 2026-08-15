@@ -8827,6 +8827,9 @@ def err_fails_std_error_type : Error<
   "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
   "implicit error type of 'throws' and cannot be returned as an explicit "
   "fails error type">;
+def err_fails_type_not_trivially_copyable : Error<
+  "the 'fails{...}' error type %0 must be trivially copyable (matching C "
+  "behavior): the error value flows through the {T, i1} ABI slot by value">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
 def err_herbception_try_requires_operand : Error<

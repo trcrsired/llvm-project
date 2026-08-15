@@ -11,6 +11,10 @@ namespace std {
 struct error {
   void *domain;
   size_t code;
+  // The error value is a compiler-fabricated {domain, code} pair whose
+  // destructor (which runs the domain's do_cleanup) must execute exactly once
+  // when the catch variable goes out of scope, like std::expected.
+  ~error() noexcept;
 };
 }
 
@@ -19,6 +23,7 @@ struct error {
 // CHECK: extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
 // CHECK: br i1 %{{.*}}, label %herb.catch.err, label %herb.catch.ok
 // CHECK: store {{.*}} %{{.*}}, ptr %e, align 8
+// CHECK: call void @_ZNSt5errorD1Ev(ptr {{.*}} %e)
 void bar(size_t i) throws {
   if (i == 0) throw throws std::error{nullptr, 4};
 }
