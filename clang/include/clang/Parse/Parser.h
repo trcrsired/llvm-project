@@ -2964,6 +2964,17 @@ private:
       SmallVectorImpl<SourceRange> &DynamicExceptionRanges,
       ExprResult &NoexceptExpr, CachedTokens *&ExceptionSpecTokens);
 
+  /// Parse a `noexcept` specifier that follows a `throws` specifier, e.g.
+  /// `throws noexcept(false)`. `throws` implies noexcept(true), so a following
+  /// `noexcept(false)` is rejected; `noexcept(true)`/bare `noexcept` is
+  /// accepted and the function stays `throws`.
+  ExceptionSpecificationType tryParseNoexceptAfterThrows(
+      ExceptionSpecificationType ThrowsType);
+
+  /// Cache a `noexcept(...)` that follows `throws` so the delayed re-parse of
+  /// a member function exception spec sees both specifiers.
+  void cacheNoexceptAfterThrows(CachedTokens *&ExceptionSpecTokens);
+
   /// ParseDynamicExceptionSpecification - Parse a C++
   /// dynamic-exception-specification (C++ [except.spec]).
   /// EndLoc is filled with the location of the last token of the specification.
