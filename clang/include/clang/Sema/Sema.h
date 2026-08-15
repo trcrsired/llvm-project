@@ -6647,6 +6647,12 @@ public:
   ExprResult ActOnNoexceptSpec(Expr *NoexceptExpr,
                                ExceptionSpecificationType &EST);
 
+  /// Evaluate a `throws(expr)` specifier. `throws(true)` is equivalent to a
+  /// plain `throws` (herbception enabled); `throws(false)` means the function
+  /// cannot fail (like noexcept).
+  ExprResult ActOnThrowsSpec(Expr *ThrowsExpr,
+                             ExceptionSpecificationType &EST);
+
   CanThrowResult canThrow(const Stmt *E);
   /// Determine whether the callee of a particular function call can throw.
   /// E, D and Loc are all optional.
@@ -8547,6 +8553,9 @@ public:
   /// ActOnHerbceptionCatchFails - Parse `catch fails(expr)`.
   ExprResult ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
                                         SourceLocation FailsLoc, Expr *Ex);
+  /// ActOnHerbceptionFailure - Parse `failure(expr)`, which returns \p Ex via
+  /// the failure channel of the enclosing `fails{E}` function.
+  ExprResult ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex);
 
   /// Whether the currently parsed expression is the operand of a herbception
   /// `try(expr)` or `catch fails(expr)` expression. When nonzero, bare calls

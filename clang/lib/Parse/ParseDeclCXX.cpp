@@ -3955,6 +3955,19 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     if (StartTok.is(tok::kw_throws) || StartTok.is(tok::kw_fails)) {
       bool IsThrows = StartTok.is(tok::kw_throws);
       if (IsThrows) {
+        // `throws(expr)` needs the whole parenthesized expression cached.
+        if (Tok.is(tok::l_paren)) {
+          ExceptionSpecTokens = new CachedTokens;
+          ExceptionSpecTokens->push_back(StartTok);  // 'throws'
+          ExceptionSpecTokens->push_back(Tok);       // '('
+          SpecificationRange.setEnd(ConsumeParen()); // '('
+          ConsumeAndStoreUntil(tok::r_paren, *ExceptionSpecTokens,
+                               /*StopAtSemi=*/true,
+                               /*ConsumeFinalToken=*/true);
+          SpecificationRange.setEnd(
+              ExceptionSpecTokens->back().getLocation());
+          return EST_Unparsed;
+        }
         ExceptionSpecTokens = new CachedTokens;
         ExceptionSpecTokens->push_back(StartTok);
         return EST_Unparsed;
@@ -4018,11 +4031,41 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         Diag(KwLoc, diag::err_throws_requires_cxx);
         return EST_None;
       }
+      // `throws(expr)` (e.g. throws(true) / throws(false)): evaluate the
+      // constant expression like noexcept(expr).
+      if (Tok.is(tok::l_paren)) {
+        BalancedDelimiterTracker T(*this, tok::l_paren);
+        T.consumeOpen();
+
+        EnterExpressionEvaluationContext ConstantEvaluated(
+            Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+        ExprResult ThrowsExpr = ParseConstantExpressionInExprEvalContext();
+
+        T.consumeClose();
+        if (!ThrowsExpr.isInvalid()) {
+          ExceptionSpecificationType ThrowsType = EST_BasicThrows;
+          Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+          SpecificationRange = SourceRange(KwLoc, T.getCloseLocation());
+          return ThrowsType;
+        }
+        // Fall back to a plain throws for recovery.
+        SpecificationRange = SourceRange(KwLoc, T.getCloseLocation());
+        return EST_BasicThrows;
+      }
       SpecificationRange = SourceRange(KwLoc, KwLoc);
       return EST_BasicThrows;
     }
 
-    // fails{E}: parse the explicit error type.
+    // fails{E}: parse the explicit error type in braces.
+    if (Tok.is(tok::l_paren)) {
+      // `fails(E)` is invalid: parentheses are for the `throws` condition,
+      // `fails` takes a type in braces. Recover by skipping the parens.
+      BalancedDelimiterTracker TParen(*this, tok::l_paren);
+      TParen.consumeOpen();
+      TParen.skipToEnd();
+      Diag(Tok, diag::err_fails_paren_not_allowed);
+      return EST_None;
+    }
     BalancedDelimiterTracker T(*this, tok::l_brace);
     if (T.consumeOpen()) {
       Diag(Tok, diag::err_expected_lbrace_after) << "fails";

@@ -2051,6 +2051,7 @@ void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getTryLoc());
   Record.AddStmt(E->getSubExpr());
+  Record.AddDeclRef(E->getErrorDomain());
   Code = serialization::EXPR_CXX_TRY;
 }
 

@@ -92,6 +92,10 @@ ExprResult Parser::ParseAssignmentExpression(
       GetLookAheadToken(1).is(tok::kw_fails) &&
       GetLookAheadToken(2).is(tok::l_paren))
     return ParseHerbceptionCatchFailsExpression();
+  // Herbception (C-style `fails{E}`): `failure(expr)` returns the expression
+  // via the failure channel.
+  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_failure))
+    return ParseHerbceptionFailureExpression();
   if (Tok.is(tok::kw_co_yield))
     return ParseCoyieldExpression();
 

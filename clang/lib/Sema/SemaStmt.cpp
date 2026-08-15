@@ -4064,6 +4064,17 @@ StmtResult Sema::BuildReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
   if (RetValExp && DiagnoseUnexpandedParameterPack(RetValExp))
     return StmtError();
 
+  // Herbception (C-style `fails{E}`): `return failure(expr)` returns \p expr
+  // via the failure channel. The operand is a herbception CXXThrowExpr (void
+  // type), so the return statement simply evaluates it — the throw's codegen
+  // routes the error into the failure return slot.
+  if (RetValExp && !RetValExp->isTypeDependent())
+    if (const auto *Throw = dyn_cast<CXXThrowExpr>(
+            RetValExp->IgnoreParenImpCasts());
+        Throw && Throw->isHerbception())
+      return ReturnStmt::Create(Context, ReturnLoc, RetValExp,
+                                /*NRVOCandidate=*/nullptr);
+
   // HACK: We suppress simpler implicit move here in msvc compatibility mode
   // just as a temporary work around, as the MSVC STL has issues with
   // this change.

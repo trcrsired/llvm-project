@@ -8465,7 +8465,16 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryExpr(CXXTryExpr *E) {
   if (Err)
     return std::move(Err);
 
-  return new (Importer.getToContext()) CXXTryExpr(ToSubExpr, ToType, ToTryLoc);
+  CXXRecordDecl *ToErrorDomain = nullptr;
+  if (E->getErrorDomain()) {
+    auto ToErrorDomainOrErr = import(E->getErrorDomain());
+    if (!ToErrorDomainOrErr)
+      return ToErrorDomainOrErr.takeError();
+    ToErrorDomain = *ToErrorDomainOrErr;
+  }
+  return new (Importer.getToContext())
+      CXXTryExpr(ToSubExpr, ToType, ToTryLoc, /*IsLValue=*/false,
+                 ToErrorDomain);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {

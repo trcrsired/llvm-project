@@ -1342,20 +1342,32 @@ class CXXTryExpr : public Expr {
   /// The location of the "try".
   SourceLocation TryLoc;
 
+  /// When auto-propagating a `fails{E}` call's error into a `throws` function
+  /// (whose implicit error type is std::error), the E error value must be
+  /// converted to std::error via `error_domain<E>::domain()` /
+  /// `error_domain<E>::code(e)`. If non-null, \p ErrorDomain is the resolved
+  /// `error_domain<E>` specialization to use for that conversion.
+  CXXRecordDecl *ErrorDomain;
+
 public:
   /// \p Ty is the type of the success value. \p Loc is the location of the
   /// try keyword.
   CXXTryExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc,
-             bool IsLValue = false)
+             bool IsLValue = false, CXXRecordDecl *ErrorDomain = nullptr)
       : Expr(CXXTryExprClass, Ty,
              IsLValue ? VK_LValue : VK_PRValue, OK_Ordinary),
-        SubExpr(SubExpr), TryLoc(Loc) {
+        SubExpr(SubExpr), TryLoc(Loc), ErrorDomain(ErrorDomain) {
     setDependence(computeDependence(this));
   }
   CXXTryExpr(EmptyShell Empty) : Expr(CXXTryExprClass, Empty) {}
 
   const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
   Expr *getSubExpr() { return cast<Expr>(SubExpr); }
+
+  /// The `error_domain<E>` specialization used to convert a `fails{E}` error
+  /// into std::error when propagating into a `throws` function, or null when
+  /// no conversion is needed (callee error type already matches).
+  CXXRecordDecl *getErrorDomain() const { return ErrorDomain; }
 
   SourceLocation getTryLoc() const { return TryLoc; }
 

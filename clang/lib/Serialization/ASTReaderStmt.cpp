@@ -1994,6 +1994,7 @@ void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   E->TryLoc = readSourceLocation();
   E->SubExpr = Record.readSubExpr();
+  E->ErrorDomain = readDeclAs<CXXRecordDecl>();
 }
 
 void ASTStmtReader::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
