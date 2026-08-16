@@ -30,6 +30,8 @@
 
 cmake_minimum_required(VERSION 3.20)
 
+# set(CMAKE_CXX_STANDARD 26)
+
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(libherbceptions CXX)
 endif()
@@ -56,7 +58,8 @@ set(HERBCEPTIONS_HEADERS
 # domains actually used (reducing binary bloat).
 set(HERBCEPTIONS_SOURCES
   src/posix.cpp
-  src/cxa_exception.cpp
+  src/itanium_exception_ptr.cpp
+  src/msvc_exception_ptr.cpp
   src/win32.cpp
   src/nt.cpp
   src/com.cpp

@@ -361,6 +361,7 @@ struct has_herbception_throws_move_assign
 #include "herbceptions/__details/nt.h"
 #include "herbceptions/__details/win32.h"
 #include "herbceptions/__details/wine.h"
+#include "herbceptions/__details/exception_ptr.h"
 #endif
 
 // Restore the macros saved above, in reverse order.
