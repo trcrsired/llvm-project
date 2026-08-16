@@ -41,19 +41,18 @@ static_assert(ntkernel_table_is_sorted(), "ntkernel table must be sorted");
 // The table is sorted ascending by NTSTATUS with unique keys, so a binary
 // search finds the row in O(log n) instead of a linear scan.
 inline constexpr ntkernel_field const *find_ntstatus(int ntstatus) noexcept {
-  std::ptrdiff_t lo = 0;
-  std::ptrdiff_t hi = static_cast<std::ptrdiff_t>(
-      sizeof(ntkernel_table) / sizeof(ntkernel_table[0]));
+  std::size_t const count =
+      sizeof(ntkernel_table) / sizeof(ntkernel_table[0]);
+  std::size_t lo = 0;
+  std::size_t hi = count;
   while (lo < hi) {
-    std::ptrdiff_t mid = lo + (hi - lo) / 2;
+    std::size_t const mid = lo + (hi - lo) / 2;
     if (ntkernel_table[mid].ntstatus < ntstatus)
       lo = mid + 1;
     else
       hi = mid;
   }
-  if (lo < static_cast<std::ptrdiff_t>(sizeof(ntkernel_table) /
-                                       sizeof(ntkernel_table[0])) &&
-      ntkernel_table[lo].ntstatus == ntstatus)
+  if (lo < count && ntkernel_table[lo].ntstatus == ntstatus)
     return &ntkernel_table[lo];
   return nullptr;
 }
