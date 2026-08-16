@@ -2691,6 +2691,11 @@ public:
   /// return path. Lazily created; emitted if used.
   llvm::BasicBlock *getHerbceptionLegacyConvert();
 
+  /// emitHerbceptionLegacyConvertBody - Emit the body of the whole-function
+  /// legacy conversion handler. Called after the catch scope is popped so the
+  /// funclet catchpad (MSVC) is already the block's first instruction.
+  void emitHerbceptionLegacyConvertBody();
+
   llvm::Type *ConvertTypeForMem(QualType T);
   llvm::Type *ConvertType(QualType T);
   llvm::Type *convertTypeForLoadStore(QualType ASTTy,

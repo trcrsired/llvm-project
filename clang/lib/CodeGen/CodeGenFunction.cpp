@@ -426,6 +426,17 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     PopCleanupBlocks(PrologueCleanupDepth);
   }
 
+  // Emit the whole-function legacy-EH conversion handler (for a `throws`
+  // function that can call noexcept(false) callees) before the return block
+  // is finalized: the handler branches to the throws return path, so
+  // ReturnBlock must still exist. The catch scope is popped here first so the
+  // funclet catchpad (MSVC) is already the block's first instruction.
+  if (HerbceptionLegacyConvertBB && !EHStack.empty() &&
+      EHStack.begin()->getKind() == EHScope::Catch) {
+    popCatchScope();
+    emitHerbceptionLegacyConvertBody();
+  }
+
   // Emit function epilog (to return).
   llvm::DebugLoc Loc = EmitReturnBlock();
 
@@ -499,16 +510,16 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   EmitIfUsed(*this, EHResumeBlock);
   EmitIfUsed(*this, TerminateLandingPad);
   EmitIfUsed(*this, TerminateHandler);
-  // The herbception legacy-conversion block is created attached to the
-  // function (so codegen that needs the module, e.g. aggregate memcpy, works);
-  // move it to the very end if used, otherwise drop it.
+  // The herbception legacy-conversion block: move it to the very end of the
+  // function if it was used and emitted, otherwise drop it.
   if (HerbceptionLegacyConvertBB) {
-    if (HerbceptionLegacyConvertBB->use_empty()) {
-      HerbceptionLegacyConvertBB->eraseFromParent();
-      HerbceptionLegacyConvertBB = nullptr;
-    } else {
-      HerbceptionLegacyConvertBB->removeFromParent();
+    if (!HerbceptionLegacyConvertBB->use_empty()) {
+      if (HerbceptionLegacyConvertBB->getParent())
+        HerbceptionLegacyConvertBB->removeFromParent();
       HerbceptionLegacyConvertBB->insertInto(CurFn);
+    } else {
+      delete HerbceptionLegacyConvertBB;
+      HerbceptionLegacyConvertBB = nullptr;
     }
   }
   EmitIfUsed(*this, UnreachableBlock);
