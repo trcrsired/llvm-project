@@ -1762,6 +1762,15 @@ SDValue X86TargetLowering::LowerFormalArguments(
       F.getName() == "main")
     FuncInfo->setForceFramePointer(true);
 
+  // A throws (herbception) function returns its discriminant in the carry
+  // flag (CF). On Win64 the CFI epilogue restores the stack pointer with a
+  // plain ADD (LEA / no-flags variants are unavailable without a frame
+  // pointer), which would clobber CF just before the return. Force a frame
+  // pointer so the epilogue can restore SP without touching EFLAGS, keeping
+  // the carry-flag discriminant intact.
+  if (F.hasFnAttribute(Attribute::Throws) && Subtarget.isTargetWin64())
+    FuncInfo->setForceFramePointer(true);
+
   MachineFrameInfo &MFI = MF.getFrameInfo();
   bool Is64Bit = Subtarget.is64Bit();
   bool IsWin64 = Subtarget.isCallingConvWin64(CallConv);

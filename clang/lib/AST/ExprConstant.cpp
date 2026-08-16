@@ -6612,7 +6612,7 @@ static bool CheckConstexprFunction(EvalInfo &Info, SourceLocation CallLoc,
   const FunctionDecl *DiagDecl = Definition ? Definition : Declaration;
   // Special note for the assert() macro, as the normal error message falsely
   // implies we cannot use an assertion during constant evaluation.
-  if (CallLoc.isMacroID() && DiagDecl->getIdentifier()) {
+  if (CallLoc.isMacroID() && DiagDecl->getDeclName().isIdentifier()) {
     // FIXME: Instead of checking for an implementation-defined function,
     // check and evaluate the assert() macro.
     StringRef Name = DiagDecl->getName();
@@ -9302,10 +9302,12 @@ public:
     // a unique opaque pointer per domain type T. Fabricate it here instead of
     // evaluating the (extern "C") function body.
     if (const auto *MD = dyn_cast<CXXMethodDecl>(FD)) {
-      if (MD->isStatic() && MD->getName() == "domain" &&
-          MD->getNumParams() == 0 && MD->getReturnType()->isPointerType()) {
+      if (MD->isStatic() && MD->getDeclName().isIdentifier() &&
+          MD->getName() == "domain" && MD->getNumParams() == 0 &&
+          MD->getReturnType()->isPointerType()) {
         const CXXRecordDecl *DomainRD = MD->getParent();
-        if (DomainRD && DomainRD->getName() == "error_domain") {
+        if (DomainRD && DomainRD->getDeclName().isIdentifier() &&
+            DomainRD->getName() == "error_domain") {
           LValue DomainLV;
           if (!fabricateDomainPointer(
                   DomainRD, MD->getReturnType()->getPointeeType(), DomainLV))

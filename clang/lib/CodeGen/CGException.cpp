@@ -23,6 +23,7 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsWebAssembly.h"
 #include "llvm/Support/SaveAndRestore.h"
@@ -761,15 +762,19 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
 
   // The handlers are emitted with the catch scopes no longer active.
   HerbceptionCatchScopes.truncate(SavedScopes);
-  if (NeedLegacyLandingPad)
+  bool LegacyLandingPadUsed = false;
+  if (NeedLegacyLandingPad) {
+    EHCatchScope &CatchScope = cast<EHCatchScope>(*EHStack.begin());
+    LegacyLandingPadUsed = CatchScope.hasEHBranches();
     popCatchScope();
+  }
 
   // Emit the legacy-EH conversion block. It is the destination of the
   // catch-all landing pad: exn.slot holds the exception, and the fabricated
   // std::error (domain = error_domain<cxa_exception_code>::domain(), code =
   // thrown object pointer) is stored into the std::error handler's error slot
   // before running the try block's cleanups and branching to the handler.
-  if (NeedLegacyLandingPad) {
+  if (LegacyLandingPadUsed) {
     EmitBlock(LegacyConvertBB);
     // In the funclet model (MSVC), the catch-all dispatch inserted a catchpad
     // as the first instruction of this block; the exception pointer is derived
@@ -1794,6 +1799,17 @@ llvm::BasicBlock *CodeGenFunction::getHerbceptionLegacyConvert() {
   // Set up the whole-function legacy conversion handler. This block is
   // inserted at the very end of the function by FinishFunction.
   HerbceptionLegacyConvertBB = createBasicBlock("herb.legacy.convert");
+
+  return HerbceptionLegacyConvertBB;
+}
+
+// Emit the body of the whole-function legacy conversion handler. Called from
+// EmitEndEHSpec after the catch scope is popped, so that on the funclet model
+// (MSVC) the catch-all dispatch has already inserted the catchpad as the
+// first instruction of the block.
+void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
+  assert(HerbceptionLegacyConvertBB && "no legacy conversion block");
+
   CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
   Builder.SetInsertPoint(HerbceptionLegacyConvertBB);
   // Attach the block to the function so instructions that need the module
@@ -1819,10 +1835,28 @@ llvm::BasicBlock *CodeGenFunction::getHerbceptionLegacyConvert() {
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
+  // On the funclet model (MSVC), the branch that EmitHerbceptionThrow emitted
+  // to the return block must be a catchret out of the catchpad (a plain
+  // branch out of a funclet region is invalid funclet IR and miscompiles).
+  // Replace the final unconditional branch with a catchret.
+  if (EHPersonality::get(*this).isMSVCXXPersonality()) {
+    llvm::BasicBlock *BB = HerbceptionLegacyConvertBB;
+    llvm::Instruction *Term = BB->getTerminator();
+    if (auto *Br = dyn_cast<llvm::UncondBrInst>(Term)) {
+      llvm::CatchPadInst *CPI = nullptr;
+      for (llvm::Instruction &I : *BB)
+        if ((CPI = dyn_cast<llvm::CatchPadInst>(&I)))
+          break;
+      if (CPI) {
+        llvm::BasicBlock *Dest = Br->getSuccessor(0);
+        Br->eraseFromParent();
+        llvm::CatchReturnInst::Create(CPI, Dest, BB);
+      }
+    }
+  }
+
   // Restore the saved insertion state.
   Builder.restoreIP(SavedIP);
-
-  return HerbceptionLegacyConvertBB;
 }
 
 llvm::BasicBlock *CodeGenFunction::getTerminateFunclet() {
