@@ -110,6 +110,42 @@ bool is_catchable_as(::std::size_t cd, void*& __obj) noexcept
 }
 #endif // __cpp_exceptions && !_MSC_VER
 
+// Append "cxa_exception(<dynamic-type-name>)" into the pieces.
+void append_cxa_name(query_information_pieces& pieces, ::std::size_t cd) noexcept
+{
+    pieces.add_cstr(u8"cxa_exception");
+    pieces.add(reinterpret_cast<char8_t const*>("("), 1u);
+#if defined(__cpp_exceptions) && !defined(_MSC_VER)
+    ::std::type_info const* thrown = cxa_type_info_of(cd);
+    if (thrown)
+        pieces.add(reinterpret_cast<char8_t const*>(thrown->name()),
+                   __builtin_strlen(thrown->name()));
+    else
+        pieces.add(reinterpret_cast<char8_t const*>("?"), 1u);
+#else
+    pieces.add(reinterpret_cast<char8_t const*>("?"), 1u);
+#endif
+    pieces.add(reinterpret_cast<char8_t const*>(")"), 1u);
+}
+
+// Append the what() string into the pieces when the object is a
+// std::exception.
+void append_cxa_message(query_information_pieces& pieces, ::std::size_t cd) noexcept
+{
+#if defined(__cpp_exceptions) && !defined(_MSC_VER)
+    void* obj = nullptr;
+    if (is_catchable_as<::std::exception>(cd, obj))
+    {
+        ::std::exception const* e = static_cast<::std::exception const*>(obj);
+        char const* what = e->what();
+        pieces.add(reinterpret_cast<char8_t const*>(what),
+                   __builtin_strlen(what));
+    }
+#else
+    (void)cd;
+#endif
+}
+
 constinit ::std::error_domain_singleton __cxa_exception_error_domain
 {
     // The code is the thrown-object pointer (the __cxa catch value). When the
@@ -129,44 +165,25 @@ constinit ::std::error_domain_singleton __cxa_exception_error_domain
         return cd == othercd;
     },
     // The domain name is "cxa_exception", with the dynamic C++ type name
-    // obtained through RTTI, e.g. "cxa_exception(std::runtime_error)".
-    .do_name=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
+    // obtained through RTTI, e.g. "cxa_exception(std::runtime_error)". The
+    // message is the what() string when the object is a std::exception.
+    .do_query_information=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun, ::std::error_query_information query) noexcept
     {
-        ::std::io_scatter_t v[3];
-        write_ascii(encoding, cookie, cookfun, u8"cxa_exception");
-        v[0].base = "(";
-        v[0].len = 1;
-#if defined(__cpp_exceptions) && !defined(_MSC_VER)
-        ::std::type_info const* thrown = cxa_type_info_of(cd);
-        v[1].base = thrown ? static_cast<void const*>(thrown->name())
-                           : static_cast<void const*>("?");
-        v[1].len = thrown ? __builtin_strlen(thrown->name()) : 1;
-#else
-        (void)cd;
-        v[1].base = "?";
-        v[1].len = 1;
-#endif
-        v[2].base = ")";
-        v[2].len = 1;
-        cookfun(encoding, cookie, v, 3u);
-    },
-    // The message is the what() string when the object is a std::exception.
-    .do_message=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
-    {
-#if defined(__cpp_exceptions) && !defined(_MSC_VER)
-        void* obj = nullptr;
-        if (is_catchable_as<::std::exception>(cd, obj))
+        query_information_pieces pieces;
+        switch (query)
         {
-            ::std::exception const* e = static_cast<::std::exception const*>(obj);
-            char const* what = e->what();
-            write_text(encoding, cookie, cookfun, what, __builtin_strlen(what));
+        case ::std::error_query_information::name:
+            append_cxa_name(pieces, cd);
+            break;
+        case ::std::error_query_information::message:
+            append_cxa_message(pieces, cd);
+            break;
+        case ::std::error_query_information::name_message:
+            append_cxa_name(pieces, cd);
+            append_cxa_message(pieces, cd);
+            break;
         }
-#else
-        (void)cd;
-        (void)encoding;
-        (void)cookie;
-        (void)cookfun;
-#endif
+        pieces.emit(encoding, cookie, cookfun);
     },
     .do_to_errc=[](::std::size_t cd) noexcept -> ::std::errc
     {
