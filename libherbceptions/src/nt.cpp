@@ -34,67 +34,29 @@ namespace std::error_domains {
 namespace {
 using namespace __herbceptions_detail;
 
-// Largest stack buffer used when converting a UTF-8 message to UTF-16/UTF-32.
+// Largest stack buffer used when widening a message to UTF-16/UTF-32.
 constexpr ::std::size_t nt_message_capacity = 32;
 
-// Append the UTF-8 code point at *&p (advancing p) to an out buffer of 16- or
-// 32-bit code units. Returns false on overlong/invalid sequences.
+// The ntkernel table is entirely ASCII, so widening to UTF-16/UTF-32 is a
+// simple per-byte copy (each char is a code point < 0x80); no codecvt needed.
 template <typename CodeUnit>
-bool append_utf8_codepoint(char const *&p, char const *end, CodeUnit *&out,
-                           CodeUnit *out_end) noexcept {
-  unsigned char c = static_cast<unsigned char>(*p);
-  ::std::uint32_t cp;
-  unsigned len;
-  if (c < 0x80) {
-    cp = c;
-    len = 1;
-  } else if ((c >> 5) == 0x6) {
-    cp = c & 0x1F;
-    len = 2;
-  } else if ((c >> 4) == 0xE) {
-    cp = c & 0x0F;
-    len = 3;
-  } else if ((c >> 3) == 0x1E) {
-    cp = c & 0x07;
-    len = 4;
-  } else {
-    return false;
+::std::size_t widen_ascii(char8_t const *msg, CodeUnit *buf,
+                          ::std::size_t capacity) noexcept {
+  ::std::size_t n = 0;
+  while (msg[n] != 0 && n < capacity) {
+    buf[n] = static_cast<CodeUnit>(msg[n]);
+    ++n;
   }
-  if (static_cast<::std::size_t>(end - p) < len)
-    return false;
-  for (unsigned i = 1; i < len; ++i) {
-    unsigned char cc = static_cast<unsigned char>(p[i]);
-    if ((cc >> 6) != 0x2)
-      return false;
-    cp = (cp << 6) | (cc & 0x3F);
-  }
-  p += len;
-
-  if constexpr (sizeof(CodeUnit) == 2) {
-    // UTF-16: surrogate pair for code points above U+FFFF.
-    if (cp > 0xFFFF) {
-      if (out + 2 > out_end)
-        return false;
-      cp -= 0x10000;
-      *out++ = static_cast<CodeUnit>(0xD800 + (cp >> 10));
-      *out++ = static_cast<CodeUnit>(0xDC00 + (cp & 0x3FF));
-      return true;
-    }
-  }
-  if (out >= out_end)
-    return false;
-  *out++ = static_cast<CodeUnit>(cp);
-  return true;
+  return n;
 }
 
-// Emit the UTF-8 message \p msg, converting to the requested encoding. For
-// utf16/utf32 the converted text is built into a fixed stack buffer (max
+// Emit the ASCII message \p msg, converting to the requested encoding. For
+// utf16/utf32 the widened text is built into a fixed stack buffer (max
 // nt_message_capacity code units) before the cookie call; utf8/gb18030 are
 // byte-oriented and emitted directly.
 void emit_message(char8_t const *msg, ::std::error_reporter_encoding encoding,
                   void *cookie,
                   ::std::error_reporter_io_cookie_function cookfun) noexcept {
-  char const *bytes = reinterpret_cast<char const *>(msg);
   switch (encoding) {
   case ::std::error_reporter_encoding::utf8:
   case ::std::error_reporter_encoding::gb18030:
@@ -103,28 +65,14 @@ void emit_message(char8_t const *msg, ::std::error_reporter_encoding encoding,
     return;
   case ::std::error_reporter_encoding::utf16: {
     char16_t buf[nt_message_capacity];
-    char16_t *out = buf;
-    char16_t *out_end = buf + nt_message_capacity;
-    char const *p = bytes;
-    char const *end = p + __builtin_strlen(bytes);
-    while (p != end)
-      if (!append_utf8_codepoint(p, end, out, out_end))
-        break;
-    write_text(encoding, cookie, cookfun, buf,
-               static_cast<::std::size_t>(out - buf) * sizeof(char16_t));
+    ::std::size_t const n = widen_ascii(msg, buf, nt_message_capacity);
+    write_text(encoding, cookie, cookfun, buf, n * sizeof(char16_t));
     return;
   }
   case ::std::error_reporter_encoding::utf32: {
     char32_t buf[nt_message_capacity];
-    char32_t *out = buf;
-    char32_t *out_end = buf + nt_message_capacity;
-    char const *p = bytes;
-    char const *end = p + __builtin_strlen(bytes);
-    while (p != end)
-      if (!append_utf8_codepoint(p, end, out, out_end))
-        break;
-    write_text(encoding, cookie, cookfun, buf,
-               static_cast<::std::size_t>(out - buf) * sizeof(char32_t));
+    ::std::size_t const n = widen_ascii(msg, buf, nt_message_capacity);
+    write_text(encoding, cookie, cookfun, buf, n * sizeof(char32_t));
     return;
   }
   }
