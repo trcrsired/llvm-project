@@ -5,9 +5,23 @@
 namespace std::error_domains
 {
 
-extern "C"
-[[__gnu__::__const__]]
+#if defined(_MSC_VER)
+#if defined(_HERBCEPTIONS_BUILDING_RUNTIME) && defined(herbceptions_EXPORTS)
+#define __HERBCEPTIONS_CXA_CODE_API __declspec(dllexport)
+#elif defined(_HERBCEPTIONS_BUILDING_RUNTIME)
+#define __HERBCEPTIONS_CXA_CODE_API
+#else
+#define __HERBCEPTIONS_CXA_CODE_API __declspec(dllimport)
+#endif
+#elif defined(_WIN32) || defined(_WIN64)
+// MinGW auto-imports DLL symbols and links static libraries directly.
+#define __HERBCEPTIONS_CXA_CODE_API
+#else
+#define __HERBCEPTIONS_CXA_CODE_API [[__gnu__::__weak__]]
+#endif
+extern "C" __HERBCEPTIONS_CXA_CODE_API
 ::std::error_domain_singleton const* __cxa_error_domain_cxa_exception_code() noexcept;
+#undef __HERBCEPTIONS_CXA_CODE_API
 
 }
 
