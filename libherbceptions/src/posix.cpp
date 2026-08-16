@@ -15,17 +15,19 @@
 #include "herbceptions/__details/posix.h"
 #include "domain_helpers.h"
 
-namespace std::__error_domains {
+namespace std::error_domains {
 
+namespace {
 namespace __herbceptions_detail {
 
 constexpr ::std::io_scatter_t __to_u8scatter_from_errno(int __eno) noexcept {
-  using std::__error_domains::__herbceptions_detail::__tsc;
+  using ::std::error_domains::__herbceptions_detail::__tsc;
   switch (__eno) {
 #include "posix_table.hpp"
   }
 }
 } // namespace __herbceptions_detail
+} // namespace
 
 constinit ::std::error_domain_singleton __posix_error_domain{
     .do_cleanup = nullptr, // errno values need no cleanup
@@ -95,7 +97,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
             [[fallthrough]];
           }
           default: {
-            auto __scatter{::std::__error_domains::__herbceptions_detail::
+            auto __scatter{::std::error_domains::__herbceptions_detail::
                                __to_u8scatter_from_errno(static_cast<int>(
                                    static_cast<unsigned>(cd)))};
             char unsigned const *__from_first{
@@ -103,7 +105,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
             char unsigned const *__from_last{__from_first + __scatter.len};
             switch (encoding) {
             case ::std::error_reporter_encoding::utfebcdic: {
-              auto __dest = ::std::__error_domains::__herbceptions_detail::
+              auto __dest = ::std::error_domains::__herbceptions_detail::
                   __write_ebcdic_with_ascii_only_range(__from_first,
                                                        __from_last, __buffer);
               *__pos = {
@@ -117,7 +119,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
                   [[__gnu__::__may_alias__]]
 #endif
                   = char16_t *;
-              auto __dest = ::std::__error_domains::__herbceptions_detail::
+              auto __dest = ::std::error_domains::__herbceptions_detail::
                   __write_with_ascii_only_range(
                       __from_first, __from_last,
                       reinterpret_cast<__char16_may_alias_ptr>(__buffer));
@@ -133,7 +135,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
                   [[__gnu__::__may_alias__]]
 #endif
                   = char32_t *;
-              auto __dest = ::std::__error_domains::__herbceptions_detail::
+              auto __dest = ::std::error_domains::__herbceptions_detail::
                   __write_with_ascii_only_range(
                       __from_first, __from_last,
                       reinterpret_cast<__char32_may_alias_ptr>(__buffer));
@@ -159,7 +161,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
 
 extern "C" [[__gnu__::__weak__]]
 ::std::error_domain_singleton const *__cxa_error_domain_posix() noexcept {
-  return __builtin_addressof(::std::__error_domains::__posix_error_domain);
+  return __builtin_addressof(::std::error_domains::__posix_error_domain);
 }
 
-} // namespace std::__error_domains
+} // namespace std::error_domains
