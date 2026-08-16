@@ -7,7 +7,7 @@ translation units) and are not part of the public herbception/error surface.
 */
 #include "herbceptions/error"
 
-namespace std::__error_domains::__herbceptions_detail {
+namespace std::error_domains::__herbceptions_detail {
 
 template <typename __Ty, ::std::size_t __n>
 inline constexpr ::std::io_scatter_t __tsc(__Ty const (&__arr)[__n]) noexcept {
@@ -51,7 +51,7 @@ __write_ebcdic_with_ascii_only_range(char unsigned const *__fromfirst,
                                      char unsigned const *__fromlast,
                                      char unsigned *__dest) {
   for (; __fromfirst != __fromlast; ++__fromfirst) {
-    *__dest = ::std::__error_domains::__herbceptions_detail::__ascii_to_ebcdic(
+    *__dest = ::std::error_domains::__herbceptions_detail::__ascii_to_ebcdic(
         *__fromfirst);
     ++__dest;
   }
@@ -62,7 +62,7 @@ inline constexpr bool __enable_message_query{
     true
 #endif
 };
-} // namespace std::__error_domains::__herbceptions_detail
+} // namespace std::error_domains::__herbceptions_detail
 
 namespace std::error_domains {
 namespace __herbceptions_detail {
