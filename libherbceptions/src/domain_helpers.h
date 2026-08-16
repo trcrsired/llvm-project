@@ -20,6 +20,86 @@ inline void write_text(::std::error_reporter_encoding encoding, void *cookie,
   (void)encoding;
 }
 
+// Largest stack buffer (in code units) used when codecvt-converting pieces to
+// UTF-16/UTF-32.
+inline constexpr ::std::size_t query_information_capacity = 512;
+
+// Decode one UTF-8 code point at \p s, advancing \p i; returns the code point
+// or (char32_t)-1 on invalid input.
+constexpr char32_t utf8_decode(char8_t const *s, ::std::size_t len,
+                               ::std::size_t &i) noexcept {
+  char8_t const c = s[i];
+  ::std::size_t extra = 0;
+  char32_t cp = 0;
+  if (c < 0x80) {
+    cp = static_cast<char32_t>(c);
+  } else if ((c & 0xE0) == 0xC0) {
+    cp = c & 0x1F;
+    extra = 1;
+  } else if ((c & 0xF0) == 0xE0) {
+    cp = c & 0x0F;
+    extra = 2;
+  } else if ((c & 0xF8) == 0xF0) {
+    cp = c & 0x07;
+    extra = 3;
+  } else {
+    return static_cast<char32_t>(-1);
+  }
+  if (i + extra >= len)
+    return static_cast<char32_t>(-1);
+  for (::std::size_t j = 0; j != extra; ++j) {
+    char8_t const t = s[i + 1 + j];
+    if ((t & 0xC0) != 0x80)
+      return static_cast<char32_t>(-1);
+    cp = (cp << 6) | static_cast<char32_t>(t & 0x3F);
+  }
+  i += extra + 1;
+  return cp;
+}
+
+// Codecvt one UTF-8 piece to UTF-16 (with surrogate pairs for code points
+// beyond the BMP). Returns the number of code units written, or (size_t)-1 if
+// the input is invalid or the buffer is too small.
+inline ::std::size_t utf8_to_utf16(char8_t const *s, ::std::size_t len,
+                            char16_t *out,
+                            ::std::size_t capacity) noexcept {
+  ::std::size_t o = 0;
+  for (::std::size_t i = 0; i != len;) {
+    char32_t const cp = utf8_decode(s, len, i);
+    if (cp == static_cast<char32_t>(-1))
+      return static_cast<::std::size_t>(-1);
+    if (cp >= 0x10000) {
+      if (o + 2 > capacity)
+        return static_cast<::std::size_t>(-1);
+      char32_t const v = cp - 0x10000;
+      out[o++] = static_cast<char16_t>(0xD800 + (v >> 10));
+      out[o++] = static_cast<char16_t>(0xDC00 + (v & 0x3FF));
+    } else {
+      if (o + 1 > capacity)
+        return static_cast<::std::size_t>(-1);
+      out[o++] = static_cast<char16_t>(cp);
+    }
+  }
+  return o;
+}
+
+// Codecvt one UTF-8 piece to UTF-32. Returns the number of code units written,
+// or (size_t)-1 if the input is invalid or the buffer is too small.
+inline ::std::size_t utf8_to_utf32(char8_t const *s, ::std::size_t len,
+                            char32_t *out,
+                            ::std::size_t capacity) noexcept {
+  ::std::size_t o = 0;
+  for (::std::size_t i = 0; i != len;) {
+    char32_t const cp = utf8_decode(s, len, i);
+    if (cp == static_cast<char32_t>(-1))
+      return static_cast<::std::size_t>(-1);
+    if (o + 1 > capacity)
+      return static_cast<::std::size_t>(-1);
+    out[o++] = cp;
+  }
+  return o;
+}
+
 // A writev-style collector of name/message pieces. The do_query_information
 // handlers add the domain name and/or the per-code message as separate
 // io_scatter_t entries (each pointing at its own storage — no copying); the
@@ -44,17 +124,53 @@ struct query_information_pieces {
     add(s, __builtin_strlen(reinterpret_cast<char const *>(s)));
   }
 
-  // Emit the accumulated pieces as a single cookfun call. The pieces hold the
-  // raw UTF-8/u8 bytes; the encoding flag tells the IO device how to convert
-  // them, and the device decides whether to copy or write in place.
+  // Emit the accumulated pieces in the requested encoding. Codecvt is our job
+  // (the device only writes bytes): byte-oriented encodings pass the UTF-8/u8
+  // bytes through unchanged; utf16/utf32 are converted into a stack buffer and
+  // the converted pieces are handed to the device as scatters.
   void emit(::std::error_reporter_encoding encoding, void *cookie,
             ::std::error_reporter_io_cookie_function cookfun) const noexcept {
-    if (count != 0)
-      if (encoding == ::std::error_reporter_encoding::utf8 || 
-        encoding == ::std::error_reporter_encoding::gb18030)
-      {
-        cookfun(cookie, pieces, count);
+    if (count == 0)
+      return;
+    switch (encoding) {
+    case ::std::error_reporter_encoding::utf8:
+    case ::std::error_reporter_encoding::gb18030:
+    case ::std::error_reporter_encoding::utfebcdic:
+      cookfun(cookie, pieces, count);
+      return;
+    case ::std::error_reporter_encoding::utf16: {
+      char16_t buf[query_information_capacity];
+      ::std::io_scatter_t converted[query_information_max_pieces];
+      ::std::size_t off = 0;
+      for (::std::size_t i = 0; i != count; ++i) {
+        ::std::size_t const n = utf8_to_utf16(
+            static_cast<char8_t const *>(pieces[i].base), pieces[i].len,
+            buf + off, query_information_capacity - off);
+        if (n == static_cast<::std::size_t>(-1))
+          return;
+        converted[i] = {buf + off, n * sizeof(char16_t)};
+        off += n;
       }
+      cookfun(cookie, converted, count);
+      return;
+    }
+    case ::std::error_reporter_encoding::utf32: {
+      char32_t buf[query_information_capacity];
+      ::std::io_scatter_t converted[query_information_max_pieces];
+      ::std::size_t off = 0;
+      for (::std::size_t i = 0; i != count; ++i) {
+        ::std::size_t const n = utf8_to_utf32(
+            static_cast<char8_t const *>(pieces[i].base), pieces[i].len,
+            buf + off, query_information_capacity - off);
+        if (n == static_cast<::std::size_t>(-1))
+          return;
+        converted[i] = {buf + off, n * sizeof(char32_t)};
+        off += n;
+      }
+      cookfun(cookie, converted, count);
+      return;
+    }
+    }
   }
 };
 
