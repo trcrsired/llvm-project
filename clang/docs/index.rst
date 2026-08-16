@@ -130,6 +130,7 @@ Design Documents
    ConstantInterpreter
    LLVMExceptionHandlingCodeGen
    Herbceptions
+   HerbceptionsImplementation
 
 Indices and tables
 ==================
