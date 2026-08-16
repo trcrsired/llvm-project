@@ -94,24 +94,30 @@ constinit ::std::error_domain_singleton __win32_error_domain{
           return win32_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
                  otherdomain->do_to_errc(othercd);
         },
-    .do_name =
-        [](::std::size_t, ::std::error_reporter_encoding encoding, void *cookie,
-           ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          write_ascii(encoding, cookie, cookfun, u8"win32");
-        },
-    .do_message =
+    .do_query_information =
         [](::std::size_t cd, ::std::error_reporter_encoding encoding,
-           void *cookie,
-           ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          // The win32 code 0 means success; the table row for it is
-          // STATUS_SUCCESS, so look up the message through the win32 column.
-          if (ntkernel_field const *f =
-                  find_win32_message(static_cast<::std::uint_least32_t>(cd))) {
-            emit_message(f->message, f->message_size, encoding, cookie,
-                         cookfun);
-            return;
+           void *cookie, ::std::error_reporter_io_cookie_function cookfun,
+           ::std::error_query_information query) noexcept {
+          query_information_pieces pieces;
+          switch (query) {
+          case ::std::error_query_information::name:
+            pieces.add_cstr(u8"win32");
+            break;
+          case ::std::error_query_information::message:
+            // The win32 code 0 means success; the table row for it is
+            // STATUS_SUCCESS, so look up the message through the win32 column.
+            if (ntkernel_field const *f = find_win32_message(
+                    static_cast<::std::uint_least32_t>(cd)))
+              pieces.add(f->message, f->message_size);
+            break;
+          case ::std::error_query_information::name_message:
+            pieces.add_cstr(u8"win32");
+            if (ntkernel_field const *f = find_win32_message(
+                    static_cast<::std::uint_least32_t>(cd)))
+              pieces.add(f->message, f->message_size);
+            break;
           }
-          write_ascii(encoding, cookie, cookfun, u8"");
+          pieces.emit(encoding, cookie, cookfun);
         },
     .do_to_errc =
         [](::std::size_t cd) noexcept {

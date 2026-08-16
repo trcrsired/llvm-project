@@ -27,17 +27,24 @@ constinit ::std::error_domain_singleton __posix_error_domain{
           return __posix_error_domain.do_to_errc(cd) ==
                  otherdomain->do_to_errc(othercd);
         },
-    .do_name =
-        [](::std::size_t, ::std::error_reporter_encoding encoding, void *cookie,
-           ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          write_ascii(encoding, cookie, cookfun, u8"posix");
-        },
-    .do_message =
+    .do_query_information =
         [](::std::size_t cd, ::std::error_reporter_encoding encoding,
-           void *cookie,
-           ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          write_ascii(encoding, cookie, cookfun,
-                      errc_message(static_cast<int>(cd)));
+           void *cookie, ::std::error_reporter_io_cookie_function cookfun,
+           ::std::error_query_information query) noexcept {
+          query_information_pieces pieces;
+          switch (query) {
+          case ::std::error_query_information::name:
+            pieces.add_cstr(u8"posix");
+            break;
+          case ::std::error_query_information::message:
+            pieces.add_cstr(errc_message(static_cast<int>(cd)));
+            break;
+          case ::std::error_query_information::name_message:
+            pieces.add_cstr(u8"posix");
+            pieces.add_cstr(errc_message(static_cast<int>(cd)));
+            break;
+          }
+          pieces.emit(encoding, cookie, cookfun);
         },
     .do_to_errc =
         [](::std::size_t cd) noexcept { return static_cast<::std::errc>(cd); }};

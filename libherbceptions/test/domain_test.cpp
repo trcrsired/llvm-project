@@ -41,10 +41,9 @@ struct capture_ctx {
 };
 } // namespace
 
-// A do_name/do_message collector that appends the emitted text into a buffer
-// (do_name may make several cookfun calls; each appends).
-static void capture_cookfun(::std::error_reporter_encoding, void* cookie,
-                            ::std::io_scatter_t const* v,
+// A do_query_information collector that appends the emitted text into a buffer
+// (may make several cookfun calls; each appends).
+static void capture_cookfun(void* cookie, ::std::io_scatter_t const* v,
                             ::std::size_t n) noexcept {
   auto* ctx = static_cast<capture_ctx*>(cookie);
   for (std::size_t i = 0; i < n; ++i) {
@@ -71,19 +70,30 @@ int main() {
   CHECK(posix->do_to_errc(2) == ::std::errc::no_such_file_or_directory);
   CHECK(posix->do_to_errc(13) == ::std::errc::permission_denied);
 
-  // do_name / do_message produce text.
+  // do_query_information produces name and/or message text.
   capture_ctx nctx{};
-  posix->do_name(2, ::std::error_reporter_encoding::utf8, &nctx,
-                 capture_cookfun);
+  posix->do_query_information(2, ::std::error_reporter_encoding::utf8, &nctx,
+                              capture_cookfun,
+                              ::std::error_query_information::name);
   CHECK(std::string(nctx.buf, nctx.len) == "posix");
 
   capture_ctx mctx{};
-  posix->do_message(2, ::std::error_reporter_encoding::utf8, &mctx,
-                    capture_cookfun);
+  posix->do_query_information(2, ::std::error_reporter_encoding::utf8, &mctx,
+                              capture_cookfun,
+                              ::std::error_query_information::message);
   CHECK(std::string(mctx.buf, mctx.len) == "No such file or directory");
 
+  capture_ctx nmctx{};
+  posix->do_query_information(2, ::std::error_reporter_encoding::utf8, &nmctx,
+                              capture_cookfun,
+                              ::std::error_query_information::name_message);
+  CHECK(std::string(nmctx.buf, nmctx.len) ==
+        "posixNo such file or directory");
+
   capture_ctx cx{};
-  cxa->do_name(0, ::std::error_reporter_encoding::utf8, &cx, capture_cookfun);
+  cxa->do_query_information(0, ::std::error_reporter_encoding::utf8, &cx,
+                            capture_cookfun,
+                            ::std::error_query_information::name);
   CHECK(std::string(cx.buf, cx.len).find("cxa_exception") == 0);
 
   // posix cross-domain equivalence: identity within the domain.
