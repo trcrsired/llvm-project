@@ -59,11 +59,11 @@ constinit ::std::error_domain_singleton __com_error_domain
     },
     .do_name=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
-        write_ascii(encoding, cookie, cookfun, "com");
+        write_ascii(encoding, cookie, cookfun, u8"com");
     },
     .do_message=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
-        write_ascii(encoding, cookie, cookfun, "");
+        write_ascii(encoding, cookie, cookfun, u8"");
     },
     .do_to_errc=[](::std::size_t cd) noexcept
     {
