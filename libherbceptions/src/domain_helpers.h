@@ -7,60 +7,62 @@ translation units) and are not part of the public herbception/error surface.
 */
 #include "herbceptions/error"
 
-namespace std::__error_domains::__herbceptions_detail
-{
+namespace std::__error_domains::__herbceptions_detail {
 
-template<typename __Ty, ::std::size_t __n>
-inline constexpr ::std::io_scatter_t __tsc(__Ty (const&__arr)[__n]) noexcept
-{
-  constexpr
-    ::std::size_t __nm1{__n-1u};
+template <typename __Ty, ::std::size_t __n>
+inline constexpr ::std::io_scatter_t __tsc(__Ty const (&__arr)[__n]) noexcept {
+  constexpr ::std::size_t __nm1{__n - 1u};
   return {__arr, __nm1};
 }
 
-template<typename __DestTy>
-inline constexpr __DestTy* __write_char_t_with_ascii_only_range(char unsigned * __fromfirst, char unsigned * __fromlast, __DestTy* __dest)
-{
-  for(;__fromfirst!=__fromlast; ++__fromfirst)
-  {
+template <typename __DestTy>
+inline constexpr __DestTy *
+__write_with_ascii_only_range(char unsigned const *__fromfirst,
+                              char unsigned const *__fromlast,
+                              __DestTy *__dest) {
+  for (; __fromfirst != __fromlast; ++__fromfirst) {
     *__dest = *__fromfirst;
     ++__dest;
   }
-  return dest;
+  return __dest;
 }
 
-template<typename __DestTy>
-inline constexpr __DestTy* __write_char_t_with_ascii_only_badcode_range(char unsigned * __fromfirst, char unsigned * __fromlast, __DestTy* __dest)
-{
-  for(;__fromfirst!=__fromlast; ++__fromfirst)
-  {
-    auto __cp{*__fromfirst};
-    if(0x80<=__cp)
-    {
-      cp=0xFEFF;
+template <typename __DestTy>
+inline constexpr __DestTy *
+__write_with_ascii_only_badcode_range(char unsigned const *__fromfirst,
+                                      char unsigned const *__fromlast,
+                                      __DestTy *__dest) {
+  for (; __fromfirst != __fromlast; ++__fromfirst) {
+    __DestTy __cp{*__fromfirst};
+    if (0x80 <= __cp) {
+      __cp = 0xFEFF;
     }
-    *__dest = __cp;;
+    *__dest = __cp;
+    ;
     ++__dest;
   }
-  return dest;
+  return __dest;
 }
 
-inline constexpr char unsigned* __write_ebcdic_with_ascii_only_range(char unsigned * __fromfirst, char unsigned * __fromlast, char unsigned* __dest)
-{
-  for(;__fromfirst!=__fromlast; ++__fromfirst)
-  {
-    *__dest = ::std::__error_domains::__herbceptions_detail::__ascii_to_ebcdic(*__fromfirst);
+#include "ascii_to_ebcdic.cpp"
+
+inline constexpr char unsigned *
+__write_ebcdic_with_ascii_only_range(char unsigned const *__fromfirst,
+                                     char unsigned const *__fromlast,
+                                     char unsigned *__dest) {
+  for (; __fromfirst != __fromlast; ++__fromfirst) {
+    *__dest = ::std::__error_domains::__herbceptions_detail::__ascii_to_ebcdic(
+        *__fromfirst);
     ++__dest;
   }
-  return dest;
+  return __dest;
 }
 inline constexpr bool __enable_message_query{
 #ifdef __libherbceptions_enable_message_query
-true
+    true
 #endif
 };
-}
-
+} // namespace std::__error_domains::__herbceptions_detail
 
 namespace std::error_domains {
 namespace __herbceptions_detail {
@@ -116,8 +118,8 @@ constexpr char32_t utf8_decode(char8_t const *s, ::std::size_t len,
 // beyond the BMP). Returns the number of code units written, or (size_t)-1 if
 // the input is invalid or the buffer is too small.
 inline ::std::size_t utf8_to_utf16(char8_t const *s, ::std::size_t len,
-                            char16_t *out,
-                            ::std::size_t capacity) noexcept {
+                                   char16_t *out,
+                                   ::std::size_t capacity) noexcept {
   ::std::size_t o = 0;
   for (::std::size_t i = 0; i != len;) {
     char32_t const cp = utf8_decode(s, len, i);
@@ -141,8 +143,8 @@ inline ::std::size_t utf8_to_utf16(char8_t const *s, ::std::size_t len,
 // Codecvt one UTF-8 piece to UTF-32. Returns the number of code units written,
 // or (size_t)-1 if the input is invalid or the buffer is too small.
 inline ::std::size_t utf8_to_utf32(char8_t const *s, ::std::size_t len,
-                            char32_t *out,
-                            ::std::size_t capacity) noexcept {
+                                   char32_t *out,
+                                   ::std::size_t capacity) noexcept {
   ::std::size_t o = 0;
   for (::std::size_t i = 0; i != len;) {
     char32_t const cp = utf8_decode(s, len, i);
