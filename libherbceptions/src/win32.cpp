@@ -64,7 +64,7 @@ using namespace __herbceptions_detail;
 // win32 <-> nt equivalence via the table's win32 column (reverse lookup: a
 // Win32 code matches an NTSTATUS row whose win32 column equals it).
 bool win32_equivalent_nt(::std::size_t win32cd, ::std::size_t ntcd) noexcept {
-  if (const ntkernel_field *f = find_ntstatus(static_cast<int>(ntcd)))
+  if (ntkernel_field const *f = find_ntstatus(static_cast<int>(ntcd)))
     return static_cast<::std::size_t>(static_cast<unsigned>(f->win32)) ==
            win32cd;
   return false;
