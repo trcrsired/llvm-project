@@ -29,6 +29,60 @@ inline void write_ascii(::std::error_reporter_encoding encoding, void *cookie,
              __builtin_strlen(reinterpret_cast<char const *>(s)));
 }
 
+// Largest stack buffer used when widening a message to UTF-16/UTF-32.
+inline constexpr ::std::size_t nt_message_capacity = 32;
+
+// The ntkernel table is entirely ASCII, so widening to UTF-16/UTF-32 is a
+// simple per-byte copy (each char is a code point < 0x80); no codecvt needed.
+template <typename CodeUnit>
+::std::size_t widen_ascii(char8_t const *msg, ::std::size_t len,
+                          CodeUnit *buf,
+                          ::std::size_t capacity) noexcept {
+  ::std::size_t const n = len < capacity ? len : capacity;
+  for (::std::size_t i = 0; i != n; ++i)
+    buf[i] = static_cast<CodeUnit>(msg[i]);
+  return n;
+}
+
+// Emit the ASCII message of \p len bytes, converting to the requested
+// encoding. For utf16/utf32 the widened text is built into a fixed stack
+// buffer (max nt_message_capacity code units) before the cookie call;
+// utf8/gb18030/utfebcdic are byte-oriented and emitted directly with the
+// caller-supplied length (no strlen scan).
+inline void emit_message(char8_t const *msg, ::std::size_t len,
+                         ::std::error_reporter_encoding encoding, void *cookie,
+                         ::std::error_reporter_io_cookie_function cookfun) noexcept {
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utf8:
+  case ::std::error_reporter_encoding::gb18030:
+  case ::std::error_reporter_encoding::utfebcdic:
+    write_text(encoding, cookie, cookfun, msg, len);
+    return;
+  case ::std::error_reporter_encoding::utf16: {
+    char16_t buf[nt_message_capacity];
+    ::std::size_t const n = widen_ascii(msg, len, buf, nt_message_capacity);
+    write_text(encoding, cookie, cookfun, buf, n * sizeof(char16_t));
+    return;
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    char32_t buf[nt_message_capacity];
+    ::std::size_t const n = widen_ascii(msg, len, buf, nt_message_capacity);
+    write_text(encoding, cookie, cookfun, buf, n * sizeof(char32_t));
+    return;
+  }
+  }
+}
+
+// Emit a fixed u8"" literal in the requested encoding; the byte length is
+// taken from the array size, so no strlen is needed.
+template <::std::size_t N>
+void emit_message_literal(char8_t const (&s)[N],
+                          ::std::error_reporter_encoding encoding,
+                          void *cookie,
+                          ::std::error_reporter_io_cookie_function cookfun) noexcept {
+  emit_message(s, N - 1, encoding, cookie, cookfun);
+}
+
 // ---------------------------------------------------------------------------
 // Static, thread-safe errno message table. strerror is not used because it is
 // not guaranteed thread-safe; the messages here match the POSIX strerror text
