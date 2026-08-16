@@ -57,7 +57,7 @@ constinit ::std::error_domain_singleton __com_error_domain
         return com_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
                otherdomain->do_to_errc(othercd);
     },
-    .do_query_information=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun, ::std::error_query_information query) noexcept
+    .do_query_information=[](::std::size_t, ::std::error_query_information query, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
         query_information_pieces pieces;
         switch (query)

@@ -28,16 +28,16 @@ constinit ::std::error_domain_singleton __posix_error_domain{
                  otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
-        [](::std::size_t cd, ::std::error_reporter_encoding encoding,
-           void *cookie, ::std::error_reporter_io_cookie_function cookfun,
-           ::std::error_query_information query) noexcept {
+        [](::std::size_t cd, ::std::error_query_information query,
+           ::std::error_reporter_encoding encoding, void *cookie,
+           ::std::error_reporter_io_cookie_function cookfun) noexcept {
           query_information_pieces pieces;
           switch (query) {
           case ::std::error_query_information::name:
-            pieces.add_cstr(u8"posix");
-            break;
           case ::std::error_query_information::name_message:
-            pieces.add_cstr(u8"[posix]");
+            pieces.add_cstr(u8"posix");
+            if (query == ::std::error_query_information::name)
+              break;
             [[fallthrough]];
           case ::std::error_query_information::message:
             pieces.add_cstr(errc_message(static_cast<int>(cd)));
