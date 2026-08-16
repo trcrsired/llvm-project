@@ -55,6 +55,34 @@ bool nt_equivalent_win32(::std::uint_least32_t cd, ::std::size_t win32cd) noexce
   return false;
 }
 
+// Append the message for the NTSTATUS code \p cd into the pieces.
+void append_nt_message(query_information_pieces &pieces,
+                       ::std::size_t cd) noexcept {
+  if (cd == 0) {
+    pieces.add_cstr(u8"The operation completed successfully");
+    return;
+  }
+  if (ntkernel_field const *f =
+          find_ntstatus(static_cast<::std::uint_least32_t>(cd))) {
+    pieces.add(f->message, f->message_size);
+    return;
+  }
+  switch (static_cast<::std::uint_least32_t>(cd) >> 30) {
+  case 0:
+    pieces.add_cstr(u8"Unknown success");
+    return;
+  case 1:
+    pieces.add_cstr(u8"Unknown information");
+    return;
+  case 2:
+    pieces.add_cstr(u8"Unknown warning");
+    return;
+  case 3:
+    pieces.add_cstr(u8"Unknown error");
+    return;
+  }
+}
+
 constinit ::std::error_domain_singleton __nt_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
@@ -71,43 +99,24 @@ constinit ::std::error_domain_singleton __nt_error_domain{
           return nt_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
                  otherdomain->do_to_errc(othercd);
         },
-    .do_name =
-        [](::std::size_t, ::std::error_reporter_encoding encoding, void *cookie,
-           ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          write_ascii(encoding, cookie, cookfun, u8"nt");
-        },
-    .do_message =
+    .do_query_information =
         [](::std::size_t cd, ::std::error_reporter_encoding encoding,
-           void *cookie,
-           ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          if (cd == 0) {
-            emit_message_literal(u8"The operation completed successfully",
-                                 encoding, cookie, cookfun);
-            return;
+           void *cookie, ::std::error_reporter_io_cookie_function cookfun,
+           ::std::error_query_information query) noexcept {
+          query_information_pieces pieces;
+          switch (query) {
+          case ::std::error_query_information::name:
+            pieces.add_cstr(u8"nt");
+            break;
+          case ::std::error_query_information::message:
+            append_nt_message(pieces, cd);
+            break;
+          case ::std::error_query_information::name_message:
+            pieces.add_cstr(u8"nt");
+            append_nt_message(pieces, cd);
+            break;
           }
-          if (ntkernel_field const *f =
-                  find_ntstatus(static_cast<::std::uint_least32_t>(cd))) {
-            emit_message(f->message, f->message_size, encoding, cookie,
-                         cookfun);
-            return;
-          }
-          switch (static_cast<::std::uint_least32_t>(cd) >> 30) {
-          case 0:
-            emit_message_literal(u8"Unknown success", encoding, cookie,
-                                 cookfun);
-            return;
-          case 1:
-            emit_message_literal(u8"Unknown information", encoding, cookie,
-                                 cookfun);
-            return;
-          case 2:
-            emit_message_literal(u8"Unknown warning", encoding, cookie,
-                                 cookfun);
-            return;
-          case 3:
-            emit_message_literal(u8"Unknown error", encoding, cookie, cookfun);
-            return;
-          }
+          pieces.emit(encoding, cookie, cookfun);
         },
     .do_to_errc =
         [](::std::size_t cd) noexcept {

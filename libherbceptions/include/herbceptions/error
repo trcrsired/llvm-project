@@ -66,18 +66,23 @@ gb18030,
 utfebcdic
 };
 
-using error_reporter_io_cookie_function = void (*)(::std::error_reporter_encoding, void*, ::std::io_scatter_t const* , ::std::size_t) noexcept;
+using error_reporter_io_cookie_function = void (*)(void*, ::std::io_scatter_t const* , ::std::size_t) noexcept;
+
+enum class error_query_information
+    : ::std::uint_least32_t
+{
+name = 1, message = 2, name_message =3
+};
 
 struct error_domain_singleton
 {
     void (*do_cleanup)(::std::size_t) noexcept = nullptr;
     bool (*do_equivalent)(::std::size_t, ::std::error_domain_singleton const*, ::std::size_t) noexcept = nullptr;
-    void (*do_name)(::std::size_t, ::std::error_reporter_encoding, void*, ::std::error_reporter_io_cookie_function) noexcept = nullptr;
-    void (*do_message)(::std::size_t, ::std::error_reporter_encoding, void*, ::std::error_reporter_io_cookie_function) noexcept = nullptr;
+    void (*do_query_information)(::std::size_t, ::std::error_reporter_encoding, void*, ::std::error_reporter_io_cookie_function, ::std::error_query_information ) noexcept = nullptr;
     ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
     void (*do_throw_cxa_exception)(::std::size_t, ::std::cxa_exception_abi) = nullptr;
-// reserve two fields for extensions
-    void* __reserved[2]{};
+// reserve 3 fields for extensions
+    void* __reserved[3]{};
 };
 
 namespace __details

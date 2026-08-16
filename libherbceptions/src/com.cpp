@@ -57,13 +57,21 @@ constinit ::std::error_domain_singleton __com_error_domain
         return com_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
                otherdomain->do_to_errc(othercd);
     },
-    .do_name=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
+    .do_query_information=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun, ::std::error_query_information query) noexcept
     {
-        write_ascii(encoding, cookie, cookfun, u8"com");
-    },
-    .do_message=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
-    {
-        write_ascii(encoding, cookie, cookfun, u8"");
+        query_information_pieces pieces;
+        switch (query)
+        {
+        case ::std::error_query_information::name:
+            pieces.add_cstr(u8"com");
+            break;
+        case ::std::error_query_information::message:
+            break;
+        case ::std::error_query_information::name_message:
+            pieces.add_cstr(u8"com");
+            break;
+        }
+        pieces.emit(encoding, cookie, cookfun);
     },
     .do_to_errc=[](::std::size_t cd) noexcept
     {

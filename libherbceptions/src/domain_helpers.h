@@ -10,78 +10,53 @@ translation units) and are not part of the public herbception/error surface.
 namespace std::error_domains {
 namespace __herbceptions_detail {
 
-// Write a single scatter into the IO-cookie collector.
+// Write a single scatter into the IO-cookie collector. The cookie function
+// only writes raw bytes; encoding conversion (codecvt) is done by the caller.
 inline void write_text(::std::error_reporter_encoding encoding, void *cookie,
                        ::std::error_reporter_io_cookie_function cookfun,
                        void const *base, ::std::size_t len) noexcept {
   ::std::io_scatter_t v{base, len};
-  cookfun(encoding, cookie, __builtin_addressof(v), 1u);
+  cookfun(cookie, __builtin_addressof(v), 1u);
+  (void)encoding;
 }
 
-// Write a fixed ASCII string in the requested encoding. The strings used for
-// names/messages here are ASCII-only, so they are valid in every encoding.
-// The string is a u8"" literal (char8_t); the bytes are passed through
-// unchanged for every byte-oriented output encoding.
-inline void write_ascii(::std::error_reporter_encoding encoding, void *cookie,
-                        ::std::error_reporter_io_cookie_function cookfun,
-                        char8_t const *s) noexcept {
-  write_text(encoding, cookie, cookfun, s,
-             __builtin_strlen(reinterpret_cast<char const *>(s)));
-}
+// A writev-style collector of name/message pieces. The do_query_information
+// handlers add the domain name and/or the per-code message as separate
+// io_scatter_t entries (each pointing at its own storage — no copying); the
+// whole array is then emitted in a single cookfun call. This mirrors POSIX
+// writev: concatenation without an intermediate buffer. Encoding conversion
+// and copying are the IO device's job (the encoding flag is passed through
+// untouched), not ours.
+//
+// Maximum pieces: name (1) + message (up to a few, e.g. cxa_exception's
+// "cxa_exception" + "(" + type + ")").
+inline constexpr ::std::size_t query_information_max_pieces = 8;
 
-// Largest stack buffer used when widening a message to UTF-16/UTF-32.
-inline constexpr ::std::size_t nt_message_capacity = 32;
+struct query_information_pieces {
+  ::std::io_scatter_t pieces[query_information_max_pieces];
+  ::std::size_t count = 0;
 
-// The ntkernel table is entirely ASCII, so widening to UTF-16/UTF-32 is a
-// simple per-byte copy (each char is a code point < 0x80); no codecvt needed.
-template <typename CodeUnit>
-::std::size_t widen_ascii(char8_t const *msg, ::std::size_t len,
-                          CodeUnit *buf,
-                          ::std::size_t capacity) noexcept {
-  ::std::size_t const n = len < capacity ? len : capacity;
-  for (::std::size_t i = 0; i != n; ++i)
-    buf[i] = static_cast<CodeUnit>(msg[i]);
-  return n;
-}
-
-// Emit the ASCII message of \p len bytes, converting to the requested
-// encoding. For utf16/utf32 the widened text is built into a fixed stack
-// buffer (max nt_message_capacity code units) before the cookie call;
-// utf8/gb18030/utfebcdic are byte-oriented and emitted directly with the
-// caller-supplied length (no strlen scan).
-inline void emit_message(char8_t const *msg, ::std::size_t len,
-                         ::std::error_reporter_encoding encoding, void *cookie,
-                         ::std::error_reporter_io_cookie_function cookfun) noexcept {
-  switch (encoding) {
-  case ::std::error_reporter_encoding::utf8:
-  case ::std::error_reporter_encoding::gb18030:
-  case ::std::error_reporter_encoding::utfebcdic:
-    write_text(encoding, cookie, cookfun, msg, len);
-    return;
-  case ::std::error_reporter_encoding::utf16: {
-    char16_t buf[nt_message_capacity];
-    ::std::size_t const n = widen_ascii(msg, len, buf, nt_message_capacity);
-    write_text(encoding, cookie, cookfun, buf, n * sizeof(char16_t));
-    return;
+  void add(char8_t const *s, ::std::size_t len) noexcept {
+    if (count < query_information_max_pieces)
+      pieces[count++] = {s, len};
   }
-  case ::std::error_reporter_encoding::utf32: {
-    char32_t buf[nt_message_capacity];
-    ::std::size_t const n = widen_ascii(msg, len, buf, nt_message_capacity);
-    write_text(encoding, cookie, cookfun, buf, n * sizeof(char32_t));
-    return;
+  void add_cstr(char8_t const *s) noexcept {
+    add(s, __builtin_strlen(reinterpret_cast<char const *>(s)));
   }
-  }
-}
 
-// Emit a fixed u8"" literal in the requested encoding; the byte length is
-// taken from the array size, so no strlen is needed.
-template <::std::size_t N>
-void emit_message_literal(char8_t const (&s)[N],
-                          ::std::error_reporter_encoding encoding,
-                          void *cookie,
-                          ::std::error_reporter_io_cookie_function cookfun) noexcept {
-  emit_message(s, N - 1, encoding, cookie, cookfun);
-}
+  // Emit the accumulated pieces as a single cookfun call. The pieces hold the
+  // raw UTF-8/u8 bytes; the encoding flag tells the IO device how to convert
+  // them, and the device decides whether to copy or write in place.
+  void emit(::std::error_reporter_encoding encoding, void *cookie,
+            ::std::error_reporter_io_cookie_function cookfun) const noexcept {
+    if (count != 0)
+      if (encoding == ::std::error_reporter_encoding::utf8 || 
+        encoding == ::std::error_reporter_encoding::gb18030)
+      {
+        cookfun(cookie, pieces, count);
+      }
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Static, thread-safe errno message table. strerror is not used because it is
