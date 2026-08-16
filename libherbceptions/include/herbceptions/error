@@ -125,7 +125,7 @@ public:
 
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
-  constexpr bool do_equivalent(__Other __ec) const noexcept {
+  constexpr bool equivalent(__Other __ec) const noexcept {
     using __other_error_domain_type = ::std::error_domain<__Other>;
     if constexpr (::std::__details::__error_domain_has_domain_alias_type<
                       __other_error_domain_type>) {
@@ -140,11 +140,11 @@ public:
           __other_error_domain_type::code(__ec));
     }
   }
-  constexpr ::std::errc do_to_errc() const noexcept {
+  constexpr ::std::errc to_errc() const noexcept {
     return __domain_opaque->do_to_errc(__code_opaque);
   }
 
-  void do_throw_cxa_exception() const
+  void throw_cxa_exception() const
 #if defined(__cpp_exceptions)
   {
     auto __dothrowcxaexception{__domain_opaque->do_throw_cxa_exception};
