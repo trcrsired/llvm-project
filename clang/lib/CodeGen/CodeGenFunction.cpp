@@ -499,6 +499,18 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   EmitIfUsed(*this, EHResumeBlock);
   EmitIfUsed(*this, TerminateLandingPad);
   EmitIfUsed(*this, TerminateHandler);
+  // The herbception legacy-conversion block is created attached to the
+  // function (so codegen that needs the module, e.g. aggregate memcpy, works);
+  // move it to the very end if used, otherwise drop it.
+  if (HerbceptionLegacyConvertBB) {
+    if (HerbceptionLegacyConvertBB->use_empty()) {
+      HerbceptionLegacyConvertBB->eraseFromParent();
+      HerbceptionLegacyConvertBB = nullptr;
+    } else {
+      HerbceptionLegacyConvertBB->removeFromParent();
+      HerbceptionLegacyConvertBB->insertInto(CurFn);
+    }
+  }
   EmitIfUsed(*this, UnreachableBlock);
 
   for (const auto &FuncletAndParent : TerminateFunclets)

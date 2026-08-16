@@ -2210,6 +2210,11 @@ private:
   llvm::BasicBlock *TerminateHandler = nullptr;
   llvm::SmallVector<llvm::BasicBlock *, 2> TrapBBs;
 
+  /// Herbception: the whole-function catch-all handler that converts a legacy
+  /// C++ exception escaping a `throws` function into a fabricated std::error
+  /// on the herbception channel. Lazily created; emitted if used.
+  llvm::BasicBlock *HerbceptionLegacyConvertBB = nullptr;
+
   /// Terminate funclets keyed by parent funclet pad.
   llvm::MapVector<llvm::Value *, llvm::BasicBlock *> TerminateFunclets;
 
@@ -2679,6 +2684,12 @@ public:
   /// a catch handler) that just calls terminate.  This is used when
   /// a terminate scope encloses a try.
   llvm::BasicBlock *getTerminateHandler();
+
+  /// getHerbceptionLegacyConvert - Return the whole-function catch-all handler
+  /// for a `throws` function: it converts a legacy C++ exception that escapes
+  /// the function into a fabricated std::error and routes it to the throws
+  /// return path. Lazily created; emitted if used.
+  llvm::BasicBlock *getHerbceptionLegacyConvert();
 
   llvm::Type *ConvertTypeForMem(QualType T);
   llvm::Type *ConvertType(QualType T);
