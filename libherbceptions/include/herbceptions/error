@@ -2,14 +2,9 @@
 /*
 Herbception error core types.
 
-std::errc handling: the only <system_error> dependency is std::errc. On hosted
-builds the real std::errc from <system_error> is used when available. On
-freestanding builds <system_error> is avoided entirely (it is hosted-only in
-some implementations, e.g. libstdc++'s requires_hosted.h gate) and a minimal
-std::errc enum is defined locally with the same layout as every major
-implementation (libstdc++, libc++, MSVC STL) so the {domain, code} ABI slot
-and the do_to_errc signature are identical either way. This mirrors the "hack"
-fast_io uses for errc.
+std::errc comes from <system_error> (C++23 makes the errc part freestanding in
+libc++, so this also works under -ffreestanding). The {domain, code} ABI slot
+and the do_to_errc signature use the standard std::errc type.
 */
 
 // Prevent macro pollution from Windows headers and from the <system_error>
@@ -38,97 +33,8 @@ fast_io uses for errc.
 #include <cstddef>
 #include <cstdint>
 #include <concepts>
-
-// Use the real std::errc only on hosted builds where <system_error> is
-// available; otherwise define a freestanding std::errc with the standard
-// enumerators and values.
-#if defined(__STDC_HOSTED__) && __STDC_HOSTED__ == 1 && __has_include(<system_error>)
+// for ::std::errc
 #include <system_error>
-#else
-namespace std
-{
-enum class errc : int
-{
-    address_family_not_supported = 97,
-    address_in_use = 98,
-    address_not_available = 99,
-    already_connected = 113,
-    argument_list_too_long = 7,
-    argument_out_of_domain = 33,
-    bad_address = 14,
-    bad_file_descriptor = 9,
-    bad_message = 74,
-    broken_pipe = 32,
-    connection_aborted = 103,
-    connection_already_in_progress = 114,
-    connection_refused = 111,
-    connection_reset = 104,
-    cross_device_link = 18,
-    destination_address_required = 89,
-    device_or_resource_busy = 16,
-    directory_not_empty = 39,
-    executable_format_error = 8,
-    file_exists = 17,
-    file_too_large = 27,
-    filename_too_long = 36,
-    function_not_supported = 38,
-    host_unreachable = 113,
-    identifier_removed = 43,
-    illegal_byte_sequence = 84,
-    inappropriate_io_control_operation = 25,
-    interrupted = 4,
-    invalid_argument = 22,
-    invalid_seek = 29,
-    io_error = 5,
-    is_a_directory = 21,
-    message_size = 90,
-    network_down = 100,
-    network_reset = 102,
-    network_unreachable = 101,
-    no_buffer_space = 105,
-    no_child_process = 10,
-    no_link = 67,
-    no_lock_available = 37,
-    no_message_available = 61,
-    no_message = 42,
-    no_protocol_option = 92,
-    no_space_on_device = 28,
-    no_such_device_or_address = 6,
-    no_such_device = 19,
-    no_such_file_or_directory = 2,
-    no_such_process = 3,
-    not_a_directory = 20,
-    not_a_socket = 88,
-    not_connected = 107,
-    not_enough_memory = 12,
-    not_supported = 95,
-    operation_canceled = 125,
-    operation_in_progress = 115,
-    operation_not_permitted = 1,
-    operation_not_supported = 95,
-    operation_would_block = 11,
-    owner_dead = 130,
-    permission_denied = 13,
-    protocol_error = 71,
-    protocol_not_supported = 93,
-    read_only_file_system = 30,
-    resource_deadlock_would_occur = 35,
-    resource_unavailable_try_again = 11,
-    result_out_of_range = 34,
-    state_not_recoverable = 131,
-    stream_timeout = 6,
-    text_file_busy = 26,
-    timed_out = 110,
-    too_many_files_open_in_system = 23,
-    too_many_files_open = 24,
-    too_many_links = 31,
-    too_many_symbolic_link_levels = 40,
-    value_too_large = 75,
-    wrong_protocol_type = 91
-};
-}
-#endif
-
 
 namespace std
 {
@@ -260,12 +166,8 @@ public:
             // such as we are using an itanium that throws msvc eh
             __dothrowcxaexception(static_cast<::std::size_t>(this->code()),::std::cxa_exception_abi::platform);
         }
-#if defined(__STDC_HOSTED__) && __STDC_HOSTED__ == 1 && __has_include(<system_error>)
         // EH thrown fail by the domain vtable. we throw a generic error by errc
         throw ::std::system_error(static_cast<int>(this->do_to_errc()),::std::generic_category());
-#else
-        __builtin_trap();
-#endif
     }
 #else
     = delete; // cxa exception disabled
@@ -321,24 +223,6 @@ extern "C"
 [[__gnu__::__const__]]
 ::std::error_domain_singleton const* __cxa_error_domain_wine() noexcept;
 }
-
-
-/*
-this is much more flexible than the template specialization one. since different libraries may have the their implementation of errc win32_errc for example. This allow them
-to have only one category as long as the code function is a template to help constexpr and potentially reduce binary bloat.
-*/
-
-/*
-pesudo throws should do
-template<typename T>
-requires (::std::is_class_v<T> || ::std::is_enum_v<T>)
-inline constexpr void pesudo_throws(T x)
-{
-  using error_domain_type = get_error_domain(::std::error_domain_tag, x);
-  throw ::std::error{error_domain_type::domain(), error_domain_type::code(x)};
-}
-
-*/
 
 template<typename __Other>
 requires (::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)

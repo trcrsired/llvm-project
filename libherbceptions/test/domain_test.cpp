@@ -13,8 +13,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "herbceptions/error_domains.h"
-#include "herbceptions/cxa_exception_code.h"
+#include "herbceptions/error"
+#include "herbceptions/__details/posix.h"
+#include "herbceptions/__details/win32.h"
+#include "herbceptions/__details/nt.h"
+#include "herbceptions/__details/com.h"
+#include "herbceptions/__details/wine.h"
+#include "herbceptions/__details/cxa_exception_code.h"
 
 #include <cassert>
 #include <cstdio>
