@@ -462,6 +462,7 @@ void ASTDeclWriter::Visit(Decl *D) {
         Record.AddFunctionDefinition(FD);
     } else
       Record.push_back(0);
+    Record.AddStmt(FD->getHerbceptionLegacyErrorValue());
   }
 
   // Similar to FunctionDecls, handle VarDecl's initializer here and write it
