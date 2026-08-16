@@ -93,7 +93,7 @@ ERRORS = [
     ("ECONNABORTED", "Software caused connection abort"),
 
     ("EWOULDBLOCK", "Operation would block",
-        "defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))"),
+        "(defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN)))"),
 
     ("ENOTCONN", "Socket is not connected"),
     ("ESOCKTNOSUPPORT", "Socket type not supported"),
@@ -112,5 +112,71 @@ ERRORS = [
 
     ("UNKNOWN", "Unknown")
 ]
+
+
+# ---------------------------------------------------------------------------
+# Generator
+# ---------------------------------------------------------------------------
+# Emits src/posix_table.hpp: a switch body fragment included inside
+# __to_u8scatter_from_errno (posix.cpp). On top it defines
+# POSIX_ERRNO_MAX_SIZE: the maximum message length in code units, used by
+# posix.cpp to size the stack buffer for encoding conversion.
+#
+# Entry forms:
+#   ("0", "msg")            -> unconditional `case 0:`
+#   ("NAME", "msg")         -> `#ifdef NAME` ... `#endif`
+#   ("NAME", "msg", "cond") -> `#if cond` ... `#endif`
+#   ("UNKNOWN", "msg")      -> unconditional `default:`
+#
+# Conditions are emitted as-is. EWOULDBLOCK's condition is parenthesized in
+# the generated file to match the original hand-written table.
+
+import os
+import sys
+
+OUTPUT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "src", "posix_table.hpp")
+
+# Preserved comments, keyed by errno name, emitted just before the #if line.
+COMMENTS = {
+    "ENXIO": "/* go32 defines ENXIO as ENODEV */",
+}
+
+
+def max_message_size() -> int:
+    # All messages are ASCII, so byte length == code-unit length.
+    return max(len(msg) for _, msg, *_ in ERRORS)
+
+
+def emit() -> str:
+    lines = [f"#define POSIX_ERRNO_MAX_SIZE {max_message_size()}", ""]
+    for name, msg, *rest in ERRORS:
+        if name == "0":
+            lines.append("\tcase 0:")
+        elif name == "UNKNOWN":
+            lines.append("\tdefault:")
+        else:
+            if name in COMMENTS:
+                lines.append(COMMENTS[name])
+            if rest:
+                lines.append(f"#if {rest[0]}")
+            else:
+                lines.append(f"#ifdef {name}")
+            lines.append(f"\tcase {name}:")
+        lines.append(f"\t\treturn __tsc(u8\"{msg}\");")
+        if name not in ("0", "UNKNOWN"):
+            lines.append("#endif")
+    return "\n".join(lines) + "\n"
+
+
+def main() -> None:
+    content = emit()
+    with open(OUTPUT, "w", newline="\n") as f:
+        f.write(content)
+    print(f"wrote {os.path.abspath(OUTPUT)}")
+
+
+if __name__ == "__main__":
+    main()
 
 

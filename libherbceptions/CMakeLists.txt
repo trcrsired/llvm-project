@@ -68,7 +68,6 @@ target_include_directories(herbceptions_headers INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_compile_features(herbceptions_headers INTERFACE cxx_std_23)
 
 # The freestanding build is header-only: it exposes the types and the
 # error_domain_singleton interface, but does not compile any runtime sources
@@ -91,7 +90,6 @@ function(add_herbceptions_library target kind)
   target_include_directories(${target} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
-  target_compile_features(${target} PUBLIC cxx_std_23)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
 
   if(MSVC)
@@ -111,7 +109,14 @@ endif()
 
 if(HERBCEPTIONS_BUILD_STATIC)
   add_herbceptions_library(herbceptions_static STATIC)
-  set_target_properties(herbceptions_static PROPERTIES OUTPUT_NAME herbceptions)
+  if(WIN32 AND HERBCEPTIONS_BUILD_SHARED)
+    # On Windows the shared build's import library (herbceptions.lib) would
+    # collide with the static archive; give the static one a distinct name.
+    set_target_properties(herbceptions_static PROPERTIES
+      OUTPUT_NAME herbceptions_static)
+  else()
+    set_target_properties(herbceptions_static PROPERTIES OUTPUT_NAME herbceptions)
+  endif()
 endif()
 
 # Install rules.
@@ -144,7 +149,6 @@ if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
 
     add_executable(herbceptions_domain_test test/domain_test.cpp)
     target_link_libraries(herbceptions_domain_test PRIVATE ${HERBCEPTIONS_TEST_LIB})
-    target_compile_features(herbceptions_domain_test PRIVATE cxx_std_26)
     # The herbception type traits and the fails{E} syntax require the
     # compiler's -fherbceptions flag.
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -158,7 +162,6 @@ if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
     target_include_directories(herbceptions_coroutine_error_test PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
-    target_compile_features(herbceptions_coroutine_error_test PRIVATE cxx_std_23)
     add_test(NAME herbceptions_coroutine_error_test
              COMMAND herbceptions_coroutine_error_test)
   endif()

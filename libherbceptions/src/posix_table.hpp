@@ -1,3 +1,5 @@
+#define POSIX_ERRNO_MAX_SIZE 61
+
 	case 0:
 		return __tsc(u8"Success");
 #if defined(EPERM) && (!defined(EACCES) || (EPERM != EACCES))

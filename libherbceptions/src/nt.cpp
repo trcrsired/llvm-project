@@ -124,7 +124,7 @@ constinit ::std::error_domain_singleton __nt_error_domain{
         }};
 } // namespace
 
-extern "C" [[__gnu__::__weak__]]
+extern "C" __HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_nt() noexcept {
   return __builtin_addressof(::std::error_domains::__nt_error_domain);
 }
