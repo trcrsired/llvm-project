@@ -1141,7 +1141,7 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   std::string FnName = std::string("__builtin_herbceptions_exception_ptr_domain_") +
                        FabName;
   CXXMethodDecl *FabFn = findStaticMember(*this, Domain, FnName.c_str(), Loc);
-  if (!FabFn)
+  if (!FabFn || FabFn->getNumParams() != 1)
     return ExprError();
 
   // The magic thrown-object-pointer operand: CodeGen lowers it to
@@ -1151,18 +1151,7 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   Expr *CxaOperand =
       new (Context) CXXCxaExceptionExpr(VoidPtrTy, Loc);
 
-  // On MSVC the fabrication entry point also takes the thrown object's RTTI
-  // (the type descriptor / type_info); the CXXCxaExceptionExpr yields the
-  // object and the same expression stands in for the RTTI slot, which the
-  // domain uses to recover the dynamic type name. (The object pointer alone
-  // identifies the vtable on MSVC polymorphic types, but passing the type
-  // descriptor keeps the handle self-contained.)
-  SmallVector<Expr *, 2> Args;
-  Args.push_back(CxaOperand);
-  if (FabFn->getNumParams() > 1)
-    Args.push_back(CxaOperand);
-
-  ExprResult CodeCall = buildStaticMemberCall(*this, FabFn, Args, Loc);
+  ExprResult CodeCall = buildStaticMemberCall(*this, FabFn, {CxaOperand}, Loc);
   if (CodeCall.isInvalid())
     return ExprError();
 

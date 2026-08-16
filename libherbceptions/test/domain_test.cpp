@@ -14,12 +14,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "herbceptions/error"
-#include "herbceptions/__details/posix.h"
-#include "herbceptions/__details/win32.h"
-#include "herbceptions/__details/nt.h"
-#include "herbceptions/__details/com.h"
-#include "herbceptions/__details/wine.h"
-#include "herbceptions/__details/cxa_exception_code.h"
 
 #include <cassert>
 #include <cstdio>
@@ -57,8 +51,13 @@ static void capture_cookfun(void* cookie, ::std::io_scatter_t const* v,
 
 int main() {
   auto const* posix = ::std::error_domains::__cxa_error_domain_posix();
-  auto const* cxa = ::std::error_domains::__cxa_error_domain_cxa_exception_code();
-
+#ifdef _MSC_VER
+  auto const *cxa =
+      ::std::error_domains::__cxa_error_domain_msvc_exception_ptr();
+#else
+  auto const *cxa =
+      ::std::error_domains::__cxa_error_domain_itanium_exception_ptr();
+#endif
   // Non-null domains.
   CHECK(posix != nullptr);
   CHECK(cxa != nullptr);
@@ -94,7 +93,14 @@ int main() {
   cxa->do_query_information(0, ::std::error_query_information::name,
                             ::std::error_reporter_encoding::utf8, &cx,
                             capture_cookfun);
-  CHECK(std::string(cx.buf, cx.len).find("cxa_exception") == 0);
+  CHECK(std::string(cx.buf, cx.len)
+            .find(
+#ifdef _MSC_VER
+                "msvc_exception"
+#else
+                "itanium_exception"
+#endif
+                ) == 0);
 
   // posix cross-domain equivalence: identity within the domain.
   CHECK(posix->do_equivalent(2, posix, 2));
@@ -135,7 +141,7 @@ int main() {
   // wine shares the host errno numbering with posix.
   CHECK(wine->do_to_errc(2) == ::std::errc::no_such_file_or_directory);
 #else
-  // On non-Windows only posix and cxa_exception_code exist.
+  // On non-Windows only posix and itanium_exception_ptr exist.
   // (The win32/nt/com/wine accessors are not declared on this platform.)
   CHECK(posix != nullptr);
   CHECK(cxa != nullptr);
