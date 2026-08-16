@@ -43,12 +43,23 @@ option(HERBCEPTIONS_BUILD_TESTS "Build the libherbceptions tests" ON)
 
 set(HERBCEPTIONS_HEADERS
   include/herbceptions/error
-  include/herbceptions/error_domains.h
-  include/herbceptions/cxa_exception_code.h
+  include/herbceptions/__details/posix.h
+  include/herbceptions/__details/win32.h
+  include/herbceptions/__details/nt.h
+  include/herbceptions/__details/com.h
+  include/herbceptions/__details/wine.h
+  include/herbceptions/__details/cxa_exception_code.h
 )
 
+# One translation unit per error domain, so a static archive only pulls in the
+# domains actually used (reducing binary bloat).
 set(HERBCEPTIONS_SOURCES
-  src/error_domains.cpp
+  src/posix.cpp
+  src/cxa_exception.cpp
+  src/win32.cpp
+  src/nt.cpp
+  src/com.cpp
+  src/wine.cpp
 )
 
 add_library(herbceptions_headers INTERFACE)
@@ -75,6 +86,9 @@ function(add_herbceptions_library target kind)
   target_include_directories(${target} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+  )
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
   target_compile_features(${target} PUBLIC cxx_std_23)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
@@ -105,7 +119,6 @@ install(DIRECTORY include/
   FILES_MATCHING PATTERN "*.h"
   PATTERN "error"
 )
-
 if(HERBCEPTIONS_BUILD_SHARED)
   install(TARGETS herbceptions
     LIBRARY DESTINATION lib
