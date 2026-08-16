@@ -6,6 +6,7 @@ NTSTATUS -> {win32, posix, message}, embedded verbatim from
 ntkernel-table.ipp (Apache-2.0 / Boost-1.0, Niall Douglas). Used by both the
 nt and win32 error domains for cross-domain equivalence and messages.
 */
+#include <cstddef>
 #include <cstdint>
 
 namespace std::error_domains {
@@ -24,10 +25,36 @@ inline constexpr ntkernel_field ntkernel_table[] = {
 #include "ntkernel-table.ipp"
 };
 
+// Static assertion that the table is sorted ascending by NTSTATUS so the
+// binary search below is valid.
+namespace {
+constexpr bool ntkernel_table_is_sorted() noexcept {
+  for (std::size_t i = 1; i < sizeof(ntkernel_table) / sizeof(ntkernel_table[0]);
+       ++i)
+    if (ntkernel_table[i - 1].ntstatus >= ntkernel_table[i].ntstatus)
+      return false;
+  return true;
+}
+} // namespace
+static_assert(ntkernel_table_is_sorted(), "ntkernel table must be sorted");
+
+// The table is sorted ascending by NTSTATUS with unique keys, so a binary
+// search finds the row in O(log n) instead of a linear scan.
 inline constexpr ntkernel_field const *find_ntstatus(int ntstatus) noexcept {
-  for (ntkernel_field const &f : ntkernel_table)
-    if (f.ntstatus == ntstatus)
-      return &f;
+  std::ptrdiff_t lo = 0;
+  std::ptrdiff_t hi = static_cast<std::ptrdiff_t>(
+      sizeof(ntkernel_table) / sizeof(ntkernel_table[0]));
+  while (lo < hi) {
+    std::ptrdiff_t mid = lo + (hi - lo) / 2;
+    if (ntkernel_table[mid].ntstatus < ntstatus)
+      lo = mid + 1;
+    else
+      hi = mid;
+  }
+  if (lo < static_cast<std::ptrdiff_t>(sizeof(ntkernel_table) /
+                                       sizeof(ntkernel_table[0])) &&
+      ntkernel_table[lo].ntstatus == ntstatus)
+    return &ntkernel_table[lo];
   return nullptr;
 }
 
