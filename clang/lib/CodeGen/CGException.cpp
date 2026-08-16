@@ -556,6 +556,18 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
     // noexcept functions are simple terminate scopes.
     if (!getLangOpts().EHAsynch) // -EHa: HW exception still can occur
       EHStack.pushTerminate();
+  } else if (Proto->getExceptionSpecType() == EST_BasicThrows) {
+    // A bare `throws` function implicitly converts any legacy C++ exception
+    // that escapes it (thrown by a `noexcept(false)` callee) into a
+    // fabricated std::error, returned on the herbception channel. Wrap the
+    // whole function body in a catch-all EH scope whose handler performs the
+    // conversion. If no conversion expression is available (missing
+    // cxa_exception_code / error_domain), skip the scope so the exception
+    // propagates as before.
+    if (FD && FD->getHerbceptionLegacyErrorValue()) {
+      EHCatchScope *CatchScope = EHStack.pushCatch(1);
+      CatchScope->setCatchAllHandler(0, getHerbceptionLegacyConvert());
+    }
   } else if (Proto->getExceptionSpecType() == EST_ThrowsTyped) {
     // A default `fails{E}` function implies noexcept(true): any legacy C++
     // exception that escapes it calls std::terminate (exactly like a noexcept
@@ -645,6 +657,13 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
              /* possible empty when under async exceptions */
              !EHStack.empty()) {
     EHStack.popTerminate();
+  } else if (Proto->getExceptionSpecType() == EST_BasicThrows) {
+    // Pop the whole-function catch-all EH scope pushed in EmitStartEHSpec
+    // (present only when a legacy-EH conversion expression is available).
+    if (FD && FD->getHerbceptionLegacyErrorValue() && !EHStack.empty() &&
+        EHStack.begin()->getKind() == EHScope::Catch) {
+      popCatchScope();
+    }
   }
 }
 
@@ -1766,6 +1785,44 @@ llvm::BasicBlock *CodeGenFunction::getTerminateHandler() {
   Builder.restoreIP(SavedIP);
 
   return TerminateHandler;
+}
+
+llvm::BasicBlock *CodeGenFunction::getHerbceptionLegacyConvert() {
+  if (HerbceptionLegacyConvertBB)
+    return HerbceptionLegacyConvertBB;
+
+  // Set up the whole-function legacy conversion handler. This block is
+  // inserted at the very end of the function by FinishFunction.
+  HerbceptionLegacyConvertBB = createBasicBlock("herb.legacy.convert");
+  CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
+  Builder.SetInsertPoint(HerbceptionLegacyConvertBB);
+  // Attach the block to the function so instructions that need the module
+  // (e.g. memcpy for aggregate error copies) can be created. EmitIfUsed will
+  // move it to the very end of the function.
+  HerbceptionLegacyConvertBB->insertInto(CurFn);
+
+  // In the funclet model (MSVC), the catch-all dispatch inserted a catchpad
+  // as the first instruction of this block; the exception pointer is derived
+  // from that token. (Wasm also uses funclet pads, but it stores the
+  // exception in exn.slot via wasm.get.exception at the shared catch.start,
+  // and the handler blocks do not begin with a catchpad.)
+  SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
+  if (EHPersonality::get(*this).isMSVCXXPersonality()) {
+    llvm::Instruction *First = &*HerbceptionLegacyConvertBB->begin();
+    if (auto *CPI = dyn_cast<llvm::CatchPadInst>(First))
+      CurrentFuncletPad = CPI;
+  }
+
+  // Fabricate the std::error from the caught legacy exception and route it to
+  // the throws return path (discriminant set, error stored in the payload).
+  const FunctionDecl *FD = cast<FunctionDecl>(CurCodeDecl);
+  const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
+  EmitHerbceptionThrow(Conv, FD->getLocation());
+
+  // Restore the saved insertion state.
+  Builder.restoreIP(SavedIP);
+
+  return HerbceptionLegacyConvertBB;
 }
 
 llvm::BasicBlock *CodeGenFunction::getTerminateFunclet() {

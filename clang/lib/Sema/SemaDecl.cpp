@@ -16798,6 +16798,23 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
     }
   }
 
+  // Herbception: a bare `throws` function implicitly converts any legacy C++
+  // exception that escapes it (from a `noexcept(false)` callee) into a
+  // fabricated std::error on the herbception channel. Build and attach the
+  // whole-function conversion expression now so CodeGen can route the escape.
+  // This is the whole-function analogue of the conversion stored on a
+  // `catch throws(std::error)` handler (see ActOnCXXCatchThrowsHandler); a
+  // missing cxa_exception_code / error_domain specialization silently disables
+  // the conversion (best-effort, like the catch-handler case).
+  if (getLangOpts().HerbExceptions && Body && FD && !FD->isInvalidDecl()) {
+    if (auto *FPT = FD->getType()->getAs<FunctionProtoType>();
+        FPT && FPT->hasBasicThrowsSpec() && !FD->isDependentContext()) {
+      if (ExprResult Conv = BuildCxaExceptionErrorValue(FD->getLocation());
+          !Conv.isInvalid())
+        FD->setHerbceptionLegacyErrorValue(Conv.get());
+    }
+  }
+
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));
 
