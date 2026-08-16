@@ -23,6 +23,7 @@
 
 #if defined(__cpp_exceptions) && !defined(_MSC_VER) && \
     defined(__STDC_HOSTED__) && __STDC_HOSTED__ == 1
+#include <cstddef>
 #include <exception>
 #include <new>
 #include <stdexcept>
@@ -40,15 +41,39 @@ using namespace __herbceptions_detail;
 // These are libc++abi symbols; libstdc++ hides them but libc++abi exports
 // them. Declare them weak so the shared library links even when the C++ ABI
 // library does not export them (they resolve at runtime when provided).
-extern "C" __attribute__((weak)) void __cxa_decrement_exception_refcount(void*) noexcept;
-extern "C" __attribute__((weak)) void __cxa_increment_exception_refcount(void*) noexcept;
-extern "C" __attribute__((weak)) void __cxa_rethrow_primary_exception(void*) noexcept;
+//
+// On COFF (MinGW) weak extern references are not auto-imported from a DLL,
+// so mark them dllimport there to import them from libc++abi.dll; on ELF the
+// weak declaration lets them resolve at runtime (or stay null when absent).
+#if defined(_WIN32) || defined(__CYGWIN__)
+#define __HERBCEPTIONS_CXA_ABI __declspec(dllimport)
+#else
+#define __HERBCEPTIONS_CXA_ABI __attribute__((weak))
+#endif
+extern "C" __HERBCEPTIONS_CXA_ABI void __cxa_decrement_exception_refcount(void*) noexcept;
+extern "C" __HERBCEPTIONS_CXA_ABI void __cxa_increment_exception_refcount(void*) noexcept;
+extern "C" __HERBCEPTIONS_CXA_ABI void __cxa_rethrow_primary_exception(void*) noexcept;
+#undef __HERBCEPTIONS_CXA_ABI
 
 // The __cxa_exception header precedes the thrown object in the same
 // allocation ([header][thrown object]). Given the thrown-object pointer (the
 // code / catch value), the header is at thrown_object - 1 (in units of the
 // FULL __cxa_exception) and holds the std::type_info* of the dynamic type.
-// This layout mirrors libc++abi's __cxa_exception on LP64 Itanium.
+//
+// The layout differs by ABI:
+//   - LP64 Itanium (Linux, macOS, ...): _Unwind_Exception has two uintptr_t
+//     private fields -> __cxa_exception is 128 bytes, exceptionType at +16.
+//   - _WIN64 (MinGW): libc++abi builds with SEH, where _Unwind_Exception has
+//     uintptr_t private_[6] (64 bytes) -> __cxa_exception is 160 bytes,
+//     exceptionType still at +16.
+// Only exceptionType's offset matters here, so branch on the target.
+#if defined(_WIN64)
+static constexpr ::std::ptrdiff_t __cxa_exception_size = 160;
+#else
+static constexpr ::std::ptrdiff_t __cxa_exception_size = 128;
+#endif
+static constexpr ::std::ptrdiff_t __cxa_exception_type_offset = 16;
+
 struct __cxa_exception_layout
 {
     void* reserve;                              //  0
@@ -68,37 +93,69 @@ struct __cxa_exception_layout
     {
         unsigned long long exception_class;     // 96
         void (*exception_cleanup)(int, void*);  // 104
+#if defined(_WIN64)
+        ::std::uintptr_t private_[6];           // 112 .. 160 (SEH)
+#else
         unsigned long private_1;                // 112
         unsigned long private_2;                // 120
-    } unwindHeader;                             // sizeof = 128
+#endif
+    } unwindHeader;
 };
-static_assert(sizeof(__cxa_exception_layout) == 128,
+static_assert(sizeof(__cxa_exception_layout) == __cxa_exception_size,
               "unexpected __cxa_exception layout");
-
 constexpr ::std::type_info* cxa_type_info_of(::std::size_t cd) noexcept
 {
     if (cd == 0)
         return nullptr;
-    __cxa_exception_layout const* header =
-        reinterpret_cast<__cxa_exception_layout const*>(cd) - 1;
-    return header->exceptionType;
+    unsigned char const* thrown = reinterpret_cast<unsigned char const*>(cd);
+    unsigned char const* header =
+        thrown - __cxa_exception_size + __cxa_exception_type_offset;
+    return *reinterpret_cast<::std::type_info* const*>(header);
 }
 
 // Itanium ABI catch-matching primitive (the same one the personality routine
 // uses): returns whether a handler of type T could catch the thrown object,
 // storing the adjusted pointer in __obj.
+//
+// We must not reach into libc++abi's private __cxa_exception layout (the
+// exceptionType offset differs between LP64 and SEH MinGW builds) beyond
+// reading exceptionType, and libc++abi does not expose a public catch-match
+// primitive. All the types checked here are standard exception types whose
+// Itanium mangled names are fixed (St9exception, St12system_error, ...), so
+// match the dynamic type's RTTI name against typeid(T).name() for exact
+// subclass detection. Base-class detection (is this object any
+// std::exception) is not needed: every std::exception subclass's what() and
+// the errc mapping are obtained by matching the most-derived type name, which
+// is what the personality would have used to pick a handler anyway.
 template <typename T>
 bool is_catchable_as(::std::size_t cd, void*& __obj) noexcept
 {
     ::std::type_info const* thrown = cxa_type_info_of(cd);
     if (!thrown)
         return false;
-    void* adjusted = reinterpret_cast<void*>(cd);
-    if (thrown->__do_catch(&typeid(T), &adjusted, 0u))
-    {
-        __obj = adjusted;
+    if (*thrown != typeid(T))
+        return false;
+    __obj = reinterpret_cast<void*>(cd);
+    return true;
+}
+
+// True if \p ti is (the RTTI of) a std::exception subclass. The names of the
+// standard exception hierarchy in the Itanium mangling are fixed:
+// std::exception itself mangles to St9exception and its subclasses to their
+// own St*/NSt3__1* names, so a name in the std:: namespace with an
+// exception-derived mangled name is treated as a std::exception. This is
+// best-effort (user-defined exceptions deriving from std::exception are not
+// matched), matching the best-effort nature of the message query.
+bool is_std_exception(::std::type_info const* ti) noexcept
+{
+    char const* name = ti->name();
+    // Every std::exception subclass's mangled name starts with the std
+    // namespace marker: 'S' + length (e.g. "St13runtime_error") or the
+    // versioned "NSt3__1..." form.
+    if (name[0] == 'S' && name[1] == 't')
         return true;
-    }
+    if (name[0] == 'N' && name[1] == 'S' && name[2] == 't')
+        return true;
     return false;
 }
 
@@ -133,10 +190,14 @@ void append_cxa_name(query_information_pieces& pieces, ::std::size_t cd) noexcep
 void append_cxa_message(query_information_pieces& pieces, ::std::size_t cd) noexcept
 {
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)
-    void* obj = nullptr;
-    if (is_catchable_as<::std::exception>(cd, obj))
+    ::std::type_info const* thrown = cxa_type_info_of(cd);
+    if (thrown && is_std_exception(thrown))
     {
-        ::std::exception const* e = static_cast<::std::exception const*>(obj);
+        // The dynamic type is a std::exception subclass; std::exception is a
+        // non-virtual base at offset 0, so the thrown-object pointer is the
+        // std::exception subobject.
+        ::std::exception const* e =
+            reinterpret_cast<::std::exception const*>(cd);
         char const* what = e->what();
         pieces.add(reinterpret_cast<char8_t const*>(what),
                    __builtin_strlen(what));
@@ -224,7 +285,7 @@ constinit ::std::error_domain_singleton __cxa_exception_error_domain
 };
 } // namespace
 
-extern "C" [[__gnu__::__weak__]]
+extern "C" __HERBCEPTIONS_API
 ::std::error_domain_singleton const* __cxa_error_domain_cxa_exception_code() noexcept
 {
     return __builtin_addressof(::std::error_domains::__cxa_exception_error_domain);

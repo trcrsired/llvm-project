@@ -76,8 +76,6 @@ struct error_domain_singleton {
   ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
   void (*do_throw_cxa_exception)(::std::size_t,
                                  ::std::cxa_exception_abi) = nullptr;
-  // reserve 3 fields for extensions
-  void *__reserved[3]{};
 };
 
 namespace __details {
@@ -188,20 +186,38 @@ private:
 };
 
 namespace error_domains {
-extern "C" [[__gnu__::__const__]]
+#if defined(_MSC_VER)
+#if defined(_HERBCEPTIONS_BUILDING_RUNTIME) && defined(herbceptions_EXPORTS)
+#define __HERBCEPTIONS_API __declspec(dllexport)
+#elif defined(_HERBCEPTIONS_BUILDING_RUNTIME)
+#define __HERBCEPTIONS_API
+#else
+#define __HERBCEPTIONS_API __declspec(dllimport)
+#endif
+#elif defined(_WIN32) || defined(_WIN64)
+// MinGW: the GNU toolchain auto-imports DLL symbols and links static
+// libraries directly, so no dllimport/dllexport is needed.
+#define __HERBCEPTIONS_API
+#else
+#define __HERBCEPTIONS_API [[__gnu__::__visibility__("default")]]
+#endif
+extern "C" {
+__HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_win32() noexcept;
 
-extern "C" [[__gnu__::__const__]]
+__HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_posix() noexcept;
 
-extern "C" [[__gnu__::__const__]]
+__HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_nt() noexcept;
 
-extern "C" [[__gnu__::__const__]]
+__HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_com() noexcept;
 
-extern "C" [[__gnu__::__const__]]
+__HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_wine() noexcept;
+} // extern "C"
+#undef __HERBCEPTIONS_API
 } // namespace error_domains
 
 template <typename __Other>

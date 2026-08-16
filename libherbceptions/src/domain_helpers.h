@@ -7,6 +7,25 @@ translation units) and are not part of the public herbception/error surface.
 */
 #include "herbceptions/error"
 
+// Export macro for the domain ABI entry points. On Windows the shared library
+// exports them (dllexport while building, dllimport elsewhere); on ELF they
+// get default visibility so a shared libherbceptions exposes them. Weak lets
+// the static archive drop them / runtime-resolve on ELF.
+#if defined(_MSC_VER)
+#if defined(_HERBCEPTIONS_BUILDING_RUNTIME) && defined(herbceptions_EXPORTS)
+#define __HERBCEPTIONS_API __declspec(dllexport)
+#elif defined(_HERBCEPTIONS_BUILDING_RUNTIME)
+#define __HERBCEPTIONS_API
+#else
+#define __HERBCEPTIONS_API __declspec(dllimport)
+#endif
+#elif defined(_WIN32) || defined(_WIN64)
+// MinGW auto-imports DLL symbols and links static libraries directly.
+#define __HERBCEPTIONS_API
+#else
+#define __HERBCEPTIONS_API [[__gnu__::__weak__]]
+#endif
+
 namespace std::error_domains::__herbceptions_detail {
 
 template <typename __Ty, ::std::size_t __n>

@@ -80,7 +80,7 @@ constinit ::std::error_domain_singleton __com_error_domain
 };
 } // namespace
 
-extern "C" [[__gnu__::__weak__]]
+extern "C" __HERBCEPTIONS_API
 ::std::error_domain_singleton const* __cxa_error_domain_com() noexcept
 {
     return __builtin_addressof(::std::error_domains::__com_error_domain);

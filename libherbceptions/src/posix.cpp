@@ -157,7 +157,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
     .do_to_errc =
         [](::std::size_t cd) noexcept { return static_cast<::std::errc>(cd); }};
 
-extern "C" [[__gnu__::__weak__]]
+extern "C" __HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_posix() noexcept {
   return __builtin_addressof(::std::error_domains::__posix_error_domain);
 }
