@@ -6825,9 +6825,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // handler instead of discarding it (in a noexcept function) or propagating
   // it (in a throws function). Calls that are the operand of `try(expr)` or
   // `catch fails(expr)` are handled by those expressions (InHerbceptionOperand
-  // is set), and calls with a plain (non-{T,i1}) return are untouched.
+  // is set), and calls with a plain (non-{T,i1}) return are untouched. A
+  // throws return is specifically `{T, i1}` — the discriminant is a single
+  // bit — so an arbitrary two-field struct (e.g. an iovec-style status like
+  // {size_t, size_t}) is not treated as a throws call.
   if (!InHerbceptionOperand && isa<llvm::StructType>(CI->getType()) &&
-      CI->getType()->getStructNumElements() == 2) {
+      CI->getType()->getStructNumElements() == 2 &&
+      cast<llvm::StructType>(CI->getType())->getElementType(1)->isIntegerTy(1)) {
     llvm::Value *Payload = Builder.CreateExtractValue(CI, 0);
     llvm::Value *Disc = Builder.CreateExtractValue(CI, 1);
 
