@@ -70,9 +70,8 @@ struct error_domain_singleton {
   void (*do_cleanup)(::std::size_t) noexcept = nullptr;
   bool (*do_equivalent)(::std::size_t, ::std::error_domain_singleton const *,
                         ::std::size_t) noexcept = nullptr;
-  void (*do_query_information)(::std::size_t, ::std::error_reporter_encoding,
-                               void *, ::std::error_reporter_io_cookie_function,
-                               ::std::error_query_information) noexcept =
+  void (*do_query_information)(::std::size_t, ::std::error_query_information, ::std::error_reporter_encoding,
+                               void *, ::std::error_reporter_io_cookie_function) noexcept =
       nullptr;
   ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
   void (*do_throw_cxa_exception)(::std::size_t,

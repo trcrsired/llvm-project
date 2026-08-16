@@ -167,7 +167,7 @@ constinit ::std::error_domain_singleton __cxa_exception_error_domain
     // The domain name is "cxa_exception", with the dynamic C++ type name
     // obtained through RTTI, e.g. "cxa_exception(std::runtime_error)". The
     // message is the what() string when the object is a std::exception.
-    .do_query_information=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun, ::std::error_query_information query) noexcept
+    .do_query_information=[](::std::size_t cd, ::std::error_query_information query, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
         query_information_pieces pieces;
         switch (query)
