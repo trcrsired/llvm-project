@@ -16,18 +16,16 @@
 #include "domain_helpers.h"
 
 namespace std::error_domains {
-
-namespace {
 namespace __herbceptions_detail {
-
+namespace {
 constexpr ::std::io_scatter_t __to_u8scatter_from_errno(int __eno) noexcept {
   using ::std::error_domains::__herbceptions_detail::__tsc;
   switch (__eno) {
 #include "posix_table.hpp"
   }
 }
-} // namespace __herbceptions_detail
 } // namespace
+} // namespace __herbceptions_detail
 
 constinit ::std::error_domain_singleton __posix_error_domain{
     .do_cleanup = nullptr, // errno values need no cleanup
