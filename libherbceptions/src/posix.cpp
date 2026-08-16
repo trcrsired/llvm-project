@@ -36,11 +36,10 @@ constinit ::std::error_domain_singleton __posix_error_domain{
           case ::std::error_query_information::name:
             pieces.add_cstr(u8"posix");
             break;
-          case ::std::error_query_information::message:
-            pieces.add_cstr(errc_message(static_cast<int>(cd)));
-            break;
           case ::std::error_query_information::name_message:
-            pieces.add_cstr(u8"posix");
+            pieces.add_cstr(u8"[posix]");
+            [[fallthrough]];
+          case ::std::error_query_information::message:
             pieces.add_cstr(errc_message(static_cast<int>(cd)));
             break;
           }
