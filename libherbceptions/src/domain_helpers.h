@@ -117,7 +117,7 @@ inline constexpr errc_message_entry errc_messages[] = {
 };
 
 inline char8_t const *errc_message(int code) noexcept {
-  for (const errc_message_entry &e : errc_messages)
+  for (errc_message_entry const &e : errc_messages)
     if (e.code == code)
       return e.message;
   return u8"Unknown error";

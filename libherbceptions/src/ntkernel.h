@@ -25,7 +25,7 @@ inline constexpr ntkernel_field ntkernel_table[] = {
 };
 
 inline constexpr ntkernel_field const *find_ntstatus(int ntstatus) noexcept {
-  for (const ntkernel_field &f : ntkernel_table)
+  for (ntkernel_field const &f : ntkernel_table)
     if (f.ntstatus == ntstatus)
       return &f;
   return nullptr;

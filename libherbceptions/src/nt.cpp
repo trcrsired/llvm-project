@@ -131,7 +131,7 @@ void emit_message(char8_t const *msg, ::std::error_reporter_encoding encoding,
 }
 
 ::std::errc nt_to_errc(int cd) noexcept {
-  if (const ntkernel_field *f = find_ntstatus(cd))
+  if (ntkernel_field const *f = find_ntstatus(cd))
     return static_cast<::std::errc>(f->posix);
   switch (static_cast<unsigned>(cd) >> 30) {
   case 0:
@@ -179,7 +179,7 @@ constinit ::std::error_domain_singleton __nt_error_domain{
                          cookie, cookfun);
             return;
           }
-          if (const ntkernel_field *f = find_ntstatus(static_cast<int>(cd))) {
+          if (ntkernel_field const *f = find_ntstatus(static_cast<int>(cd))) {
             emit_message(f->message, encoding, cookie, cookfun);
             return;
           }
