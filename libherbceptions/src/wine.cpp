@@ -33,7 +33,7 @@ constinit ::std::error_domain_singleton __wine_error_domain
     },
     .do_name=[](::std::size_t, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
-        write_ascii(encoding, cookie, cookfun, "wine");
+        write_ascii(encoding, cookie, cookfun, u8"wine");
     },
     .do_message=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {

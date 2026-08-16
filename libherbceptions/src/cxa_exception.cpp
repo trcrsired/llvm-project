@@ -133,7 +133,7 @@ constinit ::std::error_domain_singleton __cxa_exception_error_domain
     .do_name=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
         ::std::io_scatter_t v[3];
-        write_ascii(encoding, cookie, cookfun, "cxa_exception");
+        write_ascii(encoding, cookie, cookfun, u8"cxa_exception");
         v[0].base = "(";
         v[0].len = 1;
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)

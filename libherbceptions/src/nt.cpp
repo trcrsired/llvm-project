@@ -12,15 +12,18 @@
 //
 // The NTSTATUS -> {win32, posix, message} mapping is the ntkernel error
 // category table (Apache-2.0 / Boost-1.0, Niall Douglas), embedded verbatim
-// from ntkernel-table.ipp. Message strings are US-English UTF-8:
-//   - utf8 / gb18030 are emitted as-is (byte-oriented);
-//   - utf16 / utf32 are built into a fixed stack buffer (max size limit)
-//     converted from the UTF-8 string, then passed to the IO cookie.
+// from ntkernel-table.ipp. All string literals are u8"" so they are UTF-8
+// regardless of the execution character set.
+//
+// do_equivalent handles nt<->win32 via the table's win32 column, and
+// nt<->posix (or any other domain) via the posix column.
 //
 //===----------------------------------------------------------------------===//
 
 #include "herbceptions/__details/nt.h"
 #include "domain_helpers.h"
+#include "herbceptions/__details/win32.h"
+#include "ntkernel.h"
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
@@ -31,28 +34,8 @@ namespace std::error_domains {
 namespace {
 using namespace __herbceptions_detail;
 
-// One NTSTATUS table row: NTSTATUS code, equivalent Win32 code, equivalent
-// POSIX errno (0 = none), and the US-English UTF-8 descriptive string.
-struct ntkernel_field {
-  int ntstatus;
-  int win32;
-  int posix;
-  char const *message;
-};
-
-constexpr ntkernel_field ntkernel_table[] = {
-#include "ntkernel-table.ipp"
-};
-
-constexpr ntkernel_field const *find_ntstatus(int ntstatus) noexcept {
-  for (const ntkernel_field &f : ntkernel_table)
-    if (f.ntstatus == ntstatus)
-      return &f;
-  return nullptr;
-}
-
 // Largest stack buffer used when converting a UTF-8 message to UTF-16/UTF-32.
-constexpr ::std::size_t nt_message_capacity = 512;
+constexpr ::std::size_t nt_message_capacity = 32;
 
 // Append the UTF-8 code point at *&p (advancing p) to an out buffer of 16- or
 // 32-bit code units. Returns false on overlong/invalid sequences.
@@ -108,20 +91,22 @@ bool append_utf8_codepoint(char const *&p, char const *end, CodeUnit *&out,
 // utf16/utf32 the converted text is built into a fixed stack buffer (max
 // nt_message_capacity code units) before the cookie call; utf8/gb18030 are
 // byte-oriented and emitted directly.
-void emit_message(char const *msg, ::std::error_reporter_encoding encoding,
+void emit_message(char8_t const *msg, ::std::error_reporter_encoding encoding,
                   void *cookie,
                   ::std::error_reporter_io_cookie_function cookfun) noexcept {
+  char const *bytes = reinterpret_cast<char const *>(msg);
   switch (encoding) {
   case ::std::error_reporter_encoding::utf8:
   case ::std::error_reporter_encoding::gb18030:
+  case ::std::error_reporter_encoding::utfebcdic:
     write_ascii(encoding, cookie, cookfun, msg);
     return;
   case ::std::error_reporter_encoding::utf16: {
     char16_t buf[nt_message_capacity];
     char16_t *out = buf;
     char16_t *out_end = buf + nt_message_capacity;
-    char const *p = msg;
-    char const *end = p + __builtin_strlen(msg);
+    char const *p = bytes;
+    char const *end = p + __builtin_strlen(bytes);
     while (p != end)
       if (!append_utf8_codepoint(p, end, out, out_end))
         break;
@@ -133,8 +118,8 @@ void emit_message(char const *msg, ::std::error_reporter_encoding encoding,
     char32_t buf[nt_message_capacity];
     char32_t *out = buf;
     char32_t *out_end = buf + nt_message_capacity;
-    char const *p = msg;
-    char const *end = p + __builtin_strlen(msg);
+    char const *p = bytes;
+    char const *end = p + __builtin_strlen(bytes);
     while (p != end)
       if (!append_utf8_codepoint(p, end, out, out_end))
         break;
@@ -142,9 +127,6 @@ void emit_message(char const *msg, ::std::error_reporter_encoding encoding,
                static_cast<::std::size_t>(out - buf) * sizeof(char32_t));
     return;
   }
-  case ::std::error_reporter_encoding::utfebcdic:
-    write_ascii(encoding, cookie, cookfun, msg);
-    return;
   }
 }
 
@@ -160,8 +142,9 @@ void emit_message(char const *msg, ::std::error_reporter_encoding encoding,
   }
 }
 
+// nt <-> win32 equivalence via the table's win32 column.
 bool nt_equivalent_win32(int cd, ::std::size_t win32cd) noexcept {
-  if (const ntkernel_field *f = find_ntstatus(cd))
+  if (ntkernel_field const *f = find_ntstatus(cd))
     return static_cast<::std::size_t>(static_cast<unsigned>(f->win32)) ==
            win32cd;
   return false;
@@ -172,20 +155,27 @@ constinit ::std::error_domain_singleton __nt_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
+          // nt <-> nt: identity.
+          if (otherdomain == __builtin_addressof(__nt_error_domain))
+            return cd == othercd;
+          // nt <-> win32: use the table's win32 column.
+          if (otherdomain == ::std::error_domains::__cxa_error_domain_win32())
+            return nt_equivalent_win32(static_cast<int>(cd), othercd);
+          // nt <-> any other domain: compare via the POSIX errno mapping.
           return nt_to_errc(static_cast<int>(cd)) ==
                  otherdomain->do_to_errc(othercd);
         },
     .do_name =
         [](::std::size_t, ::std::error_reporter_encoding encoding, void *cookie,
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          write_ascii(encoding, cookie, cookfun, "nt");
+          write_ascii(encoding, cookie, cookfun, u8"nt");
         },
     .do_message =
         [](::std::size_t cd, ::std::error_reporter_encoding encoding,
            void *cookie,
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
           if (cd == 0) {
-            emit_message("The operation completed successfully", encoding,
+            emit_message(u8"The operation completed successfully", encoding,
                          cookie, cookfun);
             return;
           }
@@ -195,16 +185,16 @@ constinit ::std::error_domain_singleton __nt_error_domain{
           }
           switch (static_cast<unsigned>(cd) >> 30) {
           case 0:
-            emit_message("Unknown success", encoding, cookie, cookfun);
+            emit_message(u8"Unknown success", encoding, cookie, cookfun);
             return;
           case 1:
-            emit_message("Unknown information", encoding, cookie, cookfun);
+            emit_message(u8"Unknown information", encoding, cookie, cookfun);
             return;
           case 2:
-            emit_message("Unknown warning", encoding, cookie, cookfun);
+            emit_message(u8"Unknown warning", encoding, cookie, cookfun);
             return;
           case 3:
-            emit_message("Unknown error", encoding, cookie, cookfun);
+            emit_message(u8"Unknown error", encoding, cookie, cookfun);
             return;
           }
         },
