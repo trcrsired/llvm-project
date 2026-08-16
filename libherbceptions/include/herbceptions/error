@@ -155,7 +155,7 @@ public:
                             ::std::cxa_exception_abi::platform);
     }
     // EH thrown fail by the domain vtable. we throw a generic error by errc
-    throw ::std::system_error(static_cast<int>(this->do_to_errc()),
+    throw ::std::system_error(static_cast<int>(this->to_errc()),
                               ::std::generic_category());
   }
 #else
