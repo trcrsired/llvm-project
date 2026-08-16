@@ -7,6 +7,61 @@ translation units) and are not part of the public herbception/error surface.
 */
 #include "herbceptions/error"
 
+namespace std::__error_domains::__herbceptions_detail
+{
+
+template<typename __Ty, ::std::size_t __n>
+inline constexpr ::std::io_scatter_t __tsc(__Ty (const&__arr)[__n]) noexcept
+{
+  constexpr
+    ::std::size_t __nm1{__n-1u};
+  return {__arr, __nm1};
+}
+
+template<typename __DestTy>
+inline constexpr __DestTy* __write_char_t_with_ascii_only_range(char unsigned * __fromfirst, char unsigned * __fromlast, __DestTy* __dest)
+{
+  for(;__fromfirst!=__fromlast; ++__fromfirst)
+  {
+    *__dest = *__fromfirst;
+    ++__dest;
+  }
+  return dest;
+}
+
+template<typename __DestTy>
+inline constexpr __DestTy* __write_char_t_with_ascii_only_badcode_range(char unsigned * __fromfirst, char unsigned * __fromlast, __DestTy* __dest)
+{
+  for(;__fromfirst!=__fromlast; ++__fromfirst)
+  {
+    auto __cp{*__fromfirst};
+    if(0x80<=__cp)
+    {
+      cp=0xFEFF;
+    }
+    *__dest = __cp;;
+    ++__dest;
+  }
+  return dest;
+}
+
+inline constexpr char unsigned* __write_ebcdic_with_ascii_only_range(char unsigned * __fromfirst, char unsigned * __fromlast, char unsigned* __dest)
+{
+  for(;__fromfirst!=__fromlast; ++__fromfirst)
+  {
+    *__dest = ::std::__error_domains::__herbceptions_detail::__ascii_to_ebcdic(*__fromfirst);
+    ++__dest;
+  }
+  return dest;
+}
+inline constexpr bool __enable_message_query{
+#ifdef __libherbceptions_enable_message_query
+true
+#endif
+};
+}
+
+
 namespace std::error_domains {
 namespace __herbceptions_detail {
 
