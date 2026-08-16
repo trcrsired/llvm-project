@@ -72,28 +72,28 @@ int main() {
 
   // do_query_information produces name and/or message text.
   capture_ctx nctx{};
-  posix->do_query_information(2, ::std::error_reporter_encoding::utf8, &nctx,
-                              capture_cookfun,
-                              ::std::error_query_information::name);
+  posix->do_query_information(2, ::std::error_query_information::name,
+                              ::std::error_reporter_encoding::utf8, &nctx,
+                              capture_cookfun);
   CHECK(std::string(nctx.buf, nctx.len) == "posix");
 
   capture_ctx mctx{};
-  posix->do_query_information(2, ::std::error_reporter_encoding::utf8, &mctx,
-                              capture_cookfun,
-                              ::std::error_query_information::message);
+  posix->do_query_information(2, ::std::error_query_information::message,
+                              ::std::error_reporter_encoding::utf8, &mctx,
+                              capture_cookfun);
   CHECK(std::string(mctx.buf, mctx.len) == "No such file or directory");
 
   capture_ctx nmctx{};
-  posix->do_query_information(2, ::std::error_reporter_encoding::utf8, &nmctx,
-                              capture_cookfun,
-                              ::std::error_query_information::name_message);
+  posix->do_query_information(2, ::std::error_query_information::name_message,
+                              ::std::error_reporter_encoding::utf8, &nmctx,
+                              capture_cookfun);
   CHECK(std::string(nmctx.buf, nmctx.len) ==
         "posixNo such file or directory");
 
   capture_ctx cx{};
-  cxa->do_query_information(0, ::std::error_reporter_encoding::utf8, &cx,
-                            capture_cookfun,
-                            ::std::error_query_information::name);
+  cxa->do_query_information(0, ::std::error_query_information::name,
+                            ::std::error_reporter_encoding::utf8, &cx,
+                            capture_cookfun);
   CHECK(std::string(cx.buf, cx.len).find("cxa_exception") == 0);
 
   // posix cross-domain equivalence: identity within the domain.
