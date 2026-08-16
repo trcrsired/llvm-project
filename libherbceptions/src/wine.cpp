@@ -31,7 +31,7 @@ constinit ::std::error_domain_singleton __wine_error_domain
     {
         return __wine_error_domain.do_to_errc(cd) == otherdomain->do_to_errc(othercd);
     },
-    .do_query_information=[](::std::size_t cd, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun, ::std::error_query_information query) noexcept
+    .do_query_information=[](::std::size_t cd, ::std::error_query_information query, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
     {
         // strerror is not used (not thread-safe); use the static errc table.
         query_information_pieces pieces;
