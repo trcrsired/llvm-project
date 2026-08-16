@@ -64,10 +64,19 @@ using namespace __herbceptions_detail;
 // win32 <-> nt equivalence via the table's win32 column (reverse lookup: a
 // Win32 code matches an NTSTATUS row whose win32 column equals it).
 bool win32_equivalent_nt(::std::size_t win32cd, ::std::size_t ntcd) noexcept {
-  if (ntkernel_field const *f = find_ntstatus(static_cast<int>(ntcd)))
-    return static_cast<::std::size_t>(static_cast<unsigned>(f->win32)) ==
-           win32cd;
+  if (ntkernel_field const *f =
+          find_ntstatus(static_cast<::std::uint_least32_t>(ntcd)))
+    return static_cast<::std::size_t>(f->win32) == win32cd;
   return false;
+}
+
+// Find the first table row whose win32 column equals the given Win32 code.
+// The table is sorted by NTSTATUS, not by win32, so this is a linear scan.
+ntkernel_field const *find_win32_message(::std::uint_least32_t win32cd) noexcept {
+  for (ntkernel_field const &f : ntkernel_table)
+    if (f.win32 == win32cd)
+      return __builtin_addressof(f);
+  return nullptr;
 }
 
 constinit ::std::error_domain_singleton __win32_error_domain{
@@ -91,8 +100,17 @@ constinit ::std::error_domain_singleton __win32_error_domain{
           write_ascii(encoding, cookie, cookfun, u8"win32");
         },
     .do_message =
-        [](::std::size_t, ::std::error_reporter_encoding encoding, void *cookie,
+        [](::std::size_t cd, ::std::error_reporter_encoding encoding,
+           void *cookie,
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
+          // The win32 code 0 means success; the table row for it is
+          // STATUS_SUCCESS, so look up the message through the win32 column.
+          if (ntkernel_field const *f =
+                  find_win32_message(static_cast<::std::uint_least32_t>(cd))) {
+            emit_message(f->message, f->message_size, encoding, cookie,
+                         cookfun);
+            return;
+          }
           write_ascii(encoding, cookie, cookfun, u8"");
         },
     .do_to_errc =

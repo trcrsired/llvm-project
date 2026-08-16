@@ -6,6 +6,7 @@ NTSTATUS -> {win32, posix, message}, embedded verbatim from
 ntkernel-table.ipp (Apache-2.0 / Boost-1.0, Niall Douglas). Used by both the
 nt and win32 error domains for cross-domain equivalence and messages.
 */
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 
@@ -13,12 +14,14 @@ namespace std::error_domains {
 namespace __herbceptions_detail {
 
 // One NTSTATUS table row: NTSTATUS code, equivalent Win32 code, equivalent
-// POSIX errno (0 = none), and the US-English UTF-8 descriptive string.
+// POSIX errno (0 = none), the US-English UTF-8 descriptive string, and its
+// byte length (including embedded escapes).
 struct ntkernel_field {
-  int ntstatus;
-  int win32;
-  int posix;
+  ::std::uint_least32_t ntstatus;
+  ::std::uint_least32_t win32;
+  ::std::uint_least32_t posix;
   char8_t const *message;
+  ::std::size_t message_size;
 };
 
 inline constexpr ntkernel_field ntkernel_table[] = {
@@ -29,31 +32,44 @@ inline constexpr ntkernel_field ntkernel_table[] = {
 // binary search below is valid.
 namespace {
 constexpr bool ntkernel_table_is_sorted() noexcept {
-  for (std::size_t i = 1; i < sizeof(ntkernel_table) / sizeof(ntkernel_table[0]);
-       ++i)
+  constexpr std::size_t count{sizeof(ntkernel_table) / sizeof(*ntkernel_table)};
+  for (std::size_t i = 1; i != count; ++i)
     if (ntkernel_table[i - 1].ntstatus >= ntkernel_table[i].ntstatus)
       return false;
   return true;
 }
+constexpr ::std::size_t ntkernel_table_strlen(char8_t const* cstr) noexcept
+{
+  auto it{cstr};
+  for(;*it;++it);
+  return static_cast<::std::size_t>(it-cstr);
+}
+constexpr bool ntkernel_table_mesage_size_matches() noexcept {
+  for (auto &e : ntkernel_table)
+    if(ntkernel_table_strlen(e.message) != e.message_size) {
+      return false;
+    }
+  return true;
+}
 } // namespace
 static_assert(ntkernel_table_is_sorted(), "ntkernel table must be sorted");
+static_assert(ntkernel_table_mesage_size_matches(), "ntkernel table messages must all match their size");
 
 // The table is sorted ascending by NTSTATUS with unique keys, so a binary
 // search finds the row in O(log n) instead of a linear scan.
-inline constexpr ntkernel_field const *find_ntstatus(int ntstatus) noexcept {
-  std::size_t const count =
-      sizeof(ntkernel_table) / sizeof(ntkernel_table[0]);
+inline constexpr ntkernel_field const *find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
+  constexpr std::size_t count{sizeof(ntkernel_table) / sizeof(*ntkernel_table)};
   std::size_t lo = 0;
   std::size_t hi = count;
   while (lo < hi) {
-    std::size_t const mid = lo + (hi - lo) / 2;
+    std::size_t const mid = lo + (static_cast<::std::size_t>(hi - lo) >> 1u);
     if (ntkernel_table[mid].ntstatus < ntstatus)
-      lo = mid + 1;
+      lo = mid + 1u;
     else
       hi = mid;
   }
   if (lo < count && ntkernel_table[lo].ntstatus == ntstatus)
-    return &ntkernel_table[lo];
+    return ntkernel_table+lo;
   return nullptr;
 }
 

@@ -152,5 +152,16 @@ if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
     endif()
 
     add_test(NAME herbceptions_domain_test COMMAND herbceptions_domain_test)
+
+    # The ntkernel table test includes the private src/ntkernel.h directly and
+    # needs the src dir on the include path (no linking required).
+    add_executable(herbceptions_ntkernel_table_test test/ntkernel_table_test.cpp)
+    target_include_directories(herbceptions_ntkernel_table_test PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_features(herbceptions_ntkernel_table_test PRIVATE cxx_std_23)
+    add_test(NAME herbceptions_ntkernel_table_test
+             COMMAND herbceptions_ntkernel_table_test)
   endif()
 endif()
