@@ -40,16 +40,6 @@ namespace std {
 
 class error;
 
-enum class cxa_exception_abi {
-  itanium = 0,
-  microsoft = 1,
-#if defined(_MSC_VER)
-  platform = microsoft
-#else
-  platform = itanium
-#endif
-};
-
 struct io_scatter_t {
   void const *base;
   ::std::size_t len;
@@ -74,8 +64,7 @@ struct error_domain_singleton {
                                void *, ::std::error_reporter_io_cookie_function) noexcept =
       nullptr;
   ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
-  void (*do_throw_cxa_exception)(::std::size_t,
-                                 ::std::cxa_exception_abi) = nullptr;
+  void (*do_throw_exception)(::std::size_t) = nullptr;
 };
 
 namespace __details {
@@ -141,22 +130,21 @@ public:
     return __domain_opaque->do_to_errc(__code_opaque);
   }
 
-  void throw_cxa_exception() const
+  void throw_exception() const
 #if defined(__cpp_exceptions)
   {
-    auto __dothrowcxaexception{__domain_opaque->do_throw_cxa_exception};
-    if (__dothrowcxaexception) {
-      // if the function returns then the EH was not thrown for whatever reason
-      // such as we are using an itanium that throws msvc eh
-      __dothrowcxaexception(static_cast<::std::size_t>(this->code()),
-                            ::std::cxa_exception_abi::platform);
+    auto __dothrow{__domain_opaque->do_throw_exception};
+    if (__dothrow) {
+      // If the function returns then the EH was not thrown for whatever
+      // reason; fall back to a generic error below.
+      __dothrow(static_cast<::std::size_t>(this->code()));
     }
-    // EH thrown fail by the domain vtable. we throw a generic error by errc
+    // EH throw failed by the domain vtable. throw a generic error by errc
     throw ::std::system_error(static_cast<int>(this->to_errc()),
                               ::std::generic_category());
   }
 #else
-      = delete; // cxa exception disabled
+      = delete; // exception throw disabled
 #endif
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)

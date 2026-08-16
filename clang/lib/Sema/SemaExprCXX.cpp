@@ -1094,39 +1094,76 @@ ExprResult Sema::RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
 }
 
 /// Build the compiler-fabricated `std::error` value that captures a legacy
-/// C++ exception: `{error_domain<std::cxa_exception_code>::domain(),
-/// __cxa_get_exception_ptr(...)}`. This is used when a legacy exception
-/// (thrown by a `noexcept(false)` function) is converted to the herbception
-/// channel: inside a `try { } catch throws(std::error e)` block, or escaping
-/// a `throws` function. The thrown-object pointer is the `code`; the domain is
-/// looked up through the user's `error_domain<std::cxa_exception_code>`
-/// specialization (the compiler does not hardcode the singleton).
+/// C++ exception: `{error_domain<std::exception_ptr>::domain(), code}` where
+/// `code` is the result of the domain's compiler fabrication entry point:
+/// `error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_itanium(thrown_ptr)`
+/// (Itanium) or `..._msvc(object, rtti)` (MSVC). This is used when a legacy
+/// exception (thrown by a `noexcept(false)` function) is converted to the
+/// herbception channel: inside a `try { } catch throws(std::error e)` block,
+/// or escaping a `throws` function. The domain is looked up through the user's
+/// `error_domain<std::exception_ptr>` specialization (the compiler does not
+/// hardcode the singleton).
 ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
-  // Best-effort conversion: locate std::cxa_exception_code, its
-  // error_domain specialization, and std::error. When any of these is missing
-  // (e.g. the cxa_exception_code header is not included), return ExprError
-  // silently so the catch-throws handler still catches herbception throws —
-  // the legacy-EH conversion is simply unavailable.
-  QualType CxaCodeTy;
+  // Best-effort conversion: locate std::exception_ptr, its error_domain
+  // specialization, and std::error. When any of these is missing (e.g. the
+  // exception_ptr header is not included), return ExprError silently so the
+  // catch-throws handler still catches herbception throws — the legacy-EH
+  // conversion is simply unavailable.
+  QualType ExPtrTy;
   if (NamespaceDecl *Std = getStdNamespace()) {
-    LookupResult R(*this, &PP.getIdentifierTable().get("cxa_exception_code"),
-                   Loc, LookupTagName);
+    LookupResult R(*this, &PP.getIdentifierTable().get("exception_ptr"), Loc,
+                   LookupTagName);
     if (LookupQualifiedName(R, Std)) {
       if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
-        CxaCodeTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+        ExPtrTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
     }
   }
-  if (CxaCodeTy.isNull())
+  if (ExPtrTy.isNull())
     return ExprError();
 
-  // error_domain<std::cxa_exception_code>::domain() — the domain singleton.
-  CXXRecordDecl *Domain = lookupErrorDomain(Loc, CxaCodeTy);
+  // error_domain<std::exception_ptr>::domain() — the domain singleton.
+  CXXRecordDecl *Domain = lookupErrorDomain(Loc, ExPtrTy);
   CXXMethodDecl *DomainFn =
       Domain ? findStaticMember(*this, Domain, "domain", Loc) : nullptr;
   if (!DomainFn)
     return ExprError();
   ExprResult DomainCall = buildStaticMemberCall(*this, DomainFn, {}, Loc);
   if (DomainCall.isInvalid())
+    return ExprError();
+
+  // error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_{msvc,itanium}()
+  // — the compiler fabrication entry point that turns the caught thrown-object
+  // pointer (and, on MSVC, its RTTI) into the integer code. The compiler does
+  // not construct a std::exception_ptr (that would heap-allocate / refcount);
+  // it passes the raw pointers and lets the domain build its own handle.
+  const char *FabName =
+      getLangOpts().MSVCCompat ? "msvc" : "itanium";
+  std::string FnName = std::string("__builtin_herbceptions_exception_ptr_domain_") +
+                       FabName;
+  CXXMethodDecl *FabFn = findStaticMember(*this, Domain, FnName.c_str(), Loc);
+  if (!FabFn)
+    return ExprError();
+
+  // The magic thrown-object-pointer operand: CodeGen lowers it to
+  // __cxa_get_exception_ptr (Itanium) / llvm.eh.exceptionpointer (MSVC) /
+  // wasm.get.exception (Wasm). It is passed to the fabrication entry point.
+  QualType VoidPtrTy = Context.VoidPtrTy;
+  Expr *CxaOperand =
+      new (Context) CXXCxaExceptionExpr(VoidPtrTy, Loc);
+
+  // On MSVC the fabrication entry point also takes the thrown object's RTTI
+  // (the type descriptor / type_info); the CXXCxaExceptionExpr yields the
+  // object and the same expression stands in for the RTTI slot, which the
+  // domain uses to recover the dynamic type name. (The object pointer alone
+  // identifies the vtable on MSVC polymorphic types, but passing the type
+  // descriptor keeps the handle self-contained.)
+  SmallVector<Expr *, 2> Args;
+  Args.push_back(CxaOperand);
+  if (FabFn->getNumParams() > 1)
+    Args.push_back(CxaOperand);
+
+  ExprResult CodeCall = buildStaticMemberCall(*this, FabFn, Args, Loc);
+  if (CodeCall.isInvalid())
     return ExprError();
 
   // The fabricated std::error type, looked up by name.
@@ -1142,14 +1179,9 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   if (ErrorTy.isNull())
     return ExprError();
 
-  // The magic thrown-object-pointer operand: CodeGen lowers it to
-  // __cxa_get_exception_ptr, and its value IS the code. It is a scalar
-  // (size_t) expression matching the {void*, size_t} std::error code slot.
-  Expr *CxaOperand =
-      new (Context) CXXCxaExceptionExpr(Context.getSizeType(), Loc);
-
   return new (Context) CXXErrorValueExpr(CxaOperand, DomainCall.get(),
-                                         /*CodeCall=*/CxaOperand, ErrorTy, Loc);
+                                         /*CodeCall=*/CodeCall.get(), ErrorTy,
+                                         Loc);
 }
 
 ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
