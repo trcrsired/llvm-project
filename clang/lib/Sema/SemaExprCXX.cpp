@@ -1136,22 +1136,33 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   // pointer (and, on MSVC, its RTTI) into the integer code. The compiler does
   // not construct a std::exception_ptr (that would heap-allocate / refcount);
   // it passes the raw pointers and lets the domain build its own handle.
-  const char *FabName =
-      getLangOpts().MSVCCompat ? "msvc" : "itanium";
+  bool IsMSVC{getLangOpts().MSVCCompat};
+  const char *FabName = IsMSVC ? "msvc" : "itanium";
   std::string FnName = std::string("__builtin_herbceptions_exception_ptr_domain_") +
                        FabName;
   CXXMethodDecl *FabFn = findStaticMember(*this, Domain, FnName.c_str(), Loc);
-  if (!FabFn || FabFn->getNumParams() != 1)
+  if (!FabFn)
     return ExprError();
 
+  auto NumParams{FabFn->getNumParams()};
+  if ((IsMSVC && NumParams != 0) || (!IsMSVC && NumParams != 1)) {
+    return ExprError();
+  }
   // The magic thrown-object-pointer operand: CodeGen lowers it to
-  // __cxa_get_exception_ptr (Itanium) / llvm.eh.exceptionpointer (MSVC) /
+  // __cxa_get_exception_ptr (Itanium) /
   // wasm.get.exception (Wasm). It is passed to the fabrication entry point.
-  QualType VoidPtrTy = Context.VoidPtrTy;
-  Expr *CxaOperand =
-      new (Context) CXXCxaExceptionExpr(VoidPtrTy, Loc);
+  // MSVC uses thread local __current_exception() so it does not need entry
 
-  ExprResult CodeCall = buildStaticMemberCall(*this, FabFn, {CxaOperand}, Loc);
+  Expr *CxaOperand = nullptr;
+  MutableArrayRef<Expr *> CxaOperandArgs;
+  QualType VoidPtrTy = Context.VoidPtrTy;
+  CxaOperand = new (Context) CXXCxaExceptionExpr(VoidPtrTy, Loc);
+
+  if (!IsMSVC) {
+    CxaOperandArgs = MutableArrayRef<Expr *>(&CxaOperand, 1);
+  }
+  ExprResult CodeCall =
+      buildStaticMemberCall(*this, FabFn, CxaOperandArgs, Loc);
   if (CodeCall.isInvalid())
     return ExprError();
 
