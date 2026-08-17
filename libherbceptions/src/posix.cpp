@@ -65,7 +65,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
               break;
             }
             default: {
-              *__pos = {u8"posix", 5u * sizeof(char8_t)};
+              *__pos = {u8"posix", 5u};
               break;
             }
             }
@@ -87,7 +87,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
               break;
             }
             default: {
-              *__pos = {u8"[posix]", 7u * sizeof(char8_t)};
+              *__pos = {u8"[posix]", 7u};
               break;
             }
             }

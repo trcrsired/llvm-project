@@ -147,20 +147,20 @@ public:
 
   void throw_dynamic_exception() const
 #if defined(__cpp_exceptions)
-      = delete; // exception throw disabled
-#else
   {
     auto __dothrow{__domain_opaque->do_throw_dynamic_exception};
     if (__dothrow) {
       // If the function returns then the EH was not thrown for whatever
       // reason; fall back to a generic error below.
       __dothrow(static_cast<::std::size_t>(this->code()),
-                ::std::legacy_exception_abi::platform);
+                ::std::dynamic_exception_abi::platform);
     }
     // EH throw failed by the domain vtable. throw a generic error by errc
     throw ::std::system_error(static_cast<int>(this->to_errc()),
                               ::std::generic_category());
   }
+#else
+      = delete; // exception throw disabled
 #endif
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)

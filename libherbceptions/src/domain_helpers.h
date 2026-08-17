@@ -81,6 +81,10 @@ inline constexpr bool __enable_message_query{
     true
 #endif
 };
+
+template <char8_t __asciicp, typename __chartype>
+inline constexpr __chartype __char_literal_v{__asciicp};
+
 } // namespace std::error_domains::__herbceptions_detail
 
 namespace std::error_domains {
