@@ -16,6 +16,7 @@ inline void __free_or_heap_dealloc(void *__bufferptr) noexcept {
 }
 
 class __malloc_or_heapalloc_temp_buffer {
+public:
   void *__bufferptr{};
   constexpr __malloc_or_heapalloc_temp_buffer() noexcept = default;
   constexpr __malloc_or_heapalloc_temp_buffer(void *__bp) noexcept

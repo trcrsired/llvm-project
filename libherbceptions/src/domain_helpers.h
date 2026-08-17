@@ -76,6 +76,43 @@ __write_ebcdic_with_ascii_only_range(char unsigned const *__fromfirst,
   }
   return __dest;
 }
+
+inline char unsigned *__codecvt_write_with_encoding(
+    char unsigned const *__fromfirst, char unsigned const *__fromlast,
+    char unsigned *__dest, ::std::error_reporter_encoding __encoding) noexcept {
+  if (__fromfirst == __fromlast) {
+    return __dest;
+  }
+  switch (__encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    return ::std::error_domains::__herbceptions_detail::
+        __write_ebcdic_with_ascii_only_range(__fromfirst, __fromlast, __dest);
+  }
+  case ::std::error_reporter_encoding::utf32:
+    using __char32_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+        [[__gnu__::__may_alias__]]
+#endif
+        = char32_t *;
+    return reinterpret_cast<char unsigned *>(
+        ::std::error_domains::__herbceptions_detail::
+            __write_with_ascii_only_badcode_range(
+                __fromfirst, __fromlast,
+                reinterpret_cast<__char32_may_alias_ptr>(__dest)));
+  default:
+    using __char16_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+        [[__gnu__::__may_alias__]]
+#endif
+        = char16_t *;
+    return reinterpret_cast<char unsigned *>(
+        ::std::error_domains::__herbceptions_detail::
+            __write_with_ascii_only_badcode_range(
+                __fromfirst, __fromlast,
+                reinterpret_cast<__char16_may_alias_ptr>(__dest)));
+  }
+}
+
 inline constexpr bool __enable_message_query{
 #ifdef __libherbceptions_enable_message_query
     true
