@@ -55,16 +55,31 @@ enum class error_query_information : ::std::uint_least32_t {
   message = 2,
   name_message = 3
 };
+/*
+Add an abi enum class to ensure user cross
+windows-gnu/windows-msvc eh thrown correctness
+*/
+enum class dynamic_exception_abi {
+  itanium = 0,
+  microsoft = 1,
+#if defined(_MSC_VER)
+  platform = microsoft
+#else
+  platform = itanium
+#endif
+};
 
 struct error_domain_singleton {
   void (*do_cleanup)(::std::size_t) noexcept = nullptr;
   bool (*do_equivalent)(::std::size_t, ::std::error_domain_singleton const *,
                         ::std::size_t) noexcept = nullptr;
-  void (*do_query_information)(::std::size_t, ::std::error_query_information, ::std::error_reporter_encoding,
-                               void *, ::std::error_reporter_io_cookie_function) noexcept =
-      nullptr;
+  void (*do_query_information)(
+      ::std::size_t, ::std::error_query_information,
+      ::std::error_reporter_encoding, void *,
+      ::std::error_reporter_io_cookie_function) noexcept = nullptr;
   ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
-  void (*do_throw_exception)(::std::size_t) = nullptr;
+  void (*do_throw_dynamic_exception)(::std::size_t,
+                                     ::std::dynamic_exception_abi) = nullptr;
 };
 
 namespace __details {
@@ -130,21 +145,22 @@ public:
     return __domain_opaque->do_to_errc(__code_opaque);
   }
 
-  void throw_exception() const
+  void throw_dynamic_exception() const
 #if defined(__cpp_exceptions)
+      = delete; // exception throw disabled
+#else
   {
-    auto __dothrow{__domain_opaque->do_throw_exception};
+    auto __dothrow{__domain_opaque->do_throw_dynamic_exception};
     if (__dothrow) {
       // If the function returns then the EH was not thrown for whatever
       // reason; fall back to a generic error below.
-      __dothrow(static_cast<::std::size_t>(this->code()));
+      __dothrow(static_cast<::std::size_t>(this->code()),
+                ::std::legacy_exception_abi::platform);
     }
     // EH throw failed by the domain vtable. throw a generic error by errc
     throw ::std::system_error(static_cast<int>(this->to_errc()),
                               ::std::generic_category());
   }
-#else
-      = delete; // exception throw disabled
 #endif
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
@@ -358,10 +374,10 @@ struct has_herbception_throws_move_assign
 
 #ifdef _WIN32
 #include "herbceptions/__details/com.h"
+#include "herbceptions/__details/exception_ptr.h"
 #include "herbceptions/__details/nt.h"
 #include "herbceptions/__details/win32.h"
 #include "herbceptions/__details/wine.h"
-#include "herbceptions/__details/exception_ptr.h"
 #endif
 
 // Restore the macros saved above, in reverse order.
