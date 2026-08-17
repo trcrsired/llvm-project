@@ -69,7 +69,7 @@ Referenced from WINE code
 */
 
 inline constexpr bool architecture_use_rva{
-#if !defined(__i386__)
+#if !((SIZE_MAX <= UINT_LEAST32_MAX) && (defined(__i386__) || defined(_M_IX86)))
     true
 #endif
 };
@@ -145,9 +145,10 @@ get_msvc_cppeh_type_info(EXCEPTION_RECORD &ehrec) noexcept {
       cxx_rva(ti->type_info, base));
 }
 
-inline void *get_this_pointer(this_ptr_offsets const *off, void *object) {
+inline void *get_this_pointer(this_ptr_offsets const *off,
+                              void *object) noexcept {
   if (!object)
-    return NULL;
+    return nullptr;
   if (off->vbase_descr >= 0) {
     int *offset_ptr;
     /* move this ptr to vbase descriptor */
@@ -194,8 +195,7 @@ try_get_cpp_exception_with_mangled_name(EXCEPTION_RECORD const &ehrec,
     auto *except_ti =
         reinterpret_cast<msvc_raw_type_info *>(cxx_rva(cti->type_info, base));
     if (!strcmp(except_ti->mangled, name)) {
-      void *this_ptr = get_this_pointer(&cti->offsets, obj);
-      return this_ptr;
+      return get_this_pointer(__builtin_addressof(cti->offsets), obj);
       // do not use C++ standard exception class since it can be libc++'s
     }
   }
@@ -211,7 +211,7 @@ try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
   return get_msvc_exception_what(this_ptr);
 }
 
-#include "msvc_exception_gperf.hpp"
+#include "msvc_exception_gperf"
 
 struct try_match_msvc_eh_result {
   msvc_exception_kind kind{};
@@ -249,9 +249,9 @@ try_match_msvc_exceptions(EXCEPTION_RECORD const &ehrec) noexcept {
         Perfect_Hash::msvc_exception_lookup(mangled_name, mangled_name_len);
     if (lookupres) {
       auto kind{lookupres->value};
-      if (kind == msvc_exception_kind::msvc_system_error) {
-        void *this_ptr = get_this_pointer(&cti->offsets, obj);
-        return {kind, this_ptr};
+      if (kind == msvc_exception_kind::msvc_system_error ||
+          kind == msvc_exception_kind::msvc__System_error) {
+        return {kind, get_this_pointer(&cti->offsets, obj)};
       }
       return {kind};
     }
@@ -382,12 +382,6 @@ inline constexpr msvc_exception_writestr_return msvc_exception_writestr(
   return {{name, namelen}, {message, messagelen}};
 }
 
-inline ::std::errc errc_of(::std::error_code const &__ec) noexcept {
-  if (__ec.category() == ::std::generic_category())
-    return static_cast<::std::errc>(__ec.value());
-  return ::std::errc::io_error;
-}
-
 constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
 
     .do_cleanup =
@@ -403,9 +397,6 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
     .do_equivalent = [](::std::size_t cd,
                         ::std::error_domain_singleton const *domain,
                         ::std::size_t othercd) noexcept -> bool {
-      if (domain == __builtin_addressof(__msvc_exception_ptr_domain)) {
-        return cd == othercd;
-      }
       return __msvc_exception_ptr_domain.do_to_errc(cd) ==
              domain->do_to_errc(othercd);
     },
@@ -506,11 +497,12 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
       EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
       auto [kind, system_error_obj] = try_match_msvc_exceptions(ehrec);
       switch (kind) {
+#if 0
       case msvc_exception_kind::msvc_system_error:
-        return static_cast<::std::errc>(
-            errc_of(reinterpret_cast<::std::system_error *>(system_error_obj)
-                        ->code())); // placeholder
-        break;
+        [[fallthrough]];
+      case msvc_exception_kind::msvc__System_error:
+        return ::std::errc::io_error;
+#endif
       case msvc_exception_kind::msvc_logic_error:
         [[fallthrough]];
       case msvc_exception_kind::msvc_invalid_argument:
