@@ -61,7 +61,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
               break;
             }
             case ::std::error_reporter_encoding::utf32: {
-              *__pos = {U"posix", 5u * sizeof(char16_t)};
+              *__pos = {U"posix", 5u * sizeof(char32_t)};
               break;
             }
             default: {
@@ -83,7 +83,7 @@ constinit ::std::error_domain_singleton __posix_error_domain{
               break;
             }
             case ::std::error_reporter_encoding::utf32: {
-              *__pos = {U"[posix]", 7u * sizeof(char16_t)};
+              *__pos = {U"[posix]", 7u * sizeof(char32_t)};
               break;
             }
             default: {
@@ -157,8 +157,8 @@ constinit ::std::error_domain_singleton __posix_error_domain{
     .do_to_errc =
         [](::std::size_t cd) noexcept { return static_cast<::std::errc>(cd); }};
 
-extern "C" __HERBCEPTIONS_API
-::std::error_domain_singleton const *__cxa_error_domain_posix() noexcept {
+extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
+__cxa_error_domain_posix() noexcept {
   return __builtin_addressof(::std::error_domains::__posix_error_domain);
 }
 
