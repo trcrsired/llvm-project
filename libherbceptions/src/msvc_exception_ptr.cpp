@@ -22,45 +22,44 @@
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
-extern "C" void __stdcall _CxxThrowException(void*,void*);
-namespace
-{
+extern "C" void __stdcall _CxxThrowException(void *, void *);
+namespace {
 
-constinit ::std::error_domain_singleton __msvc_exception_ptr_domain
-{
+constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
     // The code is the thrown-object pointer (the __cxa catch value). When the
     // error value dies, release the reference; this destroys the exception
     // object exactly when the last reference goes away. On the MSVC ABI there
     // is no __cxa refcount, so cleanup is a no-op.
-    .do_cleanup=[](::std::size_t cd) noexcept
-    {
-    },
+    .do_cleanup = [](::std::size_t cd) noexcept {},
     // Two cxa exceptions are equivalent when they are the same exception
     // object (same catch value).
-    .do_equivalent=[](::std::size_t cd, ::std::error_domain_singleton const*, ::std::size_t othercd) noexcept
-    {
-        return cd == othercd;
-    },
+    .do_equivalent =
+        [](::std::size_t cd, ::std::error_domain_singleton const *,
+           ::std::size_t othercd) noexcept { return cd == othercd; },
     // The domain name is "itanium_exception", with the dynamic C++ type name
     // obtained through RTTI, e.g. "itanium_exception(std::runtime_error)". The
     // message is the what() string when the object is a std::exception.
-    .do_query_information=[](::std::size_t cd, ::std::error_query_information query, ::std::error_reporter_encoding encoding, void* cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept
-    {
-    },
-    .do_to_errc=[](::std::size_t cd) noexcept -> ::std::errc
-    {
-    },
-
-    .do_throw_exception=[](::std::size_t cd)
-    {
+    .do_query_information =
+        [](::std::size_t cd, ::std::error_query_information query,
+           ::std::error_reporter_encoding encoding, void *cookie,
+           ::std::error_reporter_io_cookie_function cookfun) noexcept {},
+    .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
+      return ::std::errc::io_error;
     }
+#if defined(__cpp_exceptions) && defined(_MSC_VER)
+    ,
+    .do_throw_dynamic_exception =
+        [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
+          if (__ehabi != ::std::dynamic_exception_abi::platform)
+            return;
+        }
+#endif
 };
-}
+} // namespace
 
-extern "C" __HERBCEPTIONS_API
-::std::error_domain_singleton const* __cxa_error_domain_msvc_exception_ptr() noexcept
-{
-    return __builtin_addressof(__msvc_exception_ptr_domain);
+extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
+__cxa_error_domain_msvc_exception_ptr() noexcept {
+  return __builtin_addressof(__msvc_exception_ptr_domain);
 }
 
 #endif
