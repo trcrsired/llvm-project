@@ -109,11 +109,20 @@ struct cxx_type_info_table {
   ::std::uint_least32_t count;
   ::std::uint_least32_t info[10];
 };
+
+struct this_ptr_offsets {
+  ::std::int_least32_t
+      this_offset; /* offset of base class this pointer from start of object */
+  ::std::int_least32_t
+      vbase_descr; /* offset of virtual base class descriptor */
+  ::std::int_least32_t vbase_offset; /* offset of this pointer offset in virtual
+                                        base class descriptor */
+};
 struct cxx_type_info // RVA variant
 {
   ::std::uint_least32_t flags;
   ::std::uint_least32_t type_info; // RVA to std::type_info
-  int this_offset, vbase_descr, vbase_offset;
+  this_ptr_offsets offsets;
   ::std::uint_least32_t size;
   ::std::uint_least32_t copy_ctor;
 };
@@ -135,54 +144,190 @@ get_msvc_cppeh_type_info(EXCEPTION_RECORD &ehrec) noexcept {
   return reinterpret_cast<msvc_raw_type_info const *>(
       cxx_rva(ti->type_info, base));
 }
-#if 0
-inline void *get_this_pointer( const this_ptr_offsets *off, void *object )
-{
-    if (!object) return NULL;
-    if (off->vbase_descr >= 0)
-    {
-        int *offset_ptr;
-        /* move this ptr to vbase descriptor */
-        object = (char *)object + off->vbase_descr;
-        /* and fetch additional offset from vbase descriptor */
-        offset_ptr = (int *)(*(char **)object + off->vbase_offset);
-        object = (char *)object + *offset_ptr;
-    }
-    object = (char *)object + off->this_offset;
-    return object;
+
+inline void *get_this_pointer(this_ptr_offsets const *off, void *object) {
+  if (!object)
+    return NULL;
+  if (off->vbase_descr >= 0) {
+    int *offset_ptr;
+    /* move this ptr to vbase descriptor */
+    object = (char *)object + off->vbase_descr;
+    /* and fetch additional offset from vbase descriptor */
+    offset_ptr = (int *)(*(char **)object + off->vbase_offset);
+    object = (char *)object + *offset_ptr;
+  }
+  object = (char *)object + off->this_offset;
+  return object;
 }
 
-inline ::std::exception* dynamic_cast_to_std_exception(EXCEPTION_RECORD const& ehrec) noexcept  
-{  
-    if (ehrec.ExceptionCode != 0xe06d7363 /* CXX_EXCEPTION */)  
-        return nullptr;  
-  
-    unsigned nparams = architecture_use_rva ? 4 : 3;  
-    if (ehrec.NumberParameters != nparams) return nullptr;  
-    if (ehrec.ExceptionInformation[0] < 0x19930520 /* VC6 */ ||  
-        ehrec.ExceptionInformation[0] > 0x19930520 /* adjust upper bound to real VC8 magic */)  
-        return nullptr;  
-  
-    auto *et = reinterpret_cast<msvc_cxx_exception_type*>(ehrec.ExceptionInformation[2]);  
-    uintptr_t base = architecture_use_rva ? ehrec.ExceptionInformation[3] : 0;  
-    auto *table = reinterpret_cast<cxx_type_info_table*>(cxx_rva(et->type_info_table, base));  
-  
-    void *obj = reinterpret_cast<void*>(ehrec.ExceptionInformation[1]);  
-  
-    for (::std::uint_least32_t i{}; i != table->count; ++i)  
-    {  
-        auto *cti = reinterpret_cast<cxx_type_info*>(cxx_rva(table->info[i], base));  
-        auto *except_ti = reinterpret_cast<msvc_raw_type_info*>(cxx_rva(cti->type_info, base));  
-  
-        if (!strcmp(except_ti->mangled, ".?AVexception@std@@"))  
-        {  
-            void *this_ptr = get_this_pointer(&cti->offsets, obj);  
-            return reinterpret_cast<::std::exception*>(this_ptr);  
-        }
-    }  
-    return nullptr;  
+inline char const *get_msvc_exception_what(void *obj) noexcept {
+  using what_fn =
+      char const *(__thiscall *)(void *) noexcept; // or __cdecl on x64
+  void *vtbl = *reinterpret_cast<void **>(obj);
+  what_fn fn = reinterpret_cast<what_fn *>(vtbl)[0];
+  const char *msg = fn(obj);
 }
-#endif
+
+// return nullptr if we do not find string
+inline char const *
+try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
+  if (ehrec.ExceptionCode != 0xe06d7363 /* CXX_EXCEPTION */)
+    return nullptr;
+  unsigned nparams = architecture_use_rva ? 4 : 3;
+  if (ehrec.NumberParameters != nparams)
+    return nullptr;
+  if (ehrec.ExceptionInformation[0] < 0x19930520 /* VC6 */ ||
+      ehrec.ExceptionInformation[0] >
+          0x19930520 /* adjust upper bound to real VC8 magic */)
+    return nullptr;
+
+  auto *et = reinterpret_cast<msvc_cxx_exception_type *>(
+      ehrec.ExceptionInformation[2]);
+  uintptr_t base = architecture_use_rva ? ehrec.ExceptionInformation[3] : 0;
+  auto *table = reinterpret_cast<cxx_type_info_table *>(
+      cxx_rva(et->type_info_table, base));
+
+  void *obj = reinterpret_cast<void *>(ehrec.ExceptionInformation[1]);
+
+  for (::std::uint_least32_t i{}; i != table->count; ++i) {
+    auto *cti =
+        reinterpret_cast<cxx_type_info *>(cxx_rva(table->info[i], base));
+    auto *except_ti =
+        reinterpret_cast<msvc_raw_type_info *>(cxx_rva(cti->type_info, base));
+    if (!strcmp(except_ti->mangled,
+                ".?AVexception@stdext@@")) // microsoft exceptions
+    {
+      void *this_ptr = get_this_pointer(&cti->offsets, obj);
+      return get_msvc_exception_what(this_ptr);
+      // do not use C++ standard exception class since it can be libc++'s
+    }
+  }
+  return nullptr;
+}
+
+inline constexpr ::std::io_scatter_t
+msvc_exception_name_message_range(::std::error_reporter_encoding encoding,
+                                  ::std::size_t startpos,
+                                  ::std::size_t n) noexcept {
+  constexpr ::std::size_t totalsize{19u};
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    return {&startpos["\xBA\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89"
+                      "\x96\x95\x4D\x6F\x4D\xBB"],
+            n};
+  }
+  case ::std::error_reporter_encoding::utf16: {
+    return {&startpos[u"[msvc_exception(?)]"], n * sizeof(char16_t)};
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    return {&startpos[U"[msvc_exception(?)]"], n * sizeof(char32_t)};
+  }
+  default: {
+    return {&startpos[u8"[msvc_exception(?)]"], n};
+  }
+  }
+}
+
+inline constexpr ::std::io_scatter_t unknown_msvc_exception_name_message(
+    ::std::error_reporter_encoding encoding) noexcept {
+  /*
+  [msvc_exception(?)]
+  */
+  return msvc_exception_name_message_range(encoding, 0, 19u);
+}
+inline constexpr ::std::io_scatter_t
+unknown_msvc_exception_name(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  msvc_exception(?)
+  */
+  return msvc_exception_name_message_range(encoding, 1, 17u);
+}
+
+inline constexpr ::std::io_scatter_t known_msvc_exception_name_partial(
+    ::std::error_reporter_encoding encoding) noexcept {
+  /*
+  msvc_exception(
+  */
+  return msvc_exception_name_message_range(encoding, 1, 15u);
+}
+
+inline constexpr ::std::io_scatter_t known_msvc_exception_name_message_partial(
+    ::std::error_reporter_encoding encoding) noexcept {
+  /*
+  [msvc_exception(
+  */
+  return msvc_exception_name_message_range(encoding, 0, 16u);
+}
+
+inline constexpr ::std::io_scatter_t
+right_parenthese(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  )
+  */
+  return msvc_exception_name_message_range(encoding, 17, 1u);
+}
+
+inline constexpr ::std::io_scatter_t
+right_parenthese_bracket(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  )]
+  */
+  return msvc_exception_name_message_range(encoding, 17, 2u);
+}
+
+struct msvc_exception_writestr_return {
+  ::std::io_scatter_t name;
+  ::std::io_scatter_t message;
+};
+
+inline constexpr msvc_exception_writestr_return msvc_exception_writestr(
+    char const *name, ::std::size_t namelen, char const *message,
+    ::std::size_t messagelen, ::std::error_reporter_encoding encoding,
+    ::std::error_domains::__herbceptions_detail::
+        __malloc_or_heapalloc_temp_buffer &buffer) noexcept {
+  static_assert('A' == u8'A', "EBCDIC Execution Charset not supported");
+  if (encoding == ::std::error_reporter_encoding::utfebcdic ||
+      encoding == ::std::error_reporter_encoding::utf16 ||
+      encoding == ::std::error_reporter_encoding::utf32) {
+    ::std::size_t to_allocate_bytes{};
+    if (__builtin_add_overflow(namelen, messagelen,
+                               __builtin_addressof(to_allocate_bytes))) {
+      abort();
+    }
+    if (to_allocate_bytes) {
+      ::std::size_t szch{1u};
+      if (encoding == ::std::error_reporter_encoding::utf16) {
+        szch = 2u;
+      } else if (encoding == ::std::error_reporter_encoding::utf32) {
+        szch = 4u;
+      }
+      if (__builtin_mul_overflow(to_allocate_bytes, szch,
+                                 __builtin_addressof(to_allocate_bytes))) {
+        abort();
+      }
+      buffer.__bufferptr = ::std::error_domains::__herbceptions_detail::
+          __malloc_or_heap_alloc_or_die(to_allocate_bytes);
+      char unsigned *bufferptr{
+          reinterpret_cast<char unsigned *>(buffer.__bufferptr)};
+      auto name_end{
+          ::std::error_domains::__herbceptions_detail::
+              __codecvt_write_with_encoding(
+                  reinterpret_cast<char unsigned const *>(name),
+                  reinterpret_cast<char unsigned const *>(name + namelen),
+                  bufferptr, encoding)};
+      auto message_end{
+          ::std::error_domains::__herbceptions_detail::
+              __codecvt_write_with_encoding(
+                  reinterpret_cast<char unsigned const *>(message),
+                  reinterpret_cast<char unsigned const *>(message + messagelen),
+                  name_end, encoding)};
+      return {{bufferptr, static_cast<::std::size_t>(name_end - bufferptr)},
+              {name_end, static_cast<::std::size_t>(message_end - name_end)}};
+    }
+  }
+  return {{name, namelen}, {message, messagelen}};
+}
+
 constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
 
     .do_cleanup =
@@ -201,16 +346,18 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
     },
 
     .do_query_information =
-        [](::std::size_t cd, ::std::error_query_information __query,
-           ::std::error_reporter_encoding __encoding, void *__cookie,
-           ::std::error_reporter_io_cookie_function __cookfun) noexcept {
+        [](::std::size_t cd, ::std::error_query_information query,
+           ::std::error_reporter_encoding encoding, void *cookie,
+           ::std::error_reporter_io_cookie_function cookfun) noexcept {
           if (static_cast<::std::uint_least32_t>(
                   ::std::error_query_information::name_message) <
-              static_cast<::std::uint_least32_t>(__query)) {
+              static_cast<::std::uint_least32_t>(query)) {
             return;
           }
-          ::std::io_scatter_t __scatters[4];
-          auto __pos{__scatters};
+          ::std::error_domains::__herbceptions_detail::
+              __malloc_or_heapalloc_temp_buffer buffer;
+          ::std::io_scatter_t scatters[4];
+          ::std::size_t scatterlen{};
           EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
           bool const ismsvccxxeh{ehrec.ExceptionCode == 0xe06d7363};
           if (ismsvccxxeh) // is msvc C++ ehcode
@@ -218,151 +365,74 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
             auto const *typeinfo{get_msvc_cppeh_type_info(ehrec)};
             char const *ehname{};
             ::std::size_t ehname_len{};
-            if (::std::error_query_information::message != __query) {
+            if (::std::error_query_information::message != query) {
               ehname = typeinfo->mangled;
-              ehname_len = ::std::strlen(ehname);
+              if (ehname) {
+                ehname_len = ::std::strlen(ehname);
+              }
             }
             char const *ehmessage{};
             ::std::size_t ehmessage_len{};
-            if (::std::error_query_information::name != __query) {
-#if 0
-#endif
+            if (::std::error_query_information::name != query) {
+              ehmessage = try_get_std_exception_what(ehrec);
+              if (ehmessage) {
+                ehmessage_len = ::std::strlen(ehmessage);
+              }
             }
-            return;
-          } else {
-            if (::std::error_query_information::message == __query) {
+            auto [name, message] = msvc_exception_writestr(
+                ehname, ehname_len, ehmessage, ehmessage_len, encoding, buffer);
+            switch (query) {
+            case ::std::error_query_information::name: {
+              if (ehname) {
+                *scatters = known_msvc_exception_name_partial(encoding);
+                scatters[1] = name;
+                scatters[2] = right_parenthese(encoding);
+                scatterlen = 3u;
+              } else {
+                *scatters = unknown_msvc_exception_name(encoding);
+                scatterlen = 1u;
+              }
+            }
+            case ::std::error_query_information::message: {
+              if (!message.len) {
+                return;
+              }
+              *scatters = message;
+              scatterlen = 1u;
+            }
+            case ::std::error_query_information::name_message: {
+              if (name.len) {
+                *scatters = known_msvc_exception_name_message_partial(encoding);
+                scatters[1] = name;
+                scatters[2] = right_parenthese_bracket(encoding);
+                scatterlen = 3;
+              } else {
+                *scatters = unknown_msvc_exception_name_message(encoding);
+                scatterlen = 1;
+              }
+              if (message.len) {
+                scatters[scatterlen] = message;
+                ++scatterlen;
+              }
+            }
+            default: {
               return;
             }
-            switch (__query) {
+            }
+          } else {
+            switch (query) {
             case ::std::error_query_information::name:
-              switch (__encoding) {
-              case ::std::error_reporter_encoding::utfebcdic: {
-                *__pos = {"\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89\x96"
-                          "\x95\x4D\x6F\x4D",
-                          17u};
-                break;
-              }
-              case ::std::error_reporter_encoding::utf16: {
-                *__pos = {u"msvc_exception(?)", 17u * sizeof(char16_t)};
-                break;
-              }
-              case ::std::error_reporter_encoding::utf32: {
-                *__pos = {U"msvc_exception(?)", 17u * sizeof(char32_t)};
-                break;
-              }
-              default: {
-                *__pos = {u8"msvc_exception(?)", 17u};
-                break;
-              }
-              }
+              *scatters = unknown_msvc_exception_name(encoding);
               break;
             case ::std::error_query_information::name_message:
-              switch (__encoding) {
-              case ::std::error_reporter_encoding::utfebcdic: {
-                *__pos = {"\xBA\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89"
-                          "\x96\x95\x4D\x6F\x4D\xBB",
-                          19u};
-                break;
-              }
-              case ::std::error_reporter_encoding::utf16: {
-                *__pos = {u"[msvc_exception(?)]", 19u * sizeof(char16_t)};
-                break;
-              }
-              case ::std::error_reporter_encoding::utf32: {
-                *__pos = {U"[msvc_exception(?)]", 19u * sizeof(char32_t)};
-                break;
-              }
-              default: {
-                *__pos = {u8"[msvc_exception(?)]", 19u};
-                break;
-              }
-              }
+              *scatters = unknown_msvc_exception_name_message(encoding);
               break;
             default:
               return;
             }
-            ++__pos;
+            scatterlen = 1u;
           }
-          __cookfun(__cookie, __scatters,
-                    static_cast<::std::size_t>(__pos - __scatters));
-#if 0
-      ::std::io_scatter_t __scatters[4];
-      auto __pos{__scatters};
-
-
-
-  
-      bool ismsvccxxeh{ehrc.ExcetionCode == 0xe06d7363};
-      if (ismsvccxxeh) //is msvc C++ ehcode
-      {
-        inline constexpr
-#if 0
-        if (::std::error_reporter_encoding::utf8 == encoding)
-        {
-
-        }
-#endif
-      }
-      if (__query == ::std::error_query_information::name)
-      {
-        switch (encoding) {
-        case ::std::error_reporter_encoding::utfebcdic: {
-          *__pos = {"\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89\x96\x95", 15u};
-          __pos[2] = {__builtin_addressof(::std::error_domains::__herbceptions_detail::__char_literal_v<u8')',char8_t>), sizeof(char32_t)};
-          break;
-        }
-        case ::std::error_reporter_encoding::utf16: {
-          *__pos = {u"msvc_exception(", 15u * sizeof(char16_t)};
-          __pos[2] = {__builtin_addressof(::std::error_domains::__herbceptions_detail::__char_literal_v<u8')',char16_t>), sizeof(char16_t)};
-          break;
-        }
-        case ::std::error_reporter_encoding::utf32: {
-          *__pos = {U"msvc_exception(", 15u * sizeof(char32_t)};
-          __pos[2] = {__builtin_addressof(::std::error_domains::__herbceptions_detail::__char_literal_v<u8')',char32_t>), sizeof(char32_t)};
-          break;
-        }
-        default: {
-          *__pos = {u8"msvc_exception(", 15u};
-          __pos[2] = {__builtin_addressof(::std::error_domains::__herbceptions_detail::__char_literal_v<u8')',char8_t>), sizeof(char32_t)};
-          break;
-        }
-        }
-        ++__pos;
-      }
-      if (__query == ::std::error_query_information::name_message)
-      {
-        switch (encoding) {
-        case ::std::error_reporter_encoding::utfebcdic: {
-          *__pos = {"\xBA\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89\x96\x95\x4D", 16u};
-          __pos[2] = {"\x4D\xBB", 2u};
-          break;
-        }
-        case ::std::error_reporter_encoding::utf16: {
-          *__pos = {u"[msvc_exception(", 16u * sizeof(char16_t)};
-          __pos[2] = {U")]", 2u * sizeof(char16_t)};
-          break;
-        }
-        case ::std::error_reporter_encoding::utf32: {
-          *__pos = {U"[msvc_exception(", 16u * sizeof(char32_t)};
-          __pos[2] = {U")]", 2u * sizeof(char32_t)};
-          break;
-        }
-        default: {
-          *__pos = {u8"[msvc_exception(", 16u};
-          __pos[2] = {u8")]", 2u};
-          break;
-        }
-        }
-        ++__pos;
-      }
-      ::std::error_domains::__details::__malloc_or_heapalloc_temp_buffer __buffer;
-      if (__query == ::std::error_query_information::name_message||
-        __query == ::std::error_query_information::name)
-      {
-        
-        __pos += 2;
-      }
-#endif
+          cookfun(cookie, scatters, scatterlen);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
       return ::std::errc::io_error;
