@@ -978,9 +978,12 @@ static CXXRecordDecl *lookupErrorDomainAlias(Sema &S, SourceLocation Loc,
 
 /// Find a static member function \p Name on \p RD (e.g. error_domain<T>).
 static CXXMethodDecl *findStaticMember(Sema &S, const CXXRecordDecl *RD,
-                                       StringRef Name, SourceLocation Loc) {
+                                       StringRef Name, SourceLocation Loc,
+                                       bool IgnoreAccess) {
   DeclarationName DN = &S.PP.getIdentifierTable().get(Name);
   LookupResult R(S, DN, Loc, Sema::LookupOrdinaryName);
+  if (IgnoreAccess)
+    R.suppressDiagnostics();
   if (!S.LookupQualifiedName(R, const_cast<CXXRecordDecl *>(RD)) || R.empty())
     return nullptr;
   auto *MD = R.getAsSingle<CXXMethodDecl>();
@@ -1044,10 +1047,11 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   // `domain_alias_type` instead (aliasing another error_domain<U> that shares
   // the same category), follow the alias and use U::domain() for the fabricated
   // domain pointer, so T and U values compare equal.
-  CXXMethodDecl *DomainFn = findStaticMember(*this, Domain, "domain", Loc);
+  CXXMethodDecl *DomainFn =
+      findStaticMember(*this, Domain, "domain", Loc, false);
   if (!DomainFn) {
     if (CXXRecordDecl *AliasDomain = lookupErrorDomainAlias(*this, Loc, Domain))
-      DomainFn = findStaticMember(*this, AliasDomain, "domain", Loc);
+      DomainFn = findStaticMember(*this, AliasDomain, "domain", Loc, false);
   }
   if (!DomainFn) {
     Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
@@ -1055,7 +1059,7 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   }
 
   // error_domain<T>::code(T) — one argument (the thrown value).
-  CXXMethodDecl *CodeFn = findStaticMember(*this, Domain, "code", Loc);
+  CXXMethodDecl *CodeFn = findStaticMember(*this, Domain, "code", Loc, false);
   if (!CodeFn || CodeFn->getNumParams() != 1) {
     Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
     return ExprError();
@@ -1097,7 +1101,7 @@ ExprResult Sema::RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
 /// C++ exception: `{error_domain<std::exception_ptr>::domain(), code}` where
 /// `code` is the result of the domain's compiler fabrication entry point:
 /// `error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_itanium(thrown_ptr)`
-/// (Itanium) or `..._msvc(object, rtti)` (MSVC). This is used when a legacy
+/// (Itanium) or `..._msvc()` (MSVC). This is used when a legacy
 /// exception (thrown by a `noexcept(false)` function) is converted to the
 /// herbception channel: inside a `try { } catch throws(std::error e)` block,
 /// or escaping a `throws` function. The domain is looked up through the user's
@@ -1124,7 +1128,7 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   // error_domain<std::exception_ptr>::domain() — the domain singleton.
   CXXRecordDecl *Domain = lookupErrorDomain(Loc, ExPtrTy);
   CXXMethodDecl *DomainFn =
-      Domain ? findStaticMember(*this, Domain, "domain", Loc) : nullptr;
+      Domain ? findStaticMember(*this, Domain, "domain", Loc, false) : nullptr;
   if (!DomainFn)
     return ExprError();
   ExprResult DomainCall = buildStaticMemberCall(*this, DomainFn, {}, Loc);
@@ -1133,14 +1137,13 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
 
   // error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_{msvc,itanium}()
   // — the compiler fabrication entry point that turns the caught thrown-object
-  // pointer (and, on MSVC, its RTTI) into the integer code. The compiler does
-  // not construct a std::exception_ptr (that would heap-allocate / refcount);
-  // it passes the raw pointers and lets the domain build its own handle.
+  // pointer or void
   bool IsMSVC{getLangOpts().MSVCCompat};
   const char *FabName = IsMSVC ? "msvc" : "itanium";
   std::string FnName = std::string("__builtin_herbceptions_exception_ptr_domain_") +
                        FabName;
-  CXXMethodDecl *FabFn = findStaticMember(*this, Domain, FnName.c_str(), Loc);
+  CXXMethodDecl *FabFn =
+      findStaticMember(*this, Domain, FnName.c_str(), Loc, true);
   if (!FabFn)
     return ExprError();
 
