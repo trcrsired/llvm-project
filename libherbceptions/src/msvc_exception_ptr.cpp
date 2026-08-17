@@ -164,8 +164,7 @@ inline char const *get_msvc_exception_what(void *obj) noexcept {
   using what_fn =
       char const *(__thiscall *)(void *) noexcept; // or __cdecl on x64
   void *vtbl = *reinterpret_cast<void **>(obj);
-  what_fn fn = reinterpret_cast<what_fn *>(vtbl)[0];
-  const char *msg = fn(obj);
+  return (reinterpret_cast<what_fn *>(vtbl)[1])(obj);
 }
 
 // return nullptr if we do not find string
@@ -392,6 +391,7 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
                 *scatters = unknown_msvc_exception_name(encoding);
                 scatterlen = 1u;
               }
+              break;
             }
             case ::std::error_query_information::message: {
               if (!message.len) {
@@ -399,6 +399,7 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
               }
               *scatters = message;
               scatterlen = 1u;
+              break;
             }
             case ::std::error_query_information::name_message: {
               if (name.len) {
@@ -414,6 +415,7 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
                 scatters[scatterlen] = message;
                 ++scatterlen;
               }
+              break;
             }
             default: {
               return;
