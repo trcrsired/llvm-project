@@ -167,9 +167,9 @@ inline char const *get_msvc_exception_what(void *obj) noexcept {
   return (reinterpret_cast<what_fn *>(vtbl)[1])(obj);
 }
 
-// return nullptr if we do not find string
-inline char const *
-try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
+inline void *
+try_get_cpp_exception_with_mangled_name(EXCEPTION_RECORD const &ehrec,
+                                        char const *name) noexcept {
   if (ehrec.ExceptionCode != 0xe06d7363 /* CXX_EXCEPTION */)
     return nullptr;
   unsigned nparams = architecture_use_rva ? 4 : 3;
@@ -193,15 +193,70 @@ try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
         reinterpret_cast<cxx_type_info *>(cxx_rva(table->info[i], base));
     auto *except_ti =
         reinterpret_cast<msvc_raw_type_info *>(cxx_rva(cti->type_info, base));
-    if (!strcmp(except_ti->mangled,
-                ".?AVexception@stdext@@")) // microsoft exceptions
-    {
+    if (!strcmp(except_ti->mangled, name)) {
       void *this_ptr = get_this_pointer(&cti->offsets, obj);
-      return get_msvc_exception_what(this_ptr);
+      return this_ptr;
       // do not use C++ standard exception class since it can be libc++'s
     }
   }
   return nullptr;
+}
+// return nullptr if we do not find string
+inline char const *
+try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
+  auto this_ptr{
+      try_get_cpp_exception_with_mangled_name(ehrec, ".?AVexception@stdext@@")};
+  if (this_ptr == nullptr)
+    return nullptr;
+  return get_msvc_exception_what(this_ptr);
+}
+
+#include "msvc_exception_gperf.hpp"
+
+struct try_match_msvc_eh_result {
+  msvc_exception_kind kind{};
+  void *system_error_obj{}; // we only catch system_error
+};
+
+inline try_match_msvc_eh_result
+try_match_msvc_exceptions(EXCEPTION_RECORD const &ehrec) noexcept {
+  if (ehrec.ExceptionCode != 0xe06d7363 /* CXX_EXCEPTION */)
+    return {};
+  unsigned nparams = architecture_use_rva ? 4 : 3;
+  if (ehrec.NumberParameters != nparams)
+    return {};
+  if (ehrec.ExceptionInformation[0] < 0x19930520 /* VC6 */ ||
+      ehrec.ExceptionInformation[0] >
+          0x19930520 /* adjust upper bound to real VC8 magic */)
+    return {};
+
+  auto *et = reinterpret_cast<msvc_cxx_exception_type *>(
+      ehrec.ExceptionInformation[2]);
+  uintptr_t base = architecture_use_rva ? ehrec.ExceptionInformation[3] : 0;
+  auto *table = reinterpret_cast<cxx_type_info_table *>(
+      cxx_rva(et->type_info_table, base));
+
+  void *obj = reinterpret_cast<void *>(ehrec.ExceptionInformation[1]);
+
+  for (::std::uint_least32_t i{}; i != table->count; ++i) {
+    auto *cti =
+        reinterpret_cast<cxx_type_info *>(cxx_rva(table->info[i], base));
+    auto *except_ti =
+        reinterpret_cast<msvc_raw_type_info *>(cxx_rva(cti->type_info, base));
+    char const *mangled_name{except_ti->mangled};
+    ::std::size_t mangled_name_len{::std::strlen(mangled_name)};
+    auto lookupres =
+        Perfect_Hash::msvc_exception_lookup(mangled_name, mangled_name_len);
+    if (lookupres) {
+      auto kind{lookupres->value};
+      if (kind == msvc_exception_kind::msvc_system_error) {
+        void *this_ptr = get_this_pointer(&cti->offsets, obj);
+        return {kind, this_ptr};
+      }
+      return {kind};
+    }
+  }
+  return {};
 }
 
 inline constexpr ::std::io_scatter_t
@@ -327,6 +382,12 @@ inline constexpr msvc_exception_writestr_return msvc_exception_writestr(
   return {{name, namelen}, {message, messagelen}};
 }
 
+inline ::std::errc errc_of(::std::error_code const &__ec) noexcept {
+  if (__ec.category() == ::std::generic_category())
+    return static_cast<::std::errc>(__ec.value());
+  return ::std::errc::io_error;
+}
+
 constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
 
     .do_cleanup =
@@ -339,9 +400,14 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
               __epstorage);
         },
 
-    .do_equivalent = [](::std::size_t cd, ::std::error_domain_singleton const *,
+    .do_equivalent = [](::std::size_t cd,
+                        ::std::error_domain_singleton const *domain,
                         ::std::size_t othercd) noexcept -> bool {
-      return false;
+      if (domain == __builtin_addressof(__msvc_exception_ptr_domain)) {
+        return cd == othercd;
+      }
+      return __msvc_exception_ptr_domain.do_to_errc(cd) ==
+             domain->do_to_errc(othercd);
     },
 
     .do_query_information =
@@ -437,7 +503,33 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
           cookfun(cookie, scatters, scatterlen);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      return ::std::errc::io_error;
+      EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
+      auto [kind, system_error_obj] = try_match_msvc_exceptions(ehrec);
+      switch (kind) {
+      case msvc_exception_kind::msvc_system_error:
+        return static_cast<::std::errc>(
+            errc_of(reinterpret_cast<::std::system_error *>(system_error_obj)
+                        ->code())); // placeholder
+        break;
+      case msvc_exception_kind::msvc_logic_error:
+        [[fallthrough]];
+      case msvc_exception_kind::msvc_invalid_argument:
+        return ::std::errc::invalid_argument;
+      case msvc_exception_kind::msvc_domain_error:
+        return ::std::errc::argument_out_of_domain;
+      case msvc_exception_kind::msvc_length_error:
+        return ::std::errc::value_too_large;
+      case msvc_exception_kind::msvc_out_of_range:
+        return ::std::errc::result_out_of_range;
+      case msvc_exception_kind::msvc_overflow_error:
+        [[fallthrough]];
+      case msvc_exception_kind::msvc_underflow_error:
+        return ::std::errc::value_too_large;
+      case msvc_exception_kind::msvc_bad_alloc:
+        return ::std::errc::not_enough_memory;
+      default:
+        return ::std::errc::io_error;
+      }
     }
 #if defined(__cpp_exceptions) && defined(_MSC_VER)
     ,
