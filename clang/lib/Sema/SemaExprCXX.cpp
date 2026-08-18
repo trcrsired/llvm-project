@@ -875,8 +875,8 @@ bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
 
 ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
                                      SourceLocation ThrowsLoc, Expr *Ex) {
-  // Herbception `throw throws expr` is only valid inside a function declared
-  // with 'throws' or 'fails{E}'.
+  // Herbception `throw throws` is only valid inside a function declared
+  // with 'throws' or 'fails{E}', or inside a `catch throws` handler.
   if (!getLangOpts().HerbExceptions) {
     Diag(OpLoc, diag::err_herbception_disabled);
     return ExprError();
@@ -903,27 +903,44 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     return ExprError();
   }
 
-  if (!Ex) {
-    Diag(ThrowsLoc, diag::err_throw_throws_requires_operand);
-    return ExprError();
-  }
-
   // Diagnose if this is in a CUDA device function, etc., like a normal throw.
   if (getCurScope() && getCurScope()->isOpenMPSimdDirectiveScope())
     Diag(OpLoc, diag::err_omp_simd_region_cannot_use_stmt) << "throw";
 
-  // The operand is the error value. For a basic `throws` function the error
-  // type is the implicit `std::error`, which users cannot construct: only the
-  // compiler can, by going through `error_domain<T>` to call its `domain()`
-  // and `code()` functions. Fabricate that value here.
-  if (!CurFPT || !CurFPT->hasFailsSpec()) {
-    ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
-    if (Fabricated.isInvalid())
+  if (Ex) {
+    // `throw throws expr` with an explicit operand: only allowed in a throws
+    // function to create a new error, not inside a catch-throws block (use
+    // bare `throw throws` to rethrow instead).
+    if (InTry) {
+      Diag(ThrowsLoc, diag::err_throw_throws_rethrow_disallow_operand);
       return ExprError();
-    Ex = Fabricated.get();
+    }
+
+    // The operand is the error value. For a basic `throws` function the error
+    // type is the implicit `std::error`, which users cannot construct: only the
+    // compiler can, by going through `error_domain<T>` to call its `domain()`
+    // and `code()` functions. Fabricate that value here.
+    if (!CurFPT || !CurFPT->hasFailsSpec()) {
+      ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
+      if (Fabricated.isInvalid())
+        return ExprError();
+      Ex = Fabricated.get();
+    }
+
+    return BuildCXXThrow(OpLoc, Ex, /*IsThrownVarInScope=*/false,
+                         /*IsHerbception=*/true);
   }
 
-  return BuildCXXThrow(OpLoc, Ex, /*IsThrownVarInScope=*/false,
+  // Bare `throw throws` (rethrow without operand): only valid inside a
+  // `catch throws` handler.
+  if (!InTry) {
+    Diag(ThrowsLoc, diag::err_throw_throws_rethrow_outside_catch);
+    return ExprError();
+  }
+
+  // The rethrow is lowered in CodeGen by reading the error from the active
+  // HerbceptionCatchScope's error slot.
+  return BuildCXXThrow(OpLoc, /*Ex=*/nullptr, /*IsThrownVarInScope=*/false,
                        /*IsHerbception=*/true);
 }
 
@@ -1019,21 +1036,16 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   QualType T = Operand->getType();
 
   // If the operand is already a std::error value (e.g. rethrowing a caught
-  // error) or a std::coroutine_error carrier, pass it through unchanged — the
-  // compiler does not fabricate it. coroutine_error is the coroutine-frame
-  // carrier: standard-layout, same {domain, code} layout as std::error, but
-  // movable and nullable, so it can be stored in and moved out of a frame.
+  // error), pass it through unchanged — the compiler does not fabricate it.
   if (NamespaceDecl *Std = getStdNamespace()) {
-    for (const char *Name : {"error", "coroutine_error"}) {
-      LookupResult R(*this, &PP.getIdentifierTable().get(Name), Loc,
-                     LookupTagName);
-      if (LookupQualifiedName(R, Std)) {
-        if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
-          if (Context.hasSameUnqualifiedType(
-                  T, Context.getTypeDeclType(
-                         static_cast<const TypeDecl *>(RD))))
-            return Operand;
-      }
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"), Loc,
+                   LookupTagName);
+    if (LookupQualifiedName(R, Std)) {
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        if (Context.hasSameUnqualifiedType(
+                T, Context.getTypeDeclType(
+                       static_cast<const TypeDecl *>(RD))))
+          return Operand;
     }
   }
 

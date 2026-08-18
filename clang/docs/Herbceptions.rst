@@ -479,7 +479,7 @@ The implementation spans the following areas:
   discriminants in the backends.
 * **Runtime** -- ``libherbceptions`` (``libherbceptions/{include,src}`):
   the ``error_domain_singleton`` vtables (posix, cxa_exception_code, win32,
-  nt, com, wine), ``std::error``, ``std::coroutine_error``, and the
+  nt, com, wine), ``std::error``, and the
   name/message query protocol.
 
 Known limitations

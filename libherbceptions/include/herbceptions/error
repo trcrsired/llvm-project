@@ -364,12 +364,6 @@ struct has_herbception_throws_move_assign
 
 } // namespace std
 
-// std::coroutine_error, the coroutine-frame carrier (it has the same
-// {domain, code} layout as std::error but is movable/nullable). Included here
-// so that including the core error header also brings in the coroutine
-// carrier; the include is guarded by #pragma once against the reverse include
-// of "error" from coroutine_error.h.
-#include "herbceptions/__details/coroutine_error.h"
 #include "herbceptions/__details/posix.h"
 
 #ifdef _WIN32
