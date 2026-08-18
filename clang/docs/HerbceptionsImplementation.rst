@@ -62,10 +62,10 @@ resolution and virtual overrides therefore treat them as distinct.
 Expressions and statements
 --------------------------
 
-* ``throw throws expr`` -- ``ActOnCXXThrowThrows``
-  (``clang/lib/Sema/SemaExprCXX.cpp``). ``expr`` must be a type with a
-  ``std::error_domain<T>`` specialization; ``Sema::BuildCxaExceptionErrorValue``
-  fabricates the ``{domain, code}`` pair.
+* ``throw throws`` -- ``ActOnCXXThrowThrows``
+  (``clang/lib/Sema/SemaExprCXX.cpp``). Bare ``throw throws`` (no operand)
+  rethrows the caught error inside a ``catch throws`` handler. ``throw throws
+  expr`` with an explicit operand is disallowed.
 * ``try(expr)`` -- ``CXXTryExpr``. Evaluates a ``throws``/``fails`` call;
   auto-propagates the error.
 * ``catch fails(expr)`` -- ``CXXCatchFailsExpr``. Produces the N2289
@@ -142,8 +142,8 @@ Sema
   ``throws``/``fails`` call (deferred inside templates).
 * ``ActOnHerbceptionCatchFails`` -- builds ``CXXCatchFailsExpr``; rejects a
   ``throws`` operand (no explicit error type to name).
-* ``ActOnCXXThrowThrows`` -- ``throw throws expr``; requires a complete
-  ``error_domain<T>`` and builds ``CXXErrorValueExpr``.
+* ``ActOnCXXThrowThrows`` -- bare ``throw throws`` (rethrow in a ``catch
+  throws`` handler); ``throw throws expr`` with an operand is disallowed.
 * ``ActOnHerbceptionFailure`` -- ``failure(expr)``; only valid inside a
   ``fails{E}`` function, operand must be of type ``E``.
 * ``BuildCxaExceptionErrorValue`` -- best-effort fabrication of the
@@ -286,7 +286,7 @@ Runtime: libherbceptions
   fabrication; non-copyable, runs ``do_cleanup`` in ``~error()``),
   ``error_domain_singleton`` (``do_cleanup``, ``do_equivalent``,
   ``do_query_information``, ``do_to_errc``, ``do_throw_cxa_exception``,
-  ``__reserved[3]``), ``std::coroutine_error``, and the type traits.
+  ``__reserved[3]``), and the type traits.
 * ``src/{posix,cxa_exception,win32,nt,com,wine}.cpp`` -- one translation
   unit per domain, each providing a weak ``__cxa_error_domain_*`` ABI entry
   point. ``posix`` and ``cxa_exception_code`` are always built; the Windows
@@ -298,8 +298,7 @@ Runtime: libherbceptions
 * ``src/ntkernel.h`` / ``ntkernel-table.ipp`` -- the NTSTATUS table with
   message lengths and binary-search ``find_ntstatus``.
 * ``test/`` -- ``domain_test.cpp`` (domain identity, ``do_to_errc``,
-  cross-domain equivalence, ``do_query_information`` output) and
-  ``coroutine_error_test.cpp``.
+  cross-domain equivalence, ``do_query_information`` output).
 
 Testing in Clang/LLVM
 =====================

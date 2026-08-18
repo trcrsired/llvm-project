@@ -8791,7 +8791,12 @@ def err_throw_throws_outside_throws_function : Error<
 def err_herbception_disabled : Error<
     "herbception is disabled; use -fherbceptions to enable it">;
 def err_throw_throws_requires_operand : Error<
-  "'throw throws' requires an error value operand">;
+  "'throw throws' rethrow is only allowed inside a 'catch throws' block">;
+def err_throw_throws_rethrow_disallow_operand : Error<
+  "'throw throws expr' with an explicit operand is disallowed inside a "
+  "'catch throws' block; use bare 'throw throws' to rethrow the caught error">;
+def err_throw_throws_rethrow_outside_catch : Error<
+  "bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block">;
 def err_throw_throws_no_error_domain : Error<
   "'throw throws' operand type %0 has no std::error_domain specialization">;
 def err_throw_throws_no_catch_handler : Error<
@@ -8810,13 +8815,12 @@ def err_fails_only_free_function : Error<
   "'fails{...}' is a C-style feature and may only be attached to free "
   "(non-member) functions; it is not allowed on member functions (including "
   "static members), lambdas, or function templates">;
+def err_throws_not_allowed_in_coroutine : Error<
+  "'throws' is not allowed on coroutine functions; all herbceptions must be "
+  "caught within the coroutine body">;
 def err_herbception_domain_nullptr : Error<
   "std::error_domain<T>::domain() must not return nullptr; the fabricated "
   "std::error dereferences the domain pointer">;
-def err_herbception_catch_coroutine_error : Error<
-  "'catch throws(std::coroutine_error)' is not allowed: std::coroutine_error "
-  "is a coroutine-frame carrier that may only be 'throw throws'n, never "
-  "caught; catch the full std::error instead">;
 def err_fails_std_error_type : Error<
   "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
   "implicit error type of 'throws' and cannot be returned as an explicit "

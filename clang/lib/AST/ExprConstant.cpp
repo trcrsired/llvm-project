@@ -11614,7 +11614,7 @@ namespace {
     bool VisitDesignatedInitUpdateExpr(const DesignatedInitUpdateExpr *E);
 
     /// Fabricate the compiler-built `std::error {domain, code}` value for a
-    /// `throw throws e` in a constant expression.
+    /// `throw throws` in a constant expression.
     bool VisitCXXErrorValueExpr(const CXXErrorValueExpr *E) {
       // Evaluate the code call: error_domain<T>::code(operand).
       APValue Code;

@@ -452,11 +452,10 @@ llvm::Value *CodeGenFunction::getSelectorFromSlot() {
 
 void CodeGenFunction::EmitCXXThrowExpr(const CXXThrowExpr *E,
                                        bool KeepInsertionPoint) {
-  // Herbception `throw throws expr`: return the error value with the
+  // Herbception `throw throws`: return the error value with the
   // discriminant set to true. This is not a traditional throw.
   if (E->isHerbception()) {
     const Expr *SubExpr = E->getSubExpr();
-    assert(SubExpr && "herbception throw requires an operand");
     EmitHerbceptionThrow(SubExpr, E->getExprLoc());
     if (KeepInsertionPoint)
       EmitBlock(createBasicBlock("throw.cont"));
@@ -771,7 +770,7 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
 
   // Emit the legacy-EH conversion block. It is the destination of the
   // catch-all landing pad: exn.slot holds the exception, and the fabricated
-  // std::error (domain = error_domain<cxa_exception_code>::domain(), code =
+  // std::error (domain = error_domain<exception_ptr>::domain(), code =
   // thrown object pointer) is stored into the std::error handler's error slot
   // before running the try block's cleanups and branching to the handler.
   if (LegacyLandingPadUsed) {
@@ -792,6 +791,20 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     EmitAnyExprToMem(Conv, LegacyErrorSlot, Qualifiers(),
                      /*IsInitializer=*/false);
     LegacyConvertScope.ForceCleanup();
+
+    // Transfer ownership of the legacy exception to the std::error value:
+    // increment the exception's refcount so __cxa_end_catch (called by the
+    // catch-all scope cleanup below) does NOT destroy the exception object.
+    // The std::error e handler variable's destructor will call do_cleanup
+    // (→ __cxa_decrement_exception_refcount), making it the sole owner.
+    if (!getTarget().getCXXABI().isMicrosoft()) {
+      llvm::Value *Exn = getExceptionFromSlot();
+      llvm::FunctionCallee IncRefFn = CGM.CreateRuntimeFunction(
+          llvm::FunctionType::get(CGM.VoidTy, {CGM.Int8PtrTy}, false),
+          "__cxa_increment_exception_refcount");
+      Builder.CreateCall(IncRefFn, {Exn});
+    }
+
     // Route to the (first) std::error handler, running the try-block cleanups.
     EmitBranchThroughCleanup(LegacyHandlerDest);
   }
@@ -803,15 +816,15 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     RunCleanupsScope CatchScope(*this);
     if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
       // Herbception catch: bind the exception variable directly from the error
-      // payload slot. The error value (std::error for `throws`,
-      // std::coroutine_error for a coroutine carrier, or E for `fails{E}`) is a
-      // compiler-fabricated value whose constructors are deleted and fields
-      // private, so it is not default/copy-constructed. EmitAutoVarAlloca only
-      // allocates and registers the variable; skip EmitAutoVarInit, then store
-      // the payload into the slot. The variable's destructor IS registered so
-      // that ~std::error()/~coroutine_error() run do_cleanup exactly once when
-      // the handler exits. The error slot above is plain storage and is never
-      // destroyed, so the catch variable is the sole owner of the value.
+      // payload slot. The error value (std::error for `throws` or E for
+      // `fails{E}`) is a compiler-fabricated value whose constructors are
+      // deleted and fields private, so it is not default/copy-constructed.
+      // EmitAutoVarAlloca only allocates and registers the variable; skip
+      // EmitAutoVarInit, then store the payload into the slot. The variable's
+      // destructor IS registered so that ~std::error() run do_cleanup exactly
+      // once when the handler exits. The error slot above is plain storage and
+      // is never destroyed, so the catch variable is the sole owner of the
+      // value.
       CodeGenFunction::AutoVarEmission var = EmitAutoVarAlloca(*VD);
       Address Addr = var.getObjectAddress(*this);
       llvm::Value *ErrVal = Builder.CreateLoad(H.ErrorSlot);
@@ -1833,6 +1846,21 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // the throws return path (discriminant set, error stored in the payload).
   const FunctionDecl *FD = cast<FunctionDecl>(CurCodeDecl);
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
+
+  // Transfer ownership of the legacy exception to the std::error value:
+  // increment the exception's refcount so __cxa_end_catch (called by the
+  // whole-function catch-all scope cleanup) does NOT destroy the exception.
+  // The std::error returned on the herbception channel will have its
+  // do_cleanup (→ __cxa_decrement_exception_refcount) called when the
+  // receiving catch-throws handler variable is destroyed.
+  if (!getTarget().getCXXABI().isMicrosoft()) {
+    llvm::Value *Exn = getExceptionFromSlot();
+    llvm::FunctionCallee IncRefFn = CGM.CreateRuntimeFunction(
+        llvm::FunctionType::get(CGM.VoidTy, {CGM.Int8PtrTy}, false),
+        "__cxa_increment_exception_refcount");
+    Builder.CreateCall(IncRefFn, {Exn});
+  }
+
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
   // On the funclet model (MSVC), the branch that EmitHerbceptionThrow emitted

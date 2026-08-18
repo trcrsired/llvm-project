@@ -708,6 +708,18 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
     }
   }
 
+  // Herbception `throws` is not allowed on coroutine functions. All
+  // herbceptions must be caught within the coroutine body.
+  if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
+    if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
+      if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
+          FPT && FPT->hasBasicThrowsSpec()) {
+        Diag(KWLoc, diag::err_throws_not_allowed_in_coroutine);
+        const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
+      }
+    }
+  }
+
   // Support for coroutines is not stable on 32 bits windows
   // Warn about it.
   if (Context.getTargetInfo().getCXXABI().isMicrosoft() &&
