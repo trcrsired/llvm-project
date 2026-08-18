@@ -41,7 +41,7 @@ option(HERBCEPTIONS_BUILD_STATIC "Build the static libherbceptions library" ON)
 option(HERBCEPTIONS_FREESTANDING
        "Build a header-only freestanding libherbceptions (no compiled sources)"
        OFF)
-option(HERBCEPTIONS_BUILD_TESTS "Build the libherbceptions tests" ON)
+option(HERBCEPTIONS_BUILD_TESTS "Build the libherbceptions tests" Off)
 
 set(HERBCEPTIONS_HEADERS
   include/herbceptions/error

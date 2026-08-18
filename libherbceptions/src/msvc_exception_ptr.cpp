@@ -18,6 +18,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if defined(_MSC_VER) && (defined(_WIN32) || defined(__CYGWIN__))
+
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "domain_helpers.h"
 #include <cstdlib>
@@ -27,8 +29,6 @@
 #include <windows.h>
 #undef min
 #undef max
-
-#if defined(_MSC_VER) && (defined(_WIN32) || defined(__CYGWIN__))
 
 namespace std::error_domains::__details {
 void __cdecl __ExceptionPtrDestroy(void *) noexcept
