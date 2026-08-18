@@ -792,19 +792,6 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
                      /*IsInitializer=*/false);
     LegacyConvertScope.ForceCleanup();
 
-    // Transfer ownership of the legacy exception to the std::error value:
-    // increment the exception's refcount so __cxa_end_catch (called by the
-    // catch-all scope cleanup below) does NOT destroy the exception object.
-    // The std::error e handler variable's destructor will call do_cleanup
-    // (→ __cxa_decrement_exception_refcount), making it the sole owner.
-    if (!getTarget().getCXXABI().isMicrosoft()) {
-      llvm::Value *Exn = getExceptionFromSlot();
-      llvm::FunctionCallee IncRefFn = CGM.CreateRuntimeFunction(
-          llvm::FunctionType::get(CGM.VoidTy, {CGM.Int8PtrTy}, false),
-          "__cxa_increment_exception_refcount");
-      Builder.CreateCall(IncRefFn, {Exn});
-    }
-
     // Route to the (first) std::error handler, running the try-block cleanups.
     EmitBranchThroughCleanup(LegacyHandlerDest);
   }
@@ -1846,20 +1833,6 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // the throws return path (discriminant set, error stored in the payload).
   const FunctionDecl *FD = cast<FunctionDecl>(CurCodeDecl);
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
-
-  // Transfer ownership of the legacy exception to the std::error value:
-  // increment the exception's refcount so __cxa_end_catch (called by the
-  // whole-function catch-all scope cleanup) does NOT destroy the exception.
-  // The std::error returned on the herbception channel will have its
-  // do_cleanup (→ __cxa_decrement_exception_refcount) called when the
-  // receiving catch-throws handler variable is destroyed.
-  if (!getTarget().getCXXABI().isMicrosoft()) {
-    llvm::Value *Exn = getExceptionFromSlot();
-    llvm::FunctionCallee IncRefFn = CGM.CreateRuntimeFunction(
-        llvm::FunctionType::get(CGM.VoidTy, {CGM.Int8PtrTy}, false),
-        "__cxa_increment_exception_refcount");
-    Builder.CreateCall(IncRefFn, {Exn});
-  }
 
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
