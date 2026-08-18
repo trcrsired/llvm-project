@@ -1750,11 +1750,16 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
   if (!HerbceptionCatchScopes.empty()) {
     const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
     RunCleanupsScope ThrowScope(*this);
-    // Evaluate the error value into the handler's error slot, then run the
-    // cleanups (including those of the try block scope) and branch to the
-    // handler.
-    EmitAnyExprToMem(EV, Scope.ErrorSlot, Qualifiers(),
-                     /*IsInitializer=*/false);
+    if (EV) {
+      // `throw throws expr` with an explicit operand (should be rejected
+      // in Sema, but handle it here for safety): evaluate the error value
+      // into the handler's error slot.
+      EmitAnyExprToMem(EV, Scope.ErrorSlot, Qualifiers(),
+                       /*IsInitializer=*/false);
+    }
+    // Bare `throw throws` rethrow: the error is already in the handler's
+    // error slot (from the original catch), so just run cleanups and branch
+    // to the handler.
     ThrowScope.ForceCleanup();
     EmitBranchThroughCleanup(Scope.Handler);
     return;

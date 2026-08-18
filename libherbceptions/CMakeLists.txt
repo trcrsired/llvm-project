@@ -45,7 +45,6 @@ option(HERBCEPTIONS_BUILD_TESTS "Build the libherbceptions tests" ON)
 
 set(HERBCEPTIONS_HEADERS
   include/herbceptions/error
-  include/herbceptions/__details/coroutine_error.h
   include/herbceptions/__details/posix.h
   include/herbceptions/__details/win32.h
   include/herbceptions/__details/nt.h
@@ -160,12 +159,5 @@ if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
     endif()
 
     add_test(NAME herbceptions_domain_test COMMAND herbceptions_domain_test)
-
-    add_executable(herbceptions_coroutine_error_test test/coroutine_error_test.cpp)
-    target_include_directories(herbceptions_coroutine_error_test PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    add_test(NAME herbceptions_coroutine_error_test
-             COMMAND herbceptions_coroutine_error_test)
   endif()
 endif()

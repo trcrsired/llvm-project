@@ -4374,25 +4374,6 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
     Diag(CatchLoc, diag::err_herbception_disabled);
     return StmtError();
   }
-  // `catch throws(std::coroutine_error)` is not allowed: coroutine_error is a
-  // frame carrier that may only be `throw throws`n, never caught. The caught
-  // type must be std::error (or a user type convertible from the error).
-  if (const auto *VD = dyn_cast_or_null<VarDecl>(ExDecl)) {
-    QualType T = VD->getType();
-    if (NamespaceDecl *Std = getStdNamespace()) {
-      LookupResult R(*this, &PP.getIdentifierTable().get("coroutine_error"),
-                     CatchLoc, LookupTagName);
-      if (LookupQualifiedName(R, Std)) {
-        if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
-          if (Context.hasSameUnqualifiedType(
-                  T, Context.getTypeDeclType(static_cast<const TypeDecl *>(RD)))) {
-            Diag(CatchLoc, diag::err_herbception_catch_coroutine_error)
-                << SourceRange(CatchLoc, SpecLoc);
-            return StmtError();
-          }
-      }
-    }
-  }
   // There's nothing to test that ActOnExceptionDecl didn't already test.
   // When the handler catches `std::error`, build the conversion expression
   // that fabricates a std::error from a caught legacy C++ exception (so a

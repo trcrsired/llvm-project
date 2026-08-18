@@ -1744,9 +1744,25 @@ ExprResult Parser::ParseThrowExpression() {
   assert(Tok.is(tok::kw_throw) && "Not throw!");
   SourceLocation ThrowLoc = ConsumeToken();           // Eat the throw token.
 
-  // Herbception: `throw throws expr` is a deterministic error throw.
+  // Herbception: `throw throws expr` is a deterministic error throw, or
+  // bare `throw throws` is a rethrow inside a `catch throws` handler.
   if (Tok.is(tok::kw_throws)) {
     SourceLocation ThrowsLoc = ConsumeToken();
+    // Bare `throw throws` without an operand: rethrow the caught error.
+    switch (Tok.getKind()) {
+    case tok::semi:
+    case tok::r_paren:
+    case tok::r_square:
+    case tok::r_brace:
+    case tok::colon:
+    case tok::comma:
+      return Actions.ActOnCXXThrowThrows(getCurScope(), ThrowLoc, ThrowsLoc,
+                                         nullptr);
+    default:
+      break;
+    }
+    // `throw throws expr` with an operand is disallowed; rethrowing must use
+    // bare `throw throws`.
     ExprResult Expr = ParseAssignmentExpression();
     if (Expr.isInvalid())
       return Expr;
