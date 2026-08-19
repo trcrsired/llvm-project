@@ -31,6 +31,21 @@
 #undef max
 
 namespace std::error_domains::__details {
+void __cdecl __ExceptionPtrCurrentException(void *) noexcept
+#if defined(__clang__) || defined(__GNUC__)
+#if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
+    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
+#if !defined(__clang__)
+    __asm__("?__ExceptionPtrCurrentException@@YAXPAX@Z")
+#else
+    __asm__("?__ExceptionPtrCurrentException@@YAXPAX@Z")
+#endif
+#else
+    __asm__("?__ExceptionPtrCurrentException@@YAXPEAX@Z")
+#endif
+#endif
+        ;
+
 void __cdecl __ExceptionPtrDestroy(void *) noexcept
 #if defined(__clang__) || defined(__GNUC__)
 #if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
@@ -382,7 +397,7 @@ inline constexpr msvc_exception_writestr_return msvc_exception_writestr(
   return {{name, namelen}, {message, messagelen}};
 }
 
-constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
+constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
 
     .do_cleanup =
         [](::std::size_t __cd) noexcept {
@@ -397,7 +412,7 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
     .do_equivalent = [](::std::size_t cd,
                         ::std::error_domain_singleton const *domain,
                         ::std::size_t othercd) noexcept -> bool {
-      return __msvc_exception_ptr_domain.do_to_errc(cd) ==
+      return msvc_exception_ptr_domain.do_to_errc(cd) ==
              domain->do_to_errc(othercd);
     },
 
@@ -538,9 +553,24 @@ constinit ::std::error_domain_singleton __msvc_exception_ptr_domain{
 };
 } // namespace
 
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__libherbceptions_exception_ptr_domain_msvc() noexcept {
+  struct error_domain_msvc_eh_ptr {
+    void *rec;
+    void *ref;
+  };
+  void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
+      __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
+  if (ehptr_storage == nullptr)
+    abort();
+  ::std::error_domains::__details::__ExceptionPtrCurrentException(
+      ehptr_storage);
+  return reinterpret_cast<::std::size_t>(ehptr_storage);
+}
+
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_msvc_exception_ptr() noexcept {
-  return __builtin_addressof(__msvc_exception_ptr_domain);
+  return __builtin_addressof(msvc_exception_ptr_domain);
 }
 
 #endif

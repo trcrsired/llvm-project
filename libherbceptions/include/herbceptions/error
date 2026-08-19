@@ -44,7 +44,13 @@ struct io_scatter_t {
   void const *base;
   ::std::size_t len;
 };
-enum class error_reporter_encoding { utf8, utf16, utf32, gb18030, utfebcdic };
+enum class error_reporter_encoding : ::std::uint_least32_t {
+  utf8,
+  utf16,
+  utf32,
+  gb18030,
+  utfebcdic
+};
 
 using error_reporter_io_cookie_function = void (*)(void *,
                                                    ::std::io_scatter_t const *,
@@ -59,7 +65,7 @@ enum class error_query_information : ::std::uint_least32_t {
 Add an abi enum class to ensure user cross
 windows-gnu/windows-msvc eh thrown correctness
 */
-enum class dynamic_exception_abi {
+enum class dynamic_exception_abi : ::std::uint_least32_t {
   itanium = 0,
   microsoft = 1,
 #if defined(_MSC_VER)
@@ -68,6 +74,30 @@ enum class dynamic_exception_abi {
   platform = itanium
 #endif
 };
+#if 0
+enum class error_equivalent_flag : ::std::uint_least32_t {
+  equivalent = 1,
+#if 0
+  cross_dll_equal = 2,
+  cross_dll_equivalent = 4
+#endif
+};
+// To replace with uint128_t
+struct error_cross_dll_domain_identifier_t
+{
+::std::uint_least64_t __error_cross_dll_domain_identifier_place_holder[2];
+};
+
+inline constexpr bool operator==(error_cross_dll_domain_identifier_t __a, error_cross_dll_domain_identifier_t __b) noexcept
+{
+  return __a.__error_cross_dll_domain_identifier_place_holder[0] == __b.__error_cross_dll_domain_identifier_place_holder[1];
+}
+
+inline constexpr bool operator==(error_cross_dll_domain_identifier_t __a, error_cross_dll_domain_identifier_t __b) noexcept
+{
+  return __a.__error_cross_dll_domain_identifier_place_holder[0] == __b.__error_cross_dll_domain_identifier_place_holder[1];
+}
+#endif
 
 struct error_domain_singleton {
   void (*do_cleanup)(::std::size_t) noexcept = nullptr;
@@ -80,6 +110,9 @@ struct error_domain_singleton {
   ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
   void (*do_throw_dynamic_exception)(::std::size_t,
                                      ::std::dynamic_exception_abi) = nullptr;
+#if 0
+  ::std::error_cross_dll_domain_identifier_t (*do_cross_dll_domain_identifier)() noexcept = nullptr;
+#endif
 };
 
 namespace __details {
@@ -141,6 +174,42 @@ public:
           __other_error_domain_type::code(__ec));
     }
   }
+#if 0
+  template <typename __Other>
+    requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
+  constexpr bool cross_dll_equal(__Other __ec) const noexcept {
+    using __other_error_domain_type = ::std::error_domain<__Other>;
+    if constexpr (::std::__details::__error_domain_has_domain_alias_type<
+                      __other_error_domain_type>) {
+      using __domain_alias_type =
+          typename __other_error_domain_type::domain_alias_type;
+      return __domain_opaque->do_equivalent(
+          __code_opaque, __domain_alias_type::domain(),
+          __other_error_domain_type::code(__ec), ::std::error_equivalent_flag::cross_dll_equal);
+    } else {
+      return __domain_opaque->do_equivalent(
+          __code_opaque, __other_error_domain_type::domain(),
+          __other_error_domain_type::code(__ec), ::std::error_equivalent_flag::cross_dll_equal);
+    }
+  }
+  template <typename __Other>
+    requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
+  constexpr bool cross_dll_equivalent(__Other __ec) const noexcept {
+    using __other_error_domain_type = ::std::error_domain<__Other>;
+    if constexpr (::std::__details::__error_domain_has_domain_alias_type<
+                      __other_error_domain_type>) {
+      using __domain_alias_type =
+          typename __other_error_domain_type::domain_alias_type;
+      return __domain_opaque->do_equivalent(
+          __code_opaque, __domain_alias_type::domain(),
+          __other_error_domain_type::code(__ec), ::std::error_equivalent_flag::cross_dll_equivalent);
+    } else {
+      return __domain_opaque->do_equivalent(
+          __code_opaque, __other_error_domain_type::domain(),
+          __other_error_domain_type::code(__ec), ::std::error_equivalent_flag::cross_dll_equivalent);
+    }
+  }
+#endif
   constexpr ::std::errc to_errc() const noexcept {
     return __domain_opaque->do_to_errc(__code_opaque);
   }
