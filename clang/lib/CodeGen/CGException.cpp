@@ -567,10 +567,15 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
     // that escapes it (thrown by a `noexcept(false)` callee) into a
     // fabricated std::error, returned on the herbception channel. Wrap the
     // whole function body in a catch-all EH scope whose handler performs the
-    // conversion. If no conversion expression is available (missing
-    // cxa_exception_code / error_domain), skip the scope so the exception
-    // propagates as before.
-    if (FD && FD->getHerbceptionLegacyErrorValue()) {
+    // conversion. The scope is always pushed so that legacy-throwing calls
+    // become invokes (landing here); the handler body is only emitted if a
+    // legacy escape is actually reachable (FinishFunction checks
+    // hasEHBranches). If a legacy escape is reachable but no conversion
+    // expression is available (error_domain<std::exception_ptr> undefined),
+    // emitHerbceptionLegacyConvertBody reports a hard error: the user must
+    // provide the domain or compile with -fno-exceptions. When no legacy
+    // escape is possible (only throws/noexcept callees) the block is dropped.
+    if (FD) {
       EHCatchScope *CatchScope = EHStack.pushCatch(1);
       CatchScope->setCatchAllHandler(0, getHerbceptionLegacyConvert());
     }
@@ -664,9 +669,10 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
              !EHStack.empty()) {
     EHStack.popTerminate();
   } else if (Proto->getExceptionSpecType() == EST_BasicThrows) {
-    // Pop the whole-function catch-all EH scope pushed in EmitStartEHSpec
-    // (present only when a legacy-EH conversion expression is available).
-    if (FD && FD->getHerbceptionLegacyErrorValue() && !EHStack.empty() &&
+    // The whole-function catch-all pushed in EmitStartEHSpec is normally
+    // popped by FinishFunction (which emits the conversion body first); this
+    // is a safety net for paths that did not run FinishFunction's handler.
+    if (FD && !EHStack.empty() &&
         EHStack.begin()->getKind() == EHScope::Catch) {
       popCatchScope();
     }
@@ -1841,6 +1847,21 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // the throws return path (discriminant set, error stored in the payload).
   const FunctionDecl *FD = cast<FunctionDecl>(CurCodeDecl);
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
+
+  // A legacy C++ exception can escape this `throws` function (the catch-all
+  // had EH branches), but no error_domain<std::exception_ptr> specialization
+  // is available to fabricate the converted std::error. This is a hard error:
+  // the user must provide the domain (include the exception_ptr error_domain
+  // header) or disable C++ exceptions with -fno-exceptions. Emit a noreturn
+  // terminator so the funclet / landing-pad IR stays well-formed.
+  if (!Conv) {
+    CGM.getDiags().Report(FD->getLocation(),
+                          diag::err_herbception_legacy_convert_no_domain)
+        << 0;
+    Builder.CreateUnreachable();
+    Builder.restoreIP(SavedIP);
+    return;
+  }
 
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
