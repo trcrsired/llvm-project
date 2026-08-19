@@ -2022,8 +2022,12 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   llvm::BasicBlock *ErrBB = createBasicBlock("try.err");
   Builder.CreateCondBr(Disc, ErrBB, OkBB);
 
-  // Error path: auto-propagate. Store the error value, set the discriminant
-  // slot to true, run the scope cleanups, and return.
+  // Error path. When an enclosing `try { } catch throws(E e) { }` block is
+  // active, the auto-propagated error is intercepted by that handler: store
+  // the payload into the handler's error slot and branch through the try
+  // block's cleanups to the handler (mirroring the bare-call routing in
+  // EmitCall). Otherwise auto-propagate: store the error value, set the
+  // discriminant slot to true, run the scope cleanups, and return.
   EmitBlock(ErrBB);
   {
     RunCleanupsScope CleanupScope(*this);
@@ -2067,8 +2071,29 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
       addInstToCurrentSourceAtom(I, I->getValueOperand());
     }
     Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
-    CleanupScope.ForceCleanup();
-    EmitBranchThroughCleanup(ReturnBlock);
+
+    if (!HerbceptionCatchScopes.empty()) {
+      const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
+      llvm::Value *Coerced = Success;
+      if (Coerced->getType() != Scope.ErrorSlot.getElementType()) {
+        // The payload may be a different (but same-layout) type than the
+        // handler's exception variable (e.g. a literal vs a named struct), so
+        // coerce through memory rather than a value bitcast.
+        Address PayloadAddr =
+            CreateDefaultAlignTempAlloca(Coerced->getType(), "herb.payload");
+        auto *PI = Builder.CreateStore(Coerced, PayloadAddr);
+        addInstToCurrentSourceAtom(PI, PI->getValueOperand());
+        Coerced = Builder.CreateLoad(
+            PayloadAddr.withElementType(Scope.ErrorSlot.getElementType()));
+      }
+      auto *I = Builder.CreateStore(Coerced, Scope.ErrorSlot);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+      CleanupScope.ForceCleanup();
+      EmitBranchThroughCleanup(Scope.Handler);
+    } else {
+      CleanupScope.ForceCleanup();
+      EmitBranchThroughCleanup(ReturnBlock);
+    }
   }
 
   // Success path: the try expression's value is the success value.
