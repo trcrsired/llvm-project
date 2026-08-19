@@ -433,8 +433,11 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   // funclet catchpad (MSVC) is already the block's first instruction.
   if (HerbceptionLegacyConvertBB && !EHStack.empty() &&
       EHStack.begin()->getKind() == EHScope::Catch) {
+    EHCatchScope &CatchScope = cast<EHCatchScope>(*EHStack.begin());
+    bool LegacyLandingPadUsed = CatchScope.hasEHBranches();
     popCatchScope();
-    emitHerbceptionLegacyConvertBody();
+    if (LegacyLandingPadUsed)
+      emitHerbceptionLegacyConvertBody();
   }
 
   // Emit function epilog (to return).
