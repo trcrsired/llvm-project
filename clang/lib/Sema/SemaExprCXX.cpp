@@ -969,9 +969,20 @@ CXXRecordDecl *Sema::lookupErrorDomain(SourceLocation Loc, QualType T) {
                                           /*ForNestedNameSpecifier=*/false);
   if (DomainTy.isNull())
     return nullptr;
+  // Best-effort lookup: only honor a user-provided specialization (an explicit
+  // or partial specialization that already has a definition). When the user has
+  // not specialized error_domain<T> (e.g. the exception_ptr header is not
+  // included), referencing error_domain<T> yields an implicit specialization
+  // request of the (typically undefined) primary template. Calling
+  // RequireCompleteType on it would trigger instantiation and emit a hard
+  // "implicit instantiation of undefined template" error, defeating the
+  // silent best-effort fallback. Bail out before instantiating.
+  CXXRecordDecl *RD = DomainTy->getAsCXXRecordDecl();
+  if (!RD || !RD->getDefinition())
+    return nullptr;
   if (RequireCompleteType(Loc, DomainTy, diag::err_throw_throws_no_error_domain))
     return nullptr;
-  return DomainTy->getAsCXXRecordDecl();
+  return RD;
 }
 
 /// Look up the `domain_alias_type` member of an `error_domain<T>` specialization
