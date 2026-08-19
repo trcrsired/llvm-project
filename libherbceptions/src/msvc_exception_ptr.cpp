@@ -561,8 +561,6 @@ __libherbceptions_exception_ptr_domain_msvc() noexcept {
   };
   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
       __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
-  if (ehptr_storage == nullptr)
-    abort();
   ::std::error_domains::__details::__ExceptionPtrCurrentException(
       ehptr_storage);
   return reinterpret_cast<::std::size_t>(ehptr_storage);
