@@ -8799,6 +8799,12 @@ def err_throw_throws_rethrow_outside_catch : Error<
   "bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block">;
 def err_throw_throws_no_error_domain : Error<
   "'throw throws' operand type %0 has no std::error_domain specialization">;
+def err_herbception_legacy_convert_no_domain : Error<
+  "a %select{'throws' function|'catch throws' block}0 can convert an escaping "
+  "legacy C++ exception into a herbception only through "
+  "std::error_domain<std::exception_ptr>, which is not defined; include the "
+  "exception_ptr error_domain header or compile with -fno-exceptions to "
+  "disable C++ exceptions">;
 def err_throw_throws_no_catch_handler : Error<
   "'throw throws' in a plain (non-'throws') function must be inside a "
   "'try { } catch throws' block">;

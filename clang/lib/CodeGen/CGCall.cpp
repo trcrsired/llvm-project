@@ -2251,9 +2251,18 @@ static void AddAttributesFromFunctionProtoType(ASTContext &Ctx,
   if (!FPT)
     return;
 
-  if (!isUnresolvedExceptionSpec(FPT->getExceptionSpecType()) &&
-      FPT->isNothrow())
-    FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+  // A function that cannot throw a C++ exception is nounwind at the IR level.
+  // This includes herbception 'throws'/'fails{E}' functions, which fail via
+  // the deterministic error channel (return value) rather than unwinding:
+  // their canThrow() is CT_Deterministic, not CT_Can. Marking them nounwind
+  // keeps calls to them plain calls (no invoke/landing-pad) so they do not
+  // feed a legacy-EH conversion path. Only genuinely-throwing (CT_Can) and
+  // dependent prototypes are left without the attribute.
+  if (!isUnresolvedExceptionSpec(FPT->getExceptionSpecType())) {
+    CanThrowResult CT = FPT->canThrow();
+    if (CT != CT_Can && CT != CT_Dependent)
+      FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+  }
 
   unsigned SMEBits = FPT->getAArch64SMEAttributes();
   if (SMEBits & FunctionType::SME_PStateSMEnabledMask)
