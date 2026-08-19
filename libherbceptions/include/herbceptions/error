@@ -433,11 +433,11 @@ struct has_herbception_throws_move_assign
 
 } // namespace std
 
+#include "herbceptions/__details/exception_ptr.h"
 #include "herbceptions/__details/posix.h"
 
 #ifdef _WIN32
 #include "herbceptions/__details/com.h"
-#include "herbceptions/__details/exception_ptr.h"
 #include "herbceptions/__details/nt.h"
 #include "herbceptions/__details/win32.h"
 #include "herbceptions/__details/wine.h"
