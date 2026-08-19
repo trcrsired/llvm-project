@@ -23,38 +23,15 @@ namespace std::error_domains {
 #ifdef _MSC_VER
 extern "C" __HERBCEPTIONS_CXA_CODE_API ::std::error_domain_singleton const *
 __cxa_error_domain_msvc_exception_ptr() noexcept;
+extern "C" __HERBCEPTIONS_CXA_CODE_API ::std::size_t
+__libherbceptions_exception_ptr_domain_msvc() noexcept;
 #else
 extern "C" __HERBCEPTIONS_CXA_CODE_API ::std::error_domain_singleton const *
 __cxa_error_domain_itanium_exception_ptr() noexcept;
+extern "C" ::std::size_t
+__libherbceptions_exception_ptr_domain_itanium(void *) noexcept;
 #endif
 #undef __HERBCEPTIONS_CXA_CODE_API
-#ifdef _MSC_VER
-namespace __details {
-
-void __cdecl __error_domains___ExceptionPtrCurrentException(void *) noexcept
-#if defined(__clang__) || defined(__GNUC__)
-#if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
-    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
-#if !defined(__clang__)
-    __asm__("?__ExceptionPtrCurrentException@@YAXPAX@Z")
-#else
-    __asm__("?__ExceptionPtrCurrentException@@YAXPAX@Z")
-#endif
-#else
-    __asm__("?__ExceptionPtrCurrentException@@YAXPEAX@Z")
-#endif
-#endif
-        ;
-#if defined(_WIN32) || defined(__CYGWIN__)
-struct __error_domain_msvc_eh_ptr {
-  void *__error_domain_rec;
-  void *__error_domain_ref;
-};
-#endif
-
-} // namespace __details
-#endif
-
 } // namespace std::error_domains
 
 namespace std {
@@ -63,22 +40,13 @@ template <> class error_domain<::std::exception_ptr> {
 #ifdef _MSC_VER
   static inline ::std::size_t
   __builtin_herbceptions_exception_ptr_domain_msvc() noexcept {
-    void *__ehptr_storage =
-        malloc(sizeof(::std::error_domains::__details::
-                          __error_domain_msvc_eh_ptr)); // assume malloc exists
-    if (__ehptr_storage == nullptr)
-      abort();
-    ::std::error_domains::__details::
-        __error_domains___ExceptionPtrCurrentException(__ehptr_storage);
-    return reinterpret_cast<::std::size_t>(__ehptr_storage);
+    return ::std::error_domains::__libherbceptions_exception_ptr_domain_msvc();
   }
 #else
   static inline ::std::size_t
-  __builtin_herbceptions_exception_ptr_domain_itanium(void *__e) noexcept {
-    ::std::size_t __temp;
-    __builtin_memcpy(__builtin_addressof(__temp), __builtin_addressof(__e),
-                     sizeof(void *));
-    return __temp;
+  __builtin_herbceptions_exception_ptr_domain_itanium(void *__ehptr) noexcept {
+    return ::std::error_domains::__libherbceptions_exception_ptr_domain_itanium(
+        __ehptr);
   }
 #endif
 public:

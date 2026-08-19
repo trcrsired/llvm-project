@@ -72,7 +72,8 @@ bool win32_equivalent_nt(::std::size_t win32cd, ::std::size_t ntcd) noexcept {
 
 // Find the first table row whose win32 column equals the given Win32 code.
 // The table is sorted by NTSTATUS, not by win32, so this is a linear scan.
-ntkernel_field const *find_win32_message(::std::uint_least32_t win32cd) noexcept {
+ntkernel_field const *
+find_win32_message(::std::uint_least32_t win32cd) noexcept {
   for (ntkernel_field const &f : ntkernel_table)
     if (f.win32 == win32cd)
       return __builtin_addressof(f);
@@ -106,14 +107,14 @@ constinit ::std::error_domain_singleton __win32_error_domain{
           case ::std::error_query_information::message:
             // The win32 code 0 means success; the table row for it is
             // STATUS_SUCCESS, so look up the message through the win32 column.
-            if (ntkernel_field const *f = find_win32_message(
-                    static_cast<::std::uint_least32_t>(cd)))
+            if (ntkernel_field const *f =
+                    find_win32_message(static_cast<::std::uint_least32_t>(cd)))
               pieces.add(f->message, f->message_size);
             break;
           case ::std::error_query_information::name_message:
             pieces.add_cstr(u8"win32");
-            if (ntkernel_field const *f = find_win32_message(
-                    static_cast<::std::uint_least32_t>(cd)))
+            if (ntkernel_field const *f =
+                    find_win32_message(static_cast<::std::uint_least32_t>(cd)))
               pieces.add(f->message, f->message_size);
             break;
           }
@@ -125,8 +126,8 @@ constinit ::std::error_domain_singleton __win32_error_domain{
         }};
 } // namespace
 
-extern "C" __HERBCEPTIONS_API
-::std::error_domain_singleton const *__cxa_error_domain_win32() noexcept {
+extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
+__cxa_error_domain_win32() noexcept {
   return __builtin_addressof(::std::error_domains::__win32_error_domain);
 }
 
