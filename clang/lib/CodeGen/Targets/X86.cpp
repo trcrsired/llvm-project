@@ -3521,12 +3521,16 @@ ABIArgInfo WinX86_64ABIInfo::classify(QualType Ty, unsigned &FreeSSERegs,
     // not 1, 2, 4, or 8 bytes, must be passed by reference."
     if (Width > 64 || !llvm::isPowerOf2_64(Width)) {
       // Herbception (throws): exactly 16-byte types with no destructor are
-      // split across 2 integer registers (RAX+RDX for return, RCX+RDX for
-      // params) instead of being passed by pointer, matching the 1/2/4/8/16
-      // register-fit pattern used by other ABIs (e.g. i686 Windows).
+      // coerced to {i64, i64} and passed as two register-sized parameters
+      // (RCX+RDX, or R8+R9, or stack), matching how {size_t, size_t} would
+      // be passed separately.  ComputeValueTypes decomposes the struct into
+      // two i64 leaves, each independently consuming one register.
       if (IsThrows && Width == 128 &&
-          Ty.isDestructedType() == QualType::DK_none)
-        return ABIArgInfo::getDirect(llvm::IntegerType::get(getVMContext(), 128));
+          Ty.isDestructedType() == QualType::DK_none) {
+        llvm::Type *I64 = llvm::IntegerType::get(getVMContext(), 64);
+        return ABIArgInfo::getDirect(
+            llvm::StructType::get(getVMContext(), {I64, I64}));
+      }
       return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
                                      /*ByVal=*/false);
     }
