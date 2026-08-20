@@ -6367,7 +6367,8 @@ details, see {ref}`Strict aliasing <strict_aliasing>`.
 Using clang/clang++ with MSVC Targets
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-While ``clang-cl`` emulates the MSVC compiler interface, users may prefer to invoke ``clang`` or ``clang++`` directly for greater control and platform consistency. When targeting MSVC environments, Clang supports the use of ``--target=`` and ``--sysroot=`` following the same conventions as Unix-style cross-compilation. Furthermore, ``--sysroot=`` accepts both Unix‑style paths and ``clang-cl /winsysroot`` style paths.
+Clang can use the generic, GCC-style driver command line syntax to generate native Windows artifacts, and users who are porting a build from a Posix environment may prefer to use this interface for greater consistency between platforms.
+When targeting MSVC environments, Clang supports the use of `--target=` and `--sysroot=` following the same conventions as Unix-style cross-compilation. Furthermore, `--sysroot=` accepts both Unix‑style paths and `clang-cl /winsysroot` style paths.
 
 This approach avoids reliance on a Windows environment, Wine, or environmental variables, instead using a predictable and portable sysroot layout:
 
