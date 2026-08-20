@@ -786,6 +786,7 @@ add_entrypoint_object(
   HDRS
     ../roundevenf128.h
   DEPENDS
+    libc.src.__support.CPP.bit
     libc.src.__support.math.roundevenf128
 )
 
@@ -867,6 +868,7 @@ add_entrypoint_object(
   HDRS
     ../lroundf128.h
   DEPENDS
+    libc.src.__support.CPP.bit
     libc.src.__support.math.lroundf128
 )
 
@@ -927,6 +929,7 @@ add_entrypoint_object(
   HDRS
     ../llroundf128.h
   DEPENDS
+    libc.src.__support.CPP.bit
     libc.src.__support.math.llroundf128
 )
 
@@ -2030,6 +2033,7 @@ add_entrypoint_object(
   HDRS
     ../fminf128.h
   DEPENDS
+    libc.src.__support.CPP.bit
     libc.src.__support.math.fminf128
 )
 
@@ -2090,6 +2094,7 @@ add_entrypoint_object(
   HDRS
     ../fmaxf128.h
   DEPENDS
+    libc.src.__support.CPP.bit
     libc.src.__support.math.fmaxf128
 )
 
