@@ -1439,3 +1439,26 @@ void MSVCToolChain::addLibStdCXXIncludePaths(
   addSystemInclude(DriverArgs, CC1Args,
                    LibPath + "/c++/" + Version + "/backward");
 }
+
+llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
+    const llvm::opt::ArgList &DriverArgs) const {
+  auto cxxStdlibType = GetCXXStdlibType(DriverArgs);
+  if (cxxStdlibType == ToolChain::CST_Msvcstl) {
+    std::string includePaths;
+    auto SysRoot = TC.getDriver().SysRoot;
+    if (Sysroot.empty()) {
+      if (!VCToolChainPath.empty()) {
+        includePaths.push_back(VCToolChainPath.getSubDirectoryPath(
+            llvm::SubDirectoryType::Include));
+      }
+    } else {
+      std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
+      std::string VCVer = getHighestVersion(VFS, VCToolsBase);
+      if (!VCVer.empty()) {
+        vec.push_back(VCToolsBase + "/" + VCVer + "/include");
+      }
+    }
+    return vec;
+  }
+  return Toolchain::getCXXStdlibIncludeDirs(DriverArgs);
+}

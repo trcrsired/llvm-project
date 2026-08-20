@@ -161,6 +161,8 @@ protected:
   Tool *getTool(Action::ActionClass AC) const override;
   Tool *buildLinker() const override;
   Tool *buildAssembler() const override;
+  llvm::SmallVector<std::string>
+  getCXXStdlibIncludeDirs(const llvm::opt::ArgList &DriverArgs) const override;
 
 private:
   CXXStdlibType GetDefaultCXXStdlibType() const override {

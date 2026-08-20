@@ -293,6 +293,10 @@ public:
   /// GPUs.
   virtual std::string getInputFilename(const InputInfo &Input) const;
 
+  /// for printing C++ standard library include dirs
+  virtual llvm::SmallVector<std::string>
+  getCXXStdlibIncludeDirs(const llvm::opt::ArgList &DriverArgs) const;
+
   llvm::Triple::ArchType getArch() const { return Triple.getArch(); }
   StringRef getArchName() const { return Triple.getArchName(); }
   StringRef getPlatform() const { return Triple.getVendorName(); }
