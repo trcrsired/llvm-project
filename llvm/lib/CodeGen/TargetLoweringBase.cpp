@@ -1834,6 +1834,12 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
   for (unsigned I = 0, E = NumValues; I != E; ++I) {
     Type *Ty = Types[I];
     EVT VT = TLI.getValueType(DL, Ty);
+
+    // Skip zero-sized types (empty structs) for throws functions.
+    // An empty struct should not consume a return register slot.
+    if (VT.isZeroSized() && attr.hasFnAttr(Attribute::Throws))
+      continue;
+
     ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
 
     if (attr.hasRetAttr(Attribute::SExt))
