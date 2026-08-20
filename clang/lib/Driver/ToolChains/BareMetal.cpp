@@ -572,7 +572,7 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   bool NeedCRTs =
       !Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles);
 
-  const char *CRTBegin, *CRTEnd;
+  const char *CRTBegin = nullptr, *CRTEnd = nullptr;
   if (NeedCRTs) {
     if (!Args.hasArg(options::OPT_r)) {
       const char *crt = "crt0.o";
