@@ -3134,10 +3134,9 @@ void AppleMachO::AddCXXStdlibLibArgs(const ArgList &Args,
     // Otherwise, let the linker search.
     CmdArgs.push_back("-lstdc++");
     break;
+  case ToolChain::CST_Msvcstl:
+    break;
   }
-case ToolChain::CST_Msvcstl: {
-  break;
-}
 }
 
 void DarwinClang::AddCCKextLibArgs(const ArgList &Args,
