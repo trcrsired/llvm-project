@@ -703,7 +703,7 @@ bool X86TargetLowering::CanLowerReturn(
     }
   };
 
-  // Herbception (throws) on Win64: the return convention is expanded to use
+  // Herbception (throws) on Win64/UEFI64: the return convention is expanded to use
   // RAX+RDX (analogous to i686 Windows EAX+EDX).  ComputeValueTypes
   // decomposes aggregate payloads (e.g. std::error = {ptr, size_t}) into
   // scalar i64 leaves, each of which fits in a single register.  The i1
@@ -714,7 +714,7 @@ bool X86TargetLowering::CanLowerReturn(
   // to throws functions because the CF-based propagation mechanism requires
   // the payload in registers.
   if (MF.getFunction().hasFnAttribute(Attribute::Throws) &&
-      Subtarget.isTargetWin64()) {
+      (Subtarget.isTargetWin64() || Subtarget.isTargetUEFI64())) {
     for (const ISD::OutputArg &Out : Outs) {
       if (Out.Flags.isThrows())
         continue;
@@ -1796,12 +1796,13 @@ SDValue X86TargetLowering::LowerFormalArguments(
     FuncInfo->setForceFramePointer(true);
 
   // A throws (herbception) function returns its discriminant in the carry
-  // flag (CF). On Win64 the CFI epilogue restores the stack pointer with a
+  // flag (CF). On Win64/UEFI64 the CFI epilogue restores the stack pointer with a
   // plain ADD (LEA / no-flags variants are unavailable without a frame
   // pointer), which would clobber CF just before the return. Force a frame
   // pointer so the epilogue can restore SP without touching EFLAGS, keeping
   // the carry-flag discriminant intact.
-  if (F.hasFnAttribute(Attribute::Throws) && Subtarget.isTargetWin64())
+  if (F.hasFnAttribute(Attribute::Throws) &&
+      (Subtarget.isTargetWin64() || Subtarget.isTargetUEFI64()))
     FuncInfo->setForceFramePointer(true);
 
   MachineFrameInfo &MFI = MF.getFrameInfo();
