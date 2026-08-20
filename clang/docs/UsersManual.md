@@ -6435,5 +6435,3 @@ All header and library paths must use lowercase file names. This ensures compati
 
 This layout is fully compatible with Clang’s standard sysroot resolution logic and requires no MSVC-specific flags. It enables clean cross-compilation workflows and portable toolchain packaging.
 
-For a reference implementation, see `windows-msvc-sysroot <https://github.com/trcrsired/windows-msvc-sysroot>`_.
-
