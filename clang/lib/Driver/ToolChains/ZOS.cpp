@@ -356,6 +356,7 @@ void ZOS::AddClangCXXStdlibIncludeArgs(
     break;
   }
   case ToolChain::CST_Libstdcxx:
+  case ToolChain::CST_Msvcstl:
     llvm::report_fatal_error(
         "picking up libstdc++ headers is unimplemented on z/OS");
     break;

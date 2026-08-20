@@ -595,7 +595,7 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
             TC.getCompilerRTArgString(Args, "crtend", ToolChain::FT_Object);
         break;
       }
-      case (ToolChain::RTL_Vcruntime) {
+      case (ToolChain::RLT_Vcruntime) {
         break;
       }
       }
