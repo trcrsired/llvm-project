@@ -703,6 +703,31 @@ bool X86TargetLowering::CanLowerReturn(
     }
   };
 
+  // Herbception (throws) on Win64: the return convention is expanded to use
+  // RAX+RDX (analogous to i686 Windows EAX+EDX).  ComputeValueTypes
+  // decomposes aggregate payloads (e.g. std::error = {ptr, size_t}) into
+  // scalar i64 leaves, each of which fits in a single register.  The i1
+  // discriminant is carried in the carry flag (CF) and never consumes a
+  // register slot.  Empty structs decompose to zero leaves.
+  //
+  // The standard Win64 sret rule (types >8 bytes → pointer) must not apply
+  // to throws functions because the CF-based propagation mechanism requires
+  // the payload in registers.
+  if (MF.getFunction().hasFnAttribute(Attribute::Throws) &&
+      Subtarget.isTargetWin64()) {
+    for (const ISD::OutputArg &Out : Outs) {
+      if (Out.Flags.isThrows())
+        continue;
+      if (Out.VT == MVT::Other)
+        continue;
+      // Allow up to i64 (one register).  Anything wider after decomposition
+      // genuinely needs sret.
+      if (Out.VT.getSizeInBits() > 64)
+        return false;
+    }
+    return true;
+  }
+
   if (IsWin64F128StackCC(CallConv) &&
       llvm::any_of(
           Outs, [](const ISD::OutputArg &Out) { return Out.VT == MVT::f128; }))
@@ -799,7 +824,15 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, *DAG.getContext());
-  CCInfo.AnalyzeReturn(Outs, RetCC_X86);
+
+  // Use the expanded throws return convention on Win64, which routes through
+  // RetCC_X86_64_C (allowing RAX+RDX) rather than any Win64-specific sret
+  // path.  This is documented in RetCC_X86_Win64_C_Throws.
+  const Function &F = MF.getFunction();
+  bool IsWin64Throws = F.hasFnAttribute(Attribute::Throws) &&
+                       Subtarget.isTargetWin64();
+  CCInfo.AnalyzeReturn(Outs, IsWin64Throws ? RetCC_X86_Win64_C_Throws
+                                           : RetCC_X86);
 
   SmallVector<std::pair<Register, SDValue>, 4> RetVals;
   // If this function returns the throws (herbception) discriminant, it is
@@ -1184,7 +1217,17 @@ SDValue X86TargetLowering::LowerCallResult(
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
                  *DAG.getContext());
-  CCInfo.AnalyzeCallResult(Ins, RetCC_X86);
+
+  // Detect a throws call from the Ins flags (the discriminant has isThrows).
+  bool IsThrowsCall = llvm::any_of(
+      Ins, [](const ISD::InputArg &A) { return A.Flags.isThrows(); });
+
+  // Use the expanded throws return convention on Win64 so that the caller
+  // reads the payload from the same registers (RAX+RDX) that the callee
+  // writes them to.
+  CCInfo.AnalyzeCallResult(Ins, IsThrowsCall && Subtarget.isTargetWin64()
+                                    ? RetCC_X86_Win64_C_Throws
+                                    : RetCC_X86);
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned I = 0, InsIndex = 0, E = RVLocs.size(); I != E;
@@ -1800,7 +1843,11 @@ SDValue X86TargetLowering::LowerFormalArguments(
   if (IsWin64)
     CCInfo.AllocateStack(32, Align(8));
 
-  CCInfo.AnalyzeArguments(Ins, CC_X86);
+  // Use the expanded throws parameter convention on Win64 so that
+  // trivially-copyable ≤16-byte types (e.g. std::error, std::span) are
+  // split across 2 integer registers instead of passed by pointer.
+  bool IsWin64Throws = F.hasFnAttribute(Attribute::Throws) && IsWin64;
+  CCInfo.AnalyzeArguments(Ins, IsWin64Throws ? CC_X86_Win64_C_Throws : CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
   // types.
@@ -2193,7 +2240,12 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (IsWin64)
     CCInfo.AllocateStack(32, Align(8));
 
-  CCInfo.AnalyzeArguments(Outs, CC_X86);
+  // Use the expanded throws parameter convention on Win64 so that
+  // trivially-copyable ≤16-byte types are split across 2 integer
+  // registers instead of passed by pointer.
+  bool IsCallWin64Throws = CLI.IsThrows && IsWin64;
+  CCInfo.AnalyzeArguments(Outs,
+                          IsCallWin64Throws ? CC_X86_Win64_C_Throws : CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
   // types.

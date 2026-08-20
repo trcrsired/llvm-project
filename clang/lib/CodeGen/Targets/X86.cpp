@@ -1431,7 +1431,7 @@ public:
 
 private:
   ABIArgInfo classify(QualType Ty, unsigned &FreeSSERegs, bool IsReturnType,
-                      unsigned CC) const;
+                      unsigned CC, bool IsThrows = false) const;
   ABIArgInfo reclassifyHvaArgForVectorCall(QualType Ty, unsigned &FreeSSERegs,
                                            const ABIArgInfo &current) const;
 
@@ -3448,7 +3448,8 @@ ABIArgInfo WinX86_64ABIInfo::reclassifyHvaArgForVectorCall(
 }
 
 ABIArgInfo WinX86_64ABIInfo::classify(QualType Ty, unsigned &FreeSSERegs,
-                                      bool IsReturnType, unsigned CC) const {
+                                       bool IsReturnType, unsigned CC,
+                                       bool IsThrows) const {
   bool IsVectorCall = CC == llvm::CallingConv::X86_VectorCall;
   bool IsRegCall = CC == llvm::CallingConv::X86_RegCall;
 
@@ -3518,9 +3519,18 @@ ABIArgInfo WinX86_64ABIInfo::classify(QualType Ty, unsigned &FreeSSERegs,
   if (RT || Ty->isAnyComplexType() || Ty->isMemberPointerType()) {
     // MS x64 ABI requirement: "Any argument that doesn't fit in 8 bytes, or is
     // not 1, 2, 4, or 8 bytes, must be passed by reference."
-    if (Width > 64 || !llvm::isPowerOf2_64(Width))
+    if (Width > 64 || !llvm::isPowerOf2_64(Width)) {
+      // Herbception (throws): trivially-copyable types ≤16 bytes are split
+      // across 2 integer registers (RAX+RDX for return, RCX+RDX for params)
+      // instead of being passed by pointer.  ComputeValueTypes will decompose
+      // the coerced i128 into two i64 leaves, each of which independently
+      // gets a register.  The CF-based discriminant never consumes a register.
+      if (IsThrows && Width <= 128 && Width > 64 &&
+          Ty.isTriviallyCopyable(getContext()))
+        return ABIArgInfo::getDirect(llvm::IntegerType::get(getVMContext(), 128));
       return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
                                      /*ByVal=*/false);
+    }
 
     // Otherwise, coerce it to a small integer.
     return ABIArgInfo::getDirect(llvm::IntegerType::get(getVMContext(), Width));
@@ -3627,6 +3637,12 @@ void WinX86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
     return;
   }
 
+  // Herbception (throws): when the function carries a herbception error type,
+  // the function de facto changes the calling convention.  Trivially-copyable
+  // types ≤16 bytes are split across 2 integer registers instead of being
+  // passed by pointer.
+  bool IsThrows = FI.getHerbceptionErrorType() != nullptr;
+
   unsigned FreeSSERegs = 0;
   if (IsVectorCall) {
     // We can use up to 4 SSE return registers with vectorcall.
@@ -3637,7 +3653,8 @@ void WinX86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
   }
 
   if (!getCXXABI().classifyReturnType(FI))
-    FI.getReturnInfo() = classify(FI.getReturnType(), FreeSSERegs, true, CC);
+    FI.getReturnInfo() = classify(FI.getReturnType(), FreeSSERegs, true, CC,
+                                  IsThrows);
 
   if (IsVectorCall) {
     // We can use up to 6 SSE register parameters with vectorcall.
@@ -3655,7 +3672,7 @@ void WinX86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
     // registers are left.
     unsigned *MaybeFreeSSERegs =
         (IsVectorCall && ArgNum >= 6) ? &ZeroSSERegs : &FreeSSERegs;
-    I.info = classify(I.type, *MaybeFreeSSERegs, false, CC);
+    I.info = classify(I.type, *MaybeFreeSSERegs, false, CC, IsThrows);
     ++ArgNum;
   }
 

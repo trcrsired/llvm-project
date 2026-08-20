@@ -389,6 +389,34 @@ def RetCC_X86_Win64_C : CallingConv<[
   CCDelegateTo<RetCC_X86_64_C>
 ]>;
 
+// X86-Win64 C return-value convention for throws (herbception) functions.
+//
+// The standard Win64 ABI returns scalar values only in RAX, demoting
+// anything larger to sret.  Throws functions de facto change the ABI:
+// the discriminant lives in the carry flag (CF), so the payload must
+// reside in registers for the CF-based propagation mechanism to work.
+//
+// We expand the return convention to use RAX+RDX (analogous to i686
+// Windows EAX+EDX for 64-bit returns).  ComputeValueTypes decomposes
+// aggregate payloads (e.g. std::error = {ptr, size_t}) into their
+// scalar leaves; RetCC_X86Common then assigns each leaf to an
+// available register.  The i1 discriminant is handled via CF and never
+// consumes a register slot.
+//
+// Empty structs decompose to zero leaves, consuming no registers.
+def RetCC_X86_Win64_C_Throws : CallingConv<[
+  // Same FP fallback as non-throws Win64.
+  CCIfType<[f32], CCIfNotSubtarget<"hasSSE1()", CCBitConvertToType<i32>>>,
+  CCIfType<[f64], CCIfNotSubtarget<"hasSSE1()", CCBitConvertToType<i64>>>,
+
+  // f128 has custom behavior in X86TargetLowering::CanLowerReturn.
+
+  // Delegate to the shared x86-64 convention.  RetCC_X86Common assigns
+  // i64 leaves to [RAX, RDX, RCX, R8], which gives us the two registers
+  // needed for16-byte payloads (std::error, std::span, std::string_view).
+  CCDelegateTo<RetCC_X86_64_C>
+]>;
+
 // X86-64 vectorcall return-value convention.
 def RetCC_X86_64_Vectorcall : CallingConv<[
   // Vectorcall calling convention always returns FP values in XMMs.
@@ -686,6 +714,89 @@ def CC_X86_Win64_VectorCall : CallingConv<[
 
   // Delegate to fastcall to handle integer types.
   CCDelegateTo<CC_X86_Win64_C>
+]>;
+
+// Calling convention used on Win64 for throws (herbception) functions.
+//
+// Trivially-copyable types ≤16 bytes (e.g. std::span, std::string_view,
+// std::error) are split across 2 integer registers instead of being
+// passed by pointer.  ComputeValueTypes decomposes the aggregate into
+// scalar leaves; each leaf independently gets one of the 4 integer
+// parameter registers (RCX, RDX, R8, R9).
+//
+// Empty structs decompose to zero leaves, consuming no register slot.
+//
+// The convention is otherwise identical to CC_X86_Win64_C.
+def CC_X86_Win64_C_Throws : CallingConv<[
+  // FIXME: Handle varargs.
+
+  // Byval aggregates are passed by pointer (same as non-throws).
+  CCIfByVal<CCPassIndirect<i64>>,
+
+  // Promote i1/v1i1 arguments to i8.
+  CCIfType<[i1, v1i1], CCPromoteToType<i8>>,
+
+  // The 'nest' parameter, if any, is passed in R10.
+  CCIfNest<CCAssignToReg<[R10]>>,
+
+  // A SwiftError is passed in R12.
+  CCIfSwiftError<CCIfType<[i64], CCAssignToReg<[R12]>>>,
+
+  // Pass SwiftSelf in a callee saved register.
+  CCIfSwiftSelf<CCIfType<[i64], CCAssignToReg<[R13]>>>,
+
+  // Pass SwiftAsync in an otherwise callee saved register so that calls to
+  // normal functions don't need to save it somewhere.
+  CCIfSwiftAsync<CCIfType<[i64], CCAssignToReg<[R14]>>>,
+
+  // The 'CFGuardTarget' parameter, if any, is passed in RAX.
+  CCIfCFGuardTarget<CCAssignToReg<[RAX]>>,
+
+  // 128 bit vectors are passed by pointer
+  CCIfType<[v16i8, v8i16, v4i32, v2i64, v8f16, v8bf16, v4f32, v2f64], CCPassIndirect<i64>>,
+
+  // 256 bit vectors are passed by pointer
+  CCIfType<[v32i8, v16i16, v8i32, v4i64, v16f16, v16bf16, v8f32, v4f64], CCPassIndirect<i64>>,
+
+  // 512 bit vectors are passed by pointer
+  CCIfType<[v64i8, v32i16, v16i32, v32f16, v32bf16, v16f32, v8f64, v8i64], CCPassIndirect<i64>>,
+
+  // Float types larger than 64-bits (long double and fp128) are passed by pointer
+  CCIfType<[f80], CCPassIndirect<i64>>,
+  CCIfType<[f128], CCPassIndirect<i64>>,
+
+  // If SSE was disabled, pass FP values smaller than 64-bits as integers in
+  // GPRs or on the stack.
+  CCIfType<[f32], CCIfNotSubtarget<"hasSSE1()", CCBitConvertToType<i32>>>,
+  CCIfType<[f64], CCIfNotSubtarget<"hasSSE1()", CCBitConvertToType<i64>>>,
+
+  // The first 4 FP/Vector arguments are passed in XMM registers.
+  CCIfType<[f16, f32, f64],
+           CCAssignToRegWithShadow<[XMM0, XMM1, XMM2, XMM3],
+                                   [RCX , RDX , R8  , R9  ]>>,
+
+  // The first 4 integer arguments are passed in integer registers.
+  // ComputeValueTypes decomposes ≤16-byte trivially-copyable aggregates
+  // into scalar i64 leaves; each leaf independently consumes one register.
+  CCIfType<[i8 ], CCAssignToRegWithShadow<[CL  , DL  , R8B , R9B ],
+                                          [XMM0, XMM1, XMM2, XMM3]>>,
+  CCIfType<[i16], CCAssignToRegWithShadow<[CX  , DX  , R8W , R9W ],
+                                          [XMM0, XMM1, XMM2, XMM3]>>,
+  CCIfType<[i32], CCAssignToRegWithShadow<[ECX , EDX , R8D , R9D ],
+                                          [XMM0, XMM1, XMM2, XMM3]>>,
+
+  // Do not pass the sret argument in RCX, the Win64 thiscall calling
+  // convention requires "this" to be passed in RCX.
+  CCIfCC<"CallingConv::X86_ThisCall",
+    CCIfSRet<CCIfType<[i64], CCAssignToRegWithShadow<[RDX , R8  , R9  ],
+                                                     [XMM1, XMM2, XMM3]>>>>,
+
+  CCIfType<[i64], CCAssignToRegWithShadow<[RCX , RDX , R8  , R9  ],
+                                          [XMM0, XMM1, XMM2, XMM3]>>,
+
+  // Integer/FP values get stored in stack slots that are 8 bytes in size and
+  // 8-byte aligned if there are no more registers to hold them.
+  CCIfType<[i8, i16, i32, i64, f16, f32, f64], CCAssignToStack<8, 8>>
 ]>;
 
 
