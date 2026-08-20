@@ -714,7 +714,7 @@ bool X86TargetLowering::CanLowerReturn(
   // to throws functions because the CF-based propagation mechanism requires
   // the payload in registers.
   if (MF.getFunction().hasFnAttribute(Attribute::Throws) &&
-      (Subtarget.isTargetWin64() || Subtarget.isTargetUEFI64())) {
+      Subtarget.isCallingConvWin64(CallConv)) {
     for (const ISD::OutputArg &Out : Outs) {
       if (Out.Flags.isThrows())
         continue;
@@ -1802,7 +1802,7 @@ SDValue X86TargetLowering::LowerFormalArguments(
   // pointer so the epilogue can restore SP without touching EFLAGS, keeping
   // the carry-flag discriminant intact.
   if (F.hasFnAttribute(Attribute::Throws) &&
-      (Subtarget.isTargetWin64() || Subtarget.isTargetUEFI64()))
+      Subtarget.isCallingConvWin64(CallConv))
     FuncInfo->setForceFramePointer(true);
 
   MachineFrameInfo &MFI = MF.getFrameInfo();
