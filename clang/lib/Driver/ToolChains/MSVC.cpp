@@ -173,6 +173,8 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     // libpath is $SYSROOT/lib and $SYSROOT/lib/${ARCH}-unknown-windows-msvc
     // For ARM64EC, the ARCH is aarch64 instead
     auto triple = TC.getTriple();
+    // always set vendor to unknown to ensure consistency
+    triple.setVendor(llvm::Triple::VendorType::UnknownVendor);
     const std::string MultiarchTriple =
         TC.getMultiarchTriple(TC.getDriver(), triple, SysRoot);
     std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
@@ -1363,8 +1365,10 @@ void MSVCToolChain::addMsvcstlIncludePaths(
   const Driver &D = getDriver();
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
-  const std::string MultiarchTriple =
-      getMultiarchTriple(D, getTriple(), SysRoot);
+  auto triple = getTriple();
+  // always set vendor to unknown to ensure consistency
+  triple.setVendor(llvm::Triple::VendorType::UnknownVendor);
+  const std::string MultiarchTriple = getMultiarchTriple(D, triple, SysRoot);
 
   std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msvcstl";
   addSystemInclude(DriverArgs, CC1Args, TargetDir);
@@ -1449,16 +1453,23 @@ llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
     auto SysRoot = getDriver().SysRoot;
     if (SysRoot.empty()) {
       if (!VCToolChainPath.empty()) {
-#if 0
-        includePaths.push_back(VCToolChainPath.getSubDirectoryPath(
-            llvm::SubDirectoryType::Include));
-#endif
+        vec.push_back(getSubDirectoryPath(llvm::SubDirectoryType::Include));
       }
     } else {
-      std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
-      std::string VCVer = getHighestVersion(getVFS(), VCToolsBase);
-      if (!VCVer.empty()) {
-        vec.push_back(VCToolsBase + "/" + VCVer + "/include");
+      // First trying to get from sysroot
+      auto &VFS = getVFS();
+      std::string WinKitsBase = SysRoot + "/Windows Kits";
+      if (VFS.exists(WinKitsBase)) {
+        std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
+        std::string VCVer = getHighestVersion(getVFS(), VCToolsBase);
+        if (!VCVer.empty()) {
+          vec.push_back(VCToolsBase + "/" + VCVer + "/include");
+        }
+      }
+      // ensure the correct order
+      auto UnixSysRootResults = ToolChain::getCXXStdlibIncludeDirs(DriverArgs);
+      for (auto &e : UnixSysRootResults) {
+        vec.push_back(::std::move(e));
       }
     }
     return vec;
