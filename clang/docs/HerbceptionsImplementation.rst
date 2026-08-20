@@ -277,6 +277,57 @@ AArch64, ARM, RISC-V, LoongArch and WebAssembly. See :ref:`herbceptions` for
 the mechanism per target. When false, the discriminant is a regular struct
 member.
 
+Win64 expanded ABI
+------------------
+
+The standard Win64 ABI returns scalars only in RAX and passes types larger
+than 8 bytes by pointer.  This conflicts with herbceptions because the
+discriminant lives in the carry flag (CF), requiring the payload to reside
+in registers.
+
+The following changes apply only to functions with the ``throws``
+attribute; non-``throws`` functions follow the standard Win64 ABI
+unchanged.
+
+**Empty structs.** An empty struct (zero-sized) does not consume a
+register slot for the return value.  ``GetReturnInfo`` skips zero-sized
+types when the ``throws`` attribute is present
+(``llvm/lib/CodeGen/TargetLoweringBase.cpp``).
+
+**Return values (RAX+RDX).** ``CanLowerReturn`` returns ``true`` for
+Win64 ``throws`` functions when every non-discriminant return part is
+at most i64 after decomposition.  The standard calling convention
+(``RetCC_X86``) already assigns i64 leaves to ``[RAX, RDX, RCX, R8]``
+via ``RetCC_X86Common``, so the two i64 halves of a 16-byte payload
+naturally land in RAX and RDX.  The i1 discriminant is carried in CF
+via the ADD-with-AllOnes trick and never consumes a register.
+
+**Parameters (RCX+RDX / R8+R9 / stack).**  The ``WinX86_64ABIInfo``
+frontend ABI classifier (``clang/lib/CodeGen/Targets/X86.cpp``) is
+extended with an ``IsThrows`` flag threaded through ``computeInfo``.
+When the function carries a herbception error type, record types that
+are exactly 16 bytes and have no destructor
+(``isDestructedType() == DK_none``) are coerced to ``{i64, i64}``
+instead of being passed by pointer.  ``ComputeValueTypes`` decomposes
+the coerced struct into two i64 leaves; each leaf independently
+consumes one of the four integer parameter registers (RCX, RDX, R8,
+R9), or spills to the stack.  This matches the i686 Windows fastcall
+pattern where two i32 values split into ECX+EDX.
+
+Types with a destructor, types not exactly 16 bytes, and non-power-of-two
+sizes continue to follow the standard Win64 rule (passed by pointer).
+
+**Frame pointer.** Win64 ``throws`` functions force a frame pointer
+(``X86ISelLoweringCall.cpp``) so the epilogue uses ``MOV RSP, RBP``
+(which does not touch EFLAGS) instead of ``ADD RSP, imm`` (which
+clobbers CF before the ``ret``).
+
+**New calling convention definitions.** ``RetCC_X86_Win64_C_Throws``
+and ``CC_X86_Win64_C_Throws`` are documented in
+``llvm/lib/Target/X86/X86CallingConv.td``.  They mirror the standard
+Win64 conventions but serve as explicit, named entry points for the
+expanded register set.
+
 Runtime: libherbceptions
 ========================
 
