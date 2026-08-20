@@ -87,6 +87,13 @@ static std::string getHighestVersion(llvm::vfs::FileSystem &VFS,
   return HighestVersion;
 }
 
+// always set vendor to unknown to ensure consistency for sysroot
+static llvm::Triple getTripleWithUnknownVendor(const ToolChain &TC) {
+  auto triple = TC.getTriple();
+  triple.setVendor(llvm::Triple::VendorType::UnknownVendor);
+  return triple;
+}
+
 void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                         const InputInfo &Output,
                                         const InputInfoList &Inputs,
@@ -172,9 +179,7 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     // If we have --sysroot, then we ignore all other setings
     // libpath is $SYSROOT/lib and $SYSROOT/lib/${ARCH}-unknown-windows-msvc
     // For ARM64EC, the ARCH is aarch64 instead
-    auto triple = TC.getTriple();
-    // always set vendor to unknown to ensure consistency
-    triple.setVendor(llvm::Triple::VendorType::UnknownVendor);
+    auto triple = getTripleWithUnknownVendor(TC);
     const std::string MultiarchTriple =
         TC.getMultiarchTriple(TC.getDriver(), triple, SysRoot);
     std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
@@ -1365,10 +1370,8 @@ void MSVCToolChain::addMsvcstlIncludePaths(
   const Driver &D = getDriver();
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
-  auto triple = getTriple();
-  // always set vendor to unknown to ensure consistency
-  triple.setVendor(llvm::Triple::VendorType::UnknownVendor);
-  const std::string MultiarchTriple = getMultiarchTriple(D, triple, SysRoot);
+  const std::string MultiarchTriple =
+      getMultiarchTriple(D, getTripleWithUnknownVendor(*this), SysRoot);
 
   std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msvcstl";
   addSystemInclude(DriverArgs, CC1Args, TargetDir);
@@ -1384,7 +1387,7 @@ void MSVCToolChain::addLibCxxIncludePaths(
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
   const std::string MultiarchTriple =
-      getMultiarchTriple(D, getTriple(), SysRoot);
+      getMultiarchTriple(D, getTripleWithUnknownVendor(*this), SysRoot);
 
   std::string Version = detectLibcxxVersion(LibPath);
   if (Version.empty())
@@ -1408,7 +1411,7 @@ void MSVCToolChain::addLibStdCXXIncludePaths(
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
   const std::string MultiarchTriple =
-      getMultiarchTriple(D, getTriple(), SysRoot);
+      getMultiarchTriple(D, getTripleWithUnknownVendor(*this), SysRoot);
 
   // This is similar to detectLibcxxVersion()
   std::string Version;
