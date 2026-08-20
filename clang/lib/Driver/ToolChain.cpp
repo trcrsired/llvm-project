@@ -723,21 +723,21 @@ static std::string printCXXStdlibIncludeDirs(const ToolChain &TC,
 }
 
 llvm::SmallVector<std::string>
-getCXXStdlibIncludeDirs(const ArgList &Args) const {
+ToolChain::getCXXStdlibIncludeDirs(const ArgList &Args) const {
   ArgStringList CC1Args;
   if (Args.hasArg(options::OPT_stdlibxx_isystem))
-    TempTC.AddClangCXXStdlibIsystemArgs(Args, CC1Args);
+    AddClangCXXStdlibIsystemArgs(Args, CC1Args);
   else
-    TempTC.AddClangCXXStdlibIncludeArgs(Args, CC1Args);
+    AddClangCXXStdlibIncludeArgs(Args, CC1Args);
 
-  llvm::SmallVector<std::string> Args;
+  llvm::SmallVector<std::string> Rets;
   for (size_t I = 0; I < CC1Args.size(); ++I) {
     StringRef Arg(CC1Args[I]);
     if (isIncludeDirArg(Arg) && I + 1 < CC1Args.size()) {
-      Args.emplace_back(CC1Args[++I]);
+      Rets.emplace_back(CC1Args[++I]);
     }
   }
-  return Args;
+  return Rets;
 }
 
 ToolChain::UnwindTableLevel

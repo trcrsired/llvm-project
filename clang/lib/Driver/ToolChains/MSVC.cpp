@@ -1444,21 +1444,24 @@ llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
     const llvm::opt::ArgList &DriverArgs) const {
   auto cxxStdlibType = GetCXXStdlibType(DriverArgs);
   if (cxxStdlibType == ToolChain::CST_Msvcstl) {
+    llvm::SmallVector<std::string> vec;
     std::string includePaths;
-    auto SysRoot = TC.getDriver().SysRoot;
-    if (Sysroot.empty()) {
+    auto SysRoot = getDriver().SysRoot;
+    if (SysRoot.empty()) {
       if (!VCToolChainPath.empty()) {
+#if 0
         includePaths.push_back(VCToolChainPath.getSubDirectoryPath(
             llvm::SubDirectoryType::Include));
+#endif
       }
     } else {
       std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
-      std::string VCVer = getHighestVersion(VFS, VCToolsBase);
+      std::string VCVer = getHighestVersion(getVFS(), VCToolsBase);
       if (!VCVer.empty()) {
         vec.push_back(VCToolsBase + "/" + VCVer + "/include");
       }
     }
     return vec;
   }
-  return Toolchain::getCXXStdlibIncludeDirs(DriverArgs);
+  return ToolChain::getCXXStdlibIncludeDirs(DriverArgs);
 }
