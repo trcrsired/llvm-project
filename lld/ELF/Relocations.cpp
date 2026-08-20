@@ -243,16 +243,15 @@ static SmallPtrSet<SharedSymbol *, 4> getSymbolsAt(Ctx &ctx, SharedSymbol &ss) {
 // location.
 static void replaceWithDefined(Ctx &ctx, Symbol &sym, SectionBase &sec,
                                uint64_t value, uint64_t size) {
-  Symbol old = sym;
+  uint16_t versionId = sym.versionId;
   Defined(ctx, sym.file, StringRef(), sym.binding, sym.stOther, sym.type, value,
           size, &sec)
       .overwrite(sym);
 
-  sym.versionId = old.versionId;
+  sym.versionId = versionId;
   sym.isUsedInRegularObj = true;
   // A copy relocated alias may need a GOT entry.
-  sym.flags.store(old.flags.load(std::memory_order_relaxed) & NEEDS_GOT,
-                  std::memory_order_relaxed);
+  sym.flags.fetch_and(NEEDS_GOT, std::memory_order_relaxed);
 }
 
 // Reserve space in .bss or .bss.rel.ro for copy relocation.
@@ -1246,6 +1245,14 @@ static bool handleNonPreemptibleIfunc(Ctx &ctx, Symbol &sym, uint16_t flags) {
   // Skip unreferenced non-preemptible ifunc.
   if (!(flags & (NEEDS_GOT | NEEDS_PLT | HAS_DIRECT_RELOC)))
     return true;
+  // We only support one kind of GOT entry, and IPLT entries currently always
+  // use non-AUTH GOT entries.
+  if ((flags & NEEDS_GOT) && (flags & NEEDS_GOT_AUTH)) {
+    auto diag = Err(ctx);
+    diag << "AUTH GOT entry for non-preemptible ifunc '" << sym.getName()
+         << "' requested, but R_AARCH64_AUTH_IRELATIVE is not supported yet";
+    return true;
+  }
 
   sym.isInIplt = true;
 
@@ -1268,11 +1275,8 @@ static bool handleNonPreemptibleIfunc(Ctx &ctx, Symbol &sym, uint16_t flags) {
     // don't try to call the PLT as if it were an ifunc resolver.
     d.type = STT_FUNC;
 
-    if (flags & NEEDS_GOT) {
-      assert(!(flags & NEEDS_GOT_AUTH) &&
-             "R_AARCH64_AUTH_IRELATIVE is not supported yet");
+    if (flags & NEEDS_GOT)
       addGotEntry(ctx, sym);
-    }
   } else if (flags & NEEDS_GOT) {
     // Redirect GOT accesses to point to the Igot.
     sym.gotInIgot = true;
@@ -1970,7 +1974,7 @@ bool ThunkCreator::createThunks(uint32_t pass,
 
         for (auto &p : isd->thunkSections) {
           // Sort in pass 0, which creates most thunks.
-          if (pass == 0 && ctx.arg.zSortThunks)
+          if (pass == 0)
             p.first->sortByDestination();
           addressesChanged |= p.first->assignOffsets();
         }
