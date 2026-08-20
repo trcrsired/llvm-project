@@ -138,17 +138,15 @@ protected:
 bool X86CallLowering::canLowerReturn(
     MachineFunction &MF, CallingConv::ID CallConv,
     SmallVectorImpl<CallLowering::BaseArgInfo> &Outs, bool IsVarArg) const {
-  const Function &F = MF.getFunction();
-  LLVMContext &Context = F.getContext();
-  const X86Subtarget &STI = MF.getSubtarget<X86Subtarget>();
+  LLVMContext &Context = MF.getFunction().getContext();
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, Context);
 
   // Use the expanded throws return convention on Win64.
-  bool IsWin64Throws = F.hasFnAttribute(Attribute::Throws) &&
-                       STI.isTargetWin64();
-  return checkReturn(CCInfo, Outs,
-                     IsWin64Throws ? RetCC_X86_Win64_C_Throws : RetCC_X86);
+  // The frontend coerces trivially-copyable ≤16-byte types to i128,
+  // which ComputeValueTypes decomposes into two i64 leaves assignable
+  // via RetCC_X86Common.
+  return checkReturn(CCInfo, Outs, RetCC_X86);
 }
 
 bool X86CallLowering::lowerReturn(MachineIRBuilder &MIRBuilder,
@@ -180,10 +178,7 @@ bool X86CallLowering::lowerReturn(MachineIRBuilder &MIRBuilder,
     SmallVector<ArgInfo, 4> SplitRetInfos;
     splitToValueTypes(OrigRetInfo, SplitRetInfos, DL, F.getCallingConv());
 
-    X86OutgoingValueAssigner Assigner(
-        F.hasFnAttribute(Attribute::Throws) && STI.isTargetWin64()
-            ? RetCC_X86_Win64_C_Throws
-            : RetCC_X86);
+    X86OutgoingValueAssigner Assigner(RetCC_X86);
     X86OutgoingValueHandler Handler(MIRBuilder, MRI, MIB);
     if (!determineAndHandleAssignments(Handler, Assigner, SplitRetInfos,
                                        MIRBuilder, F.getCallingConv(),
@@ -317,10 +312,7 @@ bool X86CallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
   if (!MBB.empty())
     MIRBuilder.setInstr(*MBB.begin());
 
-  X86OutgoingValueAssigner Assigner(
-      F.hasFnAttribute(Attribute::Throws) && STI.isTargetWin64()
-          ? CC_X86_Win64_C_Throws
-          : CC_X86);
+  X86OutgoingValueAssigner Assigner(CC_X86);
   FormalArgHandler Handler(MIRBuilder, MRI);
   if (!determineAndHandleAssignments(Handler, Assigner, SplitArgs, MIRBuilder,
                                      F.getCallingConv(), F.isVarArg()))
@@ -374,10 +366,7 @@ bool X86CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
     splitToValueTypes(OrigArg, SplitArgs, DL, Info.CallConv);
   }
   // Do the actual argument marshalling.
-  bool IsCallWin64Throws = Info.CB && Info.CB->hasFnAttr(Attribute::Throws) &&
-                           STI.isTargetWin64();
-  X86OutgoingValueAssigner Assigner(
-      IsCallWin64Throws ? CC_X86_Win64_C_Throws : CC_X86);
+  X86OutgoingValueAssigner Assigner(CC_X86);
   X86OutgoingValueHandler Handler(MIRBuilder, MRI, MIB);
   if (!determineAndHandleAssignments(Handler, Assigner, SplitArgs, MIRBuilder,
                                      Info.CallConv, Info.IsVarArg))
@@ -425,11 +414,7 @@ bool X86CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
 
     splitToValueTypes(Info.OrigRet, SplitArgs, DL, Info.CallConv);
 
-    // Detect a throws call from the callee's attributes.
-    bool IsCallWin64Throws = Info.CB && Info.CB->hasFnAttr(Attribute::Throws) &&
-                             STI.isTargetWin64();
-    X86OutgoingValueAssigner Assigner(
-        IsCallWin64Throws ? RetCC_X86_Win64_C_Throws : RetCC_X86);
+    X86OutgoingValueAssigner Assigner(RetCC_X86);
     CallReturnHandler Handler(MIRBuilder, MRI, MIB);
     if (!determineAndHandleAssignments(Handler, Assigner, SplitArgs, MIRBuilder,
                                        Info.CallConv, Info.IsVarArg))

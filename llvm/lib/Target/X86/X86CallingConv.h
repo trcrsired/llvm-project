@@ -27,6 +27,16 @@ bool RetCC_X86(unsigned ValNo, MVT ValVT, MVT LocVT,
 bool CC_X86(unsigned ValNo, MVT ValVT, MVT LocVT, CCValAssign::LocInfo LocInfo,
             ISD::ArgFlagsTy ArgFlags, Type *OrigTy, CCState &State);
 
+bool RetCC_X86_Win64_C_Throws(unsigned ValNo, MVT ValVT, MVT LocVT,
+                               CCValAssign::LocInfo LocInfo,
+                               ISD::ArgFlagsTy ArgFlags, Type *OrigTy,
+                               CCState &State);
+
+bool CC_X86_Win64_C_Throws(unsigned ValNo, MVT ValVT, MVT LocVT,
+                            CCValAssign::LocInfo LocInfo,
+                            ISD::ArgFlagsTy ArgFlags, Type *OrigTy,
+                            CCState &State);
+
 } // End llvm namespace
 
 #endif
