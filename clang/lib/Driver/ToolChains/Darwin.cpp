@@ -3038,6 +3038,8 @@ void AppleMachO::AddClangCXXStdlibIncludeArgs(
   case ToolChain::CST_Libstdcxx:
     AddGnuCPlusPlusIncludePaths(DriverArgs, CC1Args);
     break;
+  case ToolChain::CST_Msvcstl:
+    break;
   }
 }
 
@@ -3133,6 +3135,9 @@ void AppleMachO::AddCXXStdlibLibArgs(const ArgList &Args,
     CmdArgs.push_back("-lstdc++");
     break;
   }
+case ToolChain::CST_Msvcstl: {
+  break;
+}
 }
 
 void DarwinClang::AddCCKextLibArgs(const ArgList &Args,

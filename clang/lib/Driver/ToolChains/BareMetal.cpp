@@ -408,6 +408,10 @@ void BareMetal::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   case ToolChain::CST_Libstdcxx:
     addLibStdCxxIncludePaths(DriverArgs, CC1Args);
     break;
+  case ToolChain::CST_Msvcstl:
+    llvm::report_fatal_error(
+        "picking up MSVC STL headers is unimplemented on AIX");
+    break;
   }
 
   std::string SysRootDir(computeSysRoot());
@@ -454,6 +458,9 @@ void BareMetal::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
       }
       break;
     }
+    case ToolChain::CST_Msvcstl: {
+      break;
+    }
     }
   }
   switch (GetCXXStdlibType(DriverArgs)) {
@@ -465,6 +472,7 @@ void BareMetal::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
     break;
   }
   case ToolChain::CST_Libstdcxx:
+  case ToolChain::CST_Msvcstl:
     break;
   }
 }
@@ -585,6 +593,9 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
             TC.getCompilerRTArgString(Args, "crtbegin", ToolChain::FT_Object);
         CRTEnd =
             TC.getCompilerRTArgString(Args, "crtend", ToolChain::FT_Object);
+        break;
+      }
+      case (ToolChain::RTL_Vcruntime) {
         break;
       }
       }

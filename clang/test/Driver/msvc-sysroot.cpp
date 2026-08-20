@@ -87,6 +87,39 @@
 // COMPILE_RISCV64_LIBSTDCXX_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include"
 // COMPILE_RISCV64_LIBSTDCXX_LINK: link.exe{{.*}}" "-libpath:[[SYSROOT]]/lib/riscv64-unknown-windows-msvc" "-libpath:[[SYSROOT]]/lib"
 
+// --- AARCH64 print-cxx-stdlib MSVCSTL ---
+// RUN: %clangxx --target=aarch64-unknown-windows-msvc --print-cxx-stdlib \
+// RUN: --sysroot=%t/msvc_tree %s 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_AARCH64_MSVCSTL %s
+// PRINTCXXSTDLIB_AARCH64_MSVCSTL: msvcstl
+
+// --- X86_64 print-cxx-stdlib LIBCXX ---
+// RUN: %clangxx --target=x86_64-unknown-windows-msvc -stdlib=libc++ --print-cxx-stdlib \
+// RUN: --sysroot=%t/msvc_tree %s 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_X86_64_LIBCXX %s
+// PRINTCXXSTDLIB_X86_64_LIBCXX: libc++
+
+// --- LOONGARCH64 print-cxx-stdlib LIBSTDCXX ---
+// RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=libstdc++ --print-cxx-stdlib \
+// RUN: --sysroot=%t/msvc_tree %s 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_LOONGARCH64_LIBSTDCXX %s
+// PRINTCXXSTDLIB_LOONGARCH64_LIBSTDCXX: libstdc++
+
+// --- X86_64 print-cxx-stdlib-include-dirs MSVCSTL ---
+// RUN: %clangxx --target=x86_64-unknown-windows-msvc --print-cxx-stdlib-include-dirs -stdlib=libc++ \
+// RUN: --sysroot=%t/msvc_tree 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIBINCLUDE_X86_64_LIBCXX %s
+// PRINTCXXSTDLIBINCLUDE_X86_64_LIBCXX: [[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/v1
+// PRINTCXXSTDLIBINCLUDE_X86_64_LIBCXX: [[SYSROOT:[^"]+]]/include/c++/v1
+
+// --- AARCH64 print-cxx-stdlib-include-dirs MSVCSTL ---
+// RUN: %clangxx --target=aarch64-unknown-windows-msvc --print-cxx-stdlib-include-dirs \
+// RUN: --sysroot=%t/msvc_tree 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_AARCH64_MSVCSTL %s
+// PRINTCXXSTDLIBINCLUDE_AARCH64_MSVCSTL: [[SYSROOT:[^"]+]]/include/aarch64-unknown-windows-msvc/c++/msvcstl
+// PRINTCXXSTDLIBINCLUDE_AARCH64_MSVCSTL: [[SYSROOT:[^"]+]]/include/c++/msvcstl
+// PRINTCXXSTDLIBINCLUDE_AARCH64_MSVCSTL: [[SYSROOT:[^"]+]]/VC/Tools/MSVC/14.29.30133/include
+
 // --- Mock Directory Structure ---
 #--- msvc_tree/VC/Tools/MSVC/14.29.30133/include/string
 #--- msvc_tree/VC/Tools/MSVC/14.29.30133/lib/x64/msvcrt.lib

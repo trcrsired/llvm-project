@@ -708,21 +708,6 @@ static bool isIncludeDirArg(StringRef Arg) {
          Arg == "-isystem" || Arg == "-cxx-isystem" || Arg == "-idirafter";
 }
 
-static std::string printCXXStdlibIncludeDirs(const ToolChain &TC,
-                                             const ArgList &Args) {
-  ArgStringList CC1Args;
-  if (Args.hasArg(options::OPT_stdlibxx_isystem))
-    TC.AddClangCXXStdlibIsystemArgs(Args, CC1Args);
-  else
-    TC.AddClangCXXStdlibIncludeArgs(Args, CC1Args);
-
-  for (size_t I = 0; I < CC1Args.size(); ++I) {
-    StringRef Arg(CC1Args[I]);
-    if (isIncludeDirArg(Arg) && I + 1 < CC1Args.size())
-      llvm::outs() << CC1Args[++I] << '\n';
-  }
-}
-
 llvm::SmallVector<std::string>
 ToolChain::getCXXStdlibIncludeDirs(const ArgList &Args) const {
   ArgStringList CC1Args;

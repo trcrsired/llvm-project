@@ -244,7 +244,8 @@ void ZOS::AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                               llvm::opt::ArgStringList &CmdArgs) const {
   switch (GetCXXStdlibType(Args)) {
   case ToolChain::CST_Libstdcxx:
-    llvm::report_fatal_error("linking libstdc++ is unimplemented on z/OS");
+  case ToolChain::CST_Msvcstl:
+    llvm::report_fatal_error("linking non libc++ is unimplemented on z/OS");
     break;
   case ToolChain::CST_Libcxx: {
     std::string ClangHLQ = getClangHLQ(Args);
