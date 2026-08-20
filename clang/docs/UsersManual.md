@@ -6378,13 +6378,13 @@ Headers
 
 - C++ standard library headers (selected via ``-stdlib=``):
 
-  - ``-stdlib=msstl`` → ``include/c++/msstl``  
+  - ``-stdlib=msvcstl`` → ``include/c++/msvcstl``
     Microsoft STL (MSVC's standard library implementation)
 
-  - ``-stdlib=libc++`` → ``include/c++/v1``  
+  - ``-stdlib=libc++`` → ``include/c++/v1``
     LLVM libc++ (Clang's standard library implementation)
 
-  - ``-stdlib=libstdc++`` → ``include/c++/<version>`` (e.g. ``16.0.0``)  
+  - ``-stdlib=libstdc++`` → ``include/c++/<version>`` (e.g. ``17.0.0``)
     GNU libstdc++ (GCC's standard library implementation)
 
 Library Naming Conventions

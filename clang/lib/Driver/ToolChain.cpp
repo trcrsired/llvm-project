@@ -1628,8 +1628,8 @@ ToolChain::CXXStdlibType ToolChain::GetCXXStdlibType(const ArgList &Args) const{
     cxxStdlibType = ToolChain::CST_Libcxx;
   else if (LibName == "libstdc++")
     cxxStdlibType = ToolChain::CST_Libstdcxx;
-  else if (LibName == "msstl")
-    cxxStdlibType = ToolChain::CST_Msstl;
+  else if (LibName == "msvcstl")
+    cxxStdlibType = ToolChain::CST_Msvcstl;
   else if (LibName == "platform")
     cxxStdlibType = GetDefaultCXXStdlibType();
   else {
@@ -1649,7 +1649,7 @@ StringRef ToolChain::GetCXXStdlibName(const ArgList &Args) const {
     return "libc++";
   case ToolChain::CST_Libstdcxx:
     return "libstdc++";
-  case ToolChain::CST_Msstl:
+  case ToolChain::CST_Msvcstl:
     return "msvcstl";
   }
   llvm_unreachable("unknown C++ standard library type");
@@ -1823,7 +1823,7 @@ void ToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
     CmdArgs.push_back("-lstdc++");
     break;
 
-  case ToolChain::CST_Msstl:
+  case ToolChain::CST_Msvcstl:
     // MSVC STL does not need to add -l
     break;
   }

@@ -3000,7 +3000,7 @@ void AppleMachO::AddClangCXXStdlibIncludeArgs(
   switch (cxxstdlib) {
   case ToolChain::CST_Libcxx:
     [[fallthrough]];
-  case ToolChain::CST_Msstl: {
+  case ToolChain::CST_Msvcstl: {
     // On Darwin, libc++ can be installed in one of the following places:
     // 1. Alongside the compiler in <clang-executable-folder>/../include/c++/v1
     // 2. In a SDK (or a custom sysroot) in <sysroot>/usr/include/c++/v1
@@ -3015,8 +3015,8 @@ void AppleMachO::AddClangCXXStdlibIncludeArgs(
     // Note that InstallBin can be relative, so we use '..' instead of
     // parent_path.
     std::string_view cxxstrname;
-    if (cxxstdlib == CST_Msstl) {
-      cxxstrname = "msstl";
+    if (cxxstdlib == CST_Msvcstl) {
+      cxxstrname = "msvcstl";
     } else {
       cxxstrname = "v1";
     }

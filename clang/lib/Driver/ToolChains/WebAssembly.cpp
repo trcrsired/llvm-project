@@ -507,8 +507,8 @@ WebAssembly::GetCXXStdlibType(const ArgList &Args) const {
       return ToolChain::CST_Libcxx;
     else if (Value == "libstdc++")
       return ToolChain::CST_Libstdcxx;
-    else if (Value == "msstl")
-      return ToolChain::CST_Msstl;
+    else if (Value == "msvcstl")
+      return ToolChain::CST_Msvcstl;
     else
       getDriver().Diag(diag::err_drv_invalid_stdlib_name)
           << A->getAsString(Args);
@@ -567,8 +567,8 @@ void WebAssembly::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   case ToolChain::CST_Libstdcxx:
     addLibStdCXXIncludePaths(DriverArgs, CC1Args);
     break;
-  case ToolChain::CST_Msstl:
-    addMsstlIncludePaths(DriverArgs, CC1Args);
+  case ToolChain::CST_Msvcstl:
+    addMsvcstlIncludePaths(DriverArgs, CC1Args);
     break;
   }
 }
@@ -612,7 +612,7 @@ Tool *WebAssembly::buildLinker() const {
   return new tools::wasm::Linker(*this);
 }
 
-void WebAssembly::addMsstlIncludePaths(
+void WebAssembly::addMsvcstlIncludePaths(
     const llvm::opt::ArgList &DriverArgs,
     llvm::opt::ArgStringList &CC1Args) const {
   const Driver &D = getDriver();
@@ -624,12 +624,12 @@ void WebAssembly::addMsstlIncludePaths(
 
   // First add the per-target include path if the OS is known.
   if (IsKnownOs) {
-    std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msstl";
+    std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msvcstl";
     addSystemInclude(DriverArgs, CC1Args, TargetDir);
   }
 
   // Second add the generic one.
-  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/msstl");
+  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/msvcstl");
 }
 
 void WebAssembly::addLibCxxIncludePaths(

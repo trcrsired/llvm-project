@@ -163,7 +163,7 @@ protected:
 
 private:
   CXXStdlibType GetDefaultCXXStdlibType() const override {
-    return ToolChain::CST_Msstl;
+    return ToolChain::CST_Msvcstl;
   }
   RuntimeLibType GetDefaultRuntimeLibType() const override {
     return ToolChain::RLT_Vcruntime;
@@ -171,7 +171,7 @@ private:
   UnwindLibType GetDefaultUnwindLibType() const override {
     return ToolChain::UNW_Vcruntime;
   }
-  void addMsstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
+  void addMsvcstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const;
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const;

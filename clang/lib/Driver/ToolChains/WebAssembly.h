@@ -81,7 +81,7 @@ private:
                                  const llvm::Triple &TargetTriple,
                                  StringRef SysRoot) const override;
 
-  void addMsstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
+  void addMsvcstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const;
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const;

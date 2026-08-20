@@ -827,11 +827,11 @@ void toolchains::MinGW::AddClangCXXStdlibIncludeArgs(
   switch (cxxstdlib) {
   case ToolChain::CST_Libcxx:
     [[fallthrough]];
-  case ToolChain::CST_Msstl: {
+  case ToolChain::CST_Msvcstl: {
     std::string cxxincludedir = (Slash + "c++" + Slash).str();
     std::string_view cxxstrname;
-    if (cxxstdlib == CST_Msstl) {
-      cxxstrname = "msstl";
+    if (cxxstdlib == CST_Msvcstl) {
+      cxxstrname = "msvcstl";
     } else {
       cxxstrname = "v1";
     }

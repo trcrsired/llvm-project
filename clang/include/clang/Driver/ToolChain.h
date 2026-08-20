@@ -100,7 +100,7 @@ public:
   enum CXXStdlibType {
     CST_Libcxx,    // LLVM libc++
     CST_Libstdcxx, // GNU libstdc++
-    CST_Msstl,     // MSVC STL
+    CST_Msvcstl,     // MSVC STL
   };
 
   enum RuntimeLibType { RLT_CompilerRT, RLT_Libgcc, RLT_Vcruntime };
