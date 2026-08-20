@@ -146,15 +146,3 @@
 // RUN: %clangxx -### --target=wasm32-wasi -fwasm-exceptions --sysroot=/foo --stdlib=libc++ %s 2>&1 \
 // RUN:   | FileCheck -check-prefix=EH_ON_LINK %s
 // EH_ON_LINK: wasm-ld{{.*}}" "-L/foo/lib/wasm32-wasi/eh" "-L/foo/lib/wasm32-wasi"
-
-// RUN: %clangxx -### --target=wasm32-wasi --stdlib=msvcstl %s 2>&1 \
-// RUN:     --sysroot=%S \
-// RUN:   | FileCheck -check-prefix=COMPILE_MSVCSTL %s
-// COMPILE_MSVCSTL: "-cc1"
-// COMPILE_MSVCSTL: "-resource-dir" "[[RESOURCE_DIR:[^"]*]]"
-// COMPILE_MSVCSTL: "-isysroot" "[[SYSROOT:[^"]+]]"
-// COMPILE_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/wasm32-wasi/c++/msvcstl"
-// COMPILE_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msvcstl"
-// COMPILE_MSVCSTL: "-internal-isystem" "[[RESOURCE_DIR]]{{(/|\\\\)}}include"
-// COMPILE_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/wasm32-wasi"
-// COMPILE_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include"

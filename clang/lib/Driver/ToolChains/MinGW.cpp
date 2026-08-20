@@ -19,7 +19,6 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
-#include <string_view>
 #include <system_error>
 
 using namespace clang::diag;
@@ -823,30 +822,22 @@ void toolchains::MinGW::AddClangCXXStdlibIncludeArgs(
 
   StringRef Slash = llvm::sys::path::get_separator();
 
-  auto cxxstdlib = GetCXXStdlibType(DriverArgs);
-  switch (cxxstdlib) {
-  case ToolChain::CST_Libcxx:
-    [[fallthrough]];
-  case ToolChain::CST_Msvcstl: {
-    std::string cxxincludedir = (Slash + "c++" + Slash).str();
-    std::string_view cxxstrname;
-    if (cxxstdlib == CST_Msvcstl) {
-      cxxstrname = "msvcstl";
-    } else {
-      cxxstrname = "v1";
-    }
-    cxxincludedir.append(cxxstrname);
-    std::string TargetDir =
-        (Base + "include" + Slash + getTripleString() + cxxincludedir).str();
+  switch (GetCXXStdlibType(DriverArgs)) {
+  case ToolChain::CST_Libcxx: {
+    std::string TargetDir = (Base + "include" + Slash + getTripleString() +
+                             Slash + "c++" + Slash + "v1")
+                                .str();
     if (getDriver().getVFS().exists(TargetDir))
       addSystemInclude(DriverArgs, CC1Args, TargetDir);
     addSystemInclude(DriverArgs, CC1Args,
-                     Base + SubdirName + Slash + "include" + cxxincludedir);
-    addSystemInclude(DriverArgs, CC1Args, Base + "include" + cxxincludedir);
+                     Base + SubdirName + Slash + "include" + Slash + "c++" +
+                         Slash + "v1");
+    addSystemInclude(DriverArgs, CC1Args,
+                     Base + "include" + Slash + "c++" + Slash + "v1");
     break;
   }
 
-  case ToolChain::CST_Libstdcxx: {
+  case ToolChain::CST_Libstdcxx:
     llvm::SmallVector<llvm::SmallString<1024>, 7> CppIncludeBases;
     CppIncludeBases.emplace_back(Base);
     llvm::sys::path::append(CppIncludeBases[0], SubdirName, "include", "c++");
@@ -873,7 +864,6 @@ void toolchains::MinGW::AddClangCXXStdlibIncludeArgs(
       addSystemInclude(DriverArgs, CC1Args, CppIncludeBase + "backward");
     }
     break;
-  }
   }
 }
 
