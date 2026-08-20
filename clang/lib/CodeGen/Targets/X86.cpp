@@ -3520,13 +3520,12 @@ ABIArgInfo WinX86_64ABIInfo::classify(QualType Ty, unsigned &FreeSSERegs,
     // MS x64 ABI requirement: "Any argument that doesn't fit in 8 bytes, or is
     // not 1, 2, 4, or 8 bytes, must be passed by reference."
     if (Width > 64 || !llvm::isPowerOf2_64(Width)) {
-      // Herbception (throws): trivially-copyable types ≤16 bytes are split
-      // across 2 integer registers (RAX+RDX for return, RCX+RDX for params)
-      // instead of being passed by pointer.  ComputeValueTypes will decompose
-      // the coerced i128 into two i64 leaves, each of which independently
-      // gets a register.  The CF-based discriminant never consumes a register.
-      if (IsThrows && Width <= 128 && Width > 64 &&
-          Ty.isTriviallyCopyable(getContext()))
+      // Herbception (throws): exactly 16-byte types with no destructor are
+      // split across 2 integer registers (RAX+RDX for return, RCX+RDX for
+      // params) instead of being passed by pointer, matching the 1/2/4/8/16
+      // register-fit pattern used by other ABIs (e.g. i686 Windows).
+      if (IsThrows && Width == 128 &&
+          Ty.isDestructedType() == QualType::DK_none)
         return ABIArgInfo::getDirect(llvm::IntegerType::get(getVMContext(), 128));
       return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
                                      /*ByVal=*/false);

@@ -825,14 +825,10 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, *DAG.getContext());
 
-  // Use the expanded throws return convention on Win64, which routes through
-  // RetCC_X86_64_C (allowing RAX+RDX) rather than any Win64-specific sret
-  // path.  This is documented in RetCC_X86_Win64_C_Throws.
-  const Function &F = MF.getFunction();
-  bool IsWin64Throws = F.hasFnAttribute(Attribute::Throws) &&
-                       Subtarget.isTargetWin64();
-  CCInfo.AnalyzeReturn(Outs, IsWin64Throws ? RetCC_X86_Win64_C_Throws
-                                           : RetCC_X86);
+  // The frontend coerces trivially-copyable ≤16-byte types to i128 for
+  // throws functions on Win64, which ComputeValueTypes decomposes into
+  // two i64 leaves assignable to RAX and RDX via RetCC_X86Common.
+  CCInfo.AnalyzeReturn(Outs, RetCC_X86);
 
   SmallVector<std::pair<Register, SDValue>, 4> RetVals;
   // If this function returns the throws (herbception) discriminant, it is
@@ -1218,16 +1214,10 @@ SDValue X86TargetLowering::LowerCallResult(
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
                  *DAG.getContext());
 
-  // Detect a throws call from the Ins flags (the discriminant has isThrows).
-  bool IsThrowsCall = llvm::any_of(
-      Ins, [](const ISD::InputArg &A) { return A.Flags.isThrows(); });
-
-  // Use the expanded throws return convention on Win64 so that the caller
-  // reads the payload from the same registers (RAX+RDX) that the callee
-  // writes them to.
-  CCInfo.AnalyzeCallResult(Ins, IsThrowsCall && Subtarget.isTargetWin64()
-                                    ? RetCC_X86_Win64_C_Throws
-                                    : RetCC_X86);
+  // The frontend coerces trivially-copyable ≤16-byte types to i128 for
+  // throws functions on Win64, which ComputeValueTypes decomposes into
+  // two i64 leaves assignable to RAX+RDX via RetCC_X86Common.
+  CCInfo.AnalyzeCallResult(Ins, RetCC_X86);
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned I = 0, InsIndex = 0, E = RVLocs.size(); I != E;
@@ -1843,11 +1833,11 @@ SDValue X86TargetLowering::LowerFormalArguments(
   if (IsWin64)
     CCInfo.AllocateStack(32, Align(8));
 
-  // Use the expanded throws parameter convention on Win64 so that
-  // trivially-copyable ≤16-byte types (e.g. std::error, std::span) are
-  // split across 2 integer registers instead of passed by pointer.
-  bool IsWin64Throws = F.hasFnAttribute(Attribute::Throws) && IsWin64;
-  CCInfo.AnalyzeArguments(Ins, IsWin64Throws ? CC_X86_Win64_C_Throws : CC_X86);
+  // For throws functions on Win64, the frontend coerces trivially-copyable
+  // ≤16-byte types to i128, which ComputeValueTypes decomposes into two i64
+  // leaves.  Each leaf independently gets one of the 4 integer parameter
+  // registers via CC_X86_64_C (RCX, RDX, R8, R9).
+  CCInfo.AnalyzeArguments(Ins, CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
   // types.
@@ -2240,12 +2230,10 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (IsWin64)
     CCInfo.AllocateStack(32, Align(8));
 
-  // Use the expanded throws parameter convention on Win64 so that
-  // trivially-copyable ≤16-byte types are split across 2 integer
-  // registers instead of passed by pointer.
-  bool IsCallWin64Throws = CLI.IsThrows && IsWin64;
-  CCInfo.AnalyzeArguments(Outs,
-                          IsCallWin64Throws ? CC_X86_Win64_C_Throws : CC_X86);
+  // The frontend coerces trivially-copyable ≤16-byte types to i128 for
+  // throws functions on Win64, which ComputeValueTypes decomposes into
+  // two i64 leaves assignable via CC_X86_64_C.
+  CCInfo.AnalyzeArguments(Outs, CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
   // types.
