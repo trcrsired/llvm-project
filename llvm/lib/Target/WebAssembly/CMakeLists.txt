@@ -94,6 +94,7 @@ add_llvm_target(WebAssemblyCodeGen
   GlobalISel
   MC
   ObjCARC
+  Passes
   Scalar
   SelectionDAG
   Support
