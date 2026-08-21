@@ -823,7 +823,7 @@ void toolchains::MinGW::AddClangCXXStdlibIncludeArgs(
   StringRef Slash = llvm::sys::path::get_separator();
 
   switch (GetCXXStdlibType(DriverArgs)) {
-  case ToolChain::CST_Msvcstl: {
+  case ToolChain::CST_MSVCSTL: {
     llvm::report_fatal_error("picking up MSVC STL headers is unimplemented");
     break;
   }

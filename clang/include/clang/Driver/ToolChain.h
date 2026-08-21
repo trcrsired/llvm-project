@@ -100,12 +100,12 @@ public:
   enum CXXStdlibType {
     CST_Libcxx,    // LLVM libc++
     CST_Libstdcxx, // GNU libstdc++
-    CST_Msvcstl,   // MSVC STL
+    CST_MSVCSTL,   // MSVC STL
   };
 
-  enum RuntimeLibType { RLT_CompilerRT, RLT_Libgcc, RLT_Vcruntime };
+  enum RuntimeLibType { RLT_CompilerRT, RLT_Libgcc, RLT_VCRuntime };
 
-  enum UnwindLibType { UNW_None, UNW_CompilerRT, UNW_Libgcc, UNW_Vcruntime };
+  enum UnwindLibType { UNW_None, UNW_CompilerRT, UNW_Libgcc, UNW_VCRuntime };
 
   enum CStdlibType {
     CST_Newlib,

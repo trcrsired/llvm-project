@@ -1101,7 +1101,7 @@ void MSVCToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   if (getDriver().SysRoot.empty())
     return;
   switch (GetCXXStdlibType(DriverArgs)) {
-  case ToolChain::CST_Msvcstl:
+  case ToolChain::CST_MSVCSTL:
     addMsvcstlIncludePaths(DriverArgs, CC1Args);
     break;
   case ToolChain::CST_Libstdcxx:
@@ -1450,7 +1450,7 @@ void MSVCToolChain::addLibStdCXXIncludePaths(
 llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
     const llvm::opt::ArgList &DriverArgs) const {
   auto cxxStdlibType = GetCXXStdlibType(DriverArgs);
-  if (cxxStdlibType == ToolChain::CST_Msvcstl) {
+  if (cxxStdlibType == ToolChain::CST_MSVCSTL) {
     llvm::SmallVector<std::string> vec;
     if (DriverArgs.hasArg(options::OPT_nostdinc, options::OPT_nostdlibinc))
       return vec;

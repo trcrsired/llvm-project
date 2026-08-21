@@ -567,7 +567,7 @@ void WebAssembly::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   case ToolChain::CST_Libstdcxx:
     addLibStdCXXIncludePaths(DriverArgs, CC1Args);
     break;
-  case ToolChain::CST_Msvcstl:
+  case ToolChain::CST_MSVCSTL:
     llvm::report_fatal_error("picking up MSVC STL headers is unimplemented");
   }
 }
@@ -585,7 +585,7 @@ void WebAssembly::AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
   case ToolChain::CST_Libstdcxx:
     CmdArgs.push_back("-lstdc++");
     break;
-  case ToolChain::CST_Msvcstl:
+  case ToolChain::CST_MSVCSTL:
     break;
   }
 }
