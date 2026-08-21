@@ -1161,7 +1161,7 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   // error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_{msvc,itanium}()
   // — the compiler fabrication entry point that turns the caught thrown-object
   // pointer or void
-  bool IsMSVC{getLangOpts().MSVCCompat};
+  bool IsMSVC{getLangOpts().MSVCCompat != 0};
   const char *FabName = IsMSVC ? "msvc" : "itanium";
   std::string FnName = std::string("__builtin_herbceptions_exception_ptr_domain_") +
                        FabName;
