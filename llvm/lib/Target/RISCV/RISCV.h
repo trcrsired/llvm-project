@@ -75,14 +75,37 @@ public:
 FunctionPass *createRISCVGatherScatterLoweringLegacyPass();
 void initializeRISCVGatherScatterLoweringLegacyPass(PassRegistry &);
 
-FunctionPass *createRISCVVectorPeepholePass();
-void initializeRISCVVectorPeepholePass(PassRegistry &);
+class RISCVVectorPeepholePass
+    : public OptionalPassInfoMixin<RISCVVectorPeepholePass> {
+public:
+  PreservedAnalyses run(MachineFunction &MF,
+                        MachineFunctionAnalysisManager &MFAM);
+  MachineFunctionProperties getRequiredProperties() const {
+    return MachineFunctionProperties().setIsSSA();
+  }
+};
 
-FunctionPass *createRISCVOptWInstrsPass();
-void initializeRISCVOptWInstrsPass(PassRegistry &);
+FunctionPass *createRISCVVectorPeepholeLegacyPass();
+void initializeRISCVVectorPeepholeLegacyPass(PassRegistry &);
 
-FunctionPass *createRISCVFoldMemOffsetPass();
-void initializeRISCVFoldMemOffsetPass(PassRegistry &);
+class RISCVOptWInstrsPass : public OptionalPassInfoMixin<RISCVOptWInstrsPass> {
+public:
+  PreservedAnalyses run(MachineFunction &MF,
+                        MachineFunctionAnalysisManager &MFAM);
+};
+
+FunctionPass *createRISCVOptWInstrsLegacyPass();
+void initializeRISCVOptWInstrsLegacyPass(PassRegistry &);
+
+class RISCVFoldMemOffsetPass
+    : public OptionalPassInfoMixin<RISCVFoldMemOffsetPass> {
+public:
+  PreservedAnalyses run(MachineFunction &MF,
+                        MachineFunctionAnalysisManager &MFAM);
+};
+
+FunctionPass *createRISCVFoldMemOffsetLegacyPass();
+void initializeRISCVFoldMemOffsetLegacyPass(PassRegistry &);
 
 FunctionPass *createRISCVMergeBaseOffsetOptPass();
 void initializeRISCVMergeBaseOffsetOptPass(PassRegistry &);
