@@ -1452,6 +1452,8 @@ llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
   auto cxxStdlibType = GetCXXStdlibType(DriverArgs);
   if (cxxStdlibType == ToolChain::CST_Msvcstl) {
     llvm::SmallVector<std::string> vec;
+    if (DriverArgs.hasArg(options::OPT_nostdinc, options::OPT_nostdlibinc))
+      return vec;
     std::string includePaths;
     auto SysRoot = getDriver().SysRoot;
     if (SysRoot.empty()) {
