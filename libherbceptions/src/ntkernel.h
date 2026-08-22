@@ -84,5 +84,16 @@ find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
   return nullptr;
 }
 
+// The longest descriptive string in the table bounds stack buffers used for
+// encoding conversion (every conversion emits at most one output code unit
+// per input byte).
+inline constexpr ::std::size_t max_ntkernel_message_size() noexcept {
+  ::std::size_t mx{};
+  for (auto const &e : ntkernel_table)
+    if (mx < e.message_size)
+      mx = e.message_size;
+  return mx;
+}
+
 } // namespace __herbceptions_detail
 } // namespace std::error_domains
