@@ -215,25 +215,42 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
 // no internal structures. Class-kind matching walks typeinfo graphs and
 // does pointer arithmetic only; pointer-kind catches deref obj once.
 #if defined(__GLIBCXX__)
-inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
-                                  void const *obj,
-                                  ::std::type_info const &kind) noexcept {
+inline bool itanium_cxa_try_catch(::std::type_info const *exc_ti,
+                                  void const *obj, ::std::type_info const &kind,
+                                  void **out) noexcept {
   if (!exc_ti) {
     return false;
   }
   void const *adjusted{obj};
-  return kind.__do_catch(
-      exc_ti, const_cast<void **>(__builtin_addressof(adjusted)), 0u);
+  if (!kind.__do_catch(
+          exc_ti, const_cast<void **>(__builtin_addressof(adjusted)), 0u)) {
+    return false;
+  }
+  // The catch matcher left the Kind subobject address in adjusted.
+  *out = const_cast<void *>(adjusted);
+  return true;
 }
 #else
-inline bool itanium_cxa_catchable(::std::type_info const *exc_ti, void const *,
-                                  ::std::type_info const &kind) noexcept {
+inline bool itanium_cxa_try_catch(::std::type_info const *exc_ti,
+                                  void const *obj, ::std::type_info const &kind,
+                                  void **out) noexcept {
   // Non-libstdc++ runtimes ship different catch virtuals; restrict to
   // single-inheritance chains, where the base subobject provably sits
   // at offset 0.
-  return rtti_si_derives_from(exc_ti, __builtin_addressof(kind));
+  if (!rtti_si_derives_from(exc_ti, __builtin_addressof(kind))) {
+    return false;
+  }
+  *out = const_cast<void *>(obj);
+  return true;
 }
 #endif
+
+inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
+                                  void const *obj,
+                                  ::std::type_info const &kind) noexcept {
+  void *unused{};
+  return itanium_cxa_try_catch(exc_ti, obj, kind, &unused);
+}
 
 constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
@@ -241,9 +258,12 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           itanium_cxa_decrement_exception_refcount(
               reinterpret_cast<void *>(cd));
         },
-    .do_equivalent =
-        [](::std::size_t cd, ::std::error_domain_singleton const *,
-           ::std::size_t othercd) noexcept { return cd == othercd; },
+    .do_equivalent = [](::std::size_t cd,
+                        ::std::error_domain_singleton const *other,
+                        ::std::size_t othercd) noexcept -> bool {
+      return itanium_exception_ptr_domain.do_to_errc(cd) ==
+             other->do_to_errc(othercd);
+    },
     .do_query_information =
         [](::std::size_t cd, ::std::error_query_information query,
            ::std::error_reporter_encoding encoding, void *cookie,
@@ -268,17 +288,13 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           bool const is_itanium_cxx_eh{hdr != nullptr};
           if (is_itanium_cxx_eh) // is a C++ exception from the g++/clang++ ABI
           {
-            char const *mangled{};
-            if (hdr->exceptionType) {
-              mangled = hdr->exceptionType->name();
-            }
-
             // Raw mangled form, mirroring the MSVC sibling's reporting of
             // typeinfo->mangled; no demangling, no heap allocation.
             char const *ehname{};
             ::std::size_t ehname_len{};
-            if (mangled && ::std::error_query_information::message != query) {
-              ehname = mangled;
+            if (::std::error_query_information::message != query &&
+                hdr->exceptionType) {
+              ehname = hdr->exceptionType->name();
               ehname_len = ::std::strlen(ehname);
             }
 
@@ -364,6 +380,21 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
         return ::std::errc::io_error;
       }
       auto *hdr{itanium_cxa_exception_from_thrown_object(thrown)};
+      // system_error carries its own mapping: when the code belongs to the
+      // generic category, the value IS the errc (errno) number.
+      {
+        void *se_subobj{};
+        if (itanium_cxa_try_catch(hdr->exceptionType, thrown,
+                                  typeid(::std::system_error), &se_subobj)) {
+          auto *se{static_cast<::std::system_error *>(se_subobj)};
+          ::std::error_code const &ec{se->code()};
+          if (ec.category() == ::std::generic_category()) {
+            return static_cast<::std::errc>(ec.value());
+          }
+          // Custom-category system_error: no errc meaning.
+          return ::std::errc::io_error;
+        }
+      }
       // Catch-ladder semantics: the first kind the thrown object could be
       // caught as decides the errc mapping.
       if (itanium_cxa_catchable(hdr->exceptionType, thrown,
