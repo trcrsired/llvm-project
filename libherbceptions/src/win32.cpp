@@ -173,7 +173,12 @@ constinit ::std::error_domain_singleton win32_error_domain{
               }
               case ::std::error_reporter_encoding::utf8:
               case ::std::error_reporter_encoding::gb18030: {
-                if constexpr (!use_9xa_apis) {
+                if constexpr (use_9xa_apis) {
+                  *pos = {__from_first,
+                          static_cast<::std::size_t>(
+                              reinterpret_cast<char unsigned *>(__from_last) -
+                              reinterpret_cast<char unsigned *>(__from_first))};
+                } else {
                   auto buffer{reinterpret_cast<char unsigned *>(
                       frombuffer.__bufferptr)};
                   auto dest{::std::error_domains::__herbceptions_detail::
@@ -182,9 +187,8 @@ constinit ::std::error_domain_singleton win32_error_domain{
                   *pos = {buffer, static_cast<::std::size_t>(
                                       reinterpret_cast<char unsigned *>(dest) -
                                       buffer)};
-                  break;
                 }
-                [[fallthrough]];
+                break;
               }
               case ::std::error_reporter_encoding::utf16: {
                 if constexpr (use_9xa_apis) {
