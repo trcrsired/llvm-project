@@ -215,7 +215,7 @@ constinit ::std::error_domain_singleton win32_error_domain{
                       ::std::error_domains::__herbceptions_detail::
                           __malloc_or_heap_alloc_or_die(
                               static_cast<::std::size_t>(dwlen) *
-                              sizeof(char32_t)))};
+                              sizeof(char16_t)))};
                   destbuffer.__bufferptr = buffer;
                   auto __dest = ::std::error_domains::__herbceptions_detail::
                       __write_with_ascii_only_range(
