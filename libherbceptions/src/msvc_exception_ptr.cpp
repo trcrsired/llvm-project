@@ -227,7 +227,9 @@ try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
   return get_msvc_exception_what(this_ptr);
 }
 
+// clang-format off
 #include "msvc_exception_gperf"
+// clang-format off
 
 struct try_match_msvc_eh_result {
   msvc_exception_kind kind{};

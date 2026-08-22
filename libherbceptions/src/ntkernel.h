@@ -39,35 +39,36 @@ struct ntkernel_win32_field {
 // Static assertion that the table is sorted ascending by NTSTATUS so the
 // binary search below is valid.
 namespace {
-template<typename T>
-constexpr bool table_is_sorted(T &table) noexcept {
+template <typename T> constexpr bool table_is_sorted(T &table) noexcept {
   constexpr std::size_t count{sizeof(table) / sizeof(*table)};
   for (std::size_t i = 1; i != count; ++i)
     if (table[i - 1].ntstatus >= table[i].ntstatus)
       return false;
   return true;
 }
-constexpr ::std::size_t my_constexpr_strlen(char8_t const* cstr) noexcept
-{
+constexpr ::std::size_t my_constexpr_strlen(char8_t const *cstr) noexcept {
   auto it{cstr};
-  for(;*it;++it);
-  return static_cast<::std::size_t>(it-cstr);
+  for (; *it; ++it)
+    ;
+  return static_cast<::std::size_t>(it - cstr);
 }
-template<typename T>
+template <typename T>
 constexpr bool table_mesage_size_matches(T &table) noexcept {
   for (auto &e : table)
-    if(my_constexpr_strlen(e.message) != e.message_size) {
+    if (my_constexpr_strlen(e.message) != e.message_size) {
       return false;
     }
   return true;
 }
 } // namespace
 static_assert(table_is_sorted(ntkernel_table), "ntkernel table must be sorted");
-static_assert(table_mesage_size_matches(ntkernel_table), "ntkernel table messages must all match their size");
+static_assert(table_mesage_size_matches(ntkernel_table),
+              "ntkernel table messages must all match their size");
 
 // The table is sorted ascending by NTSTATUS with unique keys, so a binary
 // search finds the row in O(log n) instead of a linear scan.
-inline constexpr ntkernel_field const *find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
+inline constexpr ntkernel_field const *
+find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
   constexpr std::size_t count{sizeof(ntkernel_table) / sizeof(*ntkernel_table)};
   std::size_t lo = 0;
   std::size_t hi = count;
@@ -79,7 +80,7 @@ inline constexpr ntkernel_field const *find_ntstatus(::std::uint_least32_t ntsta
       hi = mid;
   }
   if (lo < count && ntkernel_table[lo].ntstatus == ntstatus)
-    return ntkernel_table+lo;
+    return ntkernel_table + lo;
   return nullptr;
 }
 

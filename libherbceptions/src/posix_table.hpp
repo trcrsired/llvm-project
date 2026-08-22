@@ -1,4 +1,5 @@
-#define POSIX_ERRNO_MAX_SIZE 61
+// clang-format off
+#define POSIX_ERRC_MAX_SIZE 61
 
 	case 0:
 		return __tsc(u8"Success");
@@ -389,3 +390,4 @@
 #endif
 	default:
 		return __tsc(u8"Unknown");
+// clang-format on
