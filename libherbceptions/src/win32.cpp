@@ -12,11 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+
 #include "domain_helpers.h"
 #include "ntkernel.h"
 #include "simple_query_information_common.h"
-
-#if defined(_WIN32) || defined(__CYGWIN__)
 
 namespace {
 constinit ::std::error_domain_singleton win32_error_domain{
