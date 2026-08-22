@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain_helpers.h"
 #include <cstdint>
 #include <cstdlib>
 #include <cxxabi.h>
