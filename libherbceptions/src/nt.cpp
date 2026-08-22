@@ -50,17 +50,6 @@ nt_name_message_range(::std::error_reporter_encoding encoding,
 #endif
 using namespace __herbceptions_detail;
 
-// The longest descriptive string in the table bounds the stack buffer used
-// for encoding conversion (every conversion emits at most one code unit per
-// input byte).
-inline constexpr ::std::size_t nt_max_message_size() noexcept {
-  ::std::size_t mx{};
-  for (auto const &e : ntkernel_table)
-    if (mx < e.message_size)
-      mx = e.message_size;
-  return mx;
-}
-
 // nt -> std::errc via the generated switch table (nt_errc_map.hpp, built by
 // utils/generate_win32_nt_tables.py from the ntkernel-error-category and
 // status-code tables). NTSTATUS values with the severity bits clear are
@@ -136,7 +125,9 @@ constinit ::std::error_domain_singleton __nt_error_domain{
                 reinterpret_cast<char unsigned const *>(f->message)};
             char unsigned const *from_last{from_first + f->message_size};
             alignas(char32_t) char unsigned
-                buffer[nt_max_message_size() * sizeof(char32_t)];
+                buffer[::std::error_domains::__herbceptions_detail::
+                           max_ntkernel_message_size() *
+                       sizeof(char32_t)];
             switch (encoding) {
             case ::std::error_reporter_encoding::utfebcdic: {
               auto dest{::std::error_domains::__herbceptions_detail::
