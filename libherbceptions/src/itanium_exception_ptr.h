@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <cstdlib>
 #include <cxxabi.h>
 #include <unwind.h>
 
@@ -152,12 +154,46 @@ struct itanium_cxa_dependent_exception {
   _Unwind_Exception unwindHeader;
 };
 
+// Native C++ exception tags. GCC's libsupc++ stamps 'GNUCC++\0' (plain) and
+// 'GNUCC++\1' (dependent) per the Itanium ABI spec; LLVM's libc++abi stamps
+// 'CLNGC++\0' / 'CLNGC++\1'. Both families use identical __cxa_exception
+// header layouts, recognized here via mask compare (ignore the low byte).
+// Anything else is foreign EH (Rust panics, other languages) with no ABI
+// stability contract: no inspectable header, no refcount, no portable
+// rethrow.
+inline constexpr ::std::uint64_t cxa_eh_vendor_mask{0xFFFFFFFFFFFFFF00ULL};
+inline constexpr ::std::uint64_t gnu_ccpp_eh_class{0x474E5543432B2B00ULL};
+inline constexpr ::std::uint64_t clang_cxx_eh_class{0x434C4E47432B2B00ULL};
+
+enum class itanium_cxa_eh_flavor { foreign, gcc, clang };
+
+inline itanium_cxa_eh_flavor
+classify_itanium_cxa_eh(_Unwind_Exception const *uh) noexcept {
+  auto cls{uh->exception_class & cxa_eh_vendor_mask};
+  if (cls == gnu_ccpp_eh_class) {
+    return itanium_cxa_eh_flavor::gcc;
+  }
+  if (cls == clang_cxx_eh_class) {
+    return itanium_cxa_eh_flavor::clang;
+  }
+  return itanium_cxa_eh_flavor::foreign;
+}
+
 } // namespace
 
 #ifdef _LIBCPPABI_VERSION
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
 __libherbceptions_exception_ptr_domain_itanium(void *eh) noexcept {
+  if (eh) {
+    auto *hdr{static_cast<itanium_cxa_exception *>(eh) - 1};
+    if (itanium_cxa_eh_flavor::foreign ==
+        classify_itanium_cxa_eh(&hdr->unwindHeader)) {
+      // Refuse to mint a code for foreign EH so no foreign exception can
+      // ever enter this domain.
+      ::std::abort();
+    }
+  }
   ::__cxxabiv1::__cxa_increment_exception_refcount(eh);
   return reinterpret_cast<::std::size_t>(eh);
 }
@@ -257,6 +293,15 @@ void __itanium_cxa_rethrow_primary_exception(void* thrown_object)
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
+  if (eh) {
+    auto *hdr{itanium_cxa_exception_from_thrown_object(eh)};
+    if (itanium_cxa_eh_flavor::foreign ==
+        classify_itanium_cxa_eh(&hdr->unwindHeader)) {
+      // Refuse to mint a code for foreign EH so no foreign exception can
+      // ever enter this domain.
+      ::std::abort();
+    }
+  }
   itanium_cxa_increment_exception_refcount(eh);
   return reinterpret_cast<::std::size_t>(eh);
 }

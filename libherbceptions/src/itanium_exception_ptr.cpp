@@ -19,37 +19,22 @@
 //===----------------------------------------------------------------------===//
 
 #if !defined(_MSC_VER) && defined(__cpp_exceptions)
+#include "itanium_exception_ptr.h"
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "domain_helpers.h"
-#include "exception_ptr_itanium.h"
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <new>
 #include <stdexcept>
 #include <system_error>
 #include <typeinfo>
-#include <cstring>
-#include <cstdint>
 
 namespace std::error_domains {
 namespace {
 using namespace __herbceptions_detail;
-
-// Native C++ exception tags. GCC's libsupc++ stamps 'GNUCC++\0' (plain) and
-// 'GNUCC++\1' (dependent) per the Itanium ABI spec; LLVM's libc++abi stamps
-// 'CLNGC++\0' / 'CLNGC++\1'. Both families use identical __cxa_exception
-// header layouts. We accept either via mask compare (ignore low byte).
-inline constexpr ::std::uint64_t exception_class_vendor_mask{0xFFFFFFFFFFFFFF00ULL};
-inline constexpr ::std::uint64_t gnu_ccpp_exception_class{0x474E5543432B2B00ULL};
-inline constexpr ::std::uint64_t clang_cxx_exception_class{0x434C4E47432B2B00ULL};
-
-inline bool is_native_cpp_exception(_Unwind_Exception const* uh) noexcept
-{
-    auto cls{uh->exception_class};
-    return (cls & exception_class_vendor_mask) == gnu_ccpp_exception_class ||
-        (cls & exception_class_vendor_mask) == clang_cxx_exception_class;
-}
 
 // Walk the Itanium RTTI base-class graph WITHOUT touching the thrown
 // object. True iff dst is reachable through single-inheritance (non-virtual)
@@ -66,37 +51,30 @@ inline bool is_native_cpp_exception(_Unwind_Exception const* uh) noexcept
 // shapes are rejected conservatively -> name-only reporting. (GCC's
 // __dynamic_cast cannot be used here: its contract is downcast-oriented,
 // and passing the dynamic type as src_type yields NULL.)
-inline void const *ti_vptr(::std::type_info const &ti) noexcept
-{
-    return *static_cast<void const* const*>(
-        static_cast<void const*>(&ti));
+inline void const *ti_vptr(::std::type_info const &ti) noexcept {
+  return *static_cast<void const *const *>(static_cast<void const *>(&ti));
 }
 
-inline bool rtti_si_derives_from(::std::type_info const* ti,
-                                 ::std::type_info const* dst) noexcept
-{
-    if(!ti || !dst)
-    {
-        return false;
+inline bool rtti_si_derives_from(::std::type_info const *ti,
+                                 ::std::type_info const *dst) noexcept {
+  if (!ti || !dst) {
+    return false;
+  }
+  void const *const si_vtbl{ti_vptr(typeid(::std::logic_error))};
+  auto cur{static_cast<::__cxxabiv1::__class_type_info const *>(ti)};
+  for (;;) {
+    if (*static_cast<::std::type_info const *>(cur) == *dst) {
+      return true;
     }
-    void const* const si_vtbl{ti_vptr(typeid(::std::logic_error))};
-    auto cur{static_cast<::__cxxabiv1::__class_type_info const*>(ti)};
-    for(;;)
-    {
-        if(*static_cast<::std::type_info const*>(cur) == *dst)
-        {
-            return true;
-        }
-        void const* vp{ti_vptr(*static_cast<::std::type_info const*>(cur))};
-        if(vp == si_vtbl)
-        {
-            cur = reinterpret_cast<
-                ::__cxxabiv1::__si_class_type_info const*>(cur)->__base_type;
-            continue;
-        }
-        // Plain root / fundamental / pointer / VMI / foreign: stop.
-        return false;
+    void const *vp{ti_vptr(*static_cast<::std::type_info const *>(cur))};
+    if (vp == si_vtbl) {
+      cur = reinterpret_cast<::__cxxabiv1::__si_class_type_info const *>(cur)
+                ->__base_type;
+      continue;
     }
+    // Plain root / fundamental / pointer / VMI / foreign: stop.
+    return false;
+  }
 }
 
 // Encoding-specific wrapper fragments carved out of the base literal
@@ -152,7 +130,8 @@ inline constexpr ::std::io_scatter_t known_itanium_exception_name_partial(
   return itanium_exception_name_message_range(encoding, 1, 18u);
 }
 
-inline constexpr ::std::io_scatter_t known_itanium_exception_name_message_partial(
+inline constexpr ::std::io_scatter_t
+known_itanium_exception_name_message_partial(
     ::std::error_reporter_encoding encoding) noexcept {
   /*
   [itanium_exception(
@@ -185,7 +164,7 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
     char const *name, ::std::size_t namelen, char const *message,
     ::std::size_t messagelen, ::std::error_reporter_encoding encoding,
     ::std::error_domains::__herbceptions_detail::
-        __basic_malloc_or_heapalloc_temp_buffer<true> &buffer) noexcept {
+        __malloc_or_heapalloc_temp_buffer &buffer) noexcept {
   static_assert('A' == u8'A', "EBCDIC Execution Charset not supported");
   if (encoding == ::std::error_reporter_encoding::utfebcdic ||
       encoding == ::std::error_reporter_encoding::utf16 ||
@@ -207,7 +186,7 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
         abort();
       }
       buffer.__bufferptr = ::std::error_domains::__herbceptions_detail::
-          __malloc_or_die(to_allocate_bytes);
+          __malloc_or_heap_alloc_or_die(to_allocate_bytes);
       char unsigned *bufferptr{
           reinterpret_cast<char unsigned *>(buffer.__bufferptr)};
       auto name_end{
@@ -248,18 +227,18 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
             return;
           }
           ::std::error_domains::__herbceptions_detail::
-              __basic_malloc_or_heapalloc_temp_buffer<true> buffer;
+              __malloc_or_heapalloc_temp_buffer buffer;
           ::std::io_scatter_t scatters[4];
           ::std::size_t scatterlen{};
 
           // cd is the thrown-object pointer (the value stored by
           // error_domain<exception_ptr>::code); the __cxa_exception header
-          // sits immediately before it.
+          // sits immediately before it. Foreign EH can never reach here:
+          // __cxa_error_code_itanium_exception_ptr aborts on it upstream.
           void *thrown{reinterpret_cast<void *>(cd)};
           auto *hdr{thrown ? itanium_cxa_exception_from_thrown_object(thrown)
                            : nullptr};
-          bool const is_itanium_cxx_eh{
-              hdr && is_native_cpp_exception(&hdr->unwindHeader)};
+          bool const is_itanium_cxx_eh{hdr != nullptr};
           if (is_itanium_cxx_eh) // is a C++ exception from the g++/clang++ ABI
           {
             char const *mangled{};
@@ -271,8 +250,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
             // typeinfo->mangled; no demangling, no heap allocation.
             char const *ehname{};
             ::std::size_t ehname_len{};
-            if (mangled &&
-                ::std::error_query_information::message != query) {
+            if (mangled && ::std::error_query_information::message != query) {
               ehname = mangled;
               ehname_len = ::std::strlen(ehname);
             }
@@ -283,11 +261,10 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
             // the thrown object, so dispatch directly through it.
             char const *ehmessage{};
             ::std::size_t ehmessage_len{};
-            if (thrown &&
-                ::std::error_query_information::name != query &&
-                rtti_si_derives_from(hdr->exceptionType,
-                                     __builtin_addressof(
-                                         typeid(::std::exception)))) {
+            if (thrown && ::std::error_query_information::name != query &&
+                rtti_si_derives_from(
+                    hdr->exceptionType,
+                    __builtin_addressof(typeid(::std::exception)))) {
               auto *se{static_cast<::std::exception *>(thrown)};
               ehmessage = se->what();
               if (ehmessage) {
@@ -296,8 +273,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
             }
 
             auto [name, message] = itanium_exception_writestr(
-                ehname, ehname_len, ehmessage, ehmessage_len, encoding,
-                buffer);
+                ehname, ehname_len, ehmessage, ehmessage_len, encoding, buffer);
             switch (query) {
             case ::std::error_query_information::name: {
               if (ehname) {
