@@ -208,6 +208,33 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
   return {{name, namelen}, {message, messagelen}};
 }
 
+// True iff a thrown object whose dynamic RTTI is exc_ti could be caught
+// as Kind -- i.e. the dynamic_cast<Kind> question, answered with the
+// runtime's own catch matcher: kind.__do_catch(exc_ti, &obj), the very
+// call chain the personality routine uses (get_adjusted_ptr). Public API,
+// no internal structures. Class-kind matching walks typeinfo graphs and
+// does pointer arithmetic only; pointer-kind catches deref obj once.
+#if defined(__GLIBCXX__)
+inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
+                                  void const *obj,
+                                  ::std::type_info const &kind) noexcept {
+  if (!exc_ti) {
+    return false;
+  }
+  void const *adjusted{obj};
+  return kind.__do_catch(
+      exc_ti, const_cast<void **>(__builtin_addressof(adjusted)), 0u);
+}
+#else
+inline bool itanium_cxa_catchable(::std::type_info const *exc_ti, void const *,
+                                  ::std::type_info const &kind) noexcept {
+  // Non-libstdc++ runtimes ship different catch virtuals; restrict to
+  // single-inheritance chains, where the base subobject provably sits
+  // at offset 0.
+  return rtti_si_derives_from(exc_ti, __builtin_addressof(kind));
+}
+#endif
+
 constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
         [](::std::size_t cd) noexcept {
@@ -332,7 +359,43 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           cookfun(cookie, scatters, scatterlen);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      (void)cd;
+      void *thrown{reinterpret_cast<void *>(cd)};
+      if (!thrown) {
+        return ::std::errc::io_error;
+      }
+      auto *hdr{itanium_cxa_exception_from_thrown_object(thrown)};
+      // Catch-ladder semantics: the first kind the thrown object could be
+      // caught as decides the errc mapping.
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::invalid_argument))) {
+        return ::std::errc::invalid_argument;
+      }
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::domain_error))) {
+        return ::std::errc::argument_out_of_domain;
+      }
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::length_error))) {
+        return ::std::errc::value_too_large;
+      }
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::out_of_range))) {
+        return ::std::errc::result_out_of_range;
+      }
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::overflow_error))) {
+        return ::std::errc::value_too_large;
+      }
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::underflow_error))) {
+        return ::std::errc::value_too_large;
+      }
+      if (itanium_cxa_catchable(hdr->exceptionType, thrown,
+                                typeid(::std::bad_alloc))) {
+        return ::std::errc::not_enough_memory;
+      }
+      // runtime_error, system_error, std::exception itself and unknown
+      // user types carry no errc meaning here.
       return ::std::errc::io_error;
     }
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)

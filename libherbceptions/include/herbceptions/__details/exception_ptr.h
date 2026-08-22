@@ -36,19 +36,12 @@ __cxa_error_code_itanium_exception_ptr(void *) noexcept;
 
 namespace std {
 
+// The compiler (-fherbceptions) emits direct references to the
+// __cxa_error_code_*/__cxa_error_domain_* symbols above when catching
+// legacy C++ exceptions; it does not consult this specialization on that
+// path. The specialization remains for generic machinery and for
+// non-patched compilers.
 template <> class error_domain<::std::exception_ptr> {
-#ifdef _MSC_VER
-  static inline ::std::size_t
-  __builtin_herbceptions_exception_ptr_domain_msvc() noexcept {
-    return ::std::error_domains::__cxa_error_code_msvc_exception_ptr();
-  }
-#else
-  static inline ::std::size_t
-  __builtin_herbceptions_exception_ptr_domain_itanium(void *__ehptr) noexcept {
-    return ::std::error_domains::__cxa_error_code_itanium_exception_ptr(
-        __ehptr);
-  }
-#endif
 public:
   using errc_type = ::std::exception_ptr;
   static inline constexpr ::std::error_domain_singleton const *

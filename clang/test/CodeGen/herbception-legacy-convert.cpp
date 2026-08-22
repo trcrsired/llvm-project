@@ -6,8 +6,10 @@
 // A `try { } catch throws(std::error e)` block also catches legacy C++
 // exceptions: calls to noexcept(false) functions inside the try become
 // invokes to a catch-all landing pad, which fabricates a std::error
-// {error_domain<std::cxa_exception_code>::domain(), thrown_object_ptr} and
-// routes it to the handler.
+// {__cxa_error_domain_*_exception_ptr(), __cxa_error_code_*_exception_ptr()}
+// and routes it to the handler. The compiler emits these extern "C" calls
+// directly; no error_domain<std::exception_ptr> specialization or header is
+// involved.
 
 namespace std {
 struct error {
@@ -15,26 +17,22 @@ struct error {
   unsigned long long c;
   ~error() noexcept;
 };
-struct cxa_exception_code { unsigned long long p; };
-struct error_domain_singleton;
-template <class T> class error_domain;
-template <> class error_domain<cxa_exception_code> {
-public:
-  static inline constexpr error_domain_singleton const *domain() noexcept;
-  static inline unsigned long long code(cxa_exception_code) noexcept {
-    return 0;
-  }
-};
+struct exception_ptr;
 }
 
 extern void foo();
+extern "C" unsigned long long
+__cxa_error_code_itanium_exception_ptr(void *);
+extern "C" void *__cxa_error_domain_itanium_exception_ptr() noexcept;
 
 // ITANIUM: define dso_local void @_Z3barv() #[[ATTR:[0-9]+]] personality ptr @__gxx_personality_v0 {
 // ITANIUM: invoke void @_Z3foov()
 // ITANIUM:         to label %invoke.cont unwind label %lpad
 // ITANIUM: herb.legacy.convert:
-// ITANIUM: call {{.*}} @_ZNSt12error_domainISt18cxa_exception_codeE6domainEv()
-// ITANIUM: call ptr @__cxa_get_exception_ptr(ptr %exn)
+// ITANIUM-NOT: @_ZNSt12error_domainI
+// ITANIUM: call ptr @__cxa_error_domain_itanium_exception_ptr()
+// ITANIUM: %[[THROWN:[a-z0-9.]+]] = call ptr @__cxa_get_exception_ptr(ptr %exn)
+// ITANIUM: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %[[THROWN]])
 // ITANIUM: landingpad { ptr, i32 }
 // ITANIUM:         catch ptr null
 // ITANIUM: br label %herb.legacy.convert
@@ -48,34 +46,38 @@ void bar() {
   }
 }
 
-// MSVC uses funclet EH: catchswitch/catchpad and llvm.eh.exceptionpointer.
+// MSVC uses funclet EH: catchswitch/catchpad. The MSVC minting entry point
+// reads the current exception itself, so no exception pointer operand is
+// passed.
 // MSVC: define dso_local void @"?bar@@YAXXZ"() #[[ATTR:[0-9]+]] personality ptr @__CxxFrameHandler3 {
 // MSVC: invoke void @"?foo@@YAXXZ"()
 // MSVC:         to label %invoke.cont unwind label %catch.dispatch
 // MSVC: catchswitch within none [label %herb.legacy.convert]
 // MSVC: herb.legacy.convert:
 // MSVC: catchpad within
-// MSVC: call ptr @llvm.eh.exceptionpointer.p0(token
+// MSVC-NOT: call ptr @llvm.eh.exceptionpointer
+// MSVC: call ptr @__cxa_error_domain_msvc_exception_ptr() [ "funclet"(token
+// MSVC: call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token
 // MSVC: br label %catch.throws
-// MSVC: catch.throws:
-// MSVC: call void @"??1error@std@@QEAA@XZ"(ptr {{.*}} %e)
 
 // Wasm uses funclet EH with wasm.get.exception storing the object in exn.slot.
-// WASM: define void @_Z3barv() #[[ATTR:[0-9]+]] personality ptr @__gxx_wasm_personality_v0 {
+// WASM: define void @_Z3barv() {{.*}} personality ptr @__gxx_wasm_personality_v0 {
 // WASM: invoke void @_Z3foov()
 // WASM:         to label %invoke.cont unwind label %catch.dispatch
 // WASM: catchswitch within none [label %catch.start]
 // WASM: catchpad within
 // WASM: call ptr @llvm.wasm.get.exception(token
 // WASM: herb.legacy.convert:
+// WASM: call ptr @__cxa_error_domain_itanium_exception_ptr()
 // WASM: load ptr, ptr %exn.slot
-// WASM: br label %catch.throws
+// WASM: call {{.*}}i32 @__cxa_error_code_itanium_exception_ptr(ptr
 
 // SjLj uses a landingpad plus __cxa_get_exception_ptr.
-// SJLJ: define dso_local void @_Z3barv() #[[ATTR:[0-9]+]] personality ptr @__gxx_personality_sj0 {
+// SJLJ: define dso_local void @_Z3barv() {{.*}} personality ptr @__gxx_personality_sj0 {
 // SJLJ: invoke void @_Z3foov()
 // SJLJ: herb.legacy.convert:
+// SJLJ: call ptr @__cxa_error_domain_itanium_exception_ptr()
 // SJLJ: call ptr @__cxa_get_exception_ptr(ptr %exn)
-// SJLJ: br label %catch.throws
+// SJLJ: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr
 
 // ITANIUM: attributes #[[ATTR]] = { {{.*}} }
