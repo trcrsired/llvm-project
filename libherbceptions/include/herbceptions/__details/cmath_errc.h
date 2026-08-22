@@ -20,4 +20,16 @@ enum class cmath_errc : ::std::uint_least32_t {
 #endif
   all_except = divbyzero | inexact | invalid | overflow | underflow
 };
+
+template <> class error_domain<::std::cmath_errc> {
+public:
+  using errc_type = ::std::cmath_errc;
+  static inline constexpr ::std::error_domain_singleton const *
+  domain() noexcept {
+    return ::std::error_domains::__cxa_error_domain_parse();
+  }
+  static inline constexpr ::std::size_t code(errc_type __e) noexcept {
+    return static_cast<::std::size_t>(static_cast<::std::uint_least32_t>(__e));
+  }
+};
 } // namespace std
