@@ -150,7 +150,7 @@ struct msvc_raw_type_info {
 };
 
 inline msvc_raw_type_info const *
-get_msvc_cppeh_type_info(EXCEPTION_RECORD &ehrec) noexcept {
+get_msvc_cppeh_type_info(EXCEPTION_RECORD const &ehrec) noexcept {
   auto *et = reinterpret_cast<msvc_cxx_exception_type *>(
       ehrec.ExceptionInformation[2]);
   uintptr_t base = cxx_rva_base(et);
@@ -462,11 +462,16 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
               __malloc_or_heapalloc_temp_buffer buffer;
           ::std::io_scatter_t scatters[4];
           ::std::size_t scatterlen{};
-          EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
-          bool const ismsvccxxeh{ehrec.ExceptionCode == 0xe06d7363};
+          // cd==0 means there is no current exception (the itanium sibling
+          // reports "unknown" through the same path); never dereference it.
+          EXCEPTION_RECORD const *ehrecptr{
+              cd ? *reinterpret_cast<EXCEPTION_RECORD *const *>(cd)
+                 : nullptr};
+          bool const ismsvccxxeh{
+              ehrecptr && ehrecptr->ExceptionCode == 0xe06d7363};
           if (ismsvccxxeh) // is msvc C++ ehcode
           {
-            auto const *typeinfo{get_msvc_cppeh_type_info(ehrec)};
+            auto const *typeinfo{get_msvc_cppeh_type_info(*ehrecptr)};
             char const *ehname{};
             ::std::size_t ehname_len{};
             if (::std::error_query_information::message != query) {
@@ -478,7 +483,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
             char const *ehmessage{};
             ::std::size_t ehmessage_len{};
             if (::std::error_query_information::name != query) {
-              ehmessage = try_get_std_exception_what(ehrec);
+              ehmessage = try_get_std_exception_what(*ehrecptr);
               if (ehmessage) {
                 ehmessage_len = ::std::strlen(ehmessage);
               }
@@ -542,6 +547,8 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
           cookfun(cookie, scatters, scatterlen);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
+      if (!cd)
+        return ::std::errc::io_error;
       EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
       auto [kind, system_error_obj] = try_match_msvc_exceptions(ehrec);
       switch (kind) {
