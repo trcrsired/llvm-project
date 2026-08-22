@@ -554,7 +554,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
-__libherbceptions_exception_ptr_domain_msvc() noexcept {
+__cxa_error_code_msvc_exception_ptr() noexcept {
   struct error_domain_msvc_eh_ptr {
     void *rec;
     void *ref;
