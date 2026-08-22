@@ -5,16 +5,22 @@
 
 namespace std {
 enum class cmath_errc : ::std::uint_least32_t {
-#ifdef FE_INVALID
+#ifdef _FE_INVALID
+  invalid = _FE_INVALID,
+  divbyzero = _FE_DIVBYZERO,
+  inexact = _FE_INEXACT,
+  overflow = _FE_OVERFLOW,
+  underflow = _FE_UNDERFLOW,
+#elif defined(FE_INVALID)
+  invalid = FE_INVALID,
   divbyzero = FE_DIVBYZERO,
   inexact = FE_INEXACT,
-  invalid = FE_INVALID,
   overflow = FE_OVERFLOW,
   underflow = FE_UNDERFLOW,
 #else
-  divbyzero = 1,
-  inexact = 2,
-  invalid = 4,
+  invalid = 1,
+  divbyzero = 2,
+  inexact = 4,
   overflow = 8,
   underflow = 16,
 #endif
