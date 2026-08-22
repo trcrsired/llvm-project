@@ -20,9 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "herbceptions/__details/nt.h"
 #include "domain_helpers.h"
-#include "herbceptions/__details/win32.h"
 #include "ntkernel.h"
 
 #if defined(_WIN32) || defined(__CYGWIN__)
@@ -119,10 +117,9 @@ constinit ::std::error_domain_singleton __nt_error_domain{
           }
           pieces.emit(encoding, cookie, cookfun);
         },
-    .do_to_errc =
-        [](::std::size_t cd) noexcept {
-          return nt_to_errc(static_cast<::std::uint_least32_t>(cd));
-        }};
+    .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
+      return ::std::errc::io_error;
+    }};
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *

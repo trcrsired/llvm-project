@@ -17,6 +17,11 @@ namespace std {
 
 enum class win32_errc : ::std::uint_least32_t {};
 
+inline constexpr bool operator==(::std::win32_errc __a,
+                                 ::std::win32_errc __b) noexcept {
+  return __a == __b;
+}
+
 template <> class error_domain<::std::win32_errc> {
 public:
   using errc_type = ::std::win32_errc;

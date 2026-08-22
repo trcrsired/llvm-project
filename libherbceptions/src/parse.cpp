@@ -1,4 +1,4 @@
-//===--- win32_domain.cpp - win32 (win32_errc) error domain ---------------===//
+//===--- parse.cpp - parse_errc error domain ------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,26 +6,23 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Implements the win32 (win32_errc, Win32 GetLastError codes) error_domain
-// singleton vtable and the weak __cxa_error_domain_win32 ABI entry point.
-// Only built on _WIN32/__CYGWIN__ targets.
+// Implements the parse_errc error_domain_singleton vtable and the weak
+// __cxa_error_domain_parse ABI entry point. Available on all platforms.
+// Name/message strings come from src/parse_table.hpp through
+// simple_query_information_common.h (which_errc slot 2).
 //
 //===----------------------------------------------------------------------===//
 
-#include "domain_helpers.h"
-#include "ntkernel.h"
 #include "simple_query_information_common.h"
 
-#if defined(_WIN32) || defined(__CYGWIN__)
-
 namespace {
-constinit ::std::error_domain_singleton win32_error_domain{
+constinit ::std::error_domain_singleton parse_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
-          if (otherdomain == __builtin_addressof(win32_error_domain))
+          if (otherdomain == __builtin_addressof(parse_error_domain))
             return cd == othercd;
-          return win32_error_domain.do_to_errc(cd) ==
+          return parse_error_domain.do_to_errc(cd) ==
                  otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
@@ -54,8 +51,6 @@ constinit ::std::error_domain_singleton win32_error_domain{
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
-__cxa_error_domain_win32() noexcept {
-  return __builtin_addressof(win32_error_domain);
+__cxa_error_domain_parse() noexcept {
+  return __builtin_addressof(parse_error_domain);
 }
-
-#endif // _WIN32 || __CYGWIN__

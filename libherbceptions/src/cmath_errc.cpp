@@ -1,4 +1,4 @@
-//===--- wine.cpp - wine (wine_errc) error domain
+//===--- cmath_errc.cpp - cmath_errc error domain
 //--------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -7,25 +7,23 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Implements the wine (wine_errc) error_domain_singleton vtable and the weak
-// __cxa_error_domain_wine ABI entry point. Only built on _WIN32/__CYGWIN__
-// targets. wine_errc uses Wine's own UNIX errno values (Linux-kernel style
-// numbering); name/message strings come from src/wine_table.hpp through
-// simple_query_information_common.h (which_errc slot 3).
+// Implements the cmath_errc error_domain_singleton vtable and the weak
+// __cxa_error_domain_cmath ABI entry point. Available on all platforms.
+// Name/message strings come from src/cmath_table.hpp through
+// simple_query_information_common.h (which_errc slot 1).
 //
 //===----------------------------------------------------------------------===//
 
 #include "simple_query_information_common.h"
 
-#if defined(_WIN32) || defined(__CYGWIN__)
-
 namespace {
-constinit ::std::error_domain_singleton __wine_error_domain{
-    .do_cleanup = nullptr,
+constinit ::std::error_domain_singleton cmath_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
-          return __wine_error_domain.do_to_errc(cd) ==
+          if (otherdomain == __builtin_addressof(cmath_error_domain))
+            return cd == othercd;
+          return cmath_error_domain.do_to_errc(cd) ==
                  otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
@@ -34,24 +32,14 @@ constinit ::std::error_domain_singleton __wine_error_domain{
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
           ::std::error_domains::__herbceptions_detail::
               __simple_query_information_common(cd, query, encoding, cookie,
-                                                cookfun, 3);
+                                                cookfun, 1);
         },
-    // Wine's UNIX errno values only partially overlap std::errc, and some
-    // wine.h names disagree with their errno semantics. The generated map
-    // (guarded on the cerrno macros) switches on the wine_errc enumerator
-    // and returns the semantically matching errc; anything without an errc
-    // meaning falls back to io_error.
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      switch (static_cast<::std::wine_errc>(cd)) {
-#include "wine_errc_map.hpp"
-      }
       return ::std::errc::io_error;
     }};
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
-__cxa_error_domain_wine() noexcept {
-  return __builtin_addressof(__wine_error_domain);
+__cxa_error_domain_cmath() noexcept {
+  return __builtin_addressof(cmath_error_domain);
 }
-
-#endif // _WIN32 || __CYGWIN__

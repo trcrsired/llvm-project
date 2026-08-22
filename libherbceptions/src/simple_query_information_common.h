@@ -1,7 +1,6 @@
 #pragma once
 
 #include "domain_helpers.h"
-
 #include <herbceptions/error>
 
 namespace std::error_domains::__herbceptions_detail {
@@ -32,6 +31,8 @@ __to_u8scatter_from_cmath_errc(::std::uint_least32_t __eno) noexcept {
 
 inline constexpr bool __simple_query_information_enable_wine_errc{
 #if defined(_WIN32) || defined(__CYGWIN__)
+    true
+#else
     false
 #endif
 };
