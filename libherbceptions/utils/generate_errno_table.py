@@ -250,6 +250,130 @@ WINE_ERRNO_HEADER = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "__wine_unix_errno.h"
 )
 
+# wine_errc -> std::errc mapping table. Emitted as wine_errc_map.hpp: each
+# row switches on a wine_errc ENUMERATOR (guarded on the corresponding
+# cerrno macro, so rows vanish where an errno does not exist) and returns
+# the semantically matching std::errc. Errnos without a wine_errc
+# counterpart (EACCES, EALREADY, ENETRESET, ENOSTR, ETIME, ENOSR, ENODATA,
+# ...) are simply omitted; the fragment's default maps them to io_error.
+# wine_errc -> std::errc mapping table. Emitted as wine_errc_map.hpp: each
+# row switches on a wine_errc ENUMERATOR (guarded on the corresponding
+# cerrno macro, so rows vanish where an errno does not exist) and returns
+# the semantically matching std::errc. wine.h enumerator names deliberately
+# mirror the errc spellings; vendored errnos with NO errc enumerator
+# (stale_file_handle, would_block) pass their errno value through with
+# static_cast<errc>(errno-macro). The fragment's default maps anything else
+# to io_error.
+WINE_ERRC_MAP_NAMES = {
+    "EPERM": ("operation_not_permitted", None),
+    "ENOENT": ("no_such_file_or_directory", None),
+    "ESRCH": ("no_such_process", None),
+    "EINTR": ("interrupted", None),
+    "EIO": ("io_error", None),
+    "ENXIO": ("no_such_device_or_address", None),
+    "E2BIG": ("argument_list_too_long", None),
+    "ENOEXEC": ("executable_format_error", None),
+    "EBADF": ("bad_file_descriptor", None),
+    "ECHILD": ("no_child_process", None),
+    "EAGAIN": ("resource_unavailable_try_again", None),
+    "ENOMEM": ("not_enough_memory", None),
+    "EFAULT": ("bad_address", None),
+    "EBUSY": ("device_or_resource_busy", None),
+    "EEXIST": ("file_exists", None),
+    "EXDEV": ("cross_device_link", None),
+    "ENODEV": ("no_such_device", None),
+    "ENOTDIR": ("not_a_directory", None),
+    "EISDIR": ("is_a_directory", None),
+    "EINVAL": ("invalid_argument", None),
+    "ENFILE": ("too_many_files_open_in_system", None),
+    "EMFILE": ("too_many_files_open", None),
+    "ENOTTY": ("inappropriate_io_control_operation", None),
+    "ETXTBSY": ("text_file_busy", None),
+    "EFBIG": ("file_too_large", None),
+    "EHOSTUNREACH": ("host_unreachable", None),
+    "ENOSPC": ("no_space_on_device", None),
+    "ENOTSUP": ("operation_not_supported", None),
+    "ESPIPE": ("invalid_seek", None),
+    "EROFS": ("read_only_file_system", None),
+    "EMLINK": ("too_many_links", None),
+    "EPIPE": ("broken_pipe", None),
+    "EDOM": ("argument_out_of_domain", None),
+    "ERANGE": ("result_out_of_range", None),
+    "ENOMSG": ("no_message", None),
+    "EIDRM": ("identifier_removed", None),
+    "EILSEQ": ("illegal_byte_sequence", None),
+    "EDEADLK": ("resource_deadlock_would_occur", None),
+    "ENETUNREACH": ("network_unreachable", None),
+    "ENOLCK": ("no_lock_available", None),
+    "ENOLINK": ("no_link", None),
+    "EPROTO": ("protocol_error", None),
+    "EPROTONOSUPPORT": ("protocol_not_supported", None),
+    "EBADMSG": ("bad_message", None),
+    "ENOSYS": ("function_not_supported", None),
+    "ENOTEMPTY": ("directory_not_empty", None),
+    "ENAMETOOLONG": ("filename_too_long", None),
+    "ELOOP": ("too_many_symbolic_link_levels", None),
+    "ENOBUFS": ("no_buffer_space", None),
+    "EAFNOSUPPORT": ("address_family_not_supported", None),
+    "EPROTOTYPE": ("wrong_protocol_type", None),
+    "ENOTSOCK": ("not_a_socket", None),
+    "ENOPROTOOPT": ("no_protocol_option", None),
+    "ECONNREFUSED": ("connection_refused", None),
+    "ECONNRESET": ("connection_reset", None),
+    "EADDRINUSE": ("address_in_use", None),
+    "EADDRNOTAVAIL": ("address_not_available", None),
+    "ECONNABORTED": ("connection_aborted", None),
+    # Vendored 41; no errc enumerator exists (EWOULDBLOCK is EAGAIN).
+    "EWOULDBLOCK": ("would_block", "EAGAIN"),
+    "ENOTCONN": ("not_connected", None),
+    "EISCONN": ("already_connected", None),
+    "ECANCELED": ("operation_canceled", None),
+    "ENOTRECOVERABLE": ("state_not_recoverable", None),
+    "EOWNERDEAD": ("owner_dead", None),
+    # ESTALE has no errc enumerator; pass the number through.
+    "ESTALE": ("stale_file_handle", "ESTALE"),
+    "EOVERFLOW": ("value_too_large", None),
+    "EMSGSIZE": ("message_size", None),
+    "ETIMEDOUT": ("timed_out", None),
+}
+
+
+def emit_wine_errc_map() -> str:
+    lines = [
+        "// clang-format off",
+        "// Requires <cerrno> and herbceptions/__details/wine.h.",
+        "",
+        "\tcase ::std::wine_errc::success:",
+        "\t\treturn ::std::errc{};",
+    ]
+    for name, msg, *rest in ERRORS:
+        if name in ("0", "UNKNOWN"):
+            continue
+        mapped = WINE_ERRC_MAP_NAMES.get(name)
+        if mapped is None:
+            continue
+        wine_name, passthrough = mapped
+        if rest:
+            lines.append(f"#if {rest[0]}")
+        else:
+            lines.append(f"#ifdef {name}")
+        lines.append(f"\tcase ::std::wine_errc::{wine_name}:")
+        if passthrough is None:
+            lines.append(f"\t\treturn ::std::errc::{wine_name};")
+        else:
+            lines.append(f"\t\treturn static_cast<::std::errc>({passthrough});")
+        lines.append("#endif")
+    # Vendored errno absent from the POSIX ERRORS table above.
+    lines.append("#ifdef ESTALE")
+    lines.append("\tcase ::std::wine_errc::stale_file_handle:")
+    lines.append("\t\treturn static_cast<::std::errc>(ESTALE);")
+    lines.append("#endif")
+    lines.append("\tdefault:")
+    lines.append("\t\treturn ::std::errc::io_error;")
+    lines.append("// clang-format on")
+    return "\n".join(lines) + "\n"
+
+
 _WINE_ROW_RE = re.compile(
     r"^#define\s+__WINE_UNIX_ERRNO_([A-Z0-9_]+)\s+(\d+)\s*(?:/\*\s*(.+?)\s*\*/)?\s*$"
 )
@@ -287,6 +411,11 @@ def main() -> None:
     wine = wine_rows()
     write_fragment(os.path.join(src, "wine_table.hpp"), "WINE_ERRC_MAX_SIZE",
                    wine, "Unknown")
+
+    with open(os.path.join(src, "wine_errc_map.hpp"), "w",
+              newline="\n") as f:
+        f.write(emit_wine_errc_map())
+    print(f"wrote {os.path.abspath(os.path.join(src, 'wine_errc_map.hpp'))}")
 
 
 if __name__ == "__main__":

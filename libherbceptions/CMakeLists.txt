@@ -57,6 +57,8 @@ set(HERBCEPTIONS_HEADERS
 # domains actually used (reducing binary bloat).
 set(HERBCEPTIONS_SOURCES
   src/posix.cpp
+  src/parse.cpp
+  src/cmath_errc.cpp
   src/itanium_exception_ptr.cpp
   src/msvc_exception_ptr.cpp
   src/win32.cpp

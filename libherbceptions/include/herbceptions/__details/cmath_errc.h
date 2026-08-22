@@ -27,6 +27,11 @@ enum class cmath_errc : ::std::uint_least32_t {
   all_except = divbyzero | inexact | invalid | overflow | underflow
 };
 
+inline constexpr bool operator==(::std::cmath_errc __a,
+                                 ::std::cmath_errc __b) noexcept {
+  return __a == __b;
+}
+
 template <> class error_domain<::std::cmath_errc> {
 public:
   using errc_type = ::std::cmath_errc;

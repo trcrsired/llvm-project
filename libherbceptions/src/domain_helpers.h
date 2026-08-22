@@ -5,7 +5,7 @@ Shared helpers for the herbception error-domain runtime.
 These are internal to the runtime implementation (used by the per-domain
 translation units) and are not part of the public herbception/error surface.
 */
-#include "herbceptions/error"
+#include <herbceptions/error>
 
 // Export macro for the domain ABI entry points. On Windows the shared library
 // exports them (dllexport while building, dllimport elsewhere); on ELF they
