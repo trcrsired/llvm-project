@@ -289,6 +289,13 @@ __HERBCEPTIONS_API
 
 __HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_wine() noexcept;
+
+__HERBCEPTIONS_API
+::std::error_domain_singleton const *__cxa_error_domain_cmath() noexcept;
+
+__HERBCEPTIONS_API
+::std::error_domain_singleton const *__cxa_error_domain_parse() noexcept;
+
 } // extern "C"
 #undef __HERBCEPTIONS_API
 } // namespace error_domains
