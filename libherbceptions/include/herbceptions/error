@@ -433,7 +433,9 @@ struct has_herbception_throws_move_assign
 
 } // namespace std
 
+#include "herbceptions/__details/cmath_errc.h"
 #include "herbceptions/__details/exception_ptr.h"
+#include "herbceptions/__details/parse.h"
 #include "herbceptions/__details/posix.h"
 
 #ifdef _WIN32
