@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "herbceptions/__details/com.h"
 #include "domain_helpers.h"
 
 #if defined(_WIN32) || defined(__CYGWIN__)
@@ -21,36 +20,12 @@ namespace std::error_domains {
 namespace {
 using namespace __herbceptions_detail;
 
-::std::errc com_to_errc(::std::uint_least32_t cd) noexcept {
-  switch (static_cast<::std::com_errc>(cd)) {
-  case ::std::com_errc::ok:
-    return static_cast<::std::errc>(0);
-  case ::std::com_errc::accessdenied:
-    return ::std::errc::permission_denied;
-  case ::std::com_errc::outofmemory:
-    return ::std::errc::not_enough_memory;
-  case ::std::com_errc::invalidarg:
-    return ::std::errc::invalid_argument;
-  case ::std::com_errc::notimpl:
-  case ::std::com_errc::fail:
-    return ::std::errc::io_error;
-  case ::std::com_errc::cancelled:
-    return ::std::errc::operation_canceled;
-  case ::std::com_errc::notfound:
-    return ::std::errc::no_such_file_or_directory;
-  case ::std::com_errc::alreadyexists:
-    return ::std::errc::file_exists;
-  default:
-    return ::std::errc::io_error;
-  }
-}
-
 constinit ::std::error_domain_singleton __com_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
-          return com_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
+          return __com_error_domain.do_to_errc(cd) ==
                  otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
@@ -71,9 +46,7 @@ constinit ::std::error_domain_singleton __com_error_domain{
           pieces.emit(encoding, cookie, cookfun);
         },
     .do_to_errc =
-        [](::std::size_t cd) noexcept {
-          return com_to_errc(static_cast<::std::uint_least32_t>(cd));
-        }};
+        [](::std::size_t cd) noexcept { return ::std::errc::io_error; }};
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *

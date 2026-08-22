@@ -19,6 +19,11 @@ namespace std {
 // pattern fits without narrowing.
 enum class com_errc : ::std::uint_least32_t {};
 
+inline constexpr bool operator==(::std::com_errc __a,
+                                 ::std::com_errc __b) noexcept {
+  return __a == __b;
+}
+
 template <> class error_domain<::std::com_errc> {
 public:
   using errc_type = ::std::com_errc;
