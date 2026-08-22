@@ -9,28 +9,15 @@ _WIN32/__CYGWIN__ targets.
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
+#include "herbceptions/error"
+
+#include <cstdint>
+
 namespace std {
 
 // The underlying type is uint32 so the standard 0x8000xxxx "failure" bit
 // pattern fits without narrowing.
-enum class com_errc : ::std::uint_least32_t {
-  ok = 0x00000000,
-  nointerface = 0x80004002,
-  fail = 0x80004005,
-  unexpected = 0x8000FFFF,
-  notimpl = 0x80004001,
-  outofmemory = 0x8007000E,
-  invalidarg = 0x80070057,
-  accessdenied = 0x80070005,
-  handle = 0x80070006,
-  abort = 0x80004004,
-  fail_ie = 0x8000FFFD,
-  pending = 0x8000000A,
-  cancelled = 0x800704C7,
-  notfound = 0x80070490,
-  alreadyexists = 0x800700B7,
-  nointerface_ie = 0x8000FFFE
-};
+enum class com_errc : ::std::uint_least32_t {};
 
 template <> class error_domain<::std::com_errc> {
 public:
