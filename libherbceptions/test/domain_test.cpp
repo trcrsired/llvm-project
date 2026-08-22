@@ -37,20 +37,20 @@ struct capture_ctx {
 
 // A do_query_information collector that appends the emitted text into a buffer
 // (may make several cookfun calls; each appends).
-static void capture_cookfun(void* cookie, ::std::io_scatter_t const* v,
+static void capture_cookfun(void *cookie, ::std::io_scatter_t const *v,
                             ::std::size_t n) noexcept {
-  auto* ctx = static_cast<capture_ctx*>(cookie);
+  auto *ctx = static_cast<capture_ctx *>(cookie);
   for (std::size_t i = 0; i < n; ++i) {
     for (std::size_t j = 0; j < v[i].len; ++j) {
       if (ctx->len < sizeof(ctx->buf) - 1)
-        ctx->buf[ctx->len++] = static_cast<char const*>(v[i].base)[j];
+        ctx->buf[ctx->len++] = static_cast<char const *>(v[i].base)[j];
     }
   }
   ctx->buf[ctx->len] = '\0';
 }
 
 int main() {
-  auto const* posix = ::std::error_domains::__cxa_error_domain_posix();
+  auto const *posix = ::std::error_domains::__cxa_error_domain_posix();
 #ifdef _MSC_VER
   auto const *cxa =
       ::std::error_domains::__cxa_error_domain_msvc_exception_ptr();
@@ -87,7 +87,7 @@ int main() {
                               ::std::error_reporter_encoding::utf8, &nmctx,
                               capture_cookfun);
   CHECK(std::string(nmctx.buf, nmctx.len) ==
-        "posixNo such file or directory");
+        "[posix]No such file or directory");
 
   capture_ctx cx{};
   cxa->do_query_information(0, ::std::error_query_information::name,
@@ -108,14 +108,15 @@ int main() {
   // Herbception type traits (available under -fherbceptions).
   static_assert(::std::is_herbception_throwsable_v<::std::errc>);
   static_assert(!::std::is_herbception_throwsable_v<int>);
-  static_assert(::std::is_invoke_herbceptions_fails_v<int (*)(int) fails{::std::errc}>);
+  static_assert(
+      ::std::is_invoke_herbceptions_fails_v<int (*)(int) fails{::std::errc}>);
   static_assert(!::std::is_invoke_herbceptions_fails_v<int (*)(int)>);
 
 #if defined(_WIN32) || defined(__CYGWIN__)
-  auto const* win32 = ::std::error_domains::__cxa_error_domain_win32();
-  auto const* nt = ::std::error_domains::__cxa_error_domain_nt();
-  auto const* com = ::std::error_domains::__cxa_error_domain_com();
-  auto const* wine = ::std::error_domains::__cxa_error_domain_wine();
+  auto const *win32 = ::std::error_domains::__cxa_error_domain_win32();
+  auto const *nt = ::std::error_domains::__cxa_error_domain_nt();
+  auto const *com = ::std::error_domains::__cxa_error_domain_com();
+  auto const *wine = ::std::error_domains::__cxa_error_domain_wine();
   CHECK(win32 != nullptr && nt != nullptr && com != nullptr && wine != nullptr);
 
   // win32 -> errc mapping.
