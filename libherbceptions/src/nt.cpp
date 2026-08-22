@@ -49,7 +49,8 @@ using namespace __herbceptions_detail;
 }
 
 // nt <-> win32 equivalence via the table's win32 column.
-bool nt_equivalent_win32(::std::uint_least32_t cd, ::std::size_t win32cd) noexcept {
+bool nt_equivalent_win32(::std::uint_least32_t cd,
+                         ::std::size_t win32cd) noexcept {
   if (ntkernel_field const *f = find_ntstatus(cd))
     return static_cast<::std::size_t>(f->win32) == win32cd;
   return false;
@@ -101,8 +102,8 @@ constinit ::std::error_domain_singleton __nt_error_domain{
         },
     .do_query_information =
         [](::std::size_t cd, ::std::error_query_information query,
-	   ::std::error_reporter_encoding encoding,
-           void *cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept {
+           ::std::error_reporter_encoding encoding, void *cookie,
+           ::std::error_reporter_io_cookie_function cookfun) noexcept {
           query_information_pieces pieces;
           switch (query) {
           case ::std::error_query_information::name:
@@ -124,8 +125,8 @@ constinit ::std::error_domain_singleton __nt_error_domain{
         }};
 } // namespace
 
-extern "C" __HERBCEPTIONS_API
-::std::error_domain_singleton const *__cxa_error_domain_nt() noexcept {
+extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
+__cxa_error_domain_nt() noexcept {
   return __builtin_addressof(::std::error_domains::__nt_error_domain);
 }
 

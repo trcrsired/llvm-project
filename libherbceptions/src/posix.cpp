@@ -12,158 +12,29 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "herbceptions/__details/posix.h"
-#include "domain_helpers.h"
+#include "simple_query_information_common.h"
 
-namespace std::error_domains {
-namespace __herbceptions_detail {
 namespace {
-constexpr ::std::io_scatter_t __to_u8scatter_from_errno(int __eno) noexcept {
-  using ::std::error_domains::__herbceptions_detail::__tsc;
-  switch (__eno) {
-#include "posix_table.hpp"
-  }
-}
-
-inline constexpr ::std::io_scatter_t
-posix_name_message_range(::std::error_reporter_encoding encoding,
-                         ::std::size_t startpos, ::std::size_t n) noexcept {
-  switch (encoding) {
-  case ::std::error_reporter_encoding::utfebcdic: {
-    return {"\xAD\x97\x96\xA2\x89\xA7\xBD", 7u};
-  }
-  case ::std::error_reporter_encoding::utf16: {
-    return {u"[posix]", 7u * sizeof(char16_t)};
-  }
-  case ::std::error_reporter_encoding::utf32: {
-    return {U"[posix]", 7u * sizeof(char32_t)};
-  }
-  default: {
-    return {u8"[posix]", 7u};
-  }
-  }
-
-  inline constexpr ::std::io_scatter_t posix_name(
-      ::std::error_reporter_encoding encoding) noexcept {
-    /*
-    posix
-    */
-    return posix_name_message_range(encoding, 1u, 5u);
-  }
-
-  inline constexpr ::std::io_scatter_t posix_name_message(
-      ::std::error_reporter_encoding encoding) noexcept {
-    /*
-    [posix]
-    */
-    return posix_name_message_range(encoding, 0u, 7u);
-  }
-
-} // namespace
-} // namespace __herbceptions_detail
-
-constinit ::std::error_domain_singleton __posix_error_domain{
-    .do_cleanup = nullptr, // errno values need no cleanup
+constinit ::std::error_domain_singleton posix_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
-          return __posix_error_domain.do_to_errc(cd) ==
+          return posix_error_domain.do_to_errc(cd) ==
                  otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
         [](::std::size_t cd, ::std::error_query_information query,
            ::std::error_reporter_encoding encoding, void *cookie,
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          if (static_cast<::std::uint_least32_t>(
-                  ::std::error_query_information::name_message) <
-              static_cast<::std::uint_least32_t>(query)) {
-            return;
-          }
-          ::std::io_scatter_t __scatters[2];
-          auto __pos{__scatters};
-          constexpr ::std::size_t __errno_max_bytes{POSIX_ERRNO_MAX_SIZE *
-                                                    sizeof(char32_t)};
-          alignas(char32_t) char unsigned __buffer[__errno_max_bytes];
-          switch (query) {
-          case ::std::error_query_information::name: {
-            *__pos = ::std::error_domains::__herbceptions_detail::posix_name(
-                encoding);
-            ++__pos;
-            break;
-          }
-          case ::std::error_query_information::name_message: {
-            *__pos =
-                ::std::error_domains::__herbceptions_detail::posix_name_message(
-                    encoding);
-            ++__pos;
-            [[fallthrough]];
-          }
-          default: {
-            auto __scatter{::std::error_domains::__herbceptions_detail::
-                               __to_u8scatter_from_errno(static_cast<int>(
-                                   static_cast<unsigned>(cd)))};
-            char unsigned const *__from_first{
-                reinterpret_cast<char unsigned const *>(__scatter.base)};
-            char unsigned const *__from_last{__from_first + __scatter.len};
-            switch (encoding) {
-            case ::std::error_reporter_encoding::utfebcdic: {
-              auto __dest = ::std::error_domains::__herbceptions_detail::
-                  __write_ebcdic_with_ascii_only_range(__from_first,
-                                                       __from_last, __buffer);
-              *__pos = {
-                  __buffer,
-                  static_cast<::std::size_t>(
-                      reinterpret_cast<char unsigned *>(__dest) - __buffer)};
-            }
-            case ::std::error_reporter_encoding::utf16: {
-              using __char16_may_alias_ptr
-#if __has_cpp_attribute(__gnu__::__may_alias__)
-                  [[__gnu__::__may_alias__]]
-#endif
-                  = char16_t *;
-              auto __dest = ::std::error_domains::__herbceptions_detail::
-                  __write_with_ascii_only_range(
-                      __from_first, __from_last,
-                      reinterpret_cast<__char16_may_alias_ptr>(__buffer));
-              *__pos = {
-                  __buffer,
-                  static_cast<::std::size_t>(
-                      reinterpret_cast<char unsigned *>(__dest) - __buffer)};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf32: {
-              using __char32_may_alias_ptr
-#if __has_cpp_attribute(__gnu__::__may_alias__)
-                  [[__gnu__::__may_alias__]]
-#endif
-                  = char32_t *;
-              auto __dest = ::std::error_domains::__herbceptions_detail::
-                  __write_with_ascii_only_range(
-                      __from_first, __from_last,
-                      reinterpret_cast<__char32_may_alias_ptr>(__buffer));
-              *__pos = {
-                  __buffer,
-                  static_cast<::std::size_t>(
-                      reinterpret_cast<char unsigned *>(__dest) - __buffer)};
-              break;
-            }
-            default: {
-              *__pos = __scatter;
-              break;
-            }
-            }
-            ++__pos;
-          }
-          }
-          cookfun(cookie, __scatters,
-                  static_cast<::std::size_t>(__pos - __scatters));
+          ::std::error_domains::__herbceptions_detail::
+              __simple_query_information_common(cd, query, encoding, cookie,
+                                                cookfun, 0);
         },
     .do_to_errc =
         [](::std::size_t cd) noexcept { return static_cast<::std::errc>(cd); }};
+} // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_posix() noexcept {
-  return __builtin_addressof(::std::error_domains::__posix_error_domain);
+  return __builtin_addressof(posix_error_domain);
 }
-
-} // namespace std::error_domains

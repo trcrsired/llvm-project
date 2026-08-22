@@ -132,6 +132,7 @@ ERRORS = [
 # the generated file to match the original hand-written table.
 
 import os
+import re
 import sys
 
 OUTPUT = os.path.join(
@@ -149,7 +150,7 @@ def max_message_size() -> int:
 
 
 def emit() -> str:
-    lines = [f"#define POSIX_ERRNO_MAX_SIZE {max_message_size()}", ""]
+    lines = ["// clang-format off", f"#define POSIX_ERRC_MAX_SIZE {max_message_size()}", ""]
     for name, msg, *rest in ERRORS:
         if name == "0":
             lines.append("\tcase 0:")
@@ -166,7 +167,107 @@ def emit() -> str:
         lines.append(f"\t\treturn __tsc(u8\"{msg}\");")
         if name not in ("0", "UNKNOWN"):
             lines.append("#endif")
+    lines.append("// clang-format on")
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Generic fragment writer, shared by the parse / cmath / wine tables.
+#
+# rows: iterable of (case_label, message) where case_label is an int (emitted
+# as a bare numeric case, no macro guards) and None denotes the default row.
+# Every fragment defines <max_macro> = the longest message length.
+# ---------------------------------------------------------------------------
+def write_fragment(path: str, max_macro: str, rows, default_msg: str) -> None:
+    all_msgs = [msg for _, msg in rows] + [default_msg]
+    lines = ["// clang-format off", f"#define {max_macro} {max(len(m) for m in all_msgs)}", ""]
+    wrote_default = False
+    for label, msg in rows:
+        if label is None:
+            lines.append("\tdefault:")
+            wrote_default = True
+        else:
+            lines.append(f"\tcase {label}:")
+        lines.append(f"\t\treturn __tsc(u8\"{msg}\");")
+    if not wrote_default:
+        lines.append("\tdefault:")
+        lines.append(f"\t\treturn __tsc(u8\"{default_msg}\");")
+    lines.append("// clang-format on")
+    with open(path, "w", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"wrote {os.path.abspath(path)}")
+
+
+# fast_io's parse_errc (include/herbceptions/__details/parse.h uses the same
+# fixed numbering).
+PARSE_ERRORS = [
+    (0, "Success"),
+    (1, "End of file"),
+    (2, "Partial parse"),
+    (3, "Invalid format"),
+    (4, "Overflow"),
+]
+
+# cmath_errc is a bitmask over the C floating-point exception macros. Case
+# labels are spelled through ::std::cmath_errc so they automatically track
+# whatever values cmath_errc.h normalized for this toolchain (_FE_*, FE_*,
+# or the built-in fallback); no macro guards needed. The consuming TU must
+# include herbceptions/__details/cmath_errc.h before the fragment.
+CMATH_ERRORS = [
+    ("invalid", "Invalid floating point operation"),
+    ("divbyzero", "Floating point divide by zero"),
+    ("inexact", "Inexact floating point result"),
+    ("overflow", "Floating point overflow"),
+    ("underflow", "Floating point underflow"),
+    ("all_except", "All floating point exceptions"),
+]
+
+
+def emit_cmath() -> str:
+    default_msg = "Unknown"
+    msgs = [msg for _, msg in CMATH_ERRORS] + [default_msg]
+    lines = [
+        "// clang-format off",
+        "// Requires herbceptions/__details/cmath_errc.h (defines ::std::cmath_errc).",
+        f"#define CMATH_ERRC_MAX_SIZE {max(len(m) for m in msgs)}",
+        "",
+    ]
+    for name, msg in CMATH_ERRORS:
+        lines.append(f"\tcase ::std::cmath_errc::{name}:")
+        lines.append(f"\t\treturn __tsc(u8\"{msg}\");")
+    lines.append("\tdefault:")
+    lines.append(f"\t\treturn __tsc(u8\"{default_msg}\");")
+    lines.append("// clang-format on")
+    return "\n".join(lines) + "\n"
+
+
+# The wine errno numbering is fixed (Linux kernel values vendored into
+# fast_io), so raw numeric cases need no macro guards. Messages are parsed
+# from the trailing /* ... */ comments of the vendored copy of
+# __wine_unix_errno.h (kept in utils/ so the generator is self-contained;
+# libherbceptions itself never references fast_io).
+WINE_ERRNO_HEADER = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "__wine_unix_errno.h"
+)
+
+_WINE_ROW_RE = re.compile(
+    r"^#define\s+__WINE_UNIX_ERRNO_([A-Z0-9_]+)\s+(\d+)\s*(?:/\*\s*(.+?)\s*\*/)?\s*$"
+)
+
+
+def wine_rows():
+    rows = []
+    with open(WINE_ERRNO_HEADER, "r") as f:
+        for line in f:
+            m = _WINE_ROW_RE.match(line)
+            if not m:
+                continue
+            name, num, msg = m.group(1), int(m.group(2)), m.group(3)
+            if msg is None:
+                msg = name.replace("_", " ").capitalize()
+            rows.append((num, msg))
+    rows.sort(key=lambda r: r[0])
+    return rows
 
 
 def main() -> None:
@@ -174,6 +275,18 @@ def main() -> None:
     with open(OUTPUT, "w", newline="\n") as f:
         f.write(content)
     print(f"wrote {os.path.abspath(OUTPUT)}")
+
+    src = os.path.dirname(OUTPUT)
+    write_fragment(os.path.join(src, "parse_table.hpp"), "PARSE_ERRC_MAX_SIZE",
+                   PARSE_ERRORS, "Unknown")
+
+    with open(os.path.join(src, "cmath_table.hpp"), "w", newline="\n") as f:
+        f.write(emit_cmath())
+    print(f"wrote {os.path.abspath(os.path.join(src, 'cmath_table.hpp'))}")
+
+    wine = wine_rows()
+    write_fragment(os.path.join(src, "wine_table.hpp"), "WINE_ERRC_MAX_SIZE",
+                   wine, "Unknown")
 
 
 if __name__ == "__main__":
