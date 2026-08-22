@@ -24,6 +24,7 @@
 #include "domain_helpers.h"
 #include <cstdlib>
 #include <cstring>
+#include <system_error>
 #include <type_traits>
 #include <typeinfo>
 #include <windows.h>
@@ -232,6 +233,36 @@ struct try_match_msvc_eh_result {
   msvc_exception_kind kind{};
   void *system_error_obj{}; // we only catch system_error
 };
+
+// Raw view of the std::_System_error prefix on x64 MSVC STL, used to
+// extract the stored error_code without naming protected members:
+//   exception      : vptr(8) + __std_exception_data{_What(8), _DoFree(1)+pad} =
+//   24 runtime_error  : adds no members = 24 _System_error  : +
+//   error_code{_Myval(4), pad, _Mycat(8)} => _Mycode @ 24
+// std::system_error adds no data members over _System_error, so the same
+// prefix holds for it; sizeof is asserted as a layout tripwire.
+struct msvc_system_error_raw {
+  void *exception_prefix[3]; // vptr, _What, _DoFree+pad
+  ::std::int_least32_t myval;
+  void const *mycat;
+};
+
+// Returns true and fills \p val / \p cat when obj carries a generic-category
+// error code.
+inline bool
+try_get_msvc_system_error_code(void const *obj, ::std::int_least32_t &val,
+                               ::std::error_category const *&cat) noexcept {
+  if (!obj) {
+    return false;
+  }
+  auto *raw{static_cast<msvc_system_error_raw const *>(obj)};
+  cat = static_cast<::std::error_category const *>(raw->mycat);
+  if (!cat || !(*cat == ::std::generic_category())) {
+    return false; // custom category: no errc meaning
+  }
+  val = raw->myval;
+  return true;
+}
 
 inline try_match_msvc_eh_result
 try_match_msvc_exceptions(EXCEPTION_RECORD const &ehrec) noexcept {
@@ -512,12 +543,19 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
       EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
       auto [kind, system_error_obj] = try_match_msvc_exceptions(ehrec);
       switch (kind) {
-#if 0
       case msvc_exception_kind::msvc_system_error:
         [[fallthrough]];
       case msvc_exception_kind::msvc__System_error:
+        // Both std::system_error and its internal base _System_error store
+        // the error_code at the same prefix offset; read it raw.
+        {
+          ::std::int_least32_t val{};
+          ::std::error_category const *cat{};
+          if (try_get_msvc_system_error_code(system_error_obj, val, cat)) {
+            return static_cast<::std::errc>(val);
+          }
+        }
         return ::std::errc::io_error;
-#endif
       case msvc_exception_kind::msvc_logic_error:
         [[fallthrough]];
       case msvc_exception_kind::msvc_invalid_argument:
