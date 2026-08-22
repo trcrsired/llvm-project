@@ -127,8 +127,13 @@ constinit ::std::error_domain_singleton win32_error_domain{
             ::std::error_domains::__herbceptions_detail::
                 __malloc_or_heapalloc_temp_buffer destbuffer;
             if (dwlen) {
-              fromptr __from_first{
-                  reinterpret_cast<fromptr>(frombuffer.__bufferptr)},
+              auto frombufferptr{
+                  reinterpret_cast<fromptr>(frombuffer.__bufferptr)};
+              if (1 < dwlen && frombufferptr[dwlen - 2] == u8'\r' &&
+                  frombufferptr[dwlen - 1] == u8'\n') {
+                dwlen -= 2; // strip out \r\n
+              }
+              fromptr __from_first{frombufferptr},
                   __from_last{__from_first + dwlen};
               switch (encoding) {
               case ::std::error_reporter_encoding::utfebcdic: {
