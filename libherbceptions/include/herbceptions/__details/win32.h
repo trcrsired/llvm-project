@@ -6,8 +6,6 @@ Declares win32_errc (Win32 GetLastError codes, ERROR_*) and its error_domain
 specialization. The singleton vtable is implemented in src/win32.cpp. Only
 available on _WIN32/__CYGWIN__ targets.
 */
-#include "../error"
-#include <cstdint>
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
