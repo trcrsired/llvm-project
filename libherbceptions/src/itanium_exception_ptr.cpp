@@ -252,6 +252,13 @@ inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
   return itanium_cxa_try_catch(exc_ti, obj, kind, &unused);
 }
 
+// Mirror of the runtimes' __cxa_eh_globals (libstdc++ keeps the public type
+// opaque); layout stable since the ABI's inception.
+struct itanium_cxa_eh_globals {
+  void *caughtExceptions;
+  unsigned int uncaughtExceptions;
+};
+
 constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
         [](::std::size_t cd) noexcept {
@@ -435,9 +442,27 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
         [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
           if (__ehabi != ::std::dynamic_exception_abi::platform)
             return;
+          void *__obj{reinterpret_cast<void *>(__cd)};
+          if (!__obj) {
+            return;
+          }
 #ifdef _LIBCPPABI_VERSION
-          ::cxxabi::__cxa_rethrow_primary_exception(
-              reinterpret_cast<void *>(__cd));
+          ::cxxabi::__cxa_rethrow_primary_exception(__obj);
+#else
+          // Raise the primary directly, deliberately NOT through
+          // std::rethrow_exception: the eh_ptr machinery would wrap it in a
+          // dependent exception whose cleanup releases references behind
+          // this domain's back. The minted reference is the flight
+          // reference here -- the catching runtime consumes it inside
+          // __cxa_end_catch. A failed unwind falls through, letting
+          // std::error::throw_dynamic_exception raise its system_error
+          // fallback instead.
+          auto *hdr{itanium_cxa_exception_from_thrown_object(__obj)};
+          auto *globals{reinterpret_cast<itanium_cxa_eh_globals *>(
+              ::__cxxabiv1::__cxa_get_globals())};
+          ++globals->uncaughtExceptions;
+          _Unwind_RaiseException(&hdr->unwindHeader);
+          --globals->uncaughtExceptions;
 #endif
         }
 #endif
