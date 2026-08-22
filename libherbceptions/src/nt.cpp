@@ -24,13 +24,11 @@
 
 #include "domain_helpers.h"
 #include "ntkernel.h"
-
-#include <cerrno>
-#include <cstdint>
+#include "win32_common.h"
 
 namespace std::error_domains {
 namespace {
-
+#if 0
 inline constexpr ::std::io_scatter_t
 nt_name_message_range(::std::error_reporter_encoding encoding,
                       ::std::size_t startpos, ::std::size_t n) noexcept {
@@ -49,12 +47,10 @@ nt_name_message_range(::std::error_reporter_encoding encoding,
   }
   }
 }
-
+#endif
 using namespace __herbceptions_detail;
 
-// The ntkernel table is entirely ASCII, so widening to UTF-16/UTF-32 is a
-// simple per-byte copy (each char is a code point < 0x80); no codecvt needed.
-::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
+inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
   if (ntkernel_field const *f = find_ntstatus(cd))
     return static_cast<::std::errc>(f->posix);
   switch (cd >> 30) {
@@ -67,39 +63,11 @@ using namespace __herbceptions_detail;
 }
 
 // nt <-> win32 equivalence via the table's win32 column.
-bool nt_equivalent_win32(::std::uint_least32_t cd,
-                         ::std::size_t win32cd) noexcept {
+inline bool nt_equivalent_win32(::std::uint_least32_t cd,
+                                ::std::size_t win32cd) noexcept {
   if (ntkernel_field const *f = find_ntstatus(cd))
     return static_cast<::std::size_t>(f->win32) == win32cd;
   return false;
-}
-
-// Append the message for the NTSTATUS code \p cd into the pieces.
-void append_nt_message(query_information_pieces &pieces,
-                       ::std::size_t cd) noexcept {
-  if (cd == 0) {
-    pieces.add_cstr(u8"The operation completed successfully");
-    return;
-  }
-  if (ntkernel_field const *f =
-          find_ntstatus(static_cast<::std::uint_least32_t>(cd))) {
-    pieces.add(f->message, f->message_size);
-    return;
-  }
-  switch (static_cast<::std::uint_least32_t>(cd) >> 30) {
-  case 0:
-    pieces.add_cstr(u8"Unknown success");
-    return;
-  case 1:
-    pieces.add_cstr(u8"Unknown information");
-    return;
-  case 2:
-    pieces.add_cstr(u8"Unknown warning");
-    return;
-  case 3:
-    pieces.add_cstr(u8"Unknown error");
-    return;
-  }
 }
 
 constinit ::std::error_domain_singleton __nt_error_domain{
@@ -122,20 +90,9 @@ constinit ::std::error_domain_singleton __nt_error_domain{
         [](::std::size_t cd, ::std::error_query_information query,
            ::std::error_reporter_encoding encoding, void *cookie,
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
-          query_information_pieces pieces;
-          switch (query) {
-          case ::std::error_query_information::name:
-            pieces.add_cstr(u8"nt");
-            break;
-          case ::std::error_query_information::message:
-            append_nt_message(pieces, cd);
-            break;
-          case ::std::error_query_information::name_message:
-            pieces.add_cstr(u8"nt");
-            append_nt_message(pieces, cd);
-            break;
-          }
-          pieces.emit(encoding, cookie, cookfun);
+          ::std::error_domains::__herbceptions_detail::
+              __win32_name_message_common(cd, query, encoding, cookie, cookfun,
+                                          1u);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
       return ::std::errc::io_error;
