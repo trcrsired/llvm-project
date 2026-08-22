@@ -35,7 +35,8 @@ inline void *__malloc_or_die(::std::size_t __sz) noexcept {
   return __bufferptr;
 }
 
-template <bool __malloconly> class __basic_malloc_or_heapalloc_temp_buffer {
+template <unsigned __malloconly = 0>
+class __basic_malloc_or_heapalloc_temp_buffer {
 public:
   void *__bufferptr{};
   constexpr __basic_malloc_or_heapalloc_temp_buffer() noexcept = default;
@@ -48,7 +49,12 @@ public:
   ~__basic_malloc_or_heapalloc_temp_buffer() {
     if (this->__bufferptr == nullptr)
       return;
-    if constexpr (__malloconly) {
+#ifdef _WIN32
+    if constexpr (__malloconly == 2) {
+      LocalFree(this->__bufferptr);
+    } else
+#endif
+        if constexpr (__malloconly == 1) {
       ::std::free(this->__bufferptr);
     } else {
       ::std::error_domains::__herbceptions_detail::__free_or_heap_dealloc(
@@ -58,12 +64,19 @@ public:
 };
 
 using __malloc_or_heapalloc_temp_buffer =
-    __basic_malloc_or_heapalloc_temp_buffer<false>;
+    __basic_malloc_or_heapalloc_temp_buffer<0>;
+using __local_free_temp_buffer = __basic_malloc_or_heapalloc_temp_buffer<
+#ifdef _WIN32
+    2
+#else
+    0
+#endif
+    >;
 using __malloc_temp_buffer = __basic_malloc_or_heapalloc_temp_buffer<
 #ifdef _WIN32
-    true
+    1
 #else
-    false
+    0
 #endif
     >;
 } // namespace std::error_domains::__herbceptions_detail

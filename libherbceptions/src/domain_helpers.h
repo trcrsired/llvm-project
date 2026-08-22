@@ -34,11 +34,10 @@ inline constexpr ::std::io_scatter_t __tsc(__Ty const (&__arr)[__n]) noexcept {
   return {__arr, __nm1};
 }
 
-template <typename __DestTy>
+template <typename __SrcTy, typename __DestTy>
 inline constexpr __DestTy *
-__write_with_ascii_only_range(char unsigned const *__fromfirst,
-                              char unsigned const *__fromlast,
-                              __DestTy *__dest) {
+__write_with_ascii_only_range(__SrcTy const *__fromfirst,
+                              __SrcTy const *__fromlast, __DestTy *__dest) {
   for (; __fromfirst != __fromlast; ++__fromfirst) {
     *__dest = *__fromfirst;
     ++__dest;
@@ -46,11 +45,9 @@ __write_with_ascii_only_range(char unsigned const *__fromfirst,
   return __dest;
 }
 
-template <typename __DestTy>
-inline constexpr __DestTy *
-__write_with_ascii_only_badcode_range(char unsigned const *__fromfirst,
-                                      char unsigned const *__fromlast,
-                                      __DestTy *__dest) {
+template <typename __SrcTy, typename __DestTy>
+inline constexpr __DestTy *__write_with_ascii_only_badcode_range(
+    __SrcTy const *__fromfirst, __SrcTy const *__fromlast, __DestTy *__dest) {
   for (; __fromfirst != __fromlast; ++__fromfirst) {
     __DestTy __cp{*__fromfirst};
     if (0x80 <= __cp) {
@@ -65,9 +62,10 @@ __write_with_ascii_only_badcode_range(char unsigned const *__fromfirst,
 
 #include "ascii_to_ebcdic.cpp"
 
+template <typename __SrcTy>
 inline constexpr char unsigned *
-__write_ebcdic_with_ascii_only_range(char unsigned const *__fromfirst,
-                                     char unsigned const *__fromlast,
+__write_ebcdic_with_ascii_only_range(__SrcTy const *__fromfirst,
+                                     __SrcTy const *__fromlast,
                                      char unsigned *__dest) {
   for (; __fromfirst != __fromlast; ++__fromfirst) {
     *__dest = ::std::error_domains::__herbceptions_detail::__ascii_to_ebcdic(
