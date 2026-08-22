@@ -24,6 +24,41 @@ constexpr ::std::io_scatter_t __to_u8scatter_from_errno(int __eno) noexcept {
 #include "posix_table.hpp"
   }
 }
+
+inline constexpr ::std::io_scatter_t
+posix_name_message_range(::std::error_reporter_encoding encoding,
+                         ::std::size_t startpos, ::std::size_t n) noexcept {
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    return {"\xAD\x97\x96\xA2\x89\xA7\xBD", 7u};
+  }
+  case ::std::error_reporter_encoding::utf16: {
+    return {u"[posix]", 7u * sizeof(char16_t)};
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    return {U"[posix]", 7u * sizeof(char32_t)};
+  }
+  default: {
+    return {u8"[posix]", 7u};
+  }
+  }
+
+  inline constexpr ::std::io_scatter_t posix_name(
+      ::std::error_reporter_encoding encoding) noexcept {
+    /*
+    posix
+    */
+    return posix_name_message_range(encoding, 1u, 5u);
+  }
+
+  inline constexpr ::std::io_scatter_t posix_name_message(
+      ::std::error_reporter_encoding encoding) noexcept {
+    /*
+    [posix]
+    */
+    return posix_name_message_range(encoding, 0u, 7u);
+  }
+
 } // namespace
 } // namespace __herbceptions_detail
 
@@ -51,46 +86,15 @@ constinit ::std::error_domain_singleton __posix_error_domain{
           alignas(char32_t) char unsigned __buffer[__errno_max_bytes];
           switch (query) {
           case ::std::error_query_information::name: {
-            switch (encoding) {
-            case ::std::error_reporter_encoding::utfebcdic: {
-              *__pos = {"\x97\x96\xA2\x89\xA7", 5u};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf16: {
-              *__pos = {u"posix", 5u * sizeof(char16_t)};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf32: {
-              *__pos = {U"posix", 5u * sizeof(char32_t)};
-              break;
-            }
-            default: {
-              *__pos = {u8"posix", 5u};
-              break;
-            }
-            }
+            *__pos = ::std::error_domains::__herbceptions_detail::posix_name(
+                encoding);
             ++__pos;
             break;
           }
           case ::std::error_query_information::name_message: {
-            switch (encoding) {
-            case ::std::error_reporter_encoding::utfebcdic: {
-              *__pos = {"\xAD\x97\x96\xA2\x89\xA7\xBD", 7u};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf16: {
-              *__pos = {u"[posix]", 7u * sizeof(char16_t)};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf32: {
-              *__pos = {U"[posix]", 7u * sizeof(char32_t)};
-              break;
-            }
-            default: {
-              *__pos = {u8"[posix]", 7u};
-              break;
-            }
-            }
+            *__pos =
+                ::std::error_domains::__herbceptions_detail::posix_name_message(
+                    encoding);
             ++__pos;
             [[fallthrough]];
           }
