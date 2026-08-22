@@ -18,6 +18,26 @@
 
 namespace std::error_domains {
 namespace {
+
+inline constexpr ::std::io_scatter_t
+com_name_message_range(::std::error_reporter_encoding encoding,
+                       ::std::size_t startpos, ::std::size_t n) noexcept {
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    return {&startpos["\xC3\x96\x94\x93\xBD"], n}; // 5 bytes
+  }
+  case ::std::error_reporter_encoding::utf16: {
+    return {&startpos[u"[com]"], n * sizeof(char16_t)};
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    return {&startpos[U"[com]"], n * sizeof(char32_t)};
+  }
+  default: {
+    return {&startpos[u8"[com]"], n};
+  }
+  }
+}
+
 using namespace __herbceptions_detail;
 
 constinit ::std::error_domain_singleton __com_error_domain{

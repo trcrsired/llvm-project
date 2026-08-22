@@ -30,6 +30,26 @@
 
 namespace std::error_domains {
 namespace {
+
+inline constexpr ::std::io_scatter_t
+nt_name_message_range(::std::error_reporter_encoding encoding,
+                      ::std::size_t startpos, ::std::size_t n) noexcept {
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    return {&startpos["\xAD\xA3\xA3\xBD"], n}; // 4 bytes
+  }
+  case ::std::error_reporter_encoding::utf16: {
+    return {&startpos[u"[nt]"], n * sizeof(char16_t)};
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    return {&startpos[U"[nt]"], n * sizeof(char32_t)};
+  }
+  default: {
+    return {&startpos[u8"[nt]"], n};
+  }
+  }
+}
+
 using namespace __herbceptions_detail;
 
 // The ntkernel table is entirely ASCII, so widening to UTF-16/UTF-32 is a

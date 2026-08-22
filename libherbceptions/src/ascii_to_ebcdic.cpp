@@ -1,4 +1,5 @@
-inline constexpr unsigned char __ascii_to_ebcdic(unsigned char c) noexcept {
+template <typename T>
+inline constexpr unsigned char __ascii_to_ebcdic(T c) noexcept {
   switch (c) {
   case 0x00:
     return 0x00;
