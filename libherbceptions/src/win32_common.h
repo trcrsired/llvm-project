@@ -250,7 +250,7 @@ inline void __win32_name_message_common(
           auto buffer{reinterpret_cast<char unsigned *>(
               ::std::error_domains::__herbceptions_detail::
                   __malloc_or_heap_alloc_or_die(
-                      static_cast<::std::size_t>(dwlen) * sizeof(char32_t)))};
+                      static_cast<::std::size_t>(dwlen) * sizeof(char16_t)))};
           destbuffer.__bufferptr = buffer;
           auto __dest = ::std::error_domains::__herbceptions_detail::
               __write_with_ascii_only_range(
