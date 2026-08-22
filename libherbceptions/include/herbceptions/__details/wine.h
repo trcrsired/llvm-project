@@ -12,8 +12,6 @@ numbering, referenced from the Linux kernel header). These are the values Wine
 reports for host-side errors; they differ from the Windows API error codes and
 are independent of the host libc's errno.
 */
-#include "../error"
-#include <cstdint>
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
