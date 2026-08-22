@@ -1120,22 +1120,90 @@ ExprResult Sema::RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
                                          Loc);
 }
 
+/// Find an existing extern "C" declaration of \p Name in the translation
+/// unit, or create one implicitly. Used for the herbception runtime ABI
+/// symbols that the compiler fabricates calls to without requiring any
+/// user header.
+static FunctionDecl *
+findOrCreateImplicitExternCFunction(Sema &S, StringRef Name, QualType RetTy,
+                                    ArrayRef<QualType> ParamTys,
+                                    SourceLocation Loc) {
+  ASTContext &C = S.Context;
+  DeclContext *TU = C.getTranslationUnitDecl();
+  IdentifierInfo &II = C.Idents.get(Name);
+
+  // Reuse an existing declaration (e.g. from <herbceptions/error>) only
+  // when its signature matches exactly, so attributes survive onto the call.
+  LookupResult R(S, &II, Loc, Sema::LookupOrdinaryName);
+  if (S.LookupQualifiedName(R, TU))
+    if (auto *FD = R.getAsSingle<FunctionDecl>())
+      if (FD->getNumParams() == ParamTys.size() &&
+          S.Context.hasSameType(FD->getReturnType(), RetTy)) {
+        bool Match = true;
+        for (unsigned I = 0; Match && I != ParamTys.size(); ++I)
+          Match = S.Context.hasSameType(FD->getParamDecl(I)->getType(),
+                                        ParamTys[I]);
+        if (Match)
+          return FD;
+      }
+
+  DeclContext *Parent = TU;
+  if (S.getLangOpts().CPlusPlus) {
+    LinkageSpecDecl *CLinkageDecl = LinkageSpecDecl::Create(
+        C, Parent, Loc, Loc, LinkageSpecLanguageIDs::C, false);
+    CLinkageDecl->setImplicit();
+    Parent->addDecl(CLinkageDecl);
+    Parent = CLinkageDecl;
+  }
+
+  FunctionProtoType::ExtProtoInfo EPI;
+  QualType FnTy = C.getFunctionType(RetTy, ParamTys, EPI);
+  FunctionDecl *FD = FunctionDecl::Create(
+      C, Parent, Loc, Loc, DeclarationName(&II), FnTy,
+      /*TInfo=*/nullptr, SC_Extern, S.getCurFPFeatures().isFPConstrained(),
+      /*isInlineSpecified=*/false, /*hasBody=*/false,
+      ConstexprSpecKind::Unspecified);
+  FD->setImplicit();
+
+  SmallVector<ParmVarDecl *, 2> Params;
+  for (unsigned I = 0; I != ParamTys.size(); ++I) {
+    ParmVarDecl *Parm = ParmVarDecl::Create(
+        C, FD, SourceLocation(), SourceLocation(), nullptr, ParamTys[I],
+        /*TInfo=*/nullptr, SC_None, nullptr);
+    Parm->setScopeInfo(0, I);
+    Params.push_back(Parm);
+  }
+  FD->setParams(Params);
+  Parent->addDecl(FD);
+  return FD;
+}
+
+/// Build a plain call to a resolved free FunctionDecl.
+static ExprResult buildImplicitExternCCall(FunctionDecl *Fn, MultiExprArg Args,
+                                           SourceLocation Loc, Sema &S) {
+  DeclarationNameInfo NameInfo(Fn->getDeclName(), Loc);
+  ExprResult DRE =
+      S.BuildDeclarationNameExpr(CXXScopeSpec(), NameInfo, Fn, /*FoundD=*/Fn);
+  if (DRE.isInvalid())
+    return ExprError();
+  return S.BuildCallExpr(nullptr, DRE.get(), Loc, Args, Loc);
+}
+
 /// Build the compiler-fabricated `std::error` value that captures a legacy
-/// C++ exception: `{error_domain<std::exception_ptr>::domain(), code}` where
-/// `code` is the result of the domain's compiler fabrication entry point:
-/// `error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_itanium(thrown_ptr)`
-/// (Itanium) or `..._msvc()` (MSVC). This is used when a legacy
-/// exception (thrown by a `noexcept(false)` function) is converted to the
-/// herbception channel: inside a `try { } catch throws(std::error e)` block,
-/// or escaping a `throws` function. The domain is looked up through the user's
-/// `error_domain<std::exception_ptr>` specialization (the compiler does not
-/// hardcode the singleton).
+/// C++ exception: `{__cxa_error_domain_*_exception_ptr(),
+/// __cxa_error_code_*_exception_ptr(thrown_ptr)}`. These are direct ABI
+/// symbols provided by libherbceptions; the compiler emits plain extern "C"
+/// calls to them without consulting any error_domain<std::exception_ptr>
+/// specialization or header templates. Used when a legacy exception
+/// (thrown by a `noexcept(false)` function) is converted to the herbception
+/// channel: inside a `try { } catch throws(std::error e)` block, or escaping
+/// a `throws` function.
 ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
-  // Best-effort conversion: locate std::exception_ptr, its error_domain
-  // specialization, and std::error. When any of these is missing (e.g. the
-  // exception_ptr header is not included), return ExprError silently so the
-  // catch-throws handler still catches herbception throws — the legacy-EH
-  // conversion is simply unavailable.
+  // Best-effort conversion: requires std::exception_ptr and std::error to be
+  // visible (any standard <exception> inclusion suffices). When either is
+  // missing, return ExprError silently so the catch-throws handler still
+  // catches herbception throws -- the legacy-EH conversion is simply
+  // unavailable.
   QualType ExPtrTy;
   if (NamespaceDecl *Std = getStdNamespace()) {
     LookupResult R(*this, &PP.getIdentifierTable().get("exception_ptr"), Loc,
@@ -1148,47 +1216,37 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   if (ExPtrTy.isNull())
     return ExprError();
 
-  // error_domain<std::exception_ptr>::domain() — the domain singleton.
-  CXXRecordDecl *Domain = lookupErrorDomain(Loc, ExPtrTy);
-  CXXMethodDecl *DomainFn =
-      Domain ? findStaticMember(*this, Domain, "domain", Loc, false) : nullptr;
-  if (!DomainFn)
-    return ExprError();
-  ExprResult DomainCall = buildStaticMemberCall(*this, DomainFn, {}, Loc);
+  bool IsMSVC{Context.getTargetInfo().getCXXABI().isMicrosoft()};
+
+  // __cxa_error_domain_{itanium,msvc}_exception_ptr() -> domain singleton
+  // pointer. Declared void const * here; EmitErrorValueExpr coerces to the
+  // std::error domain field type.
+  FunctionDecl *DomainFn = findOrCreateImplicitExternCFunction(
+      *this,
+      IsMSVC ? "__cxa_error_domain_msvc_exception_ptr"
+             : "__cxa_error_domain_itanium_exception_ptr",
+      Context.getPointerType(Context.VoidTy.withConst()), {}, Loc);
+  ExprResult DomainCall = buildImplicitExternCCall(DomainFn, {}, Loc, *this);
   if (DomainCall.isInvalid())
     return ExprError();
 
-  // error_domain<std::exception_ptr>::__builtin_herbceptions_exception_ptr_domain_{msvc,itanium}()
-  // — the compiler fabrication entry point that turns the caught thrown-object
-  // pointer or void
-  bool IsMSVC{getLangOpts().MSVCCompat != 0};
-  const char *FabName = IsMSVC ? "msvc" : "itanium";
-  std::string FnName = std::string("__builtin_herbceptions_exception_ptr_domain_") +
-                       FabName;
-  CXXMethodDecl *FabFn =
-      findStaticMember(*this, Domain, FnName.c_str(), Loc, true);
-  if (!FabFn)
-    return ExprError();
-
-  auto NumParams{FabFn->getNumParams()};
-  if ((IsMSVC && NumParams != 0) || (!IsMSVC && NumParams != 1)) {
-    return ExprError();
-  }
-  // The magic thrown-object-pointer operand: CodeGen lowers it to
-  // __cxa_get_exception_ptr (Itanium) /
-  // wasm.get.exception (Wasm). It is passed to the fabrication entry point.
-  // MSVC uses thread local __current_exception() so it does not need entry
-
-  Expr *CxaOperand = nullptr;
-  MutableArrayRef<Expr *> CxaOperandArgs;
-  QualType VoidPtrTy = Context.VoidPtrTy;
-  CxaOperand = new (Context) CXXCxaExceptionExpr(VoidPtrTy, Loc);
-
+  // __cxa_error_code_itanium_exception_ptr(void *) / (no args, msvc): mint
+  // the code from the caught thrown-object pointer, refcounting it. The
+  // operand lowers to __cxa_get_exception_ptr / llvm.eh.exceptionpointer /
+  // wasm.get.exception per personality.
+  SmallVector<QualType, 1> CodeParamTys;
+  SmallVector<Expr *, 1> CodeArgs;
+  Expr *CxaOperand = new (Context) CXXCxaExceptionExpr(Context.VoidPtrTy, Loc);
   if (!IsMSVC) {
-    CxaOperandArgs = MutableArrayRef<Expr *>(&CxaOperand, 1);
+    CodeParamTys.push_back(Context.VoidPtrTy);
+    CodeArgs.push_back(CxaOperand);
   }
-  ExprResult CodeCall =
-      buildStaticMemberCall(*this, FabFn, CxaOperandArgs, Loc);
+  FunctionDecl *CodeFn = findOrCreateImplicitExternCFunction(
+      *this,
+      IsMSVC ? "__cxa_error_code_msvc_exception_ptr"
+             : "__cxa_error_code_itanium_exception_ptr",
+      Context.getSizeType(), CodeParamTys, Loc);
+  ExprResult CodeCall = buildImplicitExternCCall(CodeFn, CodeArgs, Loc, *this);
   if (CodeCall.isInvalid())
     return ExprError();
 

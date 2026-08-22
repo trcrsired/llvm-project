@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cxxabi.h>
+#include <exception>
 #include <unwind.h>
 
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
@@ -184,7 +185,7 @@ classify_itanium_cxa_eh(_Unwind_Exception const *uh) noexcept {
 #ifdef _LIBCPPABI_VERSION
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
-__libherbceptions_exception_ptr_domain_itanium(void *eh) noexcept {
+__cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
   if (eh) {
     auto *hdr{static_cast<itanium_cxa_exception *>(eh) - 1};
     if (itanium_cxa_eh_flavor::foreign ==
