@@ -12,9 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "domain_helpers.h"
-
 #if defined(_WIN32) || defined(__CYGWIN__)
+
+#include "domain_helpers.h"
 
 namespace std::error_domains {
 namespace {

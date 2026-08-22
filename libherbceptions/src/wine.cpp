@@ -15,9 +15,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "simple_query_information_common.h"
-
 #if defined(_WIN32) || defined(__CYGWIN__)
+
+#include "simple_query_information_common.h"
 
 namespace {
 constinit ::std::error_domain_singleton __wine_error_domain{

@@ -20,10 +20,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+
 #include "domain_helpers.h"
 #include "ntkernel.h"
-
-#if defined(_WIN32) || defined(__CYGWIN__)
 
 #include <cerrno>
 #include <cstdint>
