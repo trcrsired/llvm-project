@@ -256,7 +256,7 @@ void __itanium_cxa_rethrow_primary_exception(void* thrown_object)
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
-__libherbceptions_exception_ptr_domain_itanium(void *eh) noexcept {
+__cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
   itanium_cxa_increment_exception_refcount(eh);
   return reinterpret_cast<::std::size_t>(eh);
 }

@@ -24,12 +24,12 @@ namespace std::error_domains {
 extern "C" __HERBCEPTIONS_CXA_CODE_API ::std::error_domain_singleton const *
 __cxa_error_domain_msvc_exception_ptr() noexcept;
 extern "C" __HERBCEPTIONS_CXA_CODE_API ::std::size_t
-__libherbceptions_exception_ptr_domain_msvc() noexcept;
+__cxa_error_code_msvc_exception_ptr() noexcept;
 #else
 extern "C" __HERBCEPTIONS_CXA_CODE_API ::std::error_domain_singleton const *
 __cxa_error_domain_itanium_exception_ptr() noexcept;
 extern "C" ::std::size_t
-__libherbceptions_exception_ptr_domain_itanium(void *) noexcept;
+__cxa_error_code_itanium_exception_ptr(void *) noexcept;
 #endif
 #undef __HERBCEPTIONS_CXA_CODE_API
 } // namespace std::error_domains
@@ -40,12 +40,12 @@ template <> class error_domain<::std::exception_ptr> {
 #ifdef _MSC_VER
   static inline ::std::size_t
   __builtin_herbceptions_exception_ptr_domain_msvc() noexcept {
-    return ::std::error_domains::__libherbceptions_exception_ptr_domain_msvc();
+    return ::std::error_domains::__cxa_error_code_msvc_exception_ptr();
   }
 #else
   static inline ::std::size_t
   __builtin_herbceptions_exception_ptr_domain_itanium(void *__ehptr) noexcept {
-    return ::std::error_domains::__libherbceptions_exception_ptr_domain_itanium(
+    return ::std::error_domains::__cxa_error_code_itanium_exception_ptr(
         __ehptr);
   }
 #endif
