@@ -50,8 +50,7 @@ wide, each of the largest supported character size.
 */
 inline constexpr ::std::io_scatter_t
 __com_code_scatter(::std::error_reporter_encoding encoding,
-                   ::std::uint_least32_t hr,
-                   char unsigned *__numbuf) noexcept {
+                   ::std::uint_least32_t hr, char unsigned *__numbuf) noexcept {
   switch (encoding) {
   case ::std::error_reporter_encoding::utfebcdic: {
     auto *__dest{::std::error_domains::__herbceptions_detail::
@@ -65,10 +64,10 @@ __com_code_scatter(::std::error_reporter_encoding encoding,
         [[__gnu__::__may_alias__]]
 #endif
         = char16_t *;
-    auto *__dest{::std::error_domains::__herbceptions_detail::
-                     __format_hex_value_full_with_bracket<false, char16_t>(
-                         reinterpret_cast<__char16_may_alias_ptr>(__numbuf),
-                         hr)};
+    auto *__dest{
+        ::std::error_domains::__herbceptions_detail::
+            __format_hex_value_full_with_bracket<false, char16_t>(
+                reinterpret_cast<__char16_may_alias_ptr>(__numbuf), hr)};
     return {__numbuf,
             static_cast<::std::size_t>(
                 reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
@@ -79,18 +78,18 @@ __com_code_scatter(::std::error_reporter_encoding encoding,
         [[__gnu__::__may_alias__]]
 #endif
         = char32_t *;
-    auto *__dest{::std::error_domains::__herbceptions_detail::
-                     __format_hex_value_full_with_bracket<false, char32_t>(
-                         reinterpret_cast<__char32_may_alias_ptr>(__numbuf),
-                         hr)};
+    auto *__dest{
+        ::std::error_domains::__herbceptions_detail::
+            __format_hex_value_full_with_bracket<false, char32_t>(
+                reinterpret_cast<__char32_may_alias_ptr>(__numbuf), hr)};
     return {__numbuf,
             static_cast<::std::size_t>(
                 reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
   }
   default: {
     auto *__dest{::std::error_domains::__herbceptions_detail::
-                     __format_hex_value_full_with_bracket<
-                         false, char unsigned>(__numbuf, hr)};
+                     __format_hex_value_full_with_bracket<false, char unsigned>(
+                         __numbuf, hr)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
   }
@@ -136,17 +135,14 @@ constinit ::std::error_domain_singleton __com_error_domain{
           // HRESULT_CODE. Other combinations compare through std::errc.
           ::std::int_least8_t rule{-1};
           if ((hr & com_facility_nt_bit) != 0) {
-            if (otherdomain ==
-                ::std::error_domains::__cxa_error_domain_nt()) {
+            if (otherdomain == ::std::error_domains::__cxa_error_domain_nt()) {
               rule = nt_com_equivalent(
                   static_cast<::std::uint_least32_t>(othercd), hr);
             }
           } else if (otherdomain ==
                      ::std::error_domains::__cxa_error_domain_win32()) {
-            rule =
-                com_win32_equivalent(hr,
-                                     static_cast<::std::uint_least32_t>(
-                                         othercd));
+            rule = com_win32_equivalent(
+                hr, static_cast<::std::uint_least32_t>(othercd));
           }
           if (rule >= 0)
             return rule == 1;
@@ -188,17 +184,17 @@ constinit ::std::error_domain_singleton __com_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned __numbuf
-                  [__herbceptions_detail::__format_hex_value_max_size_with_brackets<
-                           ::std::uint_least32_t> *
-                   sizeof(char32_t)];
+              alignas(char32_t) char unsigned
+                  __numbuf[__herbceptions_detail::
+                               __format_hex_value_max_size_with_brackets<
+                                   ::std::uint_least32_t> *
+                           sizeof(char32_t)];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = com_name_message_range(encoding, 0u, 5u);
                 ++scatterlen;
               }
-              scatters[scatterlen] =
-                  __com_code_scatter(encoding, hr, __numbuf);
+              scatters[scatterlen] = __com_code_scatter(encoding, hr, __numbuf);
               ++scatterlen;
               break;
             }
@@ -218,38 +214,35 @@ constinit ::std::error_domain_singleton __com_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned __numbuf
-                  [__herbceptions_detail::__format_hex_value_max_size_with_brackets<
-                           ::std::uint_least32_t> *
-                   sizeof(char32_t)];
+              alignas(char32_t) char unsigned
+                  __numbuf[__herbceptions_detail::
+                               __format_hex_value_max_size_with_brackets<
+                                   ::std::uint_least32_t> *
+                           sizeof(char32_t)];
               if (::std::error_query_information::name_message == query) {
                 *scatters = com_name_message_range(encoding, 0u, 5u);
                 ++scatterlen;
               }
-              scatters[scatterlen] =
-                  __com_code_scatter(encoding, hr, __numbuf);
+              scatters[scatterlen] = __com_code_scatter(encoding, hr, __numbuf);
               ++scatterlen;
               if (hr & com_facility_nt_bit) {
                 ntkernel_field const *f{
                     __herbceptions_detail::find_ntstatus_with_message(
                         hr & ~com_facility_nt_bit)};
                 if (f != nullptr && f->message_size != 0) {
-                  char unsigned const *from_first{reinterpret_cast<
-                      char unsigned const *>(f->message)};
-                  char unsigned const *from_last{
-                      from_first + f->message_size};
-                  alignas(char32_t) char unsigned
-                      buffer[__herbceptions_detail::max_ntkernel_message_size() *
-                             sizeof(char32_t)];
+                  char unsigned const *from_first{
+                      reinterpret_cast<char unsigned const *>(f->message)};
+                  char unsigned const *from_last{from_first + f->message_size};
+                  alignas(char32_t) char unsigned buffer
+                      [__herbceptions_detail::max_ntkernel_message_size() *
+                       sizeof(char32_t)];
                   switch (encoding) {
                   case ::std::error_reporter_encoding::utfebcdic: {
-                    auto dest{
-                        ::std::error_domains::__herbceptions_detail::
-                            __write_ebcdic_with_ascii_only_range(
-                                from_first, from_last, buffer)};
+                    auto dest{::std::error_domains::__herbceptions_detail::
+                                  __write_ebcdic_with_ascii_only_range(
+                                      from_first, from_last, buffer)};
                     scatters[scatterlen] = {
-                        buffer,
-                        static_cast<::std::size_t>(dest - buffer)};
+                        buffer, static_cast<::std::size_t>(dest - buffer)};
                     break;
                   }
                   case ::std::error_reporter_encoding::utf16: {
@@ -266,8 +259,7 @@ constinit ::std::error_domain_singleton __com_error_domain{
                     scatters[scatterlen] = {
                         buffer,
                         static_cast<::std::size_t>(
-                            reinterpret_cast<char unsigned *>(dest) -
-                            buffer)};
+                            reinterpret_cast<char unsigned *>(dest) - buffer)};
                     break;
                   }
                   case ::std::error_reporter_encoding::utf32: {
@@ -284,14 +276,13 @@ constinit ::std::error_domain_singleton __com_error_domain{
                     scatters[scatterlen] = {
                         buffer,
                         static_cast<::std::size_t>(
-                            reinterpret_cast<char unsigned *>(dest) -
-                            buffer)};
+                            reinterpret_cast<char unsigned *>(dest) - buffer)};
                     break;
                   }
                   default: {
-                    scatters[scatterlen] = {from_first,
-                                            static_cast<::std::size_t>(
-                                                from_last - from_first)};
+                    scatters[scatterlen] = {
+                        from_first,
+                        static_cast<::std::size_t>(from_last - from_first)};
                     break;
                   }
                   }

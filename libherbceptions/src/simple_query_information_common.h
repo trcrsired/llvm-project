@@ -229,14 +229,15 @@ __format_decimal_value_max_size_with_brackets<::std::uint_least32_t>
 code units wide, each of the largest supported character size.
 */
 inline constexpr ::std::io_scatter_t
-__simple_query_information_common_code(
-    ::std::error_reporter_encoding encoding, ::std::uint_least32_t __code,
-    char unsigned *__numbuf) noexcept {
+__simple_query_information_common_code(::std::error_reporter_encoding encoding,
+                                       ::std::uint_least32_t __code,
+                                       char unsigned *__numbuf) noexcept {
   switch (encoding) {
   case ::std::error_reporter_encoding::utfebcdic: {
-    auto *__dest{::std::error_domains::__herbceptions_detail::
-                     __format_decimal_value_full_with_bracket<
-                         true, char unsigned>(__numbuf, __code)};
+    auto *__dest{
+        ::std::error_domains::__herbceptions_detail::
+            __format_decimal_value_full_with_bracket<true, char unsigned>(
+                __numbuf, __code)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
   case ::std::error_reporter_encoding::utf16: {
@@ -268,9 +269,10 @@ __simple_query_information_common_code(
                 reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
   }
   default: {
-    auto *__dest{::std::error_domains::__herbceptions_detail::
-                     __format_decimal_value_full_with_bracket<
-                         false, char unsigned>(__numbuf, __code)};
+    auto *__dest{
+        ::std::error_domains::__herbceptions_detail::
+            __format_decimal_value_full_with_bracket<false, char unsigned>(
+                __numbuf, __code)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
   }
@@ -306,17 +308,18 @@ inline constexpr void __simple_query_information_common(
     case ::std::error_query_information::message:
       [[fallthrough]];
     case ::std::error_query_information::name_message: {
-      alignas(char32_t) char unsigned __numbuf
-          [__format_decimal_value_max_size_with_brackets<
-                   ::std::uint_least32_t> *
-           sizeof(char32_t)];
+      alignas(char32_t) char unsigned
+          __numbuf[__format_decimal_value_max_size_with_brackets<
+                       ::std::uint_least32_t> *
+                   sizeof(char32_t)];
       __scatterlen = 0u;
       if (::std::error_query_information::name_message == query) {
         *__scatters =
             __simple_query_information_common_message(encoding, which_errc);
         ++__scatterlen;
       }
-      __scatters[__scatterlen] = __simple_query_information_common_code(encoding, __code, __numbuf);
+      __scatters[__scatterlen] =
+          __simple_query_information_common_code(encoding, __code, __numbuf);
       ++__scatterlen;
       break;
     }
@@ -343,20 +346,20 @@ inline constexpr void __simple_query_information_common(
     case ::std::error_query_information::message:
       [[fallthrough]];
     case ::std::error_query_information::name_message: {
-      alignas(char32_t) char unsigned __numbuf
-          [__format_decimal_value_max_size_with_brackets<
-                   ::std::uint_least32_t> *
-           sizeof(char32_t)];
+      alignas(char32_t) char unsigned
+          __numbuf[__format_decimal_value_max_size_with_brackets<
+                       ::std::uint_least32_t> *
+                   sizeof(char32_t)];
       if (::std::error_query_information::name_message == query) {
         *__scatters =
             __simple_query_information_common_message(encoding, which_errc);
         ++__scatterlen;
       }
-      __scatters[__scatterlen] = __simple_query_information_common_code(encoding, __code, __numbuf);
+      __scatters[__scatterlen] =
+          __simple_query_information_common_code(encoding, __code, __numbuf);
       ++__scatterlen;
-      auto __scatter{
-          ::std::error_domains::__herbceptions_detail::__to_u8scatter_from_errcs(
-              __code, which_errc)};
+      auto __scatter{::std::error_domains::__herbceptions_detail::
+                         __to_u8scatter_from_errcs(__code, which_errc)};
       char unsigned const *__from_first{
           reinterpret_cast<char unsigned const *>(__scatter.base)};
       char unsigned const *__from_last{__from_first + __scatter.len};

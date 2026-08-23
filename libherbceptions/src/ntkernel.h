@@ -122,8 +122,7 @@ __ntkernel_search(T const *table, ::std::size_t count,
 // search finds the row in O(log n) instead of a linear scan. In freestanding
 // kernel mode only the codes-only table is searched, so the descriptive
 // strings are never referenced.
-inline constexpr auto
-find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
+inline constexpr auto find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
   if constexpr (__ntkernel_freestanding) {
     return __ntkernel_search(ntkernel_table_freestanding,
                              sizeof(ntkernel_table_freestanding) /
@@ -131,8 +130,7 @@ find_ntstatus(::std::uint_least32_t ntstatus) noexcept {
                              ntstatus);
   } else {
     return __ntkernel_search(ntkernel_table,
-                             sizeof(ntkernel_table) /
-                                 sizeof(*ntkernel_table),
+                             sizeof(ntkernel_table) / sizeof(*ntkernel_table),
                              ntstatus);
   }
 }
