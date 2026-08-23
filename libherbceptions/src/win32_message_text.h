@@ -24,36 +24,33 @@ released before return; the collector must consume the bytes immediately.
 */
 inline void __report_win32_message_text(
     ::std::uint_least32_t win32err, ::std::error_reporter_encoding encoding,
-    void *cookie,
-    ::std::error_reporter_io_cookie_function cookfun) noexcept {
+    void *cookie, ::std::error_reporter_io_cookie_function cookfun) noexcept {
   using fromptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
       [[__gnu__::__may_alias__]]
 #endif
-      = ::std::conditional_t<__win32_use_9xa_apis, char unsigned *,
-                             char16_t *>;
+      = ::std::conditional_t<__win32_use_9xa_apis, char unsigned *, char16_t *>;
   constexpr ::std::uint_least32_t flags{FORMAT_MESSAGE_FROM_SYSTEM |
                                         FORMAT_MESSAGE_IGNORE_INSERTS |
                                         FORMAT_MESSAGE_ALLOCATE_BUFFER};
   __local_free_temp_buffer frombuffer;
   ::std::uint_least32_t dwlen{};
   if constexpr (__win32_use_9xa_apis) {
-    dwlen = FormatMessageA(flags, nullptr, win32err,
-                           MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
-                           reinterpret_cast<char *>(__builtin_addressof(
-                               frombuffer.__bufferptr)),
-                           0, nullptr);
+    dwlen = FormatMessageA(
+        flags, nullptr, win32err, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+        reinterpret_cast<char *>(__builtin_addressof(frombuffer.__bufferptr)),
+        0, nullptr);
   } else {
     using wcharmayaliasptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
         [[__gnu__::__may_alias__]]
 #endif
         = wchar_t *;
-    dwlen = FormatMessageW(
-        flags, nullptr, win32err, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
-        reinterpret_cast<wcharmayaliasptr>(
-            __builtin_addressof(frombuffer.__bufferptr)),
-        0, nullptr);
+    dwlen = FormatMessageW(flags, nullptr, win32err,
+                           MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+                           reinterpret_cast<wcharmayaliasptr>(
+                               __builtin_addressof(frombuffer.__bufferptr)),
+                           0, nullptr);
   }
   if (!dwlen) {
     return;
@@ -71,9 +68,8 @@ inline void __report_win32_message_text(
     auto buffer{reinterpret_cast<char unsigned *>(frombuffer.__bufferptr)};
     auto dest{__write_ebcdic_with_ascii_only_range(__from_first, __from_last,
                                                    buffer)};
-    scatter = {buffer,
-               static_cast<::std::size_t>(
-                   reinterpret_cast<char unsigned *>(dest) - buffer)};
+    scatter = {buffer, static_cast<::std::size_t>(
+                           reinterpret_cast<char unsigned *>(dest) - buffer)};
     break;
   }
   case ::std::error_reporter_encoding::utf32: {
@@ -89,16 +85,14 @@ inline void __report_win32_message_text(
         ::std::abort();
       }
     }
-    auto buffer{reinterpret_cast<char unsigned *>(
-        __malloc_or_heap_alloc_or_die(static_cast<::std::size_t>(dwlen) *
-                                      sizeof(char32_t)))};
+    auto buffer{reinterpret_cast<char unsigned *>(__malloc_or_heap_alloc_or_die(
+        static_cast<::std::size_t>(dwlen) * sizeof(char32_t)))};
     destbuffer.__bufferptr = buffer;
     auto dest{__write_with_ascii_only_range(
         __from_first, __from_last,
         reinterpret_cast<__char32_may_alias_ptr>(buffer))};
-    scatter = {buffer,
-               static_cast<::std::size_t>(
-                   reinterpret_cast<char unsigned *>(dest) - buffer)};
+    scatter = {buffer, static_cast<::std::size_t>(
+                           reinterpret_cast<char unsigned *>(dest) - buffer)};
     break;
   }
   case ::std::error_reporter_encoding::utf8:
@@ -110,11 +104,10 @@ inline void __report_win32_message_text(
                      reinterpret_cast<char unsigned *>(__from_first))};
     } else {
       auto buffer{reinterpret_cast<char unsigned *>(frombuffer.__bufferptr)};
-      auto dest{__write_with_ascii_only_range(__from_first, __from_last,
-                                              buffer)};
-      scatter = {buffer,
-                 static_cast<::std::size_t>(
-                     reinterpret_cast<char unsigned *>(dest) - buffer)};
+      auto dest{
+          __write_with_ascii_only_range(__from_first, __from_last, buffer)};
+      scatter = {buffer, static_cast<::std::size_t>(
+                             reinterpret_cast<char unsigned *>(dest) - buffer)};
     }
     break;
   }
@@ -132,9 +125,9 @@ inline void __report_win32_message_text(
           ::std::abort();
         }
       }
-      auto buffer{reinterpret_cast<char unsigned *>(
-          __malloc_or_heap_alloc_or_die(static_cast<::std::size_t>(dwlen) *
-                                        sizeof(char16_t)))};
+      auto buffer{
+          reinterpret_cast<char unsigned *>(__malloc_or_heap_alloc_or_die(
+              static_cast<::std::size_t>(dwlen) * sizeof(char16_t)))};
       destbuffer.__bufferptr = buffer;
       auto __dest{__write_with_ascii_only_range(
           __from_first, __from_last,

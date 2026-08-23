@@ -189,8 +189,7 @@ inline constexpr Chtype *__format_hex_value_full(Chtype *dest, T val) noexcept {
       constexpr unsignedtype zero{};
       uval = static_cast<unsignedtype>(zero - uval);
     }
-    return __format_hex_value_full<isebcdic, Chtype, unsignedtype>(dest,
-                                                                   uval);
+    return __format_hex_value_full<isebcdic, Chtype, unsignedtype>(dest, uval);
   }
 }
 
@@ -206,10 +205,10 @@ inline constexpr Chtype *__format_hex_value_full_with_bracket(Chtype *dest,
       isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
                : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
   };
-  constexpr Chtype chzero{
-      isebcdic ? static_cast<Chtype>(0xF0) : static_cast<Chtype>(u8'0')};
-  constexpr Chtype chx{
-      isebcdic ? static_cast<Chtype>(0xA7) : static_cast<Chtype>(u8'x')};
+  constexpr Chtype chzero{isebcdic ? static_cast<Chtype>(0xF0)
+                                   : static_cast<Chtype>(u8'0')};
+  constexpr Chtype chx{isebcdic ? static_cast<Chtype>(0xA7)
+                                : static_cast<Chtype>(u8'x')};
 
   *dest = leftbracket;
   ++dest;
@@ -218,8 +217,8 @@ inline constexpr Chtype *__format_hex_value_full_with_bracket(Chtype *dest,
   *dest = chx;
   ++dest;
 
-  dest = ::std::error_domains::__herbceptions_detail::
-      __format_hex_value_full<isebcdic>(dest, val);
+  dest = ::std::error_domains::__herbceptions_detail::__format_hex_value_full<
+      isebcdic>(dest, val);
 
   *dest = rightbracket;
   ++dest;
@@ -242,8 +241,8 @@ Writes "(<decimal digits>)" in the requested charset (ASCII/UTF-8 family or
 EBCDIC). T must be unsigned. Returns one past the last written character.
 */
 template <bool isebcdic, typename Chtype, typename T>
-inline constexpr Chtype *__format_decimal_value_full_with_bracket(
-    Chtype *dest, T val) noexcept {
+inline constexpr Chtype *
+__format_decimal_value_full_with_bracket(Chtype *dest, T val) noexcept {
   using unsignedchtype = ::std::make_unsigned_t<Chtype>;
   static_assert(::std::is_integral_v<T>);
   static_assert(!::std::is_signed_v<T>);
@@ -255,9 +254,9 @@ inline constexpr Chtype *__format_decimal_value_full_with_bracket(
       isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
                : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
   };
-  constexpr unsignedchtype chzero{
-      isebcdic ? static_cast<unsignedchtype>(0xF0)
-               : static_cast<unsignedchtype>(u8'0')};
+  constexpr unsignedchtype chzero{isebcdic
+                                      ? static_cast<unsignedchtype>(0xF0)
+                                      : static_cast<unsignedchtype>(u8'0')};
   *dest = leftbracket;
   ++dest;
   ::std::size_t ndigits{1u};

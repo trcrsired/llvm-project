@@ -320,7 +320,8 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
               // type_info. When the RTTI graph proves a single-inheritance
               // path to std::exception, that subobject sits at offset 0 of
               // the thrown object, so dispatch directly through it.
-              if (printable_encoding && thrown && rtti_si_derives_from(
+              if (printable_encoding && thrown &&
+                  rtti_si_derives_from(
                       hdr->exceptionType,
                       __builtin_addressof(typeid(::std::exception)))) {
                 auto *se{static_cast<::std::exception *>(thrown)};
@@ -404,9 +405,9 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                 }
               }
 
-              auto [name, message] = itanium_exception_writestr(
-                  ehname, ehname_len, ehmessage, ehmessage_len, encoding,
-                  buffer);
+              auto [name, message] =
+                  itanium_exception_writestr(ehname, ehname_len, ehmessage,
+                                             ehmessage_len, encoding, buffer);
               switch (query) {
               case ::std::error_query_information::name: {
                 *scatters = itanium_exception_name(encoding);
@@ -420,8 +421,8 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                   scatters[2] = right_parenthese(encoding);
                   scatterlen = 3u;
                 } else {
-                  *scatters = unknown_itanium_exception_message_partial(
-                      encoding);
+                  *scatters =
+                      unknown_itanium_exception_message_partial(encoding);
                   scatterlen = 1u;
                 }
                 if (message.len) {
