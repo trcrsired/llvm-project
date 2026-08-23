@@ -100,6 +100,10 @@ function(add_herbceptions_library target kind)
     # Don't export standard headers' symbols on Windows.
     target_compile_options(${target} PRIVATE /Zl)
   endif()
+  if(WIN32 OR CYGWIN)
+    # The runtime reaches the process heap through ntdll directly.
+    target_link_options(${target} PRIVATE -lntdll)
+  endif()
 endfunction()
 
 if(HERBCEPTIONS_BUILD_SHARED)
@@ -161,5 +165,54 @@ if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
     endif()
 
     add_test(NAME herbceptions_domain_test COMMAND herbceptions_domain_test)
+  endif()
+endif()
+
+# -----------------------------------------------------------------------------
+# Fuzzers
+#
+# HERBCEPTIONS_BUILD_FUZZERS=ON builds LLVMFuzzerTestOneInput targets.
+# HERBCEPTIONS_FUZZ_ENGINE=ON additionally links them against libFuzzer
+# (-fsanitize=fuzzer); otherwise a standalone replay driver (files/stdin)
+# is compiled into each target.
+# -----------------------------------------------------------------------------
+option(HERBCEPTIONS_BUILD_FUZZERS "Build the libherbceptions fuzz targets" OFF)
+option(HERBCEPTIONS_FUZZ_ENGINE
+       "Link the fuzz targets against libFuzzer (-fsanitize=fuzzer)" OFF)
+
+if(HERBCEPTIONS_BUILD_FUZZERS AND NOT HERBCEPTIONS_FREESTANDING)
+  # Prefer the shared library: the public accessors are declared
+  # __declspec(dllimport) for consumers on Windows.
+  set(HERBCEPTIONS_FUZZ_LIB herbceptions)
+  if(NOT HERBCEPTIONS_BUILD_SHARED AND HERBCEPTIONS_BUILD_STATIC)
+    set(HERBCEPTIONS_FUZZ_LIB herbceptions_static)
+  endif()
+
+  function(add_herbceptions_fuzzer name)
+    add_executable(${name} fuzz/${name}.cpp)
+    target_link_libraries(${name} PRIVATE ${HERBCEPTIONS_FUZZ_LIB})
+    target_include_directories(${name} PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    if(HERBCEPTIONS_FUZZ_ENGINE)
+      target_compile_definitions(${name} PRIVATE
+        HERBCEPTIONS_HAVE_FUZZ_ENGINE=1)
+      target_compile_options(${name} PRIVATE -fsanitize=fuzzer
+        -stdlib=libc++
+        $ENV{HERBCEPTIONS_LIBCXX_INC})
+      target_link_options(${name} PRIVATE -fsanitize=fuzzer
+        -stdlib=libc++ $ENV{HERBCEPTIONS_LIBCXX_LIB} -lc++ -lc++abi)
+    endif()
+    if(WIN32 OR CYGWIN)
+      # The runtime reaches the process heap through ntdll directly.
+      target_link_options(${name} PRIVATE -lntdll)
+    endif()
+  endfunction()
+
+  add_herbceptions_fuzzer(error_codes_fuzzer)
+  if(WIN32 AND MSVC)
+    add_herbceptions_fuzzer(msvc_exception_record_fuzzer)
+  endif()
+  if(UNIX OR CYGWIN OR (WIN32 AND NOT MSVC))
+    add_herbceptions_fuzzer(itanium_exception_record_fuzzer)
   endif()
 endif()
