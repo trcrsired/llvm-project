@@ -7,54 +7,28 @@
 #===----------------------------------------------------------------------===#
 #
 # libherbceptions — the error-domain runtime used by the 'throws'/'fails{E}'
-# herbception exception model. It provides the error_domain_singleton vtables
-# for the standard error domains:
+# herbception exception model. Also a first-class LLVM runtime: add
+# "libherbceptions" to LLVM_ENABLE_RUNTIMES.
 #
-#   posix  (std::errc)      — always available
-#   cxa_exception_code     — always available (legacy C++ EH carrier)
-#   win32, nt, com, wine   — only on _WIN32 / __CYGWIN__ targets
-#
-# Build targets:
-#   - herbceptions            shared library (DLL on Windows)
-#   - herbceptions_static     static library
-#   - herbceptions_headers    interface target with just the headers
-#
-# Options:
-#   - HERBCEPTIONS_BUILD_SHARED (default ON)  build the shared library
-#   - HERBCEPTIONS_BUILD_STATIC (default ON)  build the static library
-#   - HERBCEPTIONS_FREESTANDING (default OFF) build a header-only interface
-#     library with no compiled sources (no libc / OS dependencies), for
-#     freestanding environments.
-#
-#===----------------------------------------------------------------------===#
+#==========================================================================#
 
 cmake_minimum_required(VERSION 3.20)
-
-# set(CMAKE_CXX_STANDARD 26)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(libherbceptions CXX)
 endif()
 
-option(HERBCEPTIONS_BUILD_SHARED "Build the shared libherbceptions library" ON)
-option(HERBCEPTIONS_BUILD_STATIC "Build the static libherbceptions library" ON)
-option(HERBCEPTIONS_FREESTANDING
-       "Build a header-only freestanding libherbceptions (no compiled sources)"
-       OFF)
-option(HERBCEPTIONS_BUILD_TESTS "Build the libherbceptions tests" Off)
+set(HERBCEPTIONS_VERSION 1.0.0)
+string(REGEX REPLACE "^([0-9]+)\\..*" "\\1" HERBCEPTIONS_VERSION_MAJOR
+  ${HERBCEPTIONS_VERSION})
 
-set(HERBCEPTIONS_HEADERS
-  include/herbceptions/error
-  include/herbceptions/__details/posix.h
-  include/herbceptions/__details/win32.h
-  include/herbceptions/__details/nt.h
-  include/herbceptions/__details/com.h
-  include/herbceptions/__details/wine.h
-  include/herbceptions/__details/cxa_exception_code.h
-)
+option(HERBCEPTIONS_BUILD_SHARED "Build the shared library" ON)
+option(HERBCEPTIONS_BUILD_STATIC "Build the static library" ON)
+option(HERBCEPTIONS_FREESTANDING "Header-only freestanding build" OFF)
+option(HERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
+option(HERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
+option(HERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
 
-# One translation unit per error domain, so a static archive only pulls in the
-# domains actually used (reducing binary bloat).
 set(HERBCEPTIONS_SOURCES
   src/posix.cpp
   src/parse.cpp
@@ -67,16 +41,22 @@ set(HERBCEPTIONS_SOURCES
   src/wine.cpp
 )
 
+# Generated configuration header, picked up by <herbceptions/error> through
+# __has_include(<__libherbceptions_config_site.h>) (mirrors libc++).
+set(HERBCEPTIONS_CONFIG_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/include")
+configure_file(config.h.in
+  "${HERBCEPTIONS_CONFIG_INCLUDE}/__libherbceptions_config_site.h"
+  @ONLY
+)
+
 add_library(herbceptions_headers INTERFACE)
 target_include_directories(herbceptions_headers INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<BUILD_INTERFACE:${HERBCEPTIONS_CONFIG_INCLUDE}>
   $<INSTALL_INTERFACE:include>
 )
 
-# The freestanding build is header-only: it exposes the types and the
-# error_domain_singleton interface, but does not compile any runtime sources
-# (a freestanding environment provides its own domain singletons via the weak
-# ABI entry points, or simply does not use the runtime vtable at all).
+# Freestanding build: header-only, no runtime sources.
 if(HERBCEPTIONS_FREESTANDING)
   add_library(herbceptions ALIAS herbceptions_headers)
   add_library(herbceptions_static ALIAS herbceptions_headers)
@@ -85,134 +65,96 @@ if(HERBCEPTIONS_FREESTANDING)
   return()
 endif()
 
-function(add_herbceptions_library target kind)
-  add_library(${target} ${kind} ${HERBCEPTIONS_SOURCES})
-  target_include_directories(${target} PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-  )
-  target_include_directories(${target} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-  )
+add_library(herbceptions SHARED ${HERBCEPTIONS_SOURCES})
+add_library(herbceptions_static STATIC ${HERBCEPTIONS_SOURCES})
+foreach(target herbceptions herbceptions_static)
+  target_link_libraries(${target} PUBLIC herbceptions_headers)
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
-
-  if(MSVC)
-    # Don't export standard headers' symbols on Windows.
-    target_compile_options(${target} PRIVATE /Zl)
-  endif()
-  if(WIN32 OR CYGWIN)
-    # The runtime reaches the process heap through ntdll directly.
-    target_link_options(${target} PRIVATE -lntdll)
-  endif()
-endfunction()
-
-if(HERBCEPTIONS_BUILD_SHARED)
-  add_herbceptions_library(herbceptions SHARED)
-  set_target_properties(herbceptions PROPERTIES
-    OUTPUT_NAME herbceptions
-    VERSION 1.0.0
-    SOVERSION 1
-  )
+endforeach()
+set_target_properties(herbceptions PROPERTIES
+  VERSION ${HERBCEPTIONS_VERSION}
+  SOVERSION ${HERBCEPTIONS_VERSION_MAJOR}
+)
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND HERBCEPTIONS_BUILD_SHARED)
+  # The DLL's import library would collide with the static archive.
+  set_target_properties(herbceptions_static PROPERTIES
+    OUTPUT_NAME herbceptions_static)
+else()
+  set_target_properties(herbceptions_static PROPERTIES
+    OUTPUT_NAME herbceptions)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  # The runtime reaches the process heap through ntdll directly.
+  target_link_libraries(herbceptions PRIVATE ntdll)
+  target_link_libraries(herbceptions_static PRIVATE ntdll)
 endif()
 
-if(HERBCEPTIONS_BUILD_STATIC)
-  add_herbceptions_library(herbceptions_static STATIC)
-  if(WIN32 AND HERBCEPTIONS_BUILD_SHARED)
-    # On Windows the shared build's import library (herbceptions.lib) would
-    # collide with the static archive; give the static one a distinct name.
-    set_target_properties(herbceptions_static PROPERTIES
-      OUTPUT_NAME herbceptions_static)
-  else()
-    set_target_properties(herbceptions_static PROPERTIES OUTPUT_NAME herbceptions)
-  endif()
-endif()
-
-# Install rules.
 install(DIRECTORY include/
   DESTINATION include
   FILES_MATCHING PATTERN "*.h"
   PATTERN "error"
 )
-if(HERBCEPTIONS_BUILD_SHARED)
-  install(TARGETS herbceptions
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-  )
-endif()
-if(HERBCEPTIONS_BUILD_STATIC)
-  install(TARGETS herbceptions_static ARCHIVE DESTINATION lib)
-endif()
+install(FILES "${HERBCEPTIONS_CONFIG_INCLUDE}/__libherbceptions_config_site.h"
+  DESTINATION include
+)
+install(TARGETS herbceptions herbceptions_static
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+)
 
-# -----------------------------------------------------------------------------
-# Tests
-# -----------------------------------------------------------------------------
+# Tests (opt-in).
 if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
-  include(CTest)
-  if(BUILD_TESTING)
-    set(HERBCEPTIONS_TEST_LIB herbceptions)
-    if(NOT HERBCEPTIONS_BUILD_SHARED AND HERBCEPTIONS_BUILD_STATIC)
-      set(HERBCEPTIONS_TEST_LIB herbceptions_static)
-    endif()
-
-    add_executable(herbceptions_domain_test test/domain_test.cpp)
-    target_link_libraries(herbceptions_domain_test PRIVATE ${HERBCEPTIONS_TEST_LIB})
-    # The herbception type traits and the fails{E} syntax require the
-    # compiler's -fherbceptions flag.
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      target_compile_options(herbceptions_domain_test PRIVATE
-        -fherbceptions -fexceptions)
-    endif()
-
-    add_test(NAME herbceptions_domain_test COMMAND herbceptions_domain_test)
+  add_executable(herbceptions_domain_test test/domain_test.cpp)
+  target_link_libraries(herbceptions_domain_test PRIVATE herbceptions)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(herbceptions_domain_test PRIVATE
+      -fherbceptions -fexceptions)
   endif()
+  add_test(NAME herbceptions_domain_test COMMAND herbceptions_domain_test)
 endif()
 
-# -----------------------------------------------------------------------------
-# Fuzzers
-#
-# HERBCEPTIONS_BUILD_FUZZERS=ON builds LLVMFuzzerTestOneInput targets.
-# HERBCEPTIONS_FUZZ_ENGINE=ON additionally links them against libFuzzer
-# (-fsanitize=fuzzer); otherwise a standalone replay driver (files/stdin)
-# is compiled into each target.
-# -----------------------------------------------------------------------------
-option(HERBCEPTIONS_BUILD_FUZZERS "Build the libherbceptions fuzz targets" OFF)
-option(HERBCEPTIONS_FUZZ_ENGINE
-       "Link the fuzz targets against libFuzzer (-fsanitize=fuzzer)" OFF)
-
+# Fuzz targets (opt-in): LLVMFuzzerTestOneInput drivers. With
+# HERBCEPTIONS_FUZZ_ENGINE=ON they link against libFuzzer, whose runtime is
+# built against libc++; otherwise a standalone replay/mutation driver from
+# fuzz/fuzz_harness.h takes over.
 if(HERBCEPTIONS_BUILD_FUZZERS AND NOT HERBCEPTIONS_FREESTANDING)
-  # Prefer the shared library: the public accessors are declared
-  # __declspec(dllimport) for consumers on Windows.
-  set(HERBCEPTIONS_FUZZ_LIB herbceptions)
-  if(NOT HERBCEPTIONS_BUILD_SHARED AND HERBCEPTIONS_BUILD_STATIC)
-    set(HERBCEPTIONS_FUZZ_LIB herbceptions_static)
-  endif()
+  set(HERBCEPTIONS_LIBCXX_DIR
+    "$ENV{HOME}/toolchains/llvm/x86_64-linux-gnu/x86_64-linux-gnu/usr"
+    CACHE PATH "libc++ installation used by the fuzzer runtime")
 
   function(add_herbceptions_fuzzer name)
     add_executable(${name} fuzz/${name}.cpp)
-    target_link_libraries(${name} PRIVATE ${HERBCEPTIONS_FUZZ_LIB})
     target_include_directories(${name} PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(${name} PRIVATE herbceptions)
     if(HERBCEPTIONS_FUZZ_ENGINE)
       target_compile_definitions(${name} PRIVATE
         HERBCEPTIONS_HAVE_FUZZ_ENGINE=1)
+      # Only libc++ may be visible: mixing it with libstdc++ breaks.
       target_compile_options(${name} PRIVATE -fsanitize=fuzzer
-        -stdlib=libc++
-        $ENV{HERBCEPTIONS_LIBCXX_INC})
+        -nostdinc++
+        "-isystem${HERBCEPTIONS_LIBCXX_DIR}/include/c++/v1")
       target_link_options(${name} PRIVATE -fsanitize=fuzzer
-        -stdlib=libc++ $ENV{HERBCEPTIONS_LIBCXX_LIB} -lc++ -lc++abi)
+        -nostdlib++
+        "-L${HERBCEPTIONS_LIBCXX_DIR}/lib" -lc++ -lc++abi)
     endif()
-    if(WIN32 OR CYGWIN)
-      # The runtime reaches the process heap through ntdll directly.
-      target_link_options(${name} PRIVATE -lntdll)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+      target_link_libraries(${name} PRIVATE ntdll)
     endif()
   endfunction()
 
+  # Platform selection: trust CMAKE_SYSTEM_NAME and the compiler frontend
+  # variant; WIN32/MSVC lie for cross builds.
   add_herbceptions_fuzzer(error_codes_fuzzer)
-  if(WIN32 AND MSVC)
-    add_herbceptions_fuzzer(msvc_exception_record_fuzzer)
-  endif()
-  if(UNIX OR CYGWIN OR (WIN32 AND NOT MSVC))
+  if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+      add_herbceptions_fuzzer(msvc_exception_record_fuzzer)
+    else()
+      add_herbceptions_fuzzer(itanium_exception_record_fuzzer)
+    endif()
+  else()
     add_herbceptions_fuzzer(itanium_exception_record_fuzzer)
   endif()
 endif()
