@@ -44,7 +44,7 @@ set(HERBCEPTIONS_SOURCES
 # Generated configuration header, picked up by <herbceptions/error> through
 # __has_include(<__libherbceptions_config_site.h>) (mirrors libc++).
 set(HERBCEPTIONS_CONFIG_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/include")
-configure_file(config.h.in
+configure_file(src/config.h.in
   "${HERBCEPTIONS_CONFIG_INCLUDE}/__libherbceptions_config_site.h"
   @ONLY
 )
