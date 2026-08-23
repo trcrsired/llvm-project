@@ -24,18 +24,6 @@
 
 #include "libherbceptions.h"
 #include "ntkernel.h"
-#include "win32_common.h"
-
-namespace std::error_domains::__herbceptions_detail {
-
-::std::io_scatter_t __nt_u8_message(::std::uint_least32_t ntstatus) noexcept {
-  switch (ntstatus) {
-#include "nt_message_table.hpp"
-  }
-  return {nullptr, 0};
-}
-
-} // namespace std::error_domains::__herbceptions_detail
 
 namespace {
 
@@ -60,30 +48,12 @@ __nt_name_message_range(::std::error_reporter_encoding encoding,
 
 inline constexpr ::std::io_scatter_t
 __nt_name(::std::error_reporter_encoding encoding) noexcept {
-  return ::std::error_domains::__herbceptions_detail::__nt_name_message_range(
-      encoding, 1u, 2u);
+  return __nt_name_message_range(encoding, 1u, 2u);
 }
 
 inline constexpr ::std::io_scatter_t
 __nt_name_message(::std::error_reporter_encoding encoding) noexcept {
-  return ::std::error_domains::__herbceptions_detail::__nt_name_message_range(
-      encoding, 0u, 4u);
-}
-
-// nt -> std::errc via the generated switch table (nt_errc_map.hpp, built by
-// utils/generate_win32_nt_tables.py from the ntkernel-error-category and
-// status-code tables). Only zero is success; every other NTSTATUS - positive
-// or negative, whatever its severity bits say - is an error and must be
-// mapped by the table, falling back to io_error when absent.
-// Single definition of the NTSTATUS message switch (declared in
-// ntkernel.h): keeps one copy of every message string in the binary.
-inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
-  if (cd == 0)
-    return ::std::errc{};
-  switch (cd) {
-#include "nt_errc_map.hpp"
-  }
-  return ::std::errc::io_error;
+  return __nt_name_message_range(encoding, 0u, 4u);
 }
 
 // nt <-> win32 equivalence lives in ntkernel.h (__nt_win32_equivalent) so the
@@ -155,15 +125,16 @@ constinit ::std::error_domain_singleton nt_error_domain{
           // and compare through std::errc below.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_com()) {
             auto const rule{
-                ::std::error_domains::__herbceptions_detail::__nt_com_equivalent(
-                    static_cast<::std::uint_least32_t>(cd),
-                    static_cast<::std::uint_least32_t>(othercd))};
+                ::std::error_domains::__herbceptions_detail::
+                    __nt_com_equivalent(
+                        static_cast<::std::uint_least32_t>(cd),
+                        static_cast<::std::uint_least32_t>(othercd))};
             if (rule >= 0)
               return rule == 1;
           }
           // nt <-> any other domain: compare via the POSIX errno mapping.
-          return nt_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
-                 otherdomain->do_to_errc(othercd);
+          return nt_error_domain.do_to_errc(static_cast<::std::uint_least32_t>(
+                     cd)) == otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
         [](::std::size_t cd, ::std::error_query_information query,
@@ -317,7 +288,8 @@ constinit ::std::error_domain_singleton nt_error_domain{
           }
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      return nt_to_errc(static_cast<::std::uint_least32_t>(cd));
+      return ::std::error_domains::__herbceptions_detail::__nt_to_errc(
+          static_cast<::std::uint_least32_t>(cd));
     }};
 } // namespace
 

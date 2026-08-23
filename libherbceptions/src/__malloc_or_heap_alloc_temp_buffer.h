@@ -30,7 +30,6 @@ namespace std::error_domains::__herbceptions_detail {
 #pragma comment(lib, "ntdll.lib")
 #endif
 
-
 inline void *__process_heap() noexcept {
 #if defined(_M_X64) || defined(__x86_64__)
   // TEB -> PEB (gs:[0x60]); PEB->ProcessHeap lives at 0x30.
@@ -40,19 +39,18 @@ inline void *__process_heap() noexcept {
   void *peb;
   __asm__("movq %%gs:0x60, %0" : "=r"(peb));
 #endif
-  return *reinterpret_cast<void **>(
-      reinterpret_cast<unsigned char *>(peb) + 0x30);
+  return *reinterpret_cast<void **>(reinterpret_cast<unsigned char *>(peb) +
+                                    0x30);
 #elif defined(_M_IX86) || defined(__i386__)
   // TEB -> PEB (fs:[0x30]); PEB->ProcessHeap lives at 0x18.
 #if defined(_MSC_VER) && !defined(__clang__)
-  void *const peb{
-      reinterpret_cast<void *>(__readfsdword(0x30))};
+  void *const peb{reinterpret_cast<void *>(__readfsdword(0x30))};
 #else
   void *peb;
   __asm__("movl %%fs:0x30, %0" : "=r"(peb));
 #endif
-  return *reinterpret_cast<void **>(
-      reinterpret_cast<unsigned char *>(peb) + 0x18);
+  return *reinterpret_cast<void **>(reinterpret_cast<unsigned char *>(peb) +
+                                    0x18);
 #else
   return win32::GetProcessHeap();
 #endif
@@ -114,7 +112,8 @@ inline void *__malloc_or_die(::std::size_t __sz) noexcept {
   return __bufferptr;
 }
 
-template <unsigned __malloconly = 0> class __basic_malloc_or_heapalloc_temp_buffer {
+template <unsigned __malloconly = 0>
+class __basic_malloc_or_heapalloc_temp_buffer {
 public:
   void *__bufferptr{};
   constexpr __basic_malloc_or_heapalloc_temp_buffer() noexcept = default;
