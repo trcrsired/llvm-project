@@ -22,7 +22,7 @@
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
-#include "domain_helpers.h"
+#include "libherbceptions.h"
 #include "ntkernel.h"
 #include "win32_common.h"
 
@@ -72,15 +72,54 @@ inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
   return ::std::errc::io_error;
 }
 
-// nt <-> win32 equivalence via the table's win32 column. A zero column means
-// "no Win32 equivalent" and never matches (not even ERROR_SUCCESS); codes
-// absent from the table have no exact equivalent either.
-inline bool nt_equivalent_win32(::std::uint_least32_t cd,
-                                ::std::size_t win32cd) noexcept {
+// nt <-> win32 equivalence lives in ntkernel.h (nt_win32_equivalent) so the
+// win32 domain applies the identical rule.
+
+// Writes "(0x<hex NTSTATUS>)" for the requested encoding into __numbuf and
+// returns it as a scatter. The buffer must be at least
+// __format_hex_value_max_size_with_brackets<::std::uint_least32_t> code units
+// wide, each of the largest supported character size.
+inline constexpr ::std::io_scatter_t
+__nt_code_scatter(::std::error_reporter_encoding encoding,
+                  ::std::uint_least32_t ntstatus,
+                  char unsigned *__numbuf) noexcept {
   using namespace ::std::error_domains::__herbceptions_detail;
-  if (auto f = find_ntstatus(cd))
-    return f->win32 != 0 && static_cast<::std::size_t>(f->win32) == win32cd;
-  return false;
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    auto *__dest{__format_hex_value_full_with_bracket<true, char unsigned>(
+        __numbuf, ntstatus)};
+    return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
+  }
+  case ::std::error_reporter_encoding::utf16: {
+    using __char16_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+        [[__gnu__::__may_alias__]]
+#endif
+        = char16_t *;
+    auto *__dest{__format_hex_value_full_with_bracket<false, char16_t>(
+        reinterpret_cast<__char16_may_alias_ptr>(__numbuf), ntstatus)};
+    return {__numbuf,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    using __char32_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+        [[__gnu__::__may_alias__]]
+#endif
+        = char32_t *;
+    auto *__dest{__format_hex_value_full_with_bracket<false, char32_t>(
+        reinterpret_cast<__char32_may_alias_ptr>(__numbuf), ntstatus)};
+    return {__numbuf,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
+  }
+  default: {
+    auto *__dest{__format_hex_value_full_with_bracket<false, char unsigned>(
+        __numbuf, ntstatus)};
+    return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
+  }
+  }
 }
 
 constinit ::std::error_domain_singleton nt_error_domain{
@@ -92,10 +131,23 @@ constinit ::std::error_domain_singleton nt_error_domain{
           if (otherdomain == __builtin_addressof(nt_error_domain))
             return cd == othercd;
           // nt <-> win32: use the table's win32 column.
-
           if (otherdomain == ::std::error_domains::__cxa_error_domain_win32())
-            return nt_equivalent_win32(static_cast<::std::uint_least32_t>(cd),
-                                       othercd);
+            return ::std::error_domains::__herbceptions_detail::
+                       nt_win32_equivalent(
+                           static_cast<::std::uint_least32_t>(cd),
+                           static_cast<::std::uint_least32_t>(othercd)) == 1;
+          // nt <-> com: an HRESULT carrying FACILITY_NT_BIT equates to the
+          // embedded NTSTATUS exactly; other HRESULTs have no direct rule
+          // and compare through std::errc below.
+          if (otherdomain == ::std::error_domains::__cxa_error_domain_com()) {
+            auto const rule{::std::error_domains::__herbceptions_detail::
+                                nt_com_equivalent(
+                                    static_cast<::std::uint_least32_t>(cd),
+                                    static_cast<::std::uint_least32_t>(
+                                        othercd))};
+            if (rule >= 0)
+              return rule == 1;
+          }
           // nt <-> any other domain: compare via the POSIX errno mapping.
           return nt_to_errc(static_cast<::std::uint_least32_t>(cd)) ==
                  otherdomain->do_to_errc(othercd);
@@ -114,82 +166,141 @@ constinit ::std::error_domain_singleton nt_error_domain{
               static_cast<::std::uint_least32_t>(query)) {
             return;
           }
-          ::std::io_scatter_t scatters[2];
-          auto pos{scatters};
-          switch (query) {
-          case ::std::error_query_information::name: {
-            *pos = __nt_name(encoding);
-            ++pos;
-            break;
-          }
-          case ::std::error_query_information::name_message:
-            *pos = __nt_name_message(encoding);
-            ++pos;
-            [[fallthrough]];
-          case ::std::error_query_information::message: {
-            auto f{::std::error_domains::__herbceptions_detail::find_ntstatus(
-                static_cast<::std::uint_least32_t>(cd))};
-            if (f == nullptr || f->message_size == 0) {
+          auto const ntstatus{static_cast<::std::uint_least32_t>(cd)};
+          if constexpr (::std::error_domains::__herbceptions_detail::
+                            __is_freestanding_kernel_mode) {
+            /*
+            Freestanding kernel mode: the ntkernel table is a waste of rom
+            size, so only [nt](0x<hex code>) is ever reported and the table
+            is never touched. Only a small fixed scratch buffer is used.
+            */
+            ::std::io_scatter_t scatters[2];
+            ::std::size_t scatterlen{};
+            switch (query) {
+            case ::std::error_query_information::name: {
+              *scatters = __nt_name(encoding);
+              scatterlen = 1u;
               break;
             }
-            char unsigned const *from_first{
-                reinterpret_cast<char unsigned const *>(f->message)};
-            char unsigned const *from_last{from_first + f->message_size};
-            alignas(char32_t) char unsigned
-                buffer[::std::error_domains::__herbceptions_detail::
-                           max_ntkernel_message_size() *
-                       sizeof(char32_t)];
-            switch (encoding) {
-            case ::std::error_reporter_encoding::utfebcdic: {
-              auto dest{::std::error_domains::__herbceptions_detail::
-                            __write_ebcdic_with_ascii_only_range(
-                                from_first, from_last, buffer)};
-              *pos = {buffer, static_cast<::std::size_t>(dest - buffer)};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf16: {
-              using __char16_may_alias_ptr
-#if __has_cpp_attribute(__gnu__::__may_alias__)
-                  [[__gnu__::__may_alias__]]
-#endif
-                  = char16_t *;
-              auto dest{
-                  ::std::error_domains::__herbceptions_detail::
-                      __write_with_ascii_only_range(
-                          from_first, from_last,
-                          reinterpret_cast<__char16_may_alias_ptr>(buffer))};
-              *pos = {buffer,
-                      static_cast<::std::size_t>(
-                          reinterpret_cast<char unsigned *>(dest) - buffer)};
-              break;
-            }
-            case ::std::error_reporter_encoding::utf32: {
-              using __char32_may_alias_ptr
-#if __has_cpp_attribute(__gnu__::__may_alias__)
-                  [[__gnu__::__may_alias__]]
-#endif
-                  = char32_t *;
-              auto dest{
-                  ::std::error_domains::__herbceptions_detail::
-                      __write_with_ascii_only_range(
-                          from_first, from_last,
-                          reinterpret_cast<__char32_may_alias_ptr>(buffer))};
-              *pos = {buffer,
-                      static_cast<::std::size_t>(
-                          reinterpret_cast<char unsigned *>(dest) - buffer)};
+            case ::std::error_query_information::message:
+              [[fallthrough]];
+            case ::std::error_query_information::name_message: {
+              alignas(char32_t) char unsigned __numbuf
+                  [::std::error_domains::__herbceptions_detail::
+                       __format_hex_value_max_size_with_brackets<
+                           ::std::uint_least32_t> *
+                   sizeof(char32_t)];
+              scatterlen = 0u;
+              if (::std::error_query_information::name_message == query) {
+                *scatters = __nt_name_message(encoding);
+                ++scatterlen;
+              }
+              scatters[scatterlen] =
+                  __nt_code_scatter(encoding, ntstatus, __numbuf);
+              ++scatterlen;
               break;
             }
             default: {
-              *pos = {from_first,
-                      static_cast<::std::size_t>(from_last - from_first)};
+              return;
+            }
+            }
+            cookfun(cookie, scatters, scatterlen);
+          } else {
+            ::std::io_scatter_t scatters[3];
+            ::std::size_t scatterlen{};
+            switch (query) {
+            case ::std::error_query_information::name: {
+              *scatters = __nt_name(encoding);
+              scatterlen = 1u;
               break;
             }
+            case ::std::error_query_information::message:
+              [[fallthrough]];
+            case ::std::error_query_information::name_message: {
+              alignas(char32_t) char unsigned __numbuf
+                  [::std::error_domains::__herbceptions_detail::
+                       __format_hex_value_max_size_with_brackets<
+                           ::std::uint_least32_t> *
+                   sizeof(char32_t)];
+              scatterlen = 0u;
+              if (::std::error_query_information::name_message == query) {
+                *scatters = __nt_name_message(encoding);
+                ++scatterlen;
+              }
+              scatters[scatterlen] =
+                  __nt_code_scatter(encoding, ntstatus, __numbuf);
+              ++scatterlen;
+              auto f{::std::error_domains::__herbceptions_detail::
+                         find_ntstatus_with_message(ntstatus)};
+              if (f == nullptr || f->message_size == 0) {
+                break;
+              }
+              char unsigned const *from_first{
+                  reinterpret_cast<char unsigned const *>(f->message)};
+              char unsigned const *from_last{from_first + f->message_size};
+              alignas(char32_t) char unsigned
+                  buffer[::std::error_domains::__herbceptions_detail::
+                             max_ntkernel_message_size() *
+                         sizeof(char32_t)];
+              switch (encoding) {
+              case ::std::error_reporter_encoding::utfebcdic: {
+                auto dest{::std::error_domains::__herbceptions_detail::
+                              __write_ebcdic_with_ascii_only_range(
+                                  from_first, from_last, buffer)};
+                scatters[scatterlen] = {
+                    buffer, static_cast<::std::size_t>(dest - buffer)};
+                break;
+              }
+              case ::std::error_reporter_encoding::utf16: {
+                using __char16_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+                    [[__gnu__::__may_alias__]]
+#endif
+                    = char16_t *;
+                auto dest{
+                    ::std::error_domains::__herbceptions_detail::
+                        __write_with_ascii_only_range(
+                            from_first, from_last,
+                            reinterpret_cast<__char16_may_alias_ptr>(buffer))};
+                scatters[scatterlen] = {
+                    buffer,
+                    static_cast<::std::size_t>(
+                        reinterpret_cast<char unsigned *>(dest) - buffer)};
+                break;
+              }
+              case ::std::error_reporter_encoding::utf32: {
+                using __char32_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+                    [[__gnu__::__may_alias__]]
+#endif
+                    = char32_t *;
+                auto dest{
+                    ::std::error_domains::__herbceptions_detail::
+                        __write_with_ascii_only_range(
+                            from_first, from_last,
+                            reinterpret_cast<__char32_may_alias_ptr>(buffer))};
+                scatters[scatterlen] = {
+                    buffer,
+                    static_cast<::std::size_t>(
+                        reinterpret_cast<char unsigned *>(dest) - buffer)};
+                break;
+              }
+              default: {
+                scatters[scatterlen] = {from_first,
+                                        static_cast<::std::size_t>(
+                                            from_last - from_first)};
+                break;
+              }
+              }
+              ++scatterlen;
+              break;
             }
-            ++pos;
-            break;
+            default: {
+              return;
+            }
+            }
+            cookfun(cookie, scatters, scatterlen);
           }
-          }
-          cookfun(cookie, scatters, static_cast<::std::size_t>(pos - scatters));
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
       return nt_to_errc(static_cast<::std::uint_least32_t>(cd));
