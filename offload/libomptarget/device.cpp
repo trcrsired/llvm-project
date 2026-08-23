@@ -202,7 +202,7 @@ setupIndirectCallTable(DeviceTy &Device, __tgt_device_image *Image,
                         AsyncInfo))
     return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
                                      "failed to copy data");
-  // The IndirectCallTable is on the stack, so we must syncronize to ensure
+  // The IndirectCallTable is on the stack, so we must synchronize to ensure
   // the data is copied before we return.
   if (Device.synchronize(AsyncInfo))
     return error::createOffloadError(
@@ -405,8 +405,8 @@ int32_t DeviceTy::launchKernel(void *TgtEntryPtr, void **TgtVarsPtr,
   llvm::copy(KernelArgs.UserNumBlocks, LaunchArgs.UserNumBlocks);
   llvm::copy(KernelArgs.UserThreadLimit, LaunchArgs.UserThreadLimit);
   LaunchArgs.Flags.Cooperative = KernelArgs.Flags.Cooperative;
-  LaunchArgs.Flags.StrictBlocksAndThreads =
-      KernelArgs.Flags.StrictBlocksAndThreads;
+  LaunchArgs.Flags.StrictBlocks = KernelArgs.Flags.StrictBlocks;
+  LaunchArgs.Flags.StrictThreads = KernelArgs.Flags.StrictThreads;
   LaunchArgs.Flags.DynCGroupMemFallback = KernelArgs.Flags.DynCGroupMemFallback;
 
   if (KernelArgs.Flags.IsCUDA) {

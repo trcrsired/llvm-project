@@ -1209,7 +1209,13 @@ void StmtProfiler::VisitOMPScanDirective(const OMPScanDirective *S) {
   VisitOMPExecutableDirective(S);
 }
 
-void StmtProfiler::VisitOMPOrderedDirective(const OMPOrderedDirective *S) {
+void StmtProfiler::VisitOMPOrderedStandaloneDirective(
+    const OMPOrderedStandaloneDirective *S) {
+  VisitOMPExecutableDirective(S);
+}
+
+void StmtProfiler::VisitOMPOrderedBlockAssocDirective(
+    const OMPOrderedBlockAssocDirective *S) {
   VisitOMPExecutableDirective(S);
 }
 
@@ -1775,7 +1781,7 @@ void StmtProfiler::VisitAtomicExpr(const AtomicExpr *S) {
 void StmtProfiler::VisitConceptSpecializationExpr(
                                            const ConceptSpecializationExpr *S) {
   VisitExpr(S);
-  VisitDecl(S->getNamedConcept());
+  VisitTemplateName(S->getNamedConcept());
   for (const TemplateArgument &Arg : S->getTemplateArguments())
     VisitTemplateArgument(Arg);
 }
@@ -2372,6 +2378,14 @@ void StmtProfiler::VisitCXXUnresolvedConstructExpr(
   VisitExpr(S);
   VisitType(S->getTypeAsWritten());
   ID.AddInteger(S->isListInitialization());
+}
+
+void StmtProfiler::VisitDependentTemplateIdExpr(
+    const DependentTemplateIdExpr *S) {
+  VisitExpr(S);
+  VisitTemplateName(S->getTemplateName());
+  VisitTemplateArguments(S->template_arguments().data(),
+                         S->getNumTemplateArgs());
 }
 
 void StmtProfiler::VisitCXXDependentScopeMemberExpr(

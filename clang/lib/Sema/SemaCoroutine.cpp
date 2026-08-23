@@ -1522,6 +1522,8 @@ bool CoroutineStmtBuilder::makeNewAndDeleteExpr() {
     if (FoundAllocations) {
       IAP = FoundAllocations->IAP;
       OperatorNew = FoundAllocations->OperatorNew;
+    } else {
+      OperatorNew = nullptr;
     }
     assert(!OperatorNew || !OperatorNew->isTypeAwareOperatorNewOrDelete());
   };
