@@ -100,23 +100,17 @@ __com_code_scatter(::std::error_reporter_encoding encoding,
 //   FACILITY_NT_BIT set           -> the embedded NTSTATUS via nt_errc_map
 //   facility FACILITY_WIN32       -> the embedded Win32 code via win32_errc_map
 //   anything else (E_FAIL & co)   -> io_error
-inline ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
+inline constexpr ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
   if (hr == 0) {
     return ::std::errc{};
   }
   if (hr & __com_facility_nt_bit) {
-    auto const nt{hr & ~__com_facility_nt_bit};
-    if (nt == 0)
-      return ::std::errc{};
-    switch (nt) {
-#include "nt_errc_map.hpp"
-    }
-    return ::std::errc::io_error;
+    return ::std::error_domains::__herbceptions_detail::__nt_to_errc(
+        hr & ~__com_facility_nt_bit);
   }
   if (__com_hresult_facility(hr) == __com_facility_win32) {
-    switch (hr & __com_hresult_code_mask) {
-#include "win32_errc_map.hpp"
-    }
+    return ::std::error_domains::__herbceptions_detail::__win32_to_errc(
+        hr & __com_hresult_code_mask);
   }
   return ::std::errc::io_error;
 }
