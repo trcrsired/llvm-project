@@ -113,13 +113,13 @@ inline void __win32_name_message_common(
         = ::std::conditional_t<
             ::std::error_domains::__herbceptions_detail::__win32_use_9xa_apis,
             char unsigned *, char16_t *>;
-    constexpr ::std::uint_least32_t win32_flags{win32::format_message_from_system |
-                                                win32::format_message_ignore_inserts |
-                                                win32::format_message_allocate_buffer};
+    // FORMAT_MESSAGE_FROM_SYSTEM | IGNORE_INSERTS | ALLOCATE_BUFFER
+    constexpr ::std::uint_least32_t win32_flags{0x00001000u | 0x00000200u |
+                                                0x00000100u};
     ::std::uint_least32_t flags{win32_flags};
     void const *source{};
     if (layer) {
-      flags = win32::format_message_from_hmodule | win32::format_message_from_hmodule;
+      flags = 0x00000800u | 0x00000800u;
       using wcharconstmayaliasptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
           [[__gnu__::__may_alias__]]
@@ -151,7 +151,7 @@ inline void __win32_name_message_common(
     if constexpr (::std::error_domains::__herbceptions_detail::
                       __win32_use_9xa_apis) {
       dwlen = win32::FormatMessageA(
-          flags, source, win32err, HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
+          flags, source, win32err, 0x0409u /* LANG_ENGLISH_US */,
           reinterpret_cast<char *>(__builtin_addressof(frombuffer.__bufferptr)),
           0, nullptr);
     } else {
@@ -161,7 +161,7 @@ inline void __win32_name_message_common(
 #endif
           = wchar_t *;
       dwlen = win32::FormatMessageW(flags, source, win32err,
-                             HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
+                             0x0409u /* LANG_ENGLISH_US */,
                              reinterpret_cast<wcharmayaliasptr>(
                                  __builtin_addressof(frombuffer.__bufferptr)),
                              0, nullptr);
