@@ -26,6 +26,17 @@
 #include "ntkernel.h"
 #include "win32_common.h"
 
+namespace std::error_domains::__herbceptions_detail {
+
+::std::io_scatter_t nt_u8_message(::std::uint_least32_t ntstatus) noexcept {
+  switch (ntstatus) {
+#include "nt_message_table.hpp"
+  }
+  return {nullptr, 0};
+}
+
+} // namespace std::error_domains::__herbceptions_detail
+
 namespace {
 
 inline constexpr ::std::io_scatter_t
@@ -64,6 +75,8 @@ __nt_name_message(::std::error_reporter_encoding encoding) noexcept {
 // status-code tables). Only zero is success; every other NTSTATUS - positive
 // or negative, whatever its severity bits say - is an error and must be
 // mapped by the table, falling back to io_error when absent.
+// Single definition of the NTSTATUS message switch (declared in
+// ntkernel.h): keeps one copy of every message string in the binary.
 inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
   if (cd == 0)
     return ::std::errc{};
