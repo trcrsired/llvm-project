@@ -1,7 +1,7 @@
 #pragma once
 
 #include "libherbceptions.h"
-#include <windows.h>
+#include "win32_imports.h"
 #undef min
 #undef max
 #include "__malloc_or_heap_alloc_temp_buffer.h"
@@ -113,13 +113,13 @@ inline void __win32_name_message_common(
         = ::std::conditional_t<
             ::std::error_domains::__herbceptions_detail::__win32_use_9xa_apis,
             char unsigned *, char16_t *>;
-    constexpr ::std::uint_least32_t win32_flags{FORMAT_MESSAGE_FROM_SYSTEM |
-                                                FORMAT_MESSAGE_IGNORE_INSERTS |
-                                                FORMAT_MESSAGE_ALLOCATE_BUFFER};
+    constexpr ::std::uint_least32_t win32_flags{win32::format_message_from_system |
+                                                win32::format_message_ignore_inserts |
+                                                win32::format_message_allocate_buffer};
     ::std::uint_least32_t flags{win32_flags};
     void const *source{};
     if (layer) {
-      flags = FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_FROM_HMODULE;
+      flags = win32::format_message_from_hmodule | win32::format_message_from_hmodule;
       using wcharconstmayaliasptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
           [[__gnu__::__may_alias__]]
@@ -138,9 +138,9 @@ inline void __win32_name_message_common(
       }
       if constexpr (::std::error_domains::__herbceptions_detail::
                         __win32_use_9xa_apis) {
-        source = GetModuleHandleA(reinterpret_cast<char const *>(modulename));
+        source = ::std::error_domains::__herbceptions_detail::win32::GetModuleHandleA(reinterpret_cast<char const *>(modulename));
       } else {
-        source = GetModuleHandleW(
+        source = ::std::error_domains::__herbceptions_detail::win32::GetModuleHandleW(
             reinterpret_cast<wcharconstmayaliasptr>(modulename));
       }
       if (source == nullptr) {
@@ -150,8 +150,8 @@ inline void __win32_name_message_common(
     ::std::uint_least32_t dwlen{};
     if constexpr (::std::error_domains::__herbceptions_detail::
                       __win32_use_9xa_apis) {
-      dwlen = FormatMessageA(
-          flags, source, win32err, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+      dwlen = win32::FormatMessageA(
+          flags, source, win32err, HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
           reinterpret_cast<char *>(__builtin_addressof(frombuffer.__bufferptr)),
           0, nullptr);
     } else {
@@ -160,8 +160,8 @@ inline void __win32_name_message_common(
           [[__gnu__::__may_alias__]]
 #endif
           = wchar_t *;
-      dwlen = FormatMessageW(flags, source, win32err,
-                             MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+      dwlen = win32::FormatMessageW(flags, source, win32err,
+                             HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
                              reinterpret_cast<wcharmayaliasptr>(
                                  __builtin_addressof(frombuffer.__bufferptr)),
                              0, nullptr);

@@ -27,9 +27,10 @@
 #include <system_error>
 #include <type_traits>
 #include <typeinfo>
-#include <windows.h>
-#undef min
-#undef max
+#include "win32_imports.h"
+
+using ::std::error_domains::__herbceptions_detail::EXCEPTION_RECORD;
+namespace win32 = ::std::error_domains::__herbceptions_detail::win32;
 
 namespace std::error_domains::__details {
 void __cdecl __ExceptionPtrCurrentException(void *) noexcept
@@ -94,7 +95,8 @@ inline uintptr_t cxx_rva_base(void const *ptr) noexcept {
   if constexpr (architecture_use_rva) {
     void *base;
     return reinterpret_cast<uintptr_t>(
-        RtlPcToFileHeader(const_cast<void *>(ptr), __builtin_addressof(base)));
+        ::std::error_domains::__herbceptions_detail::win32::RtlPcToFileHeader(
+            const_cast<void *>(ptr), __builtin_addressof(base)));
   } else {
     return reinterpret_cast<uintptr_t>(ptr);
   }
