@@ -39,16 +39,6 @@ nt_to_win32_code(::std::uint_least32_t ntstatus) noexcept {
   return static_cast<::std::uint_least32_t>(0);
 }
 
-// Win32 GetLastError() code -> representative NTSTATUS (error severity
-// preferred); 0 means none.
-inline ::std::uint_least32_t
-win32_to_nt_code(::std::uint_least32_t win32err) noexcept {
-  switch (win32err) {
-#include "win32_nt_map.hpp"
-  }
-  return static_cast<::std::uint_least32_t>(0);
-}
-
 // nt <-> win32 equivalence via the code maps:
 //   1 equivalent / 0 definitely not equivalent / -1 unreachable here
 // (the rule always applies, so it never reports "no opinion").
