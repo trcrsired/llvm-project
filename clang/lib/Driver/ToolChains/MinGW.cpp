@@ -858,8 +858,10 @@ void toolchains::MinGW::AddClangCXXStdlibIncludeArgs(
     if (getDriver().getVFS().exists(TargetDir))
       addSystemInclude(DriverArgs, CC1Args, TargetDir);
     addSystemInclude(DriverArgs, CC1Args,
-                     Base + SubdirName + Slash + "include" + cxxincludedir);
-    addSystemInclude(DriverArgs, CC1Args, Base + "include" + cxxincludedir);
+                     Base + SubdirName + Slash + "include" + Slash + "c++" +
+                         Slash + "v1");
+    addSystemInclude(DriverArgs, CC1Args,
+                     Base + "include" + Slash + "c++" + Slash + "v1");
     break;
   }
 
