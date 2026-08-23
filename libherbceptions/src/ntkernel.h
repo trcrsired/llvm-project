@@ -79,14 +79,10 @@ com_win32_equivalent(::std::uint_least32_t hr,
 
 // US-English UTF-8 message for an NTSTATUS; len == 0 when absent. Hosted
 // builds only: never reference this from freestanding kernel translation
-// units or the strings will be embedded into them.
-inline ::std::io_scatter_t
-nt_u8_message(::std::uint_least32_t ntstatus) noexcept {
-  switch (ntstatus) {
-#include "nt_message_table.hpp"
-  }
-  return {nullptr, 0};
-}
+// units or the strings will be embedded into them. Defined in a single
+// translation unit so the message table exists exactly once in the binary
+// instead of once per including TU (GNU ld does not fold the copies).
+::std::io_scatter_t nt_u8_message(::std::uint_least32_t ntstatus) noexcept;
 
 } // namespace __herbceptions_detail
 } // namespace std::error_domains

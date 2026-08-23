@@ -61,7 +61,7 @@ inline void __report_win32_message_text(
     dwlen -= 2; // strip out \r\n
   }
   fromptr __from_first{frombufferptr}, __from_last{__from_first + dwlen};
-  __malloc_or_heapalloc_temp_buffer destbuffer;
+  __heapalloc_temp_buffer destbuffer;
   ::std::io_scatter_t scatter{};
   switch (encoding) {
   case ::std::error_reporter_encoding::utfebcdic: {
@@ -85,7 +85,7 @@ inline void __report_win32_message_text(
         ::std::abort();
       }
     }
-    auto buffer{reinterpret_cast<char unsigned *>(__malloc_or_heap_alloc_or_die(
+    auto buffer{reinterpret_cast<char unsigned *>(__win32_heap_alloc_or_die(
         static_cast<::std::size_t>(dwlen) * sizeof(char32_t)))};
     destbuffer.__bufferptr = buffer;
     auto dest{__write_with_ascii_only_range(
@@ -126,7 +126,7 @@ inline void __report_win32_message_text(
         }
       }
       auto buffer{
-          reinterpret_cast<char unsigned *>(__malloc_or_heap_alloc_or_die(
+          reinterpret_cast<char unsigned *>(__win32_heap_alloc_or_die(
               static_cast<::std::size_t>(dwlen) * sizeof(char16_t)))};
       destbuffer.__bufferptr = buffer;
       auto __dest{__write_with_ascii_only_range(
