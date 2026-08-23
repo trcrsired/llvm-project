@@ -71,11 +71,54 @@ foreach(target herbceptions herbceptions_static)
   target_link_libraries(${target} PUBLIC herbceptions_headers)
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
+  # The public header uses concepts; the runtimes build defaults to an older
+  # standard.
+  set_target_properties(${target} PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+  )
 endforeach()
 set_target_properties(herbceptions PROPERTIES
   VERSION ${HERBCEPTIONS_VERSION}
   SOVERSION ${HERBCEPTIONS_VERSION_MAJOR}
 )
+
+# Inside an LLVM runtimes build nothing is installed yet: consume the
+# freshly built libc++ headers and libraries straight out of the runtimes
+# tree instead of relying on -stdlib=libc++ finding them.
+if(TARGET cxx_shared OR TARGET cxx_static OR LLVM_RUNTIMES_BUILD)
+  set(HERBCEPTIONS_IN_RUNTIMES ON)
+  message(STATUS "HB runtime hook: LIST_DIR=${CMAKE_CURRENT_LIST_DIR} BIN=${CMAKE_BINARY_DIR}")
+  # libcxxabi's cxxabi.h must shadow libc++'s stub one.
+  foreach(d "${CMAKE_CURRENT_SOURCE_DIR}/../libcxxabi/include"
+            "${CMAKE_BINARY_DIR}/include/c++/v1")
+    cmake_path(NORMAL_PATH d)
+    if(EXISTS "${d}")
+      message(STATUS "HB inc: ${d}")
+    else()
+      message(STATUS "HB missing: ${d}")
+    endif()
+    if(EXISTS "${d}" AND NOT "${d}" IN_LIST HERBCEPTIONS_LIBCXX_INCLUDES)
+      list(APPEND HERBCEPTIONS_LIBCXX_INCLUDES "${d}")
+    endif()
+  endforeach()
+  foreach(target herbceptions herbceptions_static)
+    if(HERBCEPTIONS_LIBCXX_INCLUDES)
+      target_compile_options(${target} PRIVATE -nostdinc++)
+      foreach(d IN LISTS HERBCEPTIONS_LIBCXX_INCLUDES)
+        target_compile_options(${target} PRIVATE "-isystem${d}")
+      endforeach()
+    endif()
+    if(TARGET cxx_shared)
+      target_link_libraries(${target} PRIVATE cxx_shared)
+      add_dependencies(${target} cxx_shared)
+    elseif(TARGET cxx_static)
+      target_link_libraries(${target} PRIVATE cxx_static)
+      add_dependencies(${target} cxx_static)
+    endif()
+  endforeach()
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND HERBCEPTIONS_BUILD_SHARED)
   # The DLL's import library would collide with the static archive.
   set_target_properties(herbceptions_static PROPERTIES
