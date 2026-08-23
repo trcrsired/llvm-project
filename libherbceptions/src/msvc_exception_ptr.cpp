@@ -311,54 +311,70 @@ inline constexpr ::std::io_scatter_t
 msvc_exception_name_message_range(::std::error_reporter_encoding encoding,
                                   ::std::size_t startpos,
                                   ::std::size_t n) noexcept {
+  // "[msvc_exception](?)" (19 code units):
+  //   startpos 0 len 19 -> "[msvc_exception](?)"
+  //   startpos 0 len 17 -> "[msvc_exception](" (known prefix)
+  //   startpos 0 len 16 -> "[msvc_exception]"
+  //   startpos 1 len 14 -> "msvc_exception"
+  //   startpos 16 len 1 -> "("
+  //   startpos 18 len 1 -> ")"
   constexpr ::std::size_t totalsize{19u};
   switch (encoding) {
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xBA\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89"
-                      "\x96\x95\x4D\x6F\x4D\xBB"],
+                      "\x96\x95\xBB\x4D\x6F\x5D"],
             n};
   }
   case ::std::error_reporter_encoding::utf16: {
-    return {&startpos[u"[msvc_exception(?)]"], n * sizeof(char16_t)};
+    return {&startpos[u"[msvc_exception](?)"], n * sizeof(char16_t)};
   }
   case ::std::error_reporter_encoding::utf32: {
-    return {&startpos[U"[msvc_exception(?)]"], n * sizeof(char32_t)};
+    return {&startpos[U"[msvc_exception](?)"], n * sizeof(char32_t)};
   }
   default: {
-    return {&startpos[u8"[msvc_exception(?)]"], n};
+    return {&startpos[u8"[msvc_exception](?)"], n};
   }
   }
+}
+
+inline constexpr ::std::io_scatter_t
+msvc_exception_name(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  msvc_exception
+  */
+  return msvc_exception_name_message_range(encoding, 1, 14u);
 }
 
 inline constexpr ::std::io_scatter_t unknown_msvc_exception_name_message(
     ::std::error_reporter_encoding encoding) noexcept {
   /*
-  [msvc_exception(?)]
+  [msvc_exception](?)
   */
   return msvc_exception_name_message_range(encoding, 0, 19u);
-}
-inline constexpr ::std::io_scatter_t
-unknown_msvc_exception_name(::std::error_reporter_encoding encoding) noexcept {
-  /*
-  msvc_exception(?)
-  */
-  return msvc_exception_name_message_range(encoding, 1, 17u);
-}
-
-inline constexpr ::std::io_scatter_t known_msvc_exception_name_partial(
-    ::std::error_reporter_encoding encoding) noexcept {
-  /*
-  msvc_exception(
-  */
-  return msvc_exception_name_message_range(encoding, 1, 15u);
 }
 
 inline constexpr ::std::io_scatter_t known_msvc_exception_name_message_partial(
     ::std::error_reporter_encoding encoding) noexcept {
   /*
-  [msvc_exception(
+  [msvc_exception](
   */
-  return msvc_exception_name_message_range(encoding, 0, 16u);
+  return msvc_exception_name_message_range(encoding, 0, 17u);
+}
+
+inline constexpr ::std::io_scatter_t unknown_msvc_exception_message_partial(
+    ::std::error_reporter_encoding encoding) noexcept {
+  /*
+  (?)
+  */
+  return msvc_exception_name_message_range(encoding, 16, 3u);
+}
+
+inline constexpr ::std::io_scatter_t
+left_parenthese(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  (
+  */
+  return msvc_exception_name_message_range(encoding, 16, 1u);
 }
 
 inline constexpr ::std::io_scatter_t
@@ -366,15 +382,7 @@ right_parenthese(::std::error_reporter_encoding encoding) noexcept {
   /*
   )
   */
-  return msvc_exception_name_message_range(encoding, 17, 1u);
-}
-
-inline constexpr ::std::io_scatter_t
-right_parenthese_bracket(::std::error_reporter_encoding encoding) noexcept {
-  /*
-  )]
-  */
-  return msvc_exception_name_message_range(encoding, 17, 2u);
+  return msvc_exception_name_message_range(encoding, 18, 1u);
 }
 
 struct msvc_exception_writestr_return {
@@ -474,7 +482,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
             auto const *typeinfo{get_msvc_cppeh_type_info(*ehrecptr)};
             char const *ehname{};
             ::std::size_t ehname_len{};
-            if (::std::error_query_information::message != query) {
+            if (::std::error_query_information::name != query) {
               ehname = typeinfo->mangled;
               if (ehname) {
                 ehname_len = ::std::strlen(ehname);
@@ -492,34 +500,35 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
                 ehname, ehname_len, ehmessage, ehmessage_len, encoding, buffer);
             switch (query) {
             case ::std::error_query_information::name: {
-              if (ehname) {
-                *scatters = known_msvc_exception_name_partial(encoding);
+              *scatters = msvc_exception_name(encoding);
+              scatterlen = 1u;
+              break;
+            }
+            case ::std::error_query_information::message: {
+              if (name.len) {
+                *scatters = left_parenthese(encoding);
                 scatters[1] = name;
                 scatters[2] = right_parenthese(encoding);
                 scatterlen = 3u;
               } else {
-                *scatters = unknown_msvc_exception_name(encoding);
+                *scatters = unknown_msvc_exception_message_partial(encoding);
                 scatterlen = 1u;
               }
-              break;
-            }
-            case ::std::error_query_information::message: {
-              if (!message.len) {
-                return;
+              if (message.len) {
+                scatters[scatterlen] = message;
+                ++scatterlen;
               }
-              *scatters = message;
-              scatterlen = 1u;
               break;
             }
             case ::std::error_query_information::name_message: {
               if (name.len) {
                 *scatters = known_msvc_exception_name_message_partial(encoding);
                 scatters[1] = name;
-                scatters[2] = right_parenthese_bracket(encoding);
-                scatterlen = 3;
+                scatters[2] = right_parenthese(encoding);
+                scatterlen = 3u;
               } else {
                 *scatters = unknown_msvc_exception_name_message(encoding);
-                scatterlen = 1;
+                scatterlen = 1u;
               }
               if (message.len) {
                 scatters[scatterlen] = message;
@@ -534,7 +543,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
           } else {
             switch (query) {
             case ::std::error_query_information::name:
-              *scatters = unknown_msvc_exception_name(encoding);
+              *scatters = msvc_exception_name(encoding);
               break;
             case ::std::error_query_information::name_message:
               *scatters = unknown_msvc_exception_name_message(encoding);
