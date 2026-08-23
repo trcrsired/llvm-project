@@ -140,11 +140,10 @@ constinit ::std::error_domain_singleton nt_error_domain{
           // embedded NTSTATUS exactly; other HRESULTs have no direct rule
           // and compare through std::errc below.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_com()) {
-            auto const rule{::std::error_domains::__herbceptions_detail::
-                                nt_com_equivalent(
-                                    static_cast<::std::uint_least32_t>(cd),
-                                    static_cast<::std::uint_least32_t>(
-                                        othercd))};
+            auto const rule{
+                ::std::error_domains::__herbceptions_detail::nt_com_equivalent(
+                    static_cast<::std::uint_least32_t>(cd),
+                    static_cast<::std::uint_least32_t>(othercd))};
             if (rule >= 0)
               return rule == 1;
           }
@@ -185,11 +184,11 @@ constinit ::std::error_domain_singleton nt_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned __numbuf
-                  [::std::error_domains::__herbceptions_detail::
-                       __format_hex_value_max_size_with_brackets<
-                           ::std::uint_least32_t> *
-                   sizeof(char32_t)];
+              alignas(char32_t) char unsigned
+                  __numbuf[::std::error_domains::__herbceptions_detail::
+                               __format_hex_value_max_size_with_brackets<
+                                   ::std::uint_least32_t> *
+                           sizeof(char32_t)];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = __nt_name_message(encoding);
@@ -217,11 +216,11 @@ constinit ::std::error_domain_singleton nt_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned __numbuf
-                  [::std::error_domains::__herbceptions_detail::
-                       __format_hex_value_max_size_with_brackets<
-                           ::std::uint_least32_t> *
-                   sizeof(char32_t)];
+              alignas(char32_t) char unsigned
+                  __numbuf[::std::error_domains::__herbceptions_detail::
+                               __format_hex_value_max_size_with_brackets<
+                                   ::std::uint_least32_t> *
+                           sizeof(char32_t)];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = __nt_name_message(encoding);
@@ -286,9 +285,9 @@ constinit ::std::error_domain_singleton nt_error_domain{
                 break;
               }
               default: {
-                scatters[scatterlen] = {from_first,
-                                        static_cast<::std::size_t>(
-                                            from_last - from_first)};
+                scatters[scatterlen] = {
+                    from_first,
+                    static_cast<::std::size_t>(from_last - from_first)};
                 break;
               }
               }

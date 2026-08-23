@@ -101,10 +101,9 @@ win32_code_scatter(::std::error_reporter_encoding encoding,
                 reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
   }
   default: {
-    auto *__dest{
-        ::std::error_domains::__herbceptions_detail::
-            __format_hex_value_full_with_bracket<false, char unsigned>(
-                __numbuf, win32err)};
+    auto *__dest{::std::error_domains::__herbceptions_detail::
+                     __format_hex_value_full_with_bracket<false, char unsigned>(
+                         __numbuf, win32err)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
   }
@@ -122,8 +121,8 @@ constinit ::std::error_domain_singleton win32_error_domain{
           // win32 <-> nt: exact match on the table's win32 column.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_nt())
             return nt_win32_equivalent(
-                       win32err,
-                       static_cast<::std::uint_least32_t>(othercd)) == 1;
+                       win32err, static_cast<::std::uint_least32_t>(othercd)) ==
+                   1;
           // win32 <-> com: only a FACILITY_WIN32 HRESULT without the NT bit
           // equates to its embedded Win32 code; other combinations compare
           // through std::errc below.
@@ -166,10 +165,11 @@ constinit ::std::error_domain_singleton win32_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned __numbuf
-                  [::std::error_domains::__herbceptions_detail::__format_hex_value_max_size_with_brackets<
-                           ::std::uint_least32_t> *
-                   sizeof(char32_t)];
+              alignas(char32_t) char unsigned
+                  __numbuf[::std::error_domains::__herbceptions_detail::
+                               __format_hex_value_max_size_with_brackets<
+                                   ::std::uint_least32_t> *
+                           sizeof(char32_t)];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = win32_name_message(encoding);
@@ -197,10 +197,11 @@ constinit ::std::error_domain_singleton win32_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned __numbuf
-                  [::std::error_domains::__herbceptions_detail::__format_hex_value_max_size_with_brackets<
-                           ::std::uint_least32_t> *
-                   sizeof(char32_t)];
+              alignas(char32_t) char unsigned
+                  __numbuf[::std::error_domains::__herbceptions_detail::
+                               __format_hex_value_max_size_with_brackets<
+                                   ::std::uint_least32_t> *
+                           sizeof(char32_t)];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = win32_name_message(encoding);
