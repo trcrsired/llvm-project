@@ -22,12 +22,12 @@
 
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "libherbceptions.h"
+#include "win32_imports.h"
 #include <cstdlib>
 #include <cstring>
 #include <system_error>
 #include <type_traits>
 #include <typeinfo>
-#include "win32_imports.h"
 
 using ::std::error_domains::__herbceptions_detail::EXCEPTION_RECORD;
 namespace win32 = ::std::error_domains::__herbceptions_detail::win32;

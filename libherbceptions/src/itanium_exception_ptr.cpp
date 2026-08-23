@@ -188,9 +188,8 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
         abort();
       }
 #ifdef _WIN32
-      buffer.__bufferptr =
-          ::std::error_domains::__herbceptions_detail::__win32_heap_alloc_or_die(
-              to_allocate_bytes);
+      buffer.__bufferptr = ::std::error_domains::__herbceptions_detail::
+          __win32_heap_alloc_or_die(to_allocate_bytes);
 #else
       buffer.__bufferptr = ::std::error_domains::__herbceptions_detail::
           __malloc_or_heap_alloc_or_die(to_allocate_bytes);

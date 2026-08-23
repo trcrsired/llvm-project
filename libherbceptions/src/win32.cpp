@@ -14,14 +14,11 @@
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
-#if 0
-#include "win32_common.h"
-#else
 #include "libherbceptions.h"
-#include "win32_imports.h"
 #include "ntkernel.h"
+#include "win32_imports.h"
 #include "win32_message_text.h"
-#endif
+
 namespace {
 
 inline constexpr ::std::io_scatter_t
@@ -222,10 +219,8 @@ constinit ::std::error_domain_singleton win32_error_domain{
           }
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      switch (static_cast<::std::uint_least32_t>(cd)) {
-#include "win32_errc_map.hpp"
-      }
-      return ::std::errc::io_error;
+      return ::std::error_domains::__herbceptions_detail::__win32_to_errc(
+          static_cast<::std::uint_least32_t>(cd));
     }};
 } // namespace
 
