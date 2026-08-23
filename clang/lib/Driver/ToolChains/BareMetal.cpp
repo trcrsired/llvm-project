@@ -409,8 +409,7 @@ void BareMetal::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
     addLibStdCxxIncludePaths(DriverArgs, CC1Args);
     break;
   case ToolChain::CST_MSVCSTL:
-    llvm::report_fatal_error(
-        "picking up MSVC STL headers is unimplemented");
+    llvm::report_fatal_error("picking up MSVC STL headers is unimplemented");
     break;
   }
 
