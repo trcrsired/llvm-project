@@ -2,9 +2,9 @@
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
+#include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "libherbceptions.h"
 #include "win32_imports.h"
-#include "__malloc_or_heap_alloc_temp_buffer.h"
 
 namespace std::error_domains::__herbceptions_detail {
 
@@ -44,11 +44,11 @@ inline void __report_win32_message_text(
         [[__gnu__::__may_alias__]]
 #endif
         = wchar_t *;
-    dwlen = win32::FormatMessageW(flags, nullptr, win32err,
-                           0x0409u /* LANG_ENGLISH_US */,
-                           reinterpret_cast<wcharmayaliasptr>(
-                               __builtin_addressof(frombuffer.__bufferptr)),
-                           0, nullptr);
+    dwlen = win32::FormatMessageW(
+        flags, nullptr, win32err, 0x0409u /* LANG_ENGLISH_US */,
+        reinterpret_cast<wcharmayaliasptr>(
+            __builtin_addressof(frombuffer.__bufferptr)),
+        0, nullptr);
   }
   if (!dwlen) {
     return;
@@ -123,9 +123,8 @@ inline void __report_win32_message_text(
           ::std::abort();
         }
       }
-      auto buffer{
-          reinterpret_cast<char unsigned *>(__win32_heap_alloc_or_die(
-              static_cast<::std::size_t>(dwlen) * sizeof(char16_t)))};
+      auto buffer{reinterpret_cast<char unsigned *>(__win32_heap_alloc_or_die(
+          static_cast<::std::size_t>(dwlen) * sizeof(char16_t)))};
       destbuffer.__bufferptr = buffer;
       auto __dest{__write_with_ascii_only_range(
           __from_first, __from_last,
