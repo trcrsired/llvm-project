@@ -106,7 +106,7 @@ inline ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
   }
   if (hr & com_facility_nt_bit) {
     auto const nt{hr & ~com_facility_nt_bit};
-    if (static_cast<::std::int_least32_t>(nt) >= 0)
+    if (nt == 0)
       return ::std::errc{};
     switch (nt) {
 #include "nt_errc_map.hpp"
@@ -226,16 +226,15 @@ constinit ::std::error_domain_singleton __com_error_domain{
               scatters[scatterlen] = __com_code_scatter(encoding, hr, __numbuf);
               ++scatterlen;
               if (hr & com_facility_nt_bit) {
-                ntkernel_field const *f{
-                    __herbceptions_detail::find_ntstatus_with_message(
-                        hr & ~com_facility_nt_bit)};
-                if (f != nullptr && f->message_size != 0) {
+                auto const msg{__herbceptions_detail::nt_u8_message(
+                    hr & ~com_facility_nt_bit)};
+                if (msg.len != 0) {
                   char unsigned const *from_first{
-                      reinterpret_cast<char unsigned const *>(f->message)};
-                  char unsigned const *from_last{from_first + f->message_size};
-                  alignas(char32_t) char unsigned buffer
-                      [__herbceptions_detail::max_ntkernel_message_size() *
-                       sizeof(char32_t)];
+                      reinterpret_cast<char unsigned const *>(msg.base)};
+                  char unsigned const *from_last{from_first + msg.len};
+                  alignas(char32_t) char unsigned
+                      buffer[__herbceptions_detail::__nt_max_message_size *
+                             sizeof(char32_t)];
                   switch (encoding) {
                   case ::std::error_reporter_encoding::utfebcdic: {
                     auto dest{::std::error_domains::__herbceptions_detail::
