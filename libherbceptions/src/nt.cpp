@@ -26,15 +26,14 @@
 #include "ntkernel.h"
 #include "win32_common.h"
 
-namespace std::error_domains {
 namespace {
-#if 0
+
 inline constexpr ::std::io_scatter_t
-nt_name_message_range(::std::error_reporter_encoding encoding,
-                      ::std::size_t startpos, ::std::size_t n) noexcept {
+__nt_name_message_range(::std::error_reporter_encoding encoding,
+                        ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
   case ::std::error_reporter_encoding::utfebcdic: {
-    return {&startpos["\xAD\xA3\xA3\xBD"], n}; // 4 bytes
+    return {&startpos["\xAD\x95\xA3\xBD"], n};
   }
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[nt]"], n * sizeof(char16_t)};
@@ -47,8 +46,18 @@ nt_name_message_range(::std::error_reporter_encoding encoding,
   }
   }
 }
-#endif
-using namespace __herbceptions_detail;
+
+inline constexpr ::std::io_scatter_t
+__nt_name(::std::error_reporter_encoding encoding) noexcept {
+  return ::std::error_domains::__herbceptions_detail::__nt_name_message_range(
+      encoding, 1u, 2u);
+}
+
+inline constexpr ::std::io_scatter_t
+__nt_name_message(::std::error_reporter_encoding encoding) noexcept {
+  return ::std::error_domains::__herbceptions_detail::__nt_name_message_range(
+      encoding, 0u, 4u);
+}
 
 // nt -> std::errc via the generated switch table (nt_errc_map.hpp, built by
 // utils/generate_win32_nt_tables.py from the ntkernel-error-category and
@@ -68,20 +77,22 @@ inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
 // absent from the table have no exact equivalent either.
 inline bool nt_equivalent_win32(::std::uint_least32_t cd,
                                 ::std::size_t win32cd) noexcept {
-  if (ntkernel_field const *f = find_ntstatus(cd))
+  using namespace ::std::error_domains::__herbceptions_detail;
+  if (auto f = find_ntstatus(cd))
     return f->win32 != 0 && static_cast<::std::size_t>(f->win32) == win32cd;
   return false;
 }
 
-constinit ::std::error_domain_singleton __nt_error_domain{
+constinit ::std::error_domain_singleton nt_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
           // nt <-> nt: identity.
-          if (otherdomain == __builtin_addressof(__nt_error_domain))
+          if (otherdomain == __builtin_addressof(nt_error_domain))
             return cd == othercd;
           // nt <-> win32: use the table's win32 column.
+
           if (otherdomain == ::std::error_domains::__cxa_error_domain_win32())
             return nt_equivalent_win32(static_cast<::std::uint_least32_t>(cd),
                                        othercd);
@@ -107,17 +118,17 @@ constinit ::std::error_domain_singleton __nt_error_domain{
           auto pos{scatters};
           switch (query) {
           case ::std::error_query_information::name: {
-            *pos = __win32_common_name(encoding, 1u);
+            *pos = __nt_name(encoding);
             ++pos;
             break;
           }
           case ::std::error_query_information::name_message:
-            *pos = __win32_common_name_message(encoding, 1u);
+            *pos = __nt_name_message(encoding);
             ++pos;
             [[fallthrough]];
           case ::std::error_query_information::message: {
-            ntkernel_field const *f{
-                find_ntstatus(static_cast<::std::uint_least32_t>(cd))};
+            auto f{::std::error_domains::__herbceptions_detail::find_ntstatus(
+                static_cast<::std::uint_least32_t>(cd))};
             if (f == nullptr || f->message_size == 0) {
               break;
             }
@@ -187,9 +198,7 @@ constinit ::std::error_domain_singleton __nt_error_domain{
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_nt() noexcept {
-  return __builtin_addressof(::std::error_domains::__nt_error_domain);
+  return __builtin_addressof(nt_error_domain);
 }
-
-} // namespace std::error_domains
 
 #endif // _WIN32 || __CYGWIN__

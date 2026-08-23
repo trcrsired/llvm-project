@@ -73,7 +73,6 @@ constinit ::std::error_domain_singleton win32_error_domain{
         [](::std::size_t cd, ::std::error_query_information query,
            ::std::error_reporter_encoding encoding, void *cookie,
            ::std::error_reporter_io_cookie_function cookfun) noexcept {
-#if 1
           if (static_cast<::std::uint_least32_t>(
                   ::std::error_query_information::name_message) <
               static_cast<::std::uint_least32_t>(query)) {
@@ -243,11 +242,6 @@ constinit ::std::error_domain_singleton win32_error_domain{
           }
           }
           cookfun(cookie, scatters, static_cast<::std::size_t>(pos - scatters));
-#else
-          ::std::error_domains::__herbceptions_detail::
-              __win32_name_message_common(cd, query, encoding, cookie, cookfun,
-                                          0u);
-#endif
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
       switch (static_cast<::std::uint_least32_t>(cd)) {
