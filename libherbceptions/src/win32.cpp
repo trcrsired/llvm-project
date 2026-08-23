@@ -18,9 +18,7 @@
 #include "win32_common.h"
 #else
 #include "libherbceptions.h"
-#include <windows.h>
-#undef min
-#undef max
+#include "win32_imports.h"
 #include "ntkernel.h"
 #include "win32_message_text.h"
 #endif
