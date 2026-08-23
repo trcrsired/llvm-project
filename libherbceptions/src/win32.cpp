@@ -118,14 +118,14 @@ constinit ::std::error_domain_singleton win32_error_domain{
           auto const win32err{static_cast<::std::uint_least32_t>(cd)};
           // win32 <-> nt: exact match on the table's win32 column.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_nt())
-            return nt_win32_equivalent(
+            return __nt_win32_equivalent(
                        win32err, static_cast<::std::uint_least32_t>(othercd)) ==
                    1;
           // win32 <-> com: only a FACILITY_WIN32 HRESULT without the NT bit
           // equates to its embedded Win32 code; other combinations compare
           // through std::errc below.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_com()) {
-            auto const rule{com_win32_equivalent(
+            auto const rule{__com_win32_equivalent(
                 static_cast<::std::uint_least32_t>(othercd), win32err)};
             if (rule >= 0)
               return rule == 1;
