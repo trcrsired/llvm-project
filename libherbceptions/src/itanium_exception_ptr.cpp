@@ -269,7 +269,7 @@ struct itanium_cxa_eh_globals {
 constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
         [](::std::size_t cd) noexcept {
-          itanium_cxa_decrement_exception_refcount(
+          __itanium_cxa_decrement_exception_refcount(
               reinterpret_cast<void *>(cd));
         },
     .do_equivalent = [](::std::size_t cd,
@@ -539,7 +539,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
             return;
           }
 #ifdef _LIBCPPABI_VERSION
-          ::cxxabi::__cxa_rethrow_primary_exception(__obj);
+          ::__cxxabiv1::__cxa_rethrow_primary_exception(__obj);
 #else
           // Raise the primary directly, deliberately NOT through
           // std::rethrow_exception: the eh_ptr machinery would wrap it in a
