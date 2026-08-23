@@ -158,19 +158,21 @@ protected:
   Tool *getTool(Action::ActionClass AC) const override;
   Tool *buildLinker() const override;
   Tool *buildAssembler() const override;
+  llvm::SmallVector<std::string>
+  getCXXStdlibIncludeDirs(const llvm::opt::ArgList &DriverArgs) const override;
 
 private:
   CXXStdlibType GetDefaultCXXStdlibType() const override {
-    return ToolChain::CST_Msstl;
+    return ToolChain::CST_MSVCSTL;
   }
   RuntimeLibType GetDefaultRuntimeLibType() const override {
-    return ToolChain::RLT_Vcruntime;
+    return ToolChain::RLT_VCRuntime;
   }
   UnwindLibType GetDefaultUnwindLibType() const override {
-    return ToolChain::UNW_Vcruntime;
+    return ToolChain::UNW_VCRuntime;
   }
-  void addMsstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
-                            llvm::opt::ArgStringList &CC1Args) const;
+  void addMsvcstlIncludePaths(const llvm::opt::ArgList &DriverArgs,
+                              llvm::opt::ArgStringList &CC1Args) const;
   void addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const;
   void addLibStdCXXIncludePaths(const llvm::opt::ArgList &DriverArgs,

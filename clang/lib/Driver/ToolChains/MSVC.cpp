@@ -87,6 +87,13 @@ static std::string getHighestVersion(llvm::vfs::FileSystem &VFS,
   return HighestVersion;
 }
 
+// always set vendor to unknown to ensure consistency for sysroot
+static llvm::Triple getTripleWithUnknownVendor(const ToolChain &TC) {
+  auto triple = TC.getTriple();
+  triple.setVendor(llvm::Triple::VendorType::UnknownVendor);
+  return triple;
+}
+
 void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                                         const InputInfo &Output,
                                         const InputInfoList &Inputs,
@@ -172,7 +179,7 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     // If we have --sysroot, then we ignore all other setings
     // libpath is $SYSROOT/lib and $SYSROOT/lib/${ARCH}-unknown-windows-msvc
     // For ARM64EC, the ARCH is aarch64 instead
-    auto triple = TC.getTriple();
+    auto triple = getTripleWithUnknownVendor(TC);
     const std::string MultiarchTriple =
         TC.getMultiarchTriple(TC.getDriver(), triple, SysRoot);
     std::string SysRootLib = "-libpath:" + SysRoot + "/lib";
@@ -1088,8 +1095,8 @@ void MSVCToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   if (getDriver().SysRoot.empty())
     return;
   switch (GetCXXStdlibType(DriverArgs)) {
-  case ToolChain::CST_Msstl:
-    addMsstlIncludePaths(DriverArgs, CC1Args);
+  case ToolChain::CST_MSVCSTL:
+    addMsvcstlIncludePaths(DriverArgs, CC1Args);
     break;
   case ToolChain::CST_Libstdcxx:
     addLibStdCXXIncludePaths(DriverArgs, CC1Args);
@@ -1351,20 +1358,20 @@ void MSVCToolChain::addClangTargetOptions(
     A->ignoreTargetSpecific();
 }
 
-void MSVCToolChain::addMsstlIncludePaths(
+void MSVCToolChain::addMsvcstlIncludePaths(
     const llvm::opt::ArgList &DriverArgs,
     llvm::opt::ArgStringList &CC1Args) const {
   const Driver &D = getDriver();
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
   const std::string MultiarchTriple =
-      getMultiarchTriple(D, getTriple(), SysRoot);
+      getMultiarchTriple(D, getTripleWithUnknownVendor(*this), SysRoot);
 
-  std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msstl";
+  std::string TargetDir = LibPath + "/" + MultiarchTriple + "/c++/msvcstl";
   addSystemInclude(DriverArgs, CC1Args, TargetDir);
 
   // Second add the generic one.
-  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/msstl");
+  addSystemInclude(DriverArgs, CC1Args, LibPath + "/c++/msvcstl");
 }
 
 void MSVCToolChain::addLibCxxIncludePaths(
@@ -1374,7 +1381,7 @@ void MSVCToolChain::addLibCxxIncludePaths(
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
   const std::string MultiarchTriple =
-      getMultiarchTriple(D, getTriple(), SysRoot);
+      getMultiarchTriple(D, getTripleWithUnknownVendor(*this), SysRoot);
 
   std::string Version = detectLibcxxVersion(LibPath);
   if (Version.empty())
@@ -1398,7 +1405,7 @@ void MSVCToolChain::addLibStdCXXIncludePaths(
   std::string SysRoot = computeSysRoot();
   std::string LibPath = SysRoot + "/include";
   const std::string MultiarchTriple =
-      getMultiarchTriple(D, getTriple(), SysRoot);
+      getMultiarchTriple(D, getTripleWithUnknownVendor(*this), SysRoot);
 
   // This is similar to detectLibcxxVersion()
   std::string Version;
@@ -1432,4 +1439,39 @@ void MSVCToolChain::addLibStdCXXIncludePaths(
   // Third the backward one.
   addSystemInclude(DriverArgs, CC1Args,
                    LibPath + "/c++/" + Version + "/backward");
+}
+
+llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
+    const llvm::opt::ArgList &DriverArgs) const {
+  auto cxxStdlibType = GetCXXStdlibType(DriverArgs);
+  if (cxxStdlibType == ToolChain::CST_MSVCSTL) {
+    llvm::SmallVector<std::string> vec;
+    if (DriverArgs.hasArg(options::OPT_nostdinc, options::OPT_nostdlibinc))
+      return vec;
+    std::string includePaths;
+    auto SysRoot = getDriver().SysRoot;
+    if (SysRoot.empty()) {
+      if (!VCToolChainPath.empty()) {
+        vec.push_back(getSubDirectoryPath(llvm::SubDirectoryType::Include));
+      }
+    } else {
+      // First trying to get from sysroot
+      auto &VFS = getVFS();
+      std::string WinKitsBase = SysRoot + "/Windows Kits";
+      if (VFS.exists(WinKitsBase)) {
+        std::string VCToolsBase = SysRoot + "/VC/Tools/MSVC";
+        std::string VCVer = getHighestVersion(getVFS(), VCToolsBase);
+        if (!VCVer.empty()) {
+          vec.push_back(VCToolsBase + "/" + VCVer + "/include");
+        }
+      }
+      // ensure the correct order
+      auto UnixSysRootResults = ToolChain::getCXXStdlibIncludeDirs(DriverArgs);
+      for (auto &e : UnixSysRootResults) {
+        vec.push_back(::std::move(e));
+      }
+    }
+    return vec;
+  }
+  return ToolChain::getCXXStdlibIncludeDirs(DriverArgs);
 }

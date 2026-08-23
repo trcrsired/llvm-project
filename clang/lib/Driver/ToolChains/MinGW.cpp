@@ -846,21 +846,15 @@ void toolchains::MinGW::AddClangCXXStdlibIncludeArgs(
 
   StringRef Slash = llvm::sys::path::get_separator();
 
-  auto cxxstdlib = GetCXXStdlibType(DriverArgs);
-  switch (cxxstdlib) {
-  case ToolChain::CST_Libcxx:
-    [[fallthrough]];
-  case ToolChain::CST_Msstl: {
-    std::string cxxincludedir = (Slash + "c++" + Slash).str();
-    std::string_view cxxstrname;
-    if (cxxstdlib == CST_Msstl) {
-      cxxstrname = "msstl";
-    } else {
-      cxxstrname = "v1";
-    }
-    cxxincludedir.append(cxxstrname);
-    std::string TargetDir =
-        (Base + "include" + Slash + getTripleString() + cxxincludedir).str();
+  switch (GetCXXStdlibType(DriverArgs)) {
+  case ToolChain::CST_MSVCSTL: {
+    llvm::report_fatal_error("picking up MSVC STL headers is unimplemented");
+    break;
+  }
+  case ToolChain::CST_Libcxx: {
+    std::string TargetDir = (Base + "include" + Slash + getTripleString() +
+                             Slash + "c++" + Slash + "v1")
+                                .str();
     if (getDriver().getVFS().exists(TargetDir))
       addSystemInclude(DriverArgs, CC1Args, TargetDir);
     addSystemInclude(DriverArgs, CC1Args,

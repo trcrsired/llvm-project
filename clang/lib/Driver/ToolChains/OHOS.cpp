@@ -266,8 +266,9 @@ void OHOS::AddCXXStdlibLibArgs(const ArgList &Args,
     CmdArgs.push_back("-lunwind");
     break;
 
-  default:
-    break;
+  case ToolChain::CST_Libstdcxx:
+  case ToolChain::CST_MSVCSTL:
+    llvm_unreachable("invalid stdlib name");
   }
 }
 

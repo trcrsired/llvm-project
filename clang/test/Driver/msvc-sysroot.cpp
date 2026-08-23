@@ -1,18 +1,18 @@
 // RUN: rm -rf %t && mkdir -p %t
 // RUN: split-file %s %t
 
-// --- X86_64 MSSTL ---
+// --- X86_64 MSVCSTL ---
 // RUN: %clangxx --target=x86_64-unknown-windows-msvc -### \
 // RUN: --sysroot=%t/msvc_tree -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_X86_64_MSSTL %s
-// COMPILE_X86_64_MSSTL: clang{{.*}}" "-cc1"
-// COMPILE_X86_64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/msstl"
-// COMPILE_X86_64_MSSTL: "-internal-isystem" "[[SYSROOT]]/include/c++/msstl"
-// COMPILE_X86_64_MSSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Include{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt"
-// COMPILE_X86_64_MSSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}include"
-// COMPILE_X86_64_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/x86_64-unknown-windows-msvc"
-// COMPILE_X86_64_MSSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}x64"
-// COMPILE_X86_64_MSSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}lib{{/|\\\\}}x64"
+// RUN: | FileCheck --check-prefix=COMPILE_X86_64_MSVCSTL %s
+// COMPILE_X86_64_MSVCSTL: clang{{.*}}" "-cc1"
+// COMPILE_X86_64_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/msvcstl"
+// COMPILE_X86_64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]/include/c++/msvcstl"
+// COMPILE_X86_64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Include{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt"
+// COMPILE_X86_64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}include"
+// COMPILE_X86_64_MSVCSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/x86_64-unknown-windows-msvc"
+// COMPILE_X86_64_MSVCSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}x64"
+// COMPILE_X86_64_MSVCSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}lib{{/|\\\\}}x64"
 
 // --- X86_64 LIBCXX ---
 // RUN: %clangxx --target=x86_64-unknown-windows-msvc -stdlib=libc++ -### \
@@ -39,41 +39,41 @@
 // COMPILE_X86_64_LIBSTDCXX: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/x86_64-unknown-windows-msvc"
 // COMPILE_X86_64_LIBSTDCXX: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}x64"
 
-// --- AARCH64 MSSTL ---
+// --- AARCH64 MSVCSTL ---
 // RUN: %clangxx --target=aarch64-unknown-windows-msvc -### \
 // RUN: --sysroot=%t/msvc_tree -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_AARCH64_MSSTL %s
-// COMPILE_AARCH64_MSSTL: clang{{.*}}" "-cc1"
-// COMPILE_AARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/aarch64-unknown-windows-msvc/c++/msstl"
-// COMPILE_AARCH64_MSSTL: "-internal-isystem" "[[SYSROOT]]/include/c++/msstl"
-// COMPILE_AARCH64_MSSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Include{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt"
-// COMPILE_AARCH64_MSSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}include"
-// COMPILE_AARCH64_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/aarch64-unknown-windows-msvc"
-// COMPILE_AARCH64_MSSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}arm64"
-// COMPILE_AARCH64_MSSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}lib{{/|\\\\}}arm64"
+// RUN: | FileCheck --check-prefix=COMPILE_AARCH64_MSVCSTL %s
+// COMPILE_AARCH64_MSVCSTL: clang{{.*}}" "-cc1"
+// COMPILE_AARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/aarch64-unknown-windows-msvc/c++/msvcstl"
+// COMPILE_AARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]/include/c++/msvcstl"
+// COMPILE_AARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Include{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt"
+// COMPILE_AARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}include"
+// COMPILE_AARCH64_MSVCSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/aarch64-unknown-windows-msvc"
+// COMPILE_AARCH64_MSVCSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}arm64"
+// COMPILE_AARCH64_MSVCSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}lib{{/|\\\\}}arm64"
 
-// --- ARM64EC MSSTL ---
+// --- ARM64EC MSVCSTL ---
 // RUN: %clangxx --target=arm64ec-unknown-windows-msvc -### \
 // RUN: --sysroot=%t/msvc_tree -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_ARM64EC_MSSTL %s
-// COMPILE_ARM64EC_MSSTL: clang{{.*}}" "-cc1"
-// COMPILE_ARM64EC_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/arm64ec-unknown-windows-msvc/c++/msstl"
-// COMPILE_ARM64EC_MSSTL: "-internal-isystem" "[[SYSROOT]]/include/c++/msstl"
-// COMPILE_ARM64EC_MSSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Include{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt"
-// COMPILE_ARM64EC_MSSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}include"
-// COMPILE_ARM64EC_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/arm64ec-unknown-windows-msvc" "-libpath:[[SYSROOT]]/lib/aarch64-unknown-windows-msvc"
-// COMPILE_ARM64EC_MSSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}arm64"
-// COMPILE_ARM64EC_MSSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}lib{{/|\\\\}}arm64"
+// RUN: | FileCheck --check-prefix=COMPILE_ARM64EC_MSVCSTL %s
+// COMPILE_ARM64EC_MSVCSTL: clang{{.*}}" "-cc1"
+// COMPILE_ARM64EC_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/arm64ec-unknown-windows-msvc/c++/msvcstl"
+// COMPILE_ARM64EC_MSVCSTL: "-internal-isystem" "[[SYSROOT]]/include/c++/msvcstl"
+// COMPILE_ARM64EC_MSVCSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Include{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt"
+// COMPILE_ARM64EC_MSVCSTL: "-internal-isystem" "[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}include"
+// COMPILE_ARM64EC_MSVCSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/arm64ec-unknown-windows-msvc" "-libpath:[[SYSROOT]]/lib/aarch64-unknown-windows-msvc"
+// COMPILE_ARM64EC_MSVCSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}Windows Kits{{/|\\\\}}10{{/|\\\\}}Lib{{/|\\\\}}10.0.19041.0{{/|\\\\}}ucrt{{/|\\\\}}arm64"
+// COMPILE_ARM64EC_MSVCSTL: "-libpath:[[SYSROOT]]{{/|\\\\}}VC{{/|\\\\}}Tools{{/|\\\\}}MSVC{{/|\\\\}}14.29.30133{{/|\\\\}}lib{{/|\\\\}}arm64"
 
-// --- LOONGARCH64 MSSTL ---
-// RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=msstl -### \
+// --- LOONGARCH64 MSVCSTL ---
+// RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=msvcstl -### \
 // RUN: --sysroot=%t/msvc_tree -fuse-ld=lld %s 2>&1 \
-// RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_MSSTL %s
-// COMPILE_LOONGARCH64_MSSTL: clang{{.*}}" "-cc1"
-// COMPILE_LOONGARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/loongarch64-unknown-windows-msvc/c++/msstl"
-// COMPILE_LOONGARCH64_MSSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msstl"
-// COMPILE_LOONGARCH64_MSSTL: "-internal-isystem" "[[SYSROOT]]/include/loongarch64-unknown-windows-msvc"
-// COMPILE_LOONGARCH64_MSSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/loongarch64-unknown-windows-msvc" "-libpath:[[SYSROOT]]/lib"
+// RUN: | FileCheck --check-prefix=COMPILE_LOONGARCH64_MSVCSTL %s
+// COMPILE_LOONGARCH64_MSVCSTL: clang{{.*}}" "-cc1"
+// COMPILE_LOONGARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/loongarch64-unknown-windows-msvc/c++/msvcstl"
+// COMPILE_LOONGARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT:[^"]+]]/include/c++/msvcstl"
+// COMPILE_LOONGARCH64_MSVCSTL: "-internal-isystem" "[[SYSROOT]]/include/loongarch64-unknown-windows-msvc"
+// COMPILE_LOONGARCH64_MSVCSTL: lld-link{{.*}}" "-libpath:[[SYSROOT]]/lib/loongarch64-unknown-windows-msvc" "-libpath:[[SYSROOT]]/lib"
 
 // --- RISCV64 LIBSTDCXX ---
 // RUN: %clangxx --target=riscv64-unknown-windows-msvc -### --stdlib=libstdc++ %s 2>&1 \
@@ -87,6 +87,39 @@
 // COMPILE_RISCV64_LIBSTDCXX_LINK: "-internal-isystem" "[[SYSROOT:[^"]+]]/include"
 // COMPILE_RISCV64_LIBSTDCXX_LINK: link.exe{{.*}}" "-libpath:[[SYSROOT]]/lib/riscv64-unknown-windows-msvc" "-libpath:[[SYSROOT]]/lib"
 
+// --- AARCH64 print-cxx-stdlib MSVCSTL ---
+// RUN: %clangxx --target=aarch64-unknown-windows-msvc --print-cxx-stdlib \
+// RUN: --sysroot=%t/msvc_tree %s 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_AARCH64_MSVCSTL %s
+// PRINTCXXSTDLIB_AARCH64_MSVCSTL: msvcstl
+
+// --- X86_64 print-cxx-stdlib LIBCXX ---
+// RUN: %clangxx --target=x86_64-unknown-windows-msvc -stdlib=libc++ --print-cxx-stdlib \
+// RUN: --sysroot=%t/msvc_tree %s 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_X86_64_LIBCXX %s
+// PRINTCXXSTDLIB_X86_64_LIBCXX: libc++
+
+// --- LOONGARCH64 print-cxx-stdlib LIBSTDCXX ---
+// RUN: %clangxx --target=loongarch64-unknown-windows-msvc -stdlib=libstdc++ --print-cxx-stdlib \
+// RUN: --sysroot=%t/msvc_tree %s 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_LOONGARCH64_LIBSTDCXX %s
+// PRINTCXXSTDLIB_LOONGARCH64_LIBSTDCXX: libstdc++
+
+// --- X86_64 print-cxx-stdlib-include-dirs MSVCSTL ---
+// RUN: %clangxx --target=x86_64-unknown-windows-msvc --print-cxx-stdlib-include-dirs -stdlib=libc++ \
+// RUN: --sysroot=%t/msvc_tree 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIBINCLUDE_X86_64_LIBCXX %s
+// PRINTCXXSTDLIBINCLUDE_X86_64_LIBCXX: [[SYSROOT:[^"]+]]/include/x86_64-unknown-windows-msvc/c++/v1
+// PRINTCXXSTDLIBINCLUDE_X86_64_LIBCXX: [[SYSROOT:[^"]+]]/include/c++/v1
+
+// --- AARCH64 print-cxx-stdlib-include-dirs MSVCSTL ---
+// RUN: %clangxx --target=aarch64-unknown-windows-msvc --print-cxx-stdlib-include-dirs \
+// RUN: --sysroot=%t/msvc_tree 2>&1 \
+// RUN: | FileCheck --check-prefix=PRINTCXXSTDLIB_AARCH64_MSVCSTL %s
+// PRINTCXXSTDLIBINCLUDE_AARCH64_MSVCSTL: [[SYSROOT:[^"]+]]/include/aarch64-unknown-windows-msvc/c++/msvcstl
+// PRINTCXXSTDLIBINCLUDE_AARCH64_MSVCSTL: [[SYSROOT:[^"]+]]/include/c++/msvcstl
+// PRINTCXXSTDLIBINCLUDE_AARCH64_MSVCSTL: [[SYSROOT:[^"]+]]/VC/Tools/MSVC/14.29.30133/include
+
 // --- Mock Directory Structure ---
 #--- msvc_tree/VC/Tools/MSVC/14.29.30133/include/string
 #--- msvc_tree/VC/Tools/MSVC/14.29.30133/lib/x64/msvcrt.lib
@@ -97,13 +130,13 @@
 #--- msvc_tree/Windows Kits/10/Lib/10.0.19041.0/ucrt/arm64/ucrt.lib
 
 
-#--- msvc_tree/include/c++/msstl/string
+#--- msvc_tree/include/c++/msvcstl/string
 #--- msvc_tree/include/c++/v1/string
 #--- msvc_tree/include/c++/17.0.1/string
-#--- msvc_tree/include/x86_64-unknown-windows-msvc/c++/msstl/string
-#--- msvc_tree/include/aarch64-unknown-windows-msvc/c++/msstl/string
-#--- msvc_tree/include/loongarch64-unknown-windows-msvc/c++/msstl/string
-#--- msvc_tree/include/riscv64-unknown-windows-msvc/c++/msstl/string
+#--- msvc_tree/include/x86_64-unknown-windows-msvc/c++/msvcstl/string
+#--- msvc_tree/include/aarch64-unknown-windows-msvc/c++/msvcstl/string
+#--- msvc_tree/include/loongarch64-unknown-windows-msvc/c++/msvcstl/string
+#--- msvc_tree/include/riscv64-unknown-windows-msvc/c++/msvcstl/string
 #--- msvc_tree/include/x86_64-unknown-windows-msvc/c++/v1/string
 #--- msvc_tree/include/aarch64-unknown-windows-msvc/c++/v1/string
 #--- msvc_tree/include/loongarch64-unknown-windows-msvc/c++/v1/string
