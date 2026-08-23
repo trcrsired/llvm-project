@@ -120,6 +120,11 @@ endif()
 # built against libc++; otherwise a standalone replay/mutation driver from
 # fuzz/fuzz_harness.h takes over.
 if(HERBCEPTIONS_BUILD_FUZZERS AND NOT HERBCEPTIONS_FREESTANDING)
+  # The runtime itself must be instrumented too, or libFuzzer's coverage
+  # guidance cannot see any of the code under test.
+  foreach(target herbceptions herbceptions_static)
+    target_compile_options(${target} PRIVATE -fsanitize=fuzzer-no-link)
+  endforeach()
   set(HERBCEPTIONS_LIBCXX_DIR
     "$ENV{HOME}/toolchains/llvm/x86_64-linux-gnu/x86_64-linux-gnu/usr"
     CACHE PATH "libc++ installation used by the fuzzer runtime")
