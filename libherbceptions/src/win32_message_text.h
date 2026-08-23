@@ -28,14 +28,14 @@ inline void __report_win32_message_text(
       [[__gnu__::__may_alias__]]
 #endif
       = ::std::conditional_t<__win32_use_9xa_apis, char unsigned *, char16_t *>;
-  constexpr ::std::uint_least32_t flags{win32::format_message_from_system |
-                                        win32::format_message_ignore_inserts |
-                                        win32::format_message_allocate_buffer};
+  // FORMAT_MESSAGE_FROM_SYSTEM | IGNORE_INSERTS | ALLOCATE_BUFFER
+  constexpr ::std::uint_least32_t flags{0x00001000u | 0x00000200u |
+                                        0x00000100u};
   __local_free_temp_buffer frombuffer;
   ::std::uint_least32_t dwlen{};
   if constexpr (__win32_use_9xa_apis) {
     dwlen = win32::FormatMessageA(
-        flags, nullptr, win32err, HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
+        flags, nullptr, win32err, 0x0409u /* LANG_ENGLISH_US */,
         reinterpret_cast<char *>(__builtin_addressof(frombuffer.__bufferptr)),
         0, nullptr);
   } else {
@@ -45,7 +45,7 @@ inline void __report_win32_message_text(
 #endif
         = wchar_t *;
     dwlen = win32::FormatMessageW(flags, nullptr, win32err,
-                           HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
+                           0x0409u /* LANG_ENGLISH_US */,
                            reinterpret_cast<wcharmayaliasptr>(
                                __builtin_addressof(frombuffer.__bufferptr)),
                            0, nullptr);

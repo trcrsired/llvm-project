@@ -51,18 +51,6 @@ namespace std::error_domains::__herbceptions_detail {
 
 namespace win32 {
 
-inline constexpr ::std::uint_least32_t format_message_from_system{
-    0x00001000u};
-inline constexpr ::std::uint_least32_t format_message_ignore_inserts{
-    0x00000200u};
-inline constexpr ::std::uint_least32_t format_message_allocate_buffer{
-    0x00000100u};
-inline constexpr ::std::uint_least32_t format_message_from_hmodule{
-    0x00000800u};
-
-inline constexpr ::std::uint_least16_t lang_english{0x09u};
-inline constexpr ::std::uint_least16_t sublang_english_us{0x01u};
-
 } // namespace win32
 
 // MAKELANGID(primary, sub): primary in bits 10-15, sub in 0-9.
