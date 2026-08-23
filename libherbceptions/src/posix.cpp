@@ -8,7 +8,7 @@
 //
 // Implements the posix (std::errc) error_domain_singleton vtable and the weak
 // __cxa_error_domain_posix ABI entry point. Available on all platforms.
-// The errno message table lives in src/domain_helpers.h.
+// The errno message table lives in src/libherbceptions.h.
 //
 //===----------------------------------------------------------------------===//
 

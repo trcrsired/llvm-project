@@ -21,7 +21,7 @@
 #if !defined(_MSC_VER) && defined(__cpp_exceptions)
 #include "itanium_exception_ptr.h"
 #include "__malloc_or_heap_alloc_temp_buffer.h"
-#include "domain_helpers.h"
+#include "libherbceptions.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -78,12 +78,13 @@ inline bool rtti_si_derives_from(::std::type_info const *ti,
 }
 
 // Encoding-specific wrapper fragments carved out of the base literal
-// "[itanium_exception(?)]" (22 code units), mirroring the MSVC sibling:
-//   startpos 0 len 22 -> "[itanium_exception(?)]"
-//   startpos 1 len 20 -> "itanium_exception(?)"
-//   startpos 0 len 19 -> "[itanium_exception("
-//   startpos 1 len 18 -> "itanium_exception("
-//   startpos 20 len 1 -> ")"  /  len 2 -> ")]"
+// "[itanium_exception](?)" (22 code units), mirroring the MSVC sibling:
+//   startpos 0 len 22 -> "[itanium_exception](?)"
+//   startpos 0 len 20 -> "[itanium_exception](" (known prefix)
+//   startpos 0 len 19 -> "[itanium_exception]"
+//   startpos 1 len 17 -> "itanium_exception"
+//   startpos 19 len 3 -> "(?)"  /  len 1 -> "("
+//   startpos 21 len 1 -> ")"
 inline constexpr ::std::io_scatter_t
 itanium_exception_name_message_range(::std::error_reporter_encoding encoding,
                                      ::std::size_t startpos,
@@ -92,51 +93,60 @@ itanium_exception_name_message_range(::std::error_reporter_encoding encoding,
   case ::std::error_reporter_encoding::utfebcdic: {
     // EBCDIC bytes per __ascii_to_ebcdic.
     return {&startpos["\xBA\x89\xA3\x81\x95\x89\xA4\x94\x6D\x85\xA7\x83\x85"
-                      "\x97\xA3\x89\x96\x95\x4D\x6F\x5D\x5A"],
+                      "\x97\xA3\x89\x96\x95\x5A\x4D\x6F\x5D"],
             n};
   }
   case ::std::error_reporter_encoding::utf16: {
-    return {&startpos[u"[itanium_exception(?)]"], n * sizeof(char16_t)};
+    return {&startpos[u"[itanium_exception](?)"], n * sizeof(char16_t)};
   }
   case ::std::error_reporter_encoding::utf32: {
-    return {&startpos[U"[itanium_exception(?)]"], n * sizeof(char32_t)};
+    return {&startpos[U"[itanium_exception](?)"], n * sizeof(char32_t)};
   }
   default: {
-    return {&startpos[u8"[itanium_exception(?)]"], n};
+    return {&startpos[u8"[itanium_exception](?)"], n};
   }
   }
+}
+
+inline constexpr ::std::io_scatter_t
+itanium_exception_name(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  itanium_exception
+  */
+  return itanium_exception_name_message_range(encoding, 1, 17u);
 }
 
 inline constexpr ::std::io_scatter_t unknown_itanium_exception_name_message(
     ::std::error_reporter_encoding encoding) noexcept {
   /*
-  [itanium_exception(?)]
+  [itanium_exception](?)
   */
   return itanium_exception_name_message_range(encoding, 0, 22u);
 }
-inline constexpr ::std::io_scatter_t unknown_itanium_exception_name(
-    ::std::error_reporter_encoding encoding) noexcept {
-  /*
-  itanium_exception(?)
-  */
-  return itanium_exception_name_message_range(encoding, 1, 20u);
-}
 
-inline constexpr ::std::io_scatter_t known_itanium_exception_name_partial(
+inline constexpr ::std::io_scatter_t unknown_itanium_exception_message_partial(
     ::std::error_reporter_encoding encoding) noexcept {
   /*
-  itanium_exception(
+  (?)
   */
-  return itanium_exception_name_message_range(encoding, 1, 18u);
+  return itanium_exception_name_message_range(encoding, 19, 3u);
 }
 
 inline constexpr ::std::io_scatter_t
 known_itanium_exception_name_message_partial(
     ::std::error_reporter_encoding encoding) noexcept {
   /*
-  [itanium_exception(
+  [itanium_exception](
   */
-  return itanium_exception_name_message_range(encoding, 0, 19u);
+  return itanium_exception_name_message_range(encoding, 0, 20u);
+}
+
+inline constexpr ::std::io_scatter_t
+left_parenthese(::std::error_reporter_encoding encoding) noexcept {
+  /*
+  (
+  */
+  return itanium_exception_name_message_range(encoding, 19, 1u);
 }
 
 inline constexpr ::std::io_scatter_t
@@ -144,15 +154,7 @@ right_parenthese(::std::error_reporter_encoding encoding) noexcept {
   /*
   )
   */
-  return itanium_exception_name_message_range(encoding, 20, 1u);
-}
-
-inline constexpr ::std::io_scatter_t
-right_parenthese_bracket(::std::error_reporter_encoding encoding) noexcept {
-  /*
-  )]
-  */
-  return itanium_exception_name_message_range(encoding, 20, 2u);
+  return itanium_exception_name_message_range(encoding, 21, 1u);
 }
 
 struct itanium_exception_writestr_return {
@@ -280,11 +282,6 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
               static_cast<::std::uint_least32_t>(query)) {
             return;
           }
-          ::std::error_domains::__herbceptions_detail::
-              __malloc_or_heapalloc_temp_buffer buffer;
-          ::std::io_scatter_t scatters[4];
-          ::std::size_t scatterlen{};
-
           // cd is the thrown-object pointer (the value stored by
           // error_domain<exception_ptr>::code); the __cxa_exception header
           // sits immediately before it. Foreign EH can never reach here:
@@ -293,71 +290,76 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           auto *hdr{thrown ? itanium_cxa_exception_from_thrown_object(thrown)
                            : nullptr};
           bool const is_itanium_cxx_eh{hdr != nullptr};
-          if (is_itanium_cxx_eh) // is a C++ exception from the g++/clang++ ABI
-          {
-            // Raw mangled form, mirroring the MSVC sibling's reporting of
-            // typeinfo->mangled; no demangling, no heap allocation.
+          if constexpr (::std::error_domains::__herbceptions_detail::
+                            __is_freestanding_kernel_mode) {
+            /*
+            Freestanding kernel mode: no heap allocation and no big stack
+            allocation. The mangled name and what() text are narrow (utf8 /
+            gb18030 compatible) bytes that are already available in place,
+            so they are only reported for those encodings; every other
+            encoding would require a conversion buffer, so it degrades to
+            (?) with no message.
+            */
+            bool const printable_encoding{
+                encoding == ::std::error_reporter_encoding::utf8 ||
+                encoding == ::std::error_reporter_encoding::gb18030};
+            ::std::io_scatter_t scatters[4];
+            ::std::size_t scatterlen{};
             char const *ehname{};
             ::std::size_t ehname_len{};
-            if (::std::error_query_information::message != query &&
-                hdr->exceptionType) {
-              ehname = hdr->exceptionType->name();
-              ehname_len = ::std::strlen(ehname);
-            }
-
-            // what() lives on the std::exception subobject, not on
-            // type_info. When the RTTI graph proves a single-inheritance
-            // path to std::exception, that subobject sits at offset 0 of
-            // the thrown object, so dispatch directly through it.
             char const *ehmessage{};
             ::std::size_t ehmessage_len{};
-            if (thrown && ::std::error_query_information::name != query &&
-                rtti_si_derives_from(
-                    hdr->exceptionType,
-                    __builtin_addressof(typeid(::std::exception)))) {
-              auto *se{static_cast<::std::exception *>(thrown)};
-              ehmessage = se->what();
-              if (ehmessage) {
-                ehmessage_len = ::std::strlen(ehmessage);
+            if (is_itanium_cxx_eh &&
+                ::std::error_query_information::name != query) {
+              // Raw mangled form; no demangling, no heap allocation.
+              if (hdr->exceptionType) {
+                ehname = hdr->exceptionType->name();
+                ehname_len = ::std::strlen(ehname);
+              }
+              // what() lives on the std::exception subobject, not on
+              // type_info. When the RTTI graph proves a single-inheritance
+              // path to std::exception, that subobject sits at offset 0 of
+              // the thrown object, so dispatch directly through it.
+              if (printable_encoding && thrown && rtti_si_derives_from(
+                      hdr->exceptionType,
+                      __builtin_addressof(typeid(::std::exception)))) {
+                auto *se{static_cast<::std::exception *>(thrown)};
+                ehmessage = se->what();
+                if (ehmessage) {
+                  ehmessage_len = ::std::strlen(ehmessage);
+                }
               }
             }
-
-            auto [name, message] = itanium_exception_writestr(
-                ehname, ehname_len, ehmessage, ehmessage_len, encoding, buffer);
             switch (query) {
             case ::std::error_query_information::name: {
-              if (ehname) {
-                *scatters = known_itanium_exception_name_partial(encoding);
-                scatters[1] = name;
-                scatters[2] = right_parenthese(encoding);
-                scatterlen = 3u;
-              } else {
-                *scatters = unknown_itanium_exception_name(encoding);
-                scatterlen = 1u;
-              }
-              break;
-            }
-            case ::std::error_query_information::message: {
-              if (!message.len) {
-                return;
-              }
-              *scatters = message;
+              *scatters = itanium_exception_name(encoding);
               scatterlen = 1u;
               break;
             }
+            case ::std::error_query_information::message:
+              [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              if (name.len) {
-                *scatters =
-                    known_itanium_exception_name_message_partial(encoding);
-                scatters[1] = name;
-                scatters[2] = right_parenthese_bracket(encoding);
-                scatterlen = 3;
-              } else {
-                *scatters = unknown_itanium_exception_name_message(encoding);
-                scatterlen = 1;
+              if (::std::error_query_information::name_message == query) {
+                if (printable_encoding && ehname_len) {
+                  *scatters =
+                      known_itanium_exception_name_message_partial(encoding);
+                } else {
+                  *scatters = unknown_itanium_exception_name_message(encoding);
+                }
+                ++scatterlen;
               }
-              if (message.len) {
-                scatters[scatterlen] = message;
+              if (printable_encoding && ehname_len) {
+                scatters[scatterlen] = left_parenthese(encoding);
+                scatters[scatterlen + 1u] = {ehname, ehname_len};
+                scatters[scatterlen + 2u] = right_parenthese(encoding);
+                scatterlen += 3u;
+              } else {
+                scatters[scatterlen] =
+                    unknown_itanium_exception_message_partial(encoding);
+                ++scatterlen;
+              }
+              if (printable_encoding && ehmessage_len) {
+                scatters[scatterlen] = {ehmessage, ehmessage_len};
                 ++scatterlen;
               }
               break;
@@ -366,20 +368,104 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
               return;
             }
             }
+            cookfun(cookie, scatters, scatterlen);
           } else {
-            switch (query) {
-            case ::std::error_query_information::name:
-              *scatters = unknown_itanium_exception_name(encoding);
-              break;
-            case ::std::error_query_information::name_message:
-              *scatters = unknown_itanium_exception_name_message(encoding);
-              break;
-            default:
-              return;
+            ::std::error_domains::__herbceptions_detail::
+                __malloc_or_heapalloc_temp_buffer buffer;
+            ::std::io_scatter_t scatters[4];
+            ::std::size_t scatterlen{};
+            if (is_itanium_cxx_eh) // is a C++ exception from the g++/clang++
+                                   // ABI
+            {
+              // Raw mangled form, mirroring the MSVC sibling's reporting of
+              // typeinfo->mangled; no demangling, no heap allocation.
+              char const *ehname{};
+              ::std::size_t ehname_len{};
+              if (::std::error_query_information::name != query &&
+                  hdr->exceptionType) {
+                ehname = hdr->exceptionType->name();
+                ehname_len = ::std::strlen(ehname);
+              }
+
+              // what() lives on the std::exception subobject, not on
+              // type_info. When the RTTI graph proves a single-inheritance
+              // path to std::exception, that subobject sits at offset 0 of
+              // the thrown object, so dispatch directly through it.
+              char const *ehmessage{};
+              ::std::size_t ehmessage_len{};
+              if (thrown && ::std::error_query_information::name != query &&
+                  rtti_si_derives_from(
+                      hdr->exceptionType,
+                      __builtin_addressof(typeid(::std::exception)))) {
+                auto *se{static_cast<::std::exception *>(thrown)};
+                ehmessage = se->what();
+                if (ehmessage) {
+                  ehmessage_len = ::std::strlen(ehmessage);
+                }
+              }
+
+              auto [name, message] = itanium_exception_writestr(
+                  ehname, ehname_len, ehmessage, ehmessage_len, encoding,
+                  buffer);
+              switch (query) {
+              case ::std::error_query_information::name: {
+                *scatters = itanium_exception_name(encoding);
+                scatterlen = 1u;
+                break;
+              }
+              case ::std::error_query_information::message: {
+                if (name.len) {
+                  *scatters = left_parenthese(encoding);
+                  scatters[1] = name;
+                  scatters[2] = right_parenthese(encoding);
+                  scatterlen = 3u;
+                } else {
+                  *scatters = unknown_itanium_exception_message_partial(
+                      encoding);
+                  scatterlen = 1u;
+                }
+                if (message.len) {
+                  scatters[scatterlen] = message;
+                  ++scatterlen;
+                }
+                break;
+              }
+              case ::std::error_query_information::name_message: {
+                if (name.len) {
+                  *scatters =
+                      known_itanium_exception_name_message_partial(encoding);
+                  scatters[1] = name;
+                  scatters[2] = right_parenthese(encoding);
+                  scatterlen = 3u;
+                } else {
+                  *scatters = unknown_itanium_exception_name_message(encoding);
+                  scatterlen = 1u;
+                }
+                if (message.len) {
+                  scatters[scatterlen] = message;
+                  ++scatterlen;
+                }
+                break;
+              }
+              default: {
+                return;
+              }
+              }
+            } else {
+              switch (query) {
+              case ::std::error_query_information::name:
+                *scatters = itanium_exception_name(encoding);
+                break;
+              case ::std::error_query_information::name_message:
+                *scatters = unknown_itanium_exception_name_message(encoding);
+                break;
+              default:
+                return;
+              }
+              scatterlen = 1u;
             }
-            scatterlen = 1u;
+            cookfun(cookie, scatters, scatterlen);
           }
-          cookfun(cookie, scatters, scatterlen);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
       void *thrown{reinterpret_cast<void *>(cd)};

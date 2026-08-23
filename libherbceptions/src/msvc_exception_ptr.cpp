@@ -21,7 +21,7 @@
 #if defined(_MSC_VER) && (defined(_WIN32) || defined(__CYGWIN__))
 
 #include "__malloc_or_heap_alloc_temp_buffer.h"
-#include "domain_helpers.h"
+#include "libherbceptions.h"
 #include <cstdlib>
 #include <cstring>
 #include <system_error>
@@ -322,7 +322,7 @@ msvc_exception_name_message_range(::std::error_reporter_encoding encoding,
   switch (encoding) {
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xBA\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89"
-                      "\x96\x95\xBB\x4D\x6F\x5D"],
+                      "\x96\x95\x5A\x4D\x6F\x5D"],
             n};
   }
   case ::std::error_reporter_encoding::utf16: {
@@ -466,8 +466,89 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
               static_cast<::std::uint_least32_t>(query)) {
             return;
           }
-          ::std::error_domains::__herbceptions_detail::
-              __malloc_or_heapalloc_temp_buffer buffer;
+          if constexpr (::std::error_domains::__herbceptions_detail::
+                            __is_freestanding_kernel_mode) {
+            /*
+            Freestanding kernel mode: no heap allocation and no big stack
+            allocation. The mangled name and what() text are narrow (utf8 /
+            gb18030 compatible) bytes that are already available in place,
+            so they are only reported for those encodings; every other
+            encoding would require a conversion buffer, so it degrades to
+            (?) with no message.
+            */
+            bool const printable_encoding{
+                encoding == ::std::error_reporter_encoding::utf8 ||
+                encoding == ::std::error_reporter_encoding::gb18030};
+            ::std::io_scatter_t scatters[4];
+            ::std::size_t scatterlen{};
+            // cd==0 means there is no current exception (the itanium sibling
+            // reports "unknown" through the same path); never dereference it.
+            EXCEPTION_RECORD const *ehrecptr{
+                cd ? *reinterpret_cast<EXCEPTION_RECORD *const *>(cd)
+                   : nullptr};
+            bool const ismsvccxxeh{
+                ehrecptr && ehrecptr->ExceptionCode == 0xe06d7363};
+            char const *ehname{};
+            ::std::size_t ehname_len{};
+            char const *ehmessage{};
+            ::std::size_t ehmessage_len{};
+            if (::std::error_query_information::name != query) {
+              if (ismsvccxxeh) {
+                auto const *typeinfo{get_msvc_cppeh_type_info(*ehrecptr)};
+                ehname = typeinfo->mangled;
+                if (ehname) {
+                  ehname_len = ::std::strlen(ehname);
+                }
+                if (printable_encoding) {
+                  ehmessage = try_get_std_exception_what(*ehrecptr);
+                  if (ehmessage) {
+                    ehmessage_len = ::std::strlen(ehmessage);
+                  }
+                }
+              }
+            }
+            switch (query) {
+            case ::std::error_query_information::name: {
+              *scatters = msvc_exception_name(encoding);
+              scatterlen = 1u;
+              break;
+            }
+            case ::std::error_query_information::message:
+              [[fallthrough]];
+            case ::std::error_query_information::name_message: {
+              if (::std::error_query_information::name_message == query) {
+                if (printable_encoding && ehname_len) {
+                  *scatters =
+                      known_msvc_exception_name_message_partial(encoding);
+                } else {
+                  *scatters = unknown_msvc_exception_name_message(encoding);
+                }
+                ++scatterlen;
+              }
+              if (printable_encoding && ehname_len) {
+                scatters[scatterlen] = left_parenthese(encoding);
+                scatters[scatterlen + 1u] = {ehname, ehname_len};
+                scatters[scatterlen + 2u] = right_parenthese(encoding);
+                scatterlen += 3u;
+              } else {
+                scatters[scatterlen] =
+                    unknown_msvc_exception_message_partial(encoding);
+                ++scatterlen;
+              }
+              if (printable_encoding && ehmessage_len) {
+                scatters[scatterlen] = {ehmessage, ehmessage_len};
+                ++scatterlen;
+              }
+              break;
+            }
+            default: {
+              return;
+            }
+            }
+            cookfun(cookie, scatters, scatterlen);
+          } else {
+            ::std::error_domains::__herbceptions_detail::
+                __malloc_or_heapalloc_temp_buffer buffer;
           ::std::io_scatter_t scatters[4];
           ::std::size_t scatterlen{};
           // cd==0 means there is no current exception (the itanium sibling
@@ -554,6 +635,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
             scatterlen = 1u;
           }
           cookfun(cookie, scatters, scatterlen);
+          }
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
       if (!cd)

@@ -150,29 +150,17 @@ template <typename T>
 inline constexpr ::std::size_t __format_hex_value_max_size_with_brackets{
     ::std::error_domains::__herbceptions_detail::__format_hex_value_max_size<
         T> +
-    2u};
+    4u}; // '(' + "0x" + ')'
 
 template <bool isebcdic, typename Chtype, typename T>
-inline constexpr T *__format_hex_value_full(Chtype *dest, T val) noexcept {
+inline constexpr Chtype *__format_hex_value_full(Chtype *dest, T val) noexcept {
   using unsignedtype = ::std::make_unsigned_t<T>;
   using unsignedchtype = ::std::make_unsigned_t<Chtype>;
   static_assert(::std::is_integral_v<T>);
-  if constexpr (::std::is_signed_v<T>) {
-    unsignedtype val{static_cast<unsignedtype>(val)};
-    if (val < 0) {
-      if constexpr (isebcdic) {
-        *dest = '\x60';
-      } else {
-        *dest = u8'-';
-      }
-      constexpr unsignedtype zero{};
-      val = static_cast<unsignedtype>(zero - val);
-      ++dest;
-    }
-    return __format_hex_value_full(dest, val);
-  } else {
+  if constexpr (!::std::is_signed_v<T>) {
     auto destend{dest + ::std::error_domains::__herbceptions_detail::
                             __format_hex_value_max_size_no_sign<T>};
+    auto const last{destend};
     constexpr unsignedchtype chzero{isebcdic ? 0xF0 : u8'0'},
         chA{isebcdic ? static_cast<unsignedtype>(0xC1 - 10u)
                      : (static_cast<unsignedtype>(u8'A') - 10u)};
@@ -187,8 +175,22 @@ inline constexpr T *__format_hex_value_full(Chtype *dest, T val) noexcept {
             static_cast<unsignedchtype>(remainder + chzero));
       }
       val >>= 4;
-      ;
     }
+    return last;
+  } else {
+    unsignedtype uval{static_cast<unsignedtype>(val)};
+    if (val < 0) {
+      if constexpr (isebcdic) {
+        *dest = u8'\x60';
+      } else {
+        *dest = u8'-';
+      }
+      ++dest;
+      constexpr unsignedtype zero{};
+      uval = static_cast<unsignedtype>(zero - uval);
+    }
+    return __format_hex_value_full<isebcdic, Chtype, unsignedtype>(dest,
+                                                                   uval);
   }
 }
 
@@ -204,17 +206,84 @@ inline constexpr Chtype *__format_hex_value_full_with_bracket(Chtype *dest,
       isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
                : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
   };
+  constexpr Chtype chzero{
+      isebcdic ? static_cast<Chtype>(0xF0) : static_cast<Chtype>(u8'0')};
+  constexpr Chtype chx{
+      isebcdic ? static_cast<Chtype>(0xA7) : static_cast<Chtype>(u8'x')};
 
   *dest = leftbracket;
   ++dest;
+  *dest = chzero;
+  ++dest;
+  *dest = chx;
+  ++dest;
 
-  dest = ::std::error_domains::__herbceptions_detail::__format_hex_value_full(
-      dest, val);
+  dest = ::std::error_domains::__herbceptions_detail::
+      __format_hex_value_full<isebcdic>(dest, val);
 
   *dest = rightbracket;
   ++dest;
 
   return dest;
+}
+
+template <typename T>
+inline constexpr ::std::size_t __format_decimal_value_max_size_no_sign{
+    static_cast<::std::size_t>(::std::numeric_limits<T>::digits10) + 1u};
+
+template <typename T>
+inline constexpr ::std::size_t __format_decimal_value_max_size_with_brackets{
+    ::std::error_domains::__herbceptions_detail::
+        __format_decimal_value_max_size_no_sign<T> +
+    2u};
+
+/*
+Writes "(<decimal digits>)" in the requested charset (ASCII/UTF-8 family or
+EBCDIC). T must be unsigned. Returns one past the last written character.
+*/
+template <bool isebcdic, typename Chtype, typename T>
+inline constexpr Chtype *__format_decimal_value_full_with_bracket(
+    Chtype *dest, T val) noexcept {
+  using unsignedchtype = ::std::make_unsigned_t<Chtype>;
+  static_assert(::std::is_integral_v<T>);
+  static_assert(!::std::is_signed_v<T>);
+  constexpr Chtype leftbracket{
+      isebcdic ? static_cast<Chtype>(0x4D)  // EBCDIC '('
+               : static_cast<Chtype>(u8'(') // ASCII/UTF‑8 '('
+  };
+  constexpr Chtype rightbracket{
+      isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
+               : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
+  };
+  constexpr unsignedchtype chzero{
+      isebcdic ? static_cast<unsignedchtype>(0xF0)
+               : static_cast<unsignedchtype>(u8'0')};
+  *dest = leftbracket;
+  ++dest;
+  ::std::size_t ndigits{1u};
+  {
+    T v{val};
+    while (static_cast<T>(10u) <= v) {
+      v /= static_cast<T>(10u);
+      ++ndigits;
+    }
+  }
+  Chtype *destend{dest + ndigits};
+  {
+    T v{val};
+    for (Chtype *d{destend};;) {
+      --d;
+      *d = static_cast<Chtype>(static_cast<unsignedchtype>(
+          chzero + static_cast<unsignedchtype>(v % static_cast<T>(10u))));
+      v /= static_cast<T>(10u);
+      if (v == static_cast<T>(0)) {
+        break;
+      }
+    }
+  }
+  *destend = rightbracket;
+  ++destend;
+  return destend;
 }
 
 } // namespace std::error_domains::__herbceptions_detail

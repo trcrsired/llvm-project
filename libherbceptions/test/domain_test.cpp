@@ -80,14 +80,14 @@ int main() {
   posix->do_query_information(2, ::std::error_query_information::message,
                               ::std::error_reporter_encoding::utf8, &mctx,
                               capture_cookfun);
-  CHECK(std::string(mctx.buf, mctx.len) == "No such file or directory");
+  CHECK(std::string(mctx.buf, mctx.len) == "(2)No such file or directory");
 
   capture_ctx nmctx{};
   posix->do_query_information(2, ::std::error_query_information::name_message,
                               ::std::error_reporter_encoding::utf8, &nmctx,
                               capture_cookfun);
   CHECK(std::string(nmctx.buf, nmctx.len) ==
-        "[posix]No such file or directory");
+        "[posix](2)No such file or directory");
 
   capture_ctx cx{};
   cxa->do_query_information(0, ::std::error_query_information::name,
