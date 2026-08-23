@@ -104,8 +104,8 @@ inline ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
   if (hr == 0) {
     return ::std::errc{};
   }
-  if (hr & com_facility_nt_bit) {
-    auto const nt{hr & ~com_facility_nt_bit};
+  if (hr & __com_facility_nt_bit) {
+    auto const nt{hr & ~__com_facility_nt_bit};
     if (nt == 0)
       return ::std::errc{};
     switch (nt) {
@@ -113,8 +113,8 @@ inline ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
     }
     return ::std::errc::io_error;
   }
-  if (com_hresult_facility(hr) == com_facility_win32) {
-    switch (hr & com_hresult_code_mask) {
+  if (__com_hresult_facility(hr) == __com_facility_win32) {
+    switch (hr & __com_hresult_code_mask) {
 #include "win32_errc_map.hpp"
     }
   }
@@ -134,14 +134,14 @@ constinit ::std::error_domain_singleton __com_error_domain{
           // value. com (FACILITY_WIN32) <-> win32: exact match on
           // HRESULT_CODE. Other combinations compare through std::errc.
           ::std::int_least8_t rule{-1};
-          if ((hr & com_facility_nt_bit) != 0) {
+          if ((hr & __com_facility_nt_bit) != 0) {
             if (otherdomain == ::std::error_domains::__cxa_error_domain_nt()) {
-              rule = nt_com_equivalent(
+              rule = __nt_com_equivalent(
                   static_cast<::std::uint_least32_t>(othercd), hr);
             }
           } else if (otherdomain ==
                      ::std::error_domains::__cxa_error_domain_win32()) {
-            rule = com_win32_equivalent(
+            rule = __com_win32_equivalent(
                 hr, static_cast<::std::uint_least32_t>(othercd));
           }
           if (rule >= 0)
@@ -225,9 +225,9 @@ constinit ::std::error_domain_singleton __com_error_domain{
               }
               scatters[scatterlen] = __com_code_scatter(encoding, hr, __numbuf);
               ++scatterlen;
-              if (hr & com_facility_nt_bit) {
-                auto const msg{__herbceptions_detail::nt_u8_message(
-                    hr & ~com_facility_nt_bit)};
+              if (hr & __com_facility_nt_bit) {
+                auto const msg{__herbceptions_detail::__nt_u8_message(
+                    hr & ~__com_facility_nt_bit)};
                 if (msg.len != 0) {
                   char unsigned const *from_first{
                       reinterpret_cast<char unsigned const *>(msg.base)};
@@ -289,7 +289,7 @@ constinit ::std::error_domain_singleton __com_error_domain{
                 }
                 break;
               }
-              if (com_hresult_facility(hr) == com_facility_win32) {
+              if (__com_hresult_facility(hr) == __com_facility_win32) {
                 // Flush "[com](0x<hr>)" and then report only the
                 // FormatMessage text for the embedded Win32 code; the win32
                 // domain's own (0x<code>) block is deliberately not
@@ -297,7 +297,7 @@ constinit ::std::error_domain_singleton __com_error_domain{
                 // each call appends.
                 cookfun(cookie, scatters, scatterlen);
                 ::std::error_domains::__herbceptions_detail::
-                    __report_win32_message_text(hr & com_hresult_code_mask,
+                    __report_win32_message_text(hr & __com_hresult_code_mask,
                                                 encoding, cookie, cookfun);
                 return;
               }

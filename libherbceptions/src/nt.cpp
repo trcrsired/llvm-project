@@ -28,7 +28,7 @@
 
 namespace std::error_domains::__herbceptions_detail {
 
-::std::io_scatter_t nt_u8_message(::std::uint_least32_t ntstatus) noexcept {
+::std::io_scatter_t __nt_u8_message(::std::uint_least32_t ntstatus) noexcept {
   switch (ntstatus) {
 #include "nt_message_table.hpp"
   }
@@ -86,7 +86,7 @@ inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
   return ::std::errc::io_error;
 }
 
-// nt <-> win32 equivalence lives in ntkernel.h (nt_win32_equivalent) so the
+// nt <-> win32 equivalence lives in ntkernel.h (__nt_win32_equivalent) so the
 // win32 domain applies the identical rule.
 
 // Writes "(0x<hex NTSTATUS>)" for the requested encoding into __numbuf and
@@ -147,7 +147,7 @@ constinit ::std::error_domain_singleton nt_error_domain{
           // nt <-> win32: use the table's win32 column.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_win32())
             return ::std::error_domains::__herbceptions_detail::
-                       nt_win32_equivalent(
+                       __nt_win32_equivalent(
                            static_cast<::std::uint_least32_t>(cd),
                            static_cast<::std::uint_least32_t>(othercd)) == 1;
           // nt <-> com: an HRESULT carrying FACILITY_NT_BIT equates to the
@@ -155,7 +155,7 @@ constinit ::std::error_domain_singleton nt_error_domain{
           // and compare through std::errc below.
           if (otherdomain == ::std::error_domains::__cxa_error_domain_com()) {
             auto const rule{
-                ::std::error_domains::__herbceptions_detail::nt_com_equivalent(
+                ::std::error_domains::__herbceptions_detail::__nt_com_equivalent(
                     static_cast<::std::uint_least32_t>(cd),
                     static_cast<::std::uint_least32_t>(othercd))};
             if (rule >= 0)
@@ -244,7 +244,7 @@ constinit ::std::error_domain_singleton nt_error_domain{
                   __nt_code_scatter(encoding, ntstatus, __numbuf);
               ++scatterlen;
               auto const msg{
-                  ::std::error_domains::__herbceptions_detail::nt_u8_message(
+                  ::std::error_domains::__herbceptions_detail::__nt_u8_message(
                       ntstatus)};
               if (msg.len == 0) {
                 break;

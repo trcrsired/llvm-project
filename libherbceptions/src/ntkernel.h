@@ -21,18 +21,18 @@ namespace __herbceptions_detail {
 COM HRESULT classification shared by the com, nt and win32 domains'
 cross-domain equivalence rules.
 */
-inline constexpr ::std::uint_least32_t com_facility_nt_bit{0x10000000u};
-inline constexpr ::std::uint_least32_t com_facility_win32{7u};
-inline constexpr ::std::uint_least32_t com_hresult_code_mask{0xFFFFu};
+inline constexpr ::std::uint_least32_t __com_facility_nt_bit{0x10000000u};
+inline constexpr ::std::uint_least32_t __com_facility_win32{7u};
+inline constexpr ::std::uint_least32_t __com_hresult_code_mask{0xFFFFu};
 inline constexpr ::std::uint_least32_t
-com_hresult_facility(::std::uint_least32_t hr) noexcept {
+__com_hresult_facility(::std::uint_least32_t hr) noexcept {
   return (hr >> 16) & 0x1FFFu;
 }
 
 // NTSTATUS -> equivalent Win32 GetLastError() code; 0 means none. The rule
 // always applies: a 0 result definitively means "no equivalent".
 inline ::std::uint_least32_t
-nt_to_win32_code(::std::uint_least32_t ntstatus) noexcept {
+__nt_to_win32_code(::std::uint_least32_t ntstatus) noexcept {
   switch (ntstatus) {
 #include "nt_win32_map.hpp"
   }
@@ -43,9 +43,9 @@ nt_to_win32_code(::std::uint_least32_t ntstatus) noexcept {
 //   1 equivalent / 0 definitely not equivalent / -1 unreachable here
 // (the rule always applies, so it never reports "no opinion").
 inline ::std::int_least8_t
-nt_win32_equivalent(::std::uint_least32_t ntstatus,
+__nt_win32_equivalent(::std::uint_least32_t ntstatus,
                     ::std::uint_least32_t win32err) noexcept {
-  auto const mapped{nt_to_win32_code(ntstatus)};
+  auto const mapped{__nt_to_win32_code(ntstatus)};
   if (mapped == 0) {
     return 0;
   }
@@ -55,10 +55,10 @@ nt_win32_equivalent(::std::uint_least32_t ntstatus,
 // nt <-> com: only an HRESULT carrying FACILITY_NT_BIT equates to the
 // embedded NTSTATUS exactly; otherwise there is no specialized rule (-1).
 inline constexpr ::std::int_least8_t
-nt_com_equivalent(::std::uint_least32_t ntstatus,
+__nt_com_equivalent(::std::uint_least32_t ntstatus,
                   ::std::uint_least32_t hr) noexcept {
-  if ((hr & com_facility_nt_bit) != 0) {
-    return (hr & ~com_facility_nt_bit) == ntstatus ? 1 : 0;
+  if ((hr & __com_facility_nt_bit) != 0) {
+    return (hr & ~__com_facility_nt_bit) == ntstatus ? 1 : 0;
   }
   return -1;
 }
@@ -66,11 +66,11 @@ nt_com_equivalent(::std::uint_least32_t ntstatus,
 // com <-> win32: only a FACILITY_WIN32 HRESULT without the NT bit equates
 // to its embedded Win32 code; otherwise no specialized rule (-1).
 inline constexpr ::std::int_least8_t
-com_win32_equivalent(::std::uint_least32_t hr,
+__com_win32_equivalent(::std::uint_least32_t hr,
                      ::std::uint_least32_t win32err) noexcept {
-  if ((hr & com_facility_nt_bit) == 0 &&
-      com_hresult_facility(hr) == com_facility_win32) {
-    return (hr & com_hresult_code_mask) == win32err ? 1 : 0;
+  if ((hr & __com_facility_nt_bit) == 0 &&
+      __com_hresult_facility(hr) == __com_facility_win32) {
+    return (hr & __com_hresult_code_mask) == win32err ? 1 : 0;
   }
   return -1;
 }
@@ -82,7 +82,7 @@ com_win32_equivalent(::std::uint_least32_t hr,
 // units or the strings will be embedded into them. Defined in a single
 // translation unit so the message table exists exactly once in the binary
 // instead of once per including TU (GNU ld does not fold the copies).
-::std::io_scatter_t nt_u8_message(::std::uint_least32_t ntstatus) noexcept;
+::std::io_scatter_t __nt_u8_message(::std::uint_least32_t ntstatus) noexcept;
 
 } // namespace __herbceptions_detail
 } // namespace std::error_domains
