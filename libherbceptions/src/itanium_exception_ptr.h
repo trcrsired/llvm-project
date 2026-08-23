@@ -7,6 +7,22 @@
 #include <exception>
 #include <unwind.h>
 
+/*
+libc++'s <cxxabi.h> stub does not declare the Itanium RTTI helper classes
+that libstdc++ and libcxxabi provide. When neither is visible, declare
+layout-compatible stand-ins ourselves: the code only reads __base_type
+chains, it never calls their virtuals.
+*/
+#if !defined(__GLIBCXX__) && !defined(__hb_itanium_rtti_fallback)
+#define __hb_itanium_rtti_fallback
+namespace __cxxabiv1 {
+struct __class_type_info : ::std::type_info {};
+struct __si_class_type_info : __class_type_info {
+  const __class_type_info *__base_type;
+};
+} // namespace __cxxabiv1
+#endif
+
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
     !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
 #define _LIBHERBCEPTIONS_ARM_EHABI
@@ -205,6 +221,11 @@ inline void
 __itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   ::__cxxabiv1::__cxa_decrement_exception_refcount(thrown_object);
 }
+
+inline itanium_cxa_exception *
+itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
+  return static_cast<itanium_cxa_exception *>(thrown_object) - 1;
+}
 } // namespace
 
 #else
@@ -222,7 +243,7 @@ itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
 }
 
 inline void
-itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
+__itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
@@ -233,7 +254,7 @@ itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
 }
 
 inline void
-itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
+__itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
@@ -273,7 +294,7 @@ void __itanium_cxa_rethrow_primary_exception(void* thrown_object)
         itanium_cxa_dependent_exception* dep_exception_header =
             reinterpret_cast<itanium_cxa_dependent_exception*>(__cxxabiv1::__cxa_allocate_dependent_exception());
         dep_exception_header->primaryException = thrown_object;
-        itanium_cxa_increment_exception_refcount(thrown_object);
+        __itanium_cxa_increment_exception_refcount(thrown_object);
         dep_exception_header->exceptionType = exception_header->exceptionType;
         dep_exception_header->unexpectedHandler = ::std::get_unexpected();
         dep_exception_header->terminateHandler = ::std::get_terminate();
@@ -304,7 +325,7 @@ __cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
       ::std::abort();
     }
   }
-  itanium_cxa_increment_exception_refcount(eh);
+  __itanium_cxa_increment_exception_refcount(eh);
   return reinterpret_cast<::std::size_t>(eh);
 }
 
