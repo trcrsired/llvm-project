@@ -61,10 +61,11 @@ __nt_name_message(::std::error_reporter_encoding encoding) noexcept {
 
 // nt -> std::errc via the generated switch table (nt_errc_map.hpp, built by
 // utils/generate_win32_nt_tables.py from the ntkernel-error-category and
-// status-code tables). NTSTATUS values with the severity bits clear are
-// successes and map to a zero errc; anything unmapped falls back to io_error.
+// status-code tables). Only zero is success; every other NTSTATUS - positive
+// or negative, whatever its severity bits say - is an error and must be
+// mapped by the table, falling back to io_error when absent.
 inline ::std::errc nt_to_errc(::std::uint_least32_t cd) noexcept {
-  if (static_cast<::std::int_least32_t>(cd) >= 0)
+  if (cd == 0)
     return ::std::errc{};
   switch (cd) {
 #include "nt_errc_map.hpp"
@@ -229,17 +230,18 @@ constinit ::std::error_domain_singleton nt_error_domain{
               scatters[scatterlen] =
                   __nt_code_scatter(encoding, ntstatus, __numbuf);
               ++scatterlen;
-              auto f{::std::error_domains::__herbceptions_detail::
-                         find_ntstatus_with_message(ntstatus)};
-              if (f == nullptr || f->message_size == 0) {
+              auto const msg{
+                  ::std::error_domains::__herbceptions_detail::nt_u8_message(
+                      ntstatus)};
+              if (msg.len == 0) {
                 break;
               }
               char unsigned const *from_first{
-                  reinterpret_cast<char unsigned const *>(f->message)};
-              char unsigned const *from_last{from_first + f->message_size};
+                  reinterpret_cast<char unsigned const *>(msg.base)};
+              char unsigned const *from_last{from_first + msg.len};
               alignas(char32_t) char unsigned
                   buffer[::std::error_domains::__herbceptions_detail::
-                             max_ntkernel_message_size() *
+                             __nt_max_message_size *
                          sizeof(char32_t)];
               switch (encoding) {
               case ::std::error_reporter_encoding::utfebcdic: {
