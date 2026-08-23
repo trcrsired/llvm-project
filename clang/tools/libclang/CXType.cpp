@@ -707,6 +707,7 @@ CXCallingConv clang_getFunctionTypeCallingConv(CXType X) {
       TCALLINGCONV(AArch64VectorCall);
       TCALLINGCONV(AArch64SVEPCS);
       TCALLINGCONV(Win64);
+      TCALLINGCONV(WinCall);
       TCALLINGCONV(X86_64SysV);
       TCALLINGCONV(AAPCS);
       TCALLINGCONV(AAPCS_VFP);
@@ -821,6 +822,12 @@ getExternalExceptionSpecificationKind(ExceptionSpecificationType EST) {
     return CXCursor_ExceptionSpecificationKind_Uninstantiated;
   case EST_Unparsed:
     return CXCursor_ExceptionSpecificationKind_Unparsed;
+  case EST_BasicThrows:
+    return CXCursor_ExceptionSpecificationKind_BasicThrows;
+  case EST_ThrowsTyped:
+    return CXCursor_ExceptionSpecificationKind_Throws;
+  case EST_ThrowsTypedNoexceptFalse:
+    return CXCursor_ExceptionSpecificationKind_ThrowsNoexceptFalse;
   }
   llvm_unreachable("invalid EST value");
 }

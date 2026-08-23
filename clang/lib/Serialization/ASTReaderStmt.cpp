@@ -1756,6 +1756,14 @@ void ASTStmtReader::VisitCXXCatchStmt(CXXCatchStmt *S) {
   S->HandlerBlock = Record.readSubStmt();
 }
 
+void ASTStmtReader::VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+  VisitStmt(S);
+  S->CatchLoc = readSourceLocation();
+  S->SpecLoc = readSourceLocation();
+  S->ExceptionDecl = readDeclAs<VarDecl>();
+  S->HandlerBlock = Record.readSubStmt();
+}
+
 void ASTStmtReader::VisitCXXTryStmt(CXXTryStmt *S) {
   VisitStmt(S);
   assert(Record.peekInt() == S->getNumHandlers() && "NumStmtFields is wrong ?");
@@ -1972,6 +1980,32 @@ void ASTStmtReader::VisitCXXThrowExpr(CXXThrowExpr *E) {
   E->CXXThrowExprBits.ThrowLoc = readSourceLocation();
   E->Operand = Record.readSubExpr();
   E->CXXThrowExprBits.IsThrownVariableInScope = Record.readInt();
+}
+
+void ASTStmtReader::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
+  VisitExpr(E);
+  E->Loc = readSourceLocation();
+  E->Operand = Record.readSubExpr();
+  E->DomainCall = Record.readSubExpr();
+  E->CodeCall = Record.readSubExpr();
+}
+
+void ASTStmtReader::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  VisitExpr(E);
+  E->Loc = readSourceLocation();
+}
+
+void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
+  VisitExpr(E);
+  E->TryLoc = readSourceLocation();
+  E->SubExpr = Record.readSubExpr();
+  E->ErrorDomain = readDeclAs<CXXRecordDecl>();
+}
+
+void ASTStmtReader::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+  VisitExpr(E);
+  E->CatchLoc = readSourceLocation();
+  E->SubExpr = Record.readSubExpr();
 }
 
 void ASTStmtReader::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {
@@ -3676,6 +3710,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) CXXCatchStmt(Empty);
       break;
 
+    case STMT_CXX_CATCH_THROWS:
+      S = new (Context) CXXCatchThrowsStmt(Empty);
+      break;
+
     case STMT_CXX_TRY:
       S = CXXTryStmt::Create(Context, Empty,
              /*numHandlers=*/Record[ASTStmtReader::NumStmtFields]);
@@ -4365,6 +4403,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case EXPR_CXX_THROW:
       S = new (Context) CXXThrowExpr(Empty);
+      break;
+
+    case EXPR_CXX_ERROR_VALUE:
+      S = new (Context) CXXErrorValueExpr(Empty);
       break;
 
     case EXPR_CXX_DEFAULT_ARG:

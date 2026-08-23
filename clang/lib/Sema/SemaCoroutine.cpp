@@ -696,6 +696,30 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
   if (!checkCoroutineContext(*this, KWLoc, Keyword))
     return false;
 
+  // Herbception `fails{E}` is a C-style feature restricted to free functions;
+  // coroutines are not plain free functions, so reject a fails spec here.
+  if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
+    if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
+      if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
+          FPT && FPT->hasFailsSpec()) {
+        Diag(KWLoc, diag::err_fails_only_free_function);
+        const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
+      }
+    }
+  }
+
+  // Herbception `throws` is not allowed on coroutine functions. All
+  // herbceptions must be caught within the coroutine body.
+  if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
+    if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
+      if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
+          FPT && FPT->hasBasicThrowsSpec()) {
+        Diag(KWLoc, diag::err_throws_not_allowed_in_coroutine);
+        const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
+      }
+    }
+  }
+
   // Support for coroutines is not stable on 32 bits windows
   // Warn about it.
   if (Context.getTargetInfo().getCXXABI().isMicrosoft() &&
@@ -1267,9 +1291,19 @@ bool CoroutineStmtBuilder::buildDependentStatements() {
   assert(this->IsValid && "coroutine already invalid");
   assert(!this->IsPromiseDependentType &&
          "coroutine cannot have a dependent promise type");
-  this->IsValid = makeOnException() && makeOnFallthrough() &&
-                  makeGroDeclAndReturnStmt() && makeReturnOnAllocFailure() &&
-                  makeNewAndDeleteExpr();
+  // A `throws` coroutine implies noexcept(true) by default: the body cannot
+  // throw C++ exceptions, only herbception failures, so only
+  // `unhandled_herbception` is required (see makeOnHerbception).
+  const auto *FPT = FD.getType()->getAs<FunctionProtoType>();
+  bool IsHerbceptionThrows = FPT && FPT->hasBasicThrowsSpec();
+
+  this->IsValid = !IsHerbceptionThrows && makeOnException();
+  if (this->IsValid && IsHerbceptionThrows)
+    this->IsValid = makeOnHerbception();
+  this->IsValid =
+      this->IsValid && makeOnFallthrough() &&
+      makeGroDeclAndReturnStmt() && makeReturnOnAllocFailure() &&
+      makeNewAndDeleteExpr();
   return this->IsValid;
 }
 
@@ -1812,6 +1846,35 @@ bool CoroutineStmtBuilder::makeOnException() {
   }
 
   this->OnException = UnhandledException.get();
+  return true;
+}
+
+bool CoroutineStmtBuilder::makeOnHerbception() {
+  // Herbception `throws` coroutine: try to form
+  //   p.unhandled_herbception(std::coroutine_error{domain, code});
+  // The promise stores the error in the frame; the awaiter later rethrows it
+  // via await_resume(). `throws` implies noexcept(true), so a `throws`
+  // coroutine uses unhandled_herbception in place of unhandled_exception.
+  assert(!IsPromiseDependentType &&
+         "cannot make statement while the promise type is dependent");
+
+  if (!lookupMember(S, "unhandled_herbception", PromiseRecordDecl, Loc)) {
+    S.Diag(Loc, diag::err_coroutine_promise_unhandled_herbception_required)
+        << PromiseRecordDecl;
+    S.Diag(PromiseRecordDecl->getLocation(), diag::note_defined_here)
+        << PromiseRecordDecl;
+    return false;
+  }
+
+  ExprResult UnhandledHerbception = buildPromiseCall(
+      S, Fn.CoroutinePromise, Loc, "unhandled_herbception", {});
+  UnhandledHerbception =
+      S.ActOnFinishFullExpr(UnhandledHerbception.get(), Loc,
+                            /*DiscardedValue*/ false);
+  if (UnhandledHerbception.isInvalid())
+    return false;
+
+  this->OnHerbception = UnhandledHerbception.get();
   return true;
 }
 

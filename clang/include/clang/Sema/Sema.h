@@ -6391,11 +6391,13 @@ public:
   VarDecl *BuildExceptionDeclaration(Scope *S, TypeSourceInfo *TInfo,
                                      SourceLocation StartLoc,
                                      SourceLocation IdLoc,
-                                     const IdentifierInfo *Id);
+                                     const IdentifierInfo *Id,
+                                     bool IsHerbception = false);
 
   /// ActOnExceptionDeclarator - Parsed the exception-declarator in a C++ catch
   /// handler.
-  Decl *ActOnExceptionDeclarator(Scope *S, Declarator &D);
+  Decl *ActOnExceptionDeclarator(Scope *S, Declarator &D,
+                                 bool IsHerbception = false);
 
   void DiagnoseReturnInConstructorExceptionHandler(CXXTryStmt *TryBlock);
 
@@ -6645,11 +6647,27 @@ public:
   ExprResult ActOnNoexceptSpec(Expr *NoexceptExpr,
                                ExceptionSpecificationType &EST);
 
+  /// Evaluate a `throws(expr)` specifier. `throws(true)` is equivalent to a
+  /// plain `throws` (herbception enabled); `throws(false)` means the function
+  /// cannot fail (like noexcept).
+  ExprResult ActOnThrowsSpec(Expr *ThrowsExpr,
+                             ExceptionSpecificationType &EST);
+
   CanThrowResult canThrow(const Stmt *E);
   /// Determine whether the callee of a particular function call can throw.
   /// E, D and Loc are all optional.
   static CanThrowResult canCalleeThrow(Sema &S, const Expr *E, const Decl *D,
                                        SourceLocation Loc = SourceLocation());
+
+  /// Determine whether the given statement/expression can propagate a
+  /// herbception error through the given channel.
+  ///
+  /// \param E The channel to test: a null QualType tests the `throws` channel
+  /// (implicit std::error, EST_BasicThrows); a non-null E tests the
+  /// `fails{E}` channel (EST_ThrowsTyped with exception type E). Returns true
+  /// if some potentially-evaluated callee in \p S is declared with a matching
+  /// herbception spec.
+  bool canHerbceptionThrow(const Stmt *S, QualType E);
   const FunctionProtoType *ResolveExceptionSpec(SourceLocation Loc,
                                                 const FunctionProtoType *FPT);
   void UpdateExceptionSpec(FunctionDecl *FD,
@@ -8521,7 +8539,47 @@ public:
   //// ActOnCXXThrow -  Parse throw expressions.
   ExprResult ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *expr);
   ExprResult BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
-                           bool IsThrownVarInScope);
+                           bool IsThrownVarInScope, bool IsHerbception = false);
+  /// ActOnCXXThrowThrows - Parse `throw throws expr` (herbception).
+  ExprResult ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
+                                 SourceLocation ThrowsLoc, Expr *Ex);
+  /// Build the compiler-fabricated `std::error` value for `throw throws e`:
+  /// resolve `error_domain<T>` for the operand's type T, build the
+  /// `error_domain<T>::domain()` and `error_domain<T>::code(e)` calls, and
+  /// wrap everything in a CXXErrorValueExpr so CodeGen can emit them.
+  ExprResult BuildErrorValueExpr(SourceLocation Loc, Expr *Operand);
+  /// Rebuild a CXXErrorValueExpr after template instantiation.
+  ExprResult RebuildErrorValueExpr(SourceLocation Loc, Expr *Operand,
+                                   Expr *DomainCall, Expr *CodeCall,
+                                   QualType Ty);
+  /// Build the compiler-fabricated `std::error` value that captures a legacy
+  /// C++ exception: {error_domain<std::cxa_exception_code>::domain(),
+  /// thrown-object-pointer}. Used when a legacy exception is converted to the
+  /// herbception channel.
+  ExprResult BuildCxaExceptionErrorValue(SourceLocation Loc);
+  /// Look up the std::error_domain<T> class template specialization for \p T.
+  /// Returns the record decl or null if there is no such specialization.
+  CXXRecordDecl *lookupErrorDomain(SourceLocation Loc, QualType T);
+  /// Build a DeclRefExpr referring to the static member function \p Fn.
+  DeclRefExpr *BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
+                                               SourceLocation Loc);
+  /// ActOnHerbceptionTry - Parse `try(expr)` (herbception auto-propagate).
+  ExprResult ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex);
+  /// ActOnHerbceptionCatchFails - Parse `catch fails(expr)`.
+  ExprResult ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
+                                        SourceLocation FailsLoc, Expr *Ex);
+  /// ActOnHerbceptionFailure - Parse `failure(expr)`, which returns \p Ex via
+  /// the failure channel of the enclosing `fails{E}` function.
+  ExprResult ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex);
+
+  /// Whether the currently parsed expression is the operand of a herbception
+  /// `try(expr)` or `catch fails(expr)` expression. When nonzero, bare calls
+  /// to throws functions are not implicitly wrapped in `try`.
+  unsigned HerbceptionOperandDepth = 0;
+
+  /// Return whether \p Ex is a call to a function (or function template)
+  /// declared with a herbception 'throws'/'fails{E}' spec.
+  bool isHerbceptionThrowsCall(const Expr *Ex);
 
   /// CheckCXXThrowOperand - Validate the operand of a throw.
   bool CheckCXXThrowOperand(SourceLocation ThrowLoc, QualType ThrowTy, Expr *E);
@@ -11288,6 +11346,13 @@ public:
   /// and creates a proper catch handler from them.
   StmtResult ActOnCXXCatchBlock(SourceLocation CatchLoc, Decl *ExDecl,
                                 Stmt *HandlerBlock);
+
+  /// ActOnCXXCatchThrowsBlock - Takes an exception declaration and a handler
+  /// block for a herbception `catch throws(E e) { ... }` /
+  /// `catch fails(E e) { ... }` handler.
+  StmtResult ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc,
+                                      SourceLocation SpecLoc, Decl *ExDecl,
+                                      Stmt *HandlerBlock);
 
   /// ActOnCXXTryBlock - Takes a try compound-statement and a number of
   /// handlers and creates a try statement from them.

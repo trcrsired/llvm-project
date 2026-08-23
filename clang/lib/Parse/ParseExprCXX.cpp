@@ -1744,6 +1744,32 @@ ExprResult Parser::ParseThrowExpression() {
   assert(Tok.is(tok::kw_throw) && "Not throw!");
   SourceLocation ThrowLoc = ConsumeToken();           // Eat the throw token.
 
+  // Herbception: `throw throws expr` is a deterministic error throw, or
+  // bare `throw throws` is a rethrow inside a `catch throws` handler.
+  if (Tok.is(tok::kw_throws)) {
+    SourceLocation ThrowsLoc = ConsumeToken();
+    // Bare `throw throws` without an operand: rethrow the caught error.
+    switch (Tok.getKind()) {
+    case tok::semi:
+    case tok::r_paren:
+    case tok::r_square:
+    case tok::r_brace:
+    case tok::colon:
+    case tok::comma:
+      return Actions.ActOnCXXThrowThrows(getCurScope(), ThrowLoc, ThrowsLoc,
+                                         nullptr);
+    default:
+      break;
+    }
+    // `throw throws expr` with an operand is disallowed; rethrowing must use
+    // bare `throw throws`.
+    ExprResult Expr = ParseAssignmentExpression();
+    if (Expr.isInvalid())
+      return Expr;
+    return Actions.ActOnCXXThrowThrows(getCurScope(), ThrowLoc, ThrowsLoc,
+                                       Expr.get());
+  }
+
   // If the current token isn't the start of an assignment-expression,
   // then the expression is not present.  This handles things like:
   //   "C ? throw : (void)42", which is crazy but legal.
@@ -1761,6 +1787,62 @@ ExprResult Parser::ParseThrowExpression() {
     if (Expr.isInvalid()) return Expr;
     return Actions.ActOnCXXThrow(getCurScope(), ThrowLoc, Expr.get());
   }
+}
+
+ExprResult Parser::ParseHerbceptionTryExpression() {
+  assert(Tok.is(tok::kw_try) && "Not try!");
+  SourceLocation TryLoc = ConsumeToken();  // Eat the try token.
+  assert(Tok.is(tok::l_paren) && "Expected '(' after try");
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_expression);
+    return ExprError();
+  }
+  ++Actions.HerbceptionOperandDepth;
+  ExprResult Expr = ParseExpression();
+  --Actions.HerbceptionOperandDepth;
+  if (Expr.isInvalid())
+    return Expr;
+  T.consumeClose();
+  return Actions.ActOnHerbceptionTry(TryLoc, Expr.get());
+}
+
+ExprResult Parser::ParseHerbceptionFailureExpression() {
+  assert(Tok.is(tok::kw_failure) && "Not failure!");
+  SourceLocation FailureLoc = ConsumeToken();  // Eat the failure token.
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_expression);
+    return ExprError();
+  }
+  ExprResult Expr = ParseExpression();
+  if (Expr.isInvalid())
+    return Expr;
+  T.consumeClose();
+  return Actions.ActOnHerbceptionFailure(FailureLoc, Expr.get());
+}
+
+ExprResult Parser::ParseHerbceptionCatchFailsExpression() {
+  assert(Tok.is(tok::kw_catch) && "Not catch!");
+  SourceLocation CatchLoc = ConsumeToken();  // Eat the catch token.
+  assert(Tok.is(tok::kw_fails) && "Expected 'fails' after catch");
+  SourceLocation FailsLoc = ConsumeToken();  // Eat the fails token.
+  assert(Tok.is(tok::l_paren) && "Expected '(' after fails");
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_expression);
+    return ExprError();
+  }
+  ++Actions.HerbceptionOperandDepth;
+  ExprResult Expr = ParseExpression();
+  --Actions.HerbceptionOperandDepth;
+  if (Expr.isInvalid())
+    return Expr;
+  T.consumeClose();
+  return Actions.ActOnHerbceptionCatchFails(CatchLoc, FailsLoc, Expr.get());
 }
 
 ExprResult Parser::ParseCoyieldExpression() {

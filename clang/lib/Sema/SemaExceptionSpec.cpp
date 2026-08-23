@@ -115,6 +115,37 @@ ExprResult Sema::ActOnNoexceptSpec(Expr *NoexceptExpr,
   return Converted;
 }
 
+ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
+                                 ExceptionSpecificationType &EST) {
+  // `throws` (no argument) defaults to EST_BasicThrows. With an argument,
+  // `throws(true)` is EST_BasicThrows; `throws(false)` means the function
+  // cannot fail (like noexcept).
+  if (!ThrowsExpr) {
+    EST = EST_BasicThrows;
+    return ExprResult();
+  }
+
+  if (ThrowsExpr->isTypeDependent() ||
+      ThrowsExpr->containsUnexpandedParameterPack()) {
+    EST = EST_BasicThrows;
+    return ThrowsExpr;
+  }
+
+  llvm::APSInt Result;
+  ExprResult Converted = CheckConvertedConstantExpression(
+      ThrowsExpr, Context.BoolTy, Result, CCEKind::Noexcept);
+  if (Converted.isInvalid()) {
+    EST = EST_BasicThrows;
+    return ExprError();
+  }
+  if (Converted.get()->isValueDependent()) {
+    EST = EST_BasicThrows;
+    return Converted;
+  }
+  EST = Result.getBoolValue() ? EST_BasicThrows : EST_BasicNoexcept;
+  return Converted;
+}
+
 bool Sema::CheckSpecifiedExceptionType(QualType &T, SourceRange Range) {
   // C++11 [except.spec]p2:
   //   A type cv T, "array of T", or "function returning T" denoted
@@ -612,6 +643,31 @@ static bool CheckEquivalentExceptionSpecImpl(
       return false;
   }
 
+  // Herbception specifications must match: 'throws' matches 'throws', and
+  // 'fails{E}' matches 'fails{E}' with the same error type. These change the
+  // ABI (return type is lowered to {T, i1}), so they cannot be freely
+  // mixed with other specification kinds.
+  if (OldEST == EST_BasicThrows && NewEST == EST_BasicThrows)
+    return false;
+  if ((OldEST == EST_ThrowsTyped || OldEST == EST_ThrowsTypedNoexceptFalse) &&
+      (NewEST == EST_ThrowsTyped || NewEST == EST_ThrowsTypedNoexceptFalse)) {
+    bool Success = true;
+    llvm::SmallPtrSet<CanQualType, 8> OldTypes, NewTypes;
+    for (const auto &I : Old->exceptions())
+      OldTypes.insert(S.Context.getCanonicalType(I).getUnqualifiedType());
+    for (const auto &I : New->exceptions()) {
+      CanQualType TypePtr = S.Context.getCanonicalType(I).getUnqualifiedType();
+      if (OldTypes.count(TypePtr))
+        NewTypes.insert(TypePtr);
+      else {
+        Success = false;
+        break;
+      }
+    }
+    if (Success && OldTypes.size() == NewTypes.size())
+      return false;
+  }
+
   // As a special compatibility feature, under C++0x we accept no spec and
   // throw(std::bad_alloc) as equivalent for operator new and operator new[].
   // This is because the implicit declaration changed, but old code would break.
@@ -787,6 +843,43 @@ bool Sema::CheckExceptionSpecSubset(
   assert(!isUnresolvedExceptionSpec(SuperEST) &&
          !isUnresolvedExceptionSpec(SubEST) &&
          "Shouldn't see unknown exception specifications here");
+
+  // Herbception (throws/fails): the specifier is part of the canonical
+  // function type because it changes the calling convention ({T, i1} return
+  // instead of T). There is no subset relation: two throws/fails specs are
+  // compatible only when they are identical, and a throws/fails type is
+  // incompatible with a plain or noexcept type in either direction.
+  bool SuperHerb = hasHerbceptionExceptionSpec(SuperEST);
+  bool SubHerb = hasHerbceptionExceptionSpec(SubEST);
+  if (SuperHerb || SubHerb) {
+    if (SuperHerb && SubHerb) {
+      if (SuperEST == EST_BasicThrows && SubEST == EST_BasicThrows)
+        return false;
+      if ((SuperEST == EST_ThrowsTyped ||
+           SuperEST == EST_ThrowsTypedNoexceptFalse) &&
+          (SubEST == EST_ThrowsTyped ||
+           SubEST == EST_ThrowsTypedNoexceptFalse)) {
+        // fails{E}: error types must be equivalent.
+        ArrayRef<QualType> SuperExc = Superset->exceptions();
+        ArrayRef<QualType> SubExc = Subset->exceptions();
+        if (SuperExc.size() == 1 && SubExc.size() == 1 &&
+            Context.hasSameType(SuperExc[0], SubExc[0]))
+          return false;
+      }
+    }
+    // Emit a precise diagnostic: the two function types have different
+    // herbception specs (throws/fails vs throws/fails with a different error
+    // type, or vs a plain/noexcept type), which is a calling-convention
+    // mismatch rather than an exception-spec subset issue.
+    if (DiagID.getDiagID() == diag::err_override_exception_spec ||
+        DiagID.getDiagID() == diag::ext_override_exception_spec)
+      Diag(SubLoc, diag::err_herbception_override_spec_mismatch);
+    else
+      Diag(SubLoc, diag::err_herbception_spec_mismatch);
+    if (NoteID.getDiagID() != 0)
+      Diag(SuperLoc, NoteID);
+    return true;
+  }
 
   // If there are dependent noexcept specs, assume everything is fine. Unlike
   // with the equivalency check, this is safe in this case, because we don't
@@ -994,6 +1087,158 @@ static CanThrowResult canSubStmtsThrow(Sema &Self, const Stmt *S) {
       break;
   }
   return R;
+}
+
+/// Determine whether the callee described by \p FT propagates a herbception
+/// error through the given channel: a null E tests the `throws` channel
+/// (EST_BasicThrows); a non-null E tests the `fails{E}` channel
+/// (EST_ThrowsTyped whose exception type is E).
+static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
+                                   QualType E) {
+  ExceptionSpecificationType EST = FT->getExceptionSpecType();
+  if (EST == EST_BasicThrows)
+    return E.isNull();
+  if (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) {
+    if (E.isNull())
+      return false;
+    return S.getASTContext().hasSameUnqualifiedType(FT->getExceptionType(0),
+                                                    E);
+  }
+  return false;
+}
+
+/// Determine whether the callee of \p CE can propagate a herbception error
+/// through the channel \p E. Returns true when the callee is declared with a
+/// matching `throws`/`fails{E}` spec.
+static bool canCalleeHerbceptionThrow(Sema &S, const CallExpr *CE, QualType E) {
+  const Expr *Callee = CE->getCallee()->IgnoreParenImpCasts();
+  QualType T = Callee->getType();
+  if (T->isSpecificPlaceholderType(BuiltinType::BoundMember)) {
+    if (const auto *ME = dyn_cast<MemberExpr>(Callee))
+      T = ME->getMemberDecl()->getType();
+    else if (const auto *BE = dyn_cast<BinaryOperator>(Callee)) {
+      assert((BE->getOpcode() == BO_PtrMemD || BE->getOpcode() == BO_PtrMemI) &&
+             "unexpected bound member operator");
+      T = BE->getRHS()->getType()->castAs<MemberPointerType>()->getPointeeType();
+    } else
+      return false;
+  }
+
+  const FunctionProtoType *FT = nullptr;
+  if ((FT = T->getAs<FunctionProtoType>())) {
+  } else if (const PointerType *PT = T->getAs<PointerType>())
+    FT = PT->getPointeeType()->getAs<FunctionProtoType>();
+  else if (const ReferenceType *RT = T->getAs<ReferenceType>())
+    FT = RT->getPointeeType()->getAs<FunctionProtoType>();
+  else if (const MemberPointerType *MT = T->getAs<MemberPointerType>())
+    FT = MT->getPointeeType()->getAs<FunctionProtoType>();
+  else if (const BlockPointerType *BT = T->getAs<BlockPointerType>())
+    FT = BT->getPointeeType()->getAs<FunctionProtoType>();
+
+  if (!FT)
+    return false;
+
+  FT = S.ResolveExceptionSpec(CE->getBeginLoc(), FT);
+  if (!FT)
+    return false;
+  return calleeHerbceptionThrow(S, FT, E);
+}
+
+bool Sema::canHerbceptionThrow(const Stmt *S_, QualType E) {
+  if (!getLangOpts().HerbExceptions)
+    return false;
+  switch (S_->getStmtClass()) {
+  case Expr::ConstantExprClass:
+    return canHerbceptionThrow(cast<ConstantExpr>(S_)->getSubExpr(), E);
+
+  case Expr::CallExprClass:
+  case Expr::CXXMemberCallExprClass:
+  case Expr::CXXOperatorCallExprClass:
+  case Expr::UserDefinedLiteralClass: {
+    const CallExpr *CE = cast<CallExpr>(S_);
+    if (CE->isTypeDependent())
+      return false;
+    if (canCalleeHerbceptionThrow(*this, CE, E))
+      return true;
+    for (const Stmt *Sub : CE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXConstructExprClass:
+  case Expr::CXXTemporaryObjectExprClass: {
+    const auto *CE = cast<CXXConstructExpr>(S_);
+    if (const FunctionProtoType *FT = CE->getConstructor()
+                                          ? CE->getConstructor()->getType()
+                                                ->getAs<FunctionProtoType>()
+                                          : nullptr)
+      if (calleeHerbceptionThrow(*this, FT, E))
+        return true;
+    for (const Stmt *Sub : CE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXBindTemporaryExprClass: {
+    const auto *BTE = cast<CXXBindTemporaryExpr>(S_);
+    if (const CXXDestructorDecl *DD =
+            BTE->getTemporary()->getDestructor())
+      if (const FunctionProtoType *FT =
+              DD->getType()->getAs<FunctionProtoType>())
+        if (calleeHerbceptionThrow(*this, FT, E))
+          return true;
+    return canHerbceptionThrow(BTE->getSubExpr(), E);
+  }
+
+  case Expr::CXXNewExprClass: {
+    const auto *NE = cast<CXXNewExpr>(S_);
+    if (const FunctionProtoType *FT = NE->getOperatorNew()
+                                          ? NE->getOperatorNew()->getType()
+                                                ->getAs<FunctionProtoType>()
+                                          : nullptr)
+      if (calleeHerbceptionThrow(*this, FT, E))
+        return true;
+    for (const Stmt *Sub : NE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXDeleteExprClass: {
+    const auto *DE = cast<CXXDeleteExpr>(S_);
+    if (const CXXRecordDecl *RD =
+            DE->getDestroyedType()->getAsCXXRecordDecl()) {
+      if (const CXXDestructorDecl *DD = RD->getDestructor())
+        if (const FunctionProtoType *FT =
+                DD->getType()->getAs<FunctionProtoType>())
+          if (calleeHerbceptionThrow(*this, FT, E))
+            return true;
+    }
+    if (const FunctionProtoType *FT = DE->getOperatorDelete()
+                                          ? DE->getOperatorDelete()->getType()
+                                                ->getAs<FunctionProtoType>()
+                                          : nullptr)
+      if (calleeHerbceptionThrow(*this, FT, E))
+        return true;
+    for (const Stmt *Sub : DE->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
+
+  case Expr::CXXDefaultArgExprClass:
+    return canHerbceptionThrow(cast<CXXDefaultArgExpr>(S_)->getExpr(), E);
+  case Expr::CXXDefaultInitExprClass:
+    return canHerbceptionThrow(cast<CXXDefaultInitExpr>(S_)->getExpr(), E);
+
+  default:
+    for (const Stmt *Sub : S_->children())
+      if (Sub && canHerbceptionThrow(Sub, E))
+        return true;
+    return false;
+  }
 }
 
 CanThrowResult Sema::canCalleeThrow(Sema &S, const Expr *E, const Decl *D,
@@ -1614,7 +1859,7 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
     auto *TS = cast<CXXTryStmt>(S);
     // try /*...*/ catch (...) { H } can throw only if H can throw.
     // Any other try-catch can throw if any substatement can throw.
-    const CXXCatchStmt *FinalHandler = TS->getHandler(TS->getNumHandlers() - 1);
+    const CXXCatchStmt *FinalHandler = TS->getCatchHandler(TS->getNumHandlers() - 1);
     if (!FinalHandler->getExceptionDecl())
       return canThrow(FinalHandler->getHandlerBlock());
     return canSubStmtsThrow(*this, S);

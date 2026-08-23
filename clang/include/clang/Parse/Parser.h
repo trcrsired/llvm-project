@@ -2964,6 +2964,23 @@ private:
       SmallVectorImpl<SourceRange> &DynamicExceptionRanges,
       ExprResult &NoexceptExpr, CachedTokens *&ExceptionSpecTokens);
 
+  /// Parse a `noexcept` specifier that follows a `throws` specifier, e.g.
+  /// `throws noexcept(false)`. `throws` implies noexcept(true), so a following
+  /// `noexcept(false)` is rejected; `noexcept(true)`/bare `noexcept` is
+  /// accepted and the function stays `throws`.
+  ExceptionSpecificationType tryParseNoexceptAfterThrows(
+      ExceptionSpecificationType ThrowsType);
+
+  /// Parse a `noexcept` specifier that follows a `fails{E}` specifier.
+  /// `fails{E} noexcept(false)` adds the traditional C++ exception channel
+  /// alongside the herbception error channel.
+  ExceptionSpecificationType
+  tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType);
+
+  /// Cache a `noexcept(...)` that follows `throws` so the delayed re-parse of
+  /// a member function exception spec sees both specifiers.
+  void cacheNoexceptAfterThrows(CachedTokens *&ExceptionSpecTokens);
+
   /// ParseDynamicExceptionSpecification - Parse a C++
   /// dynamic-exception-specification (C++ [except.spec]).
   /// EndLoc is filled with the location of the last token of the specification.
@@ -4839,6 +4856,20 @@ private:
   ///         'throw' assignment-expression[opt]
   /// \endverbatim
   ExprResult ParseThrowExpression();
+
+  /// ParseHerbceptionTryExpression - This handles the herbception
+  /// `try(expr)` expression, which auto-propagates the error of a throws/fails
+  /// call on failure.
+  ExprResult ParseHerbceptionTryExpression();
+
+  /// ParseHerbceptionCatchFailsExpression - This handles the herbception
+  /// `catch fails(expr)` expression, which produces an `either{T, E}` value.
+  ExprResult ParseHerbceptionCatchFailsExpression();
+
+  /// ParseHerbceptionFailureExpression - This handles the herbception
+  /// `failure(expr)` expression, which returns \p expr via the failure channel
+  /// of a `fails{E}` function.
+  ExprResult ParseHerbceptionFailureExpression();
 
   //===--------------------------------------------------------------------===//
   // C++ 2.13.5: C++ Boolean Literals

@@ -703,6 +703,31 @@ bool X86TargetLowering::CanLowerReturn(
     }
   };
 
+  // Herbception (throws) on Win64/UEFI64: the return convention is expanded to use
+  // RAX+RDX (analogous to i686 Windows EAX+EDX).  ComputeValueTypes
+  // decomposes aggregate payloads (e.g. std::error = {ptr, size_t}) into
+  // scalar i64 leaves, each of which fits in a single register.  The i1
+  // discriminant is carried in the carry flag (CF) and never consumes a
+  // register slot.  Empty structs decompose to zero leaves.
+  //
+  // The standard Win64 sret rule (types >8 bytes → pointer) must not apply
+  // to throws functions because the CF-based propagation mechanism requires
+  // the payload in registers.
+  if (MF.getFunction().hasFnAttribute(Attribute::Throws) &&
+      Subtarget.isCallingConvWin64(CallConv)) {
+    for (const ISD::OutputArg &Out : Outs) {
+      if (Out.Flags.isThrows())
+        continue;
+      if (Out.VT == MVT::Other)
+        continue;
+      // Allow up to i64 (one register).  Anything wider after decomposition
+      // genuinely needs sret.
+      if (Out.VT.getSizeInBits() > 64)
+        return false;
+    }
+    return true;
+  }
+
   if (IsWin64F128StackCC(CallConv) &&
       llvm::any_of(
           Outs, [](const ISD::OutputArg &Out) { return Out.VT == MVT::f128; }))
@@ -799,9 +824,16 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, *DAG.getContext());
+
+  // The frontend coerces trivially-copyable ≤16-byte types to i128 for
+  // throws functions on Win64, which ComputeValueTypes decomposes into
+  // two i64 leaves assignable to RAX and RDX via RetCC_X86Common.
   CCInfo.AnalyzeReturn(Outs, RetCC_X86);
 
   SmallVector<std::pair<Register, SDValue>, 4> RetVals;
+  // If this function returns the throws (herbception) discriminant, it is
+  // carried in the carry flag (CF) instead of a return register.
+  SDValue ThrowsDiscriminant;
   for (unsigned I = 0, OutsIndex = 0, E = RVLocs.size(); I != E;
        ++I, ++OutsIndex) {
     CCValAssign &VA = RVLocs[I];
@@ -810,6 +842,12 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     // Add the register to the CalleeSaveDisableRegs list.
     if (ShouldDisableCalleeSavedRegister)
       MF.getRegInfo().disableCalleeSavedRegister(VA.getLocReg());
+
+    if (Outs[OutsIndex].Flags.isThrows()) {
+      // The throws discriminant is returned via the carry flag.
+      ThrowsDiscriminant = OutVals[OutsIndex];
+      continue;
+    }
 
     SDValue ValToCopy = OutVals[OutsIndex];
     EVT ValVT = ValToCopy.getValueType();
@@ -907,6 +945,24 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     Glue = Chain.getValue(1);
     RetOps.push_back(
         DAG.getRegister(RetVal.first, RetVal.second.getValueType()));
+  }
+
+  // Herbception (throws): return the discriminant in the carry flag. Use the
+  // ADD-with-AllOnes trick so that CF = (disc != 0) = disc, and glue the flag
+  // into the RET so nothing clobbers it before the return.
+  if (ThrowsDiscriminant.getNode()) {
+    EVT DiscVT = ThrowsDiscriminant.getValueType();
+    assert(DiscVT.isInteger() && "throws discriminant must be an integer");
+    MVT RegVT = DiscVT == MVT::i1 ? MVT::i8 : DiscVT.getSimpleVT();
+    SDValue Disc = DAG.getNode(ISD::ZERO_EXTEND, dl, RegVT,
+                               ThrowsDiscriminant);
+    SDValue AllOnes = DAG.getAllOnesConstant(dl, RegVT);
+    SDValue Add = DAG.getNode(X86ISD::ADD, dl,
+                              DAG.getVTList(RegVT, MVT::i32), Disc, AllOnes);
+    // Add.getValue(1) is EFLAGS with carry set iff Disc != 0.
+    Chain = DAG.getCopyToReg(Chain, dl, X86::EFLAGS, Add.getValue(1), Glue);
+    Glue = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(X86::EFLAGS, MVT::i32));
   }
 
   // Swift calling convention does not require we copy the sret argument
@@ -1149,14 +1205,18 @@ static SDValue getPopFromX87Reg(SelectionDAG &DAG, SDValue Chain,
 SDValue X86TargetLowering::LowerCallResult(
     SDValue Chain, SDValue InGlue, CallingConv::ID CallConv, bool isVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl,
-    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals,
-    uint32_t *RegMask) const {
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals, uint32_t *RegMask,
+    Register ThrowsDiscriminantReg) const {
 
   const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
                  *DAG.getContext());
+
+  // The frontend coerces trivially-copyable ≤16-byte types to i128 for
+  // throws functions on Win64, which ComputeValueTypes decomposes into
+  // two i64 leaves assignable to RAX+RDX via RetCC_X86Common.
   CCInfo.AnalyzeCallResult(Ins, RetCC_X86);
 
   // Copy all of the result registers out of their specified physreg.
@@ -1164,6 +1224,21 @@ SDValue X86TargetLowering::LowerCallResult(
        ++I, ++InsIndex) {
     CCValAssign &VA = RVLocs[I];
     EVT CopyVT = VA.getLocVT();
+
+    // Herbception (throws): the discriminant was materialized from the carry
+    // flag into a virtual register right after the call (before CALLSEQ_END
+    // could clobber EFLAGS); read it back into a value of the register type
+    // (i8) expected by the middle-end.
+    if (Ins[InsIndex].Flags.isThrows()) {
+      assert(ThrowsDiscriminantReg && "missing throws discriminant register");
+      SDValue Disc =
+          DAG.getCopyFromReg(Chain, dl, ThrowsDiscriminantReg, MVT::i8, InGlue);
+      Chain = Disc.getValue(1);
+      InGlue = Disc.getValue(2);
+      InVals.push_back(
+          DAG.getNode(ISD::ZERO_EXTEND, dl, Ins[InsIndex].VT, Disc));
+      continue;
+    }
 
     // In some calling conventions we need to remove the used registers
     // from the register mask.
@@ -1720,6 +1795,16 @@ SDValue X86TargetLowering::LowerFormalArguments(
       F.getName() == "main")
     FuncInfo->setForceFramePointer(true);
 
+  // A throws (herbception) function returns its discriminant in the carry
+  // flag (CF). On Win64/UEFI64 the CFI epilogue restores the stack pointer with a
+  // plain ADD (LEA / no-flags variants are unavailable without a frame
+  // pointer), which would clobber CF just before the return. Force a frame
+  // pointer so the epilogue can restore SP without touching EFLAGS, keeping
+  // the carry-flag discriminant intact.
+  if (F.hasFnAttribute(Attribute::Throws) &&
+      Subtarget.isCallingConvWin64(CallConv))
+    FuncInfo->setForceFramePointer(true);
+
   MachineFrameInfo &MFI = MF.getFrameInfo();
   bool Is64Bit = Subtarget.is64Bit();
   bool IsWin64 = Subtarget.isCallingConvWin64(CallConv);
@@ -1749,6 +1834,10 @@ SDValue X86TargetLowering::LowerFormalArguments(
   if (IsWin64)
     CCInfo.AllocateStack(32, Align(8));
 
+  // For throws functions on Win64, the frontend coerces trivially-copyable
+  // ≤16-byte types to i128, which ComputeValueTypes decomposes into two i64
+  // leaves.  Each leaf independently gets one of the 4 integer parameter
+  // registers via CC_X86_64_C (RCX, RDX, R8, R9).
   CCInfo.AnalyzeArguments(Ins, CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
@@ -2142,6 +2231,9 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (IsWin64)
     CCInfo.AllocateStack(32, Align(8));
 
+  // The frontend coerces trivially-copyable ≤16-byte types to i128 for
+  // throws functions on Win64, which ComputeValueTypes decomposes into
+  // two i64 leaves assignable via CC_X86_64_C.
   CCInfo.AnalyzeArguments(Outs, CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
@@ -2755,6 +2847,26 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   DAG.addNoMergeSiteInfo(Chain.getNode(), CLI.NoMerge);
   DAG.addCallSiteInfo(Chain.getNode(), std::move(CSInfo));
 
+  // Herbception (throws): read the carry flag (CF) immediately after the call,
+  // before CALLSEQ_END could clobber it. The discriminant is the last Ins
+  // entry (the i1 of {T, i1}). Use a custom READ_CF node (chained + glued
+  // directly to the call) so that the setb is scheduled right after the call;
+  // CALLSEQ_END (which may clobber EFLAGS via the stack adjustment) is then
+  // sequenced after it. The value is copied into a virtual register and read
+  // back in LowerCallResult.
+  Register ThrowsDiscriminantReg;
+  if (CLI.IsThrows) {
+    SDValue ReadCF = DAG.getNode(
+        X86ISD::READ_CF, dl, DAG.getVTList(MVT::i8, MVT::Other, MVT::Glue),
+        Chain, InGlue);
+    Chain = ReadCF.getValue(1);
+    InGlue = ReadCF.getValue(2);
+    ThrowsDiscriminantReg = MF.getRegInfo().createVirtualRegister(
+        &X86::GR8RegClass);
+    Chain = DAG.getCopyToReg(Chain, dl, ThrowsDiscriminantReg, ReadCF,
+                             InGlue);
+    InGlue = Chain.getValue(1);
+  }
   // Save heapallocsite metadata.
   if (CLI.CB)
     if (MDNode *HeapAlloc = CLI.CB->getMetadata("heapallocsite"))
@@ -2791,7 +2903,7 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Handle result values, copying them out of physregs into vregs that we
   // return.
   return LowerCallResult(Chain, InGlue, CallConv, isVarArg, Ins, dl, DAG,
-                         InVals, RegMask);
+                         InVals, RegMask, ThrowsDiscriminantReg);
 }
 
 //===----------------------------------------------------------------------===//

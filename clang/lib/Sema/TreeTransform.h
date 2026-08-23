@@ -2671,6 +2671,19 @@ public:
                                                       Handler));
   }
 
+  /// Build a new herbception `catch throws`/`catch fails` statement.
+  ///
+  /// By default, performs semantic analysis to build the new statement.
+  /// Subclasses may override this routine to provide different behavior.
+  StmtResult RebuildCXXCatchThrowsStmt(SourceLocation CatchLoc,
+                                       SourceLocation SpecLoc,
+                                       VarDecl *ExceptionDecl,
+                                       Stmt *Handler) {
+    return Owned(new (getSema().Context)
+                     CXXCatchThrowsStmt(CatchLoc, SpecLoc, ExceptionDecl,
+                                        Handler));
+  }
+
   /// Build a new C++ try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -3496,8 +3509,30 @@ public:
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
   ExprResult RebuildCXXThrowExpr(SourceLocation ThrowLoc, Expr *Sub,
-                                 bool IsThrownVariableInScope) {
-    return getSema().BuildCXXThrow(ThrowLoc, Sub, IsThrownVariableInScope);
+                                  bool IsThrownVariableInScope,
+                                  bool IsHerbception = false) {
+    return getSema().BuildCXXThrow(ThrowLoc, Sub, IsThrownVariableInScope,
+                                   IsHerbception);
+  }
+
+  /// Rebuild a herbception error value expression by re-fabricating it from
+  /// the (transformed) operand and call expressions, preserving the original
+  /// fabricated type (std::error).
+  ExprResult RebuildCXXErrorValueExpr(SourceLocation ThrowLoc, Expr *Operand,
+                                      Expr *DomainCall, Expr *CodeCall,
+                                      QualType Ty) {
+    return getSema().RebuildErrorValueExpr(ThrowLoc, Operand, DomainCall,
+                                           CodeCall, Ty);
+  }
+
+  /// Build a new herbception try expression.
+  ExprResult RebuildCXXTryExpr(SourceLocation TryLoc, Expr *Sub) {
+    return getSema().ActOnHerbceptionTry(TryLoc, Sub);
+  }
+
+  /// Build a new herbception catch fails expression.
+  ExprResult RebuildCXXCatchFailsExpr(SourceLocation CatchLoc, Expr *Sub) {
+    return getSema().ActOnHerbceptionCatchFails(CatchLoc, CatchLoc, Sub);
   }
 
   /// Build a new C++ default-argument expression.
@@ -9295,6 +9330,37 @@ StmtResult TreeTransform<Derived>::TransformCXXCatchStmt(CXXCatchStmt *S) {
 }
 
 template <typename Derived>
+StmtResult
+TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+  // Transform the exception declaration, if any.
+  VarDecl *Var = nullptr;
+  if (VarDecl *ExceptionDecl = S->getExceptionDecl()) {
+    TypeSourceInfo *T =
+        getDerived().TransformType(ExceptionDecl->getTypeSourceInfo());
+    if (!T)
+      return StmtError();
+
+    Var = getDerived().RebuildExceptionDecl(
+        ExceptionDecl, T, ExceptionDecl->getInnerLocStart(),
+        ExceptionDecl->getLocation(), ExceptionDecl->getIdentifier());
+    if (!Var || Var->isInvalidDecl())
+      return StmtError();
+  }
+
+  // Transform the actual exception handler.
+  StmtResult Handler = getDerived().TransformStmt(S->getHandlerBlock());
+  if (Handler.isInvalid())
+    return StmtError();
+
+  if (!getDerived().AlwaysRebuild() && !Var &&
+      Handler.get() == S->getHandlerBlock())
+    return S;
+
+  return getDerived().RebuildCXXCatchThrowsStmt(
+      S->getCatchLoc(), S->getSpecLoc(), Var, Handler.get());
+}
+
+template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
   // Transform the try block itself.
   StmtResult TryBlock = getDerived().TransformCompoundStmt(S->getTryBlock());
@@ -9305,7 +9371,11 @@ StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
   bool HandlerChanged = false;
   SmallVector<Stmt *, 8> Handlers;
   for (unsigned I = 0, N = S->getNumHandlers(); I != N; ++I) {
-    StmtResult Handler = getDerived().TransformCXXCatchStmt(S->getHandler(I));
+    StmtResult Handler;
+    if (auto *CT = dyn_cast<CXXCatchThrowsStmt>(S->getHandler(I)))
+      Handler = getDerived().TransformCXXCatchThrowsStmt(CT);
+    else
+      Handler = getDerived().TransformCXXCatchStmt(S->getCatchHandler(I));
     if (Handler.isInvalid())
       return StmtError();
 
@@ -15060,14 +15130,80 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
   if (SubExpr.isInvalid())
     return ExprError();
 
-  getSema().DiagnoseExceptionUse(E->getThrowLoc(), /* IsTry= */ false);
+  // Herbception `throw throws expr` uses the deterministic error channel and
+  // is independent of -fno-exceptions.
+  if (!E->isHerbception())
+    getSema().DiagnoseExceptionUse(E->getThrowLoc(), /* IsTry= */ false);
 
   if (!getDerived().AlwaysRebuild() &&
       SubExpr.get() == E->getSubExpr())
     return E;
 
   return getDerived().RebuildCXXThrowExpr(E->getThrowLoc(), SubExpr.get(),
-                                          E->isThrownVariableInScope());
+                                          E->isThrownVariableInScope(),
+                                          E->isHerbception());
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
+  // Mirror the parser: while transforming the operand of an explicit
+  // try(expr)/catch fails(expr), suppress the automatic propagation that
+  // ActOnCallExpr applies to bare throws/fails calls. Otherwise a call inside
+  // try(expr) would be re-wrapped during instantiation.
+  ++getSema().HerbceptionOperandDepth;
+  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  --getSema().HerbceptionOperandDepth;
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
+    return E;
+
+  return getDerived().RebuildCXXTryExpr(E->getTryLoc(), SubExpr.get());
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXErrorValueExpr(
+    CXXErrorValueExpr *E) {
+  ++getSema().HerbceptionOperandDepth;
+  ExprResult Operand = getDerived().TransformExpr(E->getOperand());
+  ExprResult DomainCall = getDerived().TransformExpr(E->getDomainCall());
+  ExprResult CodeCall = getDerived().TransformExpr(E->getCodeCall());
+  --getSema().HerbceptionOperandDepth;
+  if (Operand.isInvalid() || DomainCall.isInvalid() || CodeCall.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && Operand.get() == E->getOperand() &&
+      DomainCall.get() == E->getDomainCall() && CodeCall.get() == E->getCodeCall())
+    return E;
+
+  return getDerived().RebuildCXXErrorValueExpr(E->getThrowLoc(),
+                                               Operand.get(),
+                                               DomainCall.get(),
+                                               CodeCall.get(),
+                                               E->getType());
+}
+
+template <typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  // A magic expression with no subexpressions: it always rebuilds unchanged.
+  return E;
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformCXXCatchFailsExpr(
+    CXXCatchFailsExpr *E) {
+  ++getSema().HerbceptionOperandDepth;
+  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  --getSema().HerbceptionOperandDepth;
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
+    return E;
+
+  return getDerived().RebuildCXXCatchFailsExpr(E->getCatchLoc(), SubExpr.get());
 }
 
 template<typename Derived>

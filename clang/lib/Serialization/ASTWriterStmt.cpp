@@ -1731,6 +1731,15 @@ void ASTStmtWriter::VisitCXXCatchStmt(CXXCatchStmt *S) {
   Code = serialization::STMT_CXX_CATCH;
 }
 
+void ASTStmtWriter::VisitCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
+  VisitStmt(S);
+  Record.AddSourceLocation(S->getCatchLoc());
+  Record.AddSourceLocation(S->getSpecLoc());
+  Record.AddDeclRef(S->getExceptionDecl());
+  Record.AddStmt(S->getHandlerBlock());
+  Code = serialization::STMT_CXX_CATCH_THROWS;
+}
+
 void ASTStmtWriter::VisitCXXTryStmt(CXXTryStmt *S) {
   VisitStmt(S);
   Record.push_back(S->getNumHandlers());
@@ -1989,6 +1998,36 @@ void ASTStmtWriter::VisitCXXThrowExpr(CXXThrowExpr *E) {
   Record.AddStmt(E->getSubExpr());
   Record.push_back(E->isThrownVariableInScope());
   Code = serialization::EXPR_CXX_THROW;
+}
+
+void ASTStmtWriter::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getThrowLoc());
+  Record.AddStmt(E->getOperand());
+  Record.AddStmt(E->getDomainCall());
+  Record.AddStmt(E->getCodeCall());
+  Code = serialization::EXPR_CXX_ERROR_VALUE;
+}
+
+void ASTStmtWriter::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getBeginLoc());
+  Code = serialization::EXPR_CXX_CXA_EXCEPTION;
+}
+
+void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getTryLoc());
+  Record.AddStmt(E->getSubExpr());
+  Record.AddDeclRef(E->getErrorDomain());
+  Code = serialization::EXPR_CXX_TRY;
+}
+
+void ASTStmtWriter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getCatchLoc());
+  Record.AddStmt(E->getSubExpr());
+  Code = serialization::EXPR_CXX_CATCH_FAILS;
 }
 
 void ASTStmtWriter::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {

@@ -558,6 +558,8 @@ void ASTDeclReader::Visit(Decl *D) {
     // FunctionDecl's body was written last after all other Stmts/Exprs.
     if (Record.readInt())
       ReadFunctionDefinition(FD);
+    FD->setHerbceptionLegacyErrorValue(
+        cast_or_null<Expr>(Record.readStmt()));
   } else if (auto *VD = dyn_cast<VarDecl>(D)) {
     ReadVarDeclInit(VD);
   } else if (auto *FD = dyn_cast<FieldDecl>(D)) {

@@ -4064,6 +4064,17 @@ StmtResult Sema::BuildReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
   if (RetValExp && DiagnoseUnexpandedParameterPack(RetValExp))
     return StmtError();
 
+  // Herbception (C-style `fails{E}`): `return failure(expr)` returns \p expr
+  // via the failure channel. The operand is a herbception CXXThrowExpr (void
+  // type), so the return statement simply evaluates it — the throw's codegen
+  // routes the error into the failure return slot.
+  if (RetValExp && !RetValExp->isTypeDependent())
+    if (const auto *Throw = dyn_cast<CXXThrowExpr>(
+            RetValExp->IgnoreParenImpCasts());
+        Throw && Throw->isHerbception())
+      return ReturnStmt::Create(Context, ReturnLoc, RetValExp,
+                                /*NRVOCandidate=*/nullptr);
+
   // HACK: We suppress simpler implicit move here in msvc compatibility mode
   // just as a temporary work around, as the MSVC STL has issues with
   // this change.
@@ -4356,6 +4367,43 @@ Sema::ActOnCXXCatchBlock(SourceLocation CatchLoc, Decl *ExDecl,
       CXXCatchStmt(CatchLoc, cast_or_null<VarDecl>(ExDecl), HandlerBlock);
 }
 
+StmtResult
+Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
+                               Decl *ExDecl, Stmt *HandlerBlock) {
+  if (!getLangOpts().HerbExceptions) {
+    Diag(CatchLoc, diag::err_herbception_disabled);
+    return StmtError();
+  }
+  // There's nothing to test that ActOnExceptionDecl didn't already test.
+  // When the handler catches `std::error`, build the conversion expression
+  // that fabricates a std::error from a caught legacy C++ exception (so a
+  // `noexcept(false)` call inside the try block throwing is auto-converted and
+  // caught here). The conversion is only attached when std::error and the
+  // cxa_exception_code domain are available; otherwise it degrades to catching
+  // only herbception throws.
+  Expr *LegacyErrorValue = nullptr;
+  if (const auto *VD = dyn_cast_or_null<VarDecl>(ExDecl)) {
+    if (NamespaceDecl *Std = getStdNamespace()) {
+      LookupResult R(*this, &PP.getIdentifierTable().get("error"), CatchLoc,
+                     LookupTagName);
+      if (LookupQualifiedName(R, Std)) {
+        if (RecordDecl *RD = R.getAsSingle<RecordDecl>()) {
+          QualType StdErrorTy =
+              Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+          if (Context.hasSameUnqualifiedType(VD->getType(), StdErrorTy)) {
+            ExprResult Conv = BuildCxaExceptionErrorValue(CatchLoc);
+            if (!Conv.isInvalid())
+              LegacyErrorValue = Conv.get();
+          }
+        }
+      }
+    }
+  }
+  return new (Context)
+      CXXCatchThrowsStmt(CatchLoc, SpecLoc, cast_or_null<VarDecl>(ExDecl),
+                         HandlerBlock, LegacyErrorValue);
+}
+
 namespace {
 class CatchHandlerType {
   QualType QT;
@@ -4461,7 +4509,19 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
   const bool IsOpenMPGPUTarget =
       getLangOpts().OpenMPIsTargetDevice && T.isGPU();
 
-  DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
+  // Herbception `try { } catch throws(...)` / `catch fails(...)` block handlers
+  // use deterministic error propagation, not traditional C++ EH. They are
+  // allowed even with -fno-exceptions (and need no EH infrastructure), so skip
+  // the exceptions-disabled diagnostic when every handler is a herbception
+  // handler.
+  const bool AllHerbceptionHandlers =
+      !Handlers.empty() &&
+      llvm::all_of(Handlers, [](const Stmt *H) {
+        return isa<CXXCatchThrowsStmt>(H);
+      });
+
+  if (!AllHerbceptionHandlers)
+    DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
 
   // In OpenMP target regions, we assume that catch is never reached on GPU
   // targets.
@@ -4491,6 +4551,10 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
   llvm::DenseMap<QualType, CXXCatchStmt *> HandledBaseTypes;
   llvm::DenseMap<CatchHandlerType, CXXCatchStmt *> HandledTypes;
   for (unsigned i = 0; i < NumHandlers; ++i) {
+    // Herbception (catch throws/catch fails) handlers do not participate in
+    // the traditional C++ exception-type matching machinery.
+    if (isa<CXXCatchThrowsStmt>(Handlers[i]))
+      continue;
     CXXCatchStmt *H = cast<CXXCatchStmt>(Handlers[i]);
 
     // Diagnose when the handler is a catch-all handler, but it isn't the last

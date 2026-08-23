@@ -2049,6 +2049,12 @@ def err_override_exception_spec : Error<
   "base version">;
 def ext_override_exception_spec : ExtWarn<err_override_exception_spec.Summary>,
   InGroup<MicrosoftExceptionSpec>;
+def err_herbception_spec_mismatch : Error<
+  "function pointer or reference types with different herbception "
+  "('throws'/'fails{...}') specs are incompatible">;
+def err_herbception_override_spec_mismatch : Error<
+  "overriding function has a different herbception ('throws'/'fails{...}') "
+  "specifier than the base version, which changes the calling convention">;
 def err_incompatible_exception_specs : Error<
   "target exception specification is not superset of source">;
 def warn_incompatible_exception_specs : Warning<
@@ -8444,8 +8450,7 @@ def err_rethrow_used_outside_catch : Error<
   "@throw (rethrow) used outside of a @catch block">;
 def err_attribute_multiple_objc_gc : Error<
   "multiple garbage collection attributes specified for type">;
-def err_catch_param_not_objc_type : Error<
-  "@catch parameter is not a pointer to an interface type">;
+def err_catch_param_not_objc_type : Error<  "@catch parameter is not a pointer to an interface type">;
 def err_illegal_qualifiers_on_catch_parm : Error<
   "illegal qualifiers on @catch parameter">;
 def err_storage_spec_on_catch_parm : Error<
@@ -8786,6 +8791,73 @@ def err_catch_incomplete_ptr : Error<
 def err_catch_incomplete_ref : Error<
   "cannot catch reference to incomplete type %0">;
 def err_catch_incomplete : Error<"cannot catch incomplete type %0">;
+def err_throw_throws_outside_throws_function : Error<
+  "'throw throws' is only allowed inside a function declared 'throws' or "
+  "'fails{...}'">;
+def err_herbception_disabled : Error<
+    "herbception is disabled; use -fherbceptions to enable it">;
+def err_throw_throws_requires_operand : Error<
+  "'throw throws' rethrow is only allowed inside a 'catch throws' block">;
+def err_throw_throws_rethrow_disallow_operand : Error<
+  "'throw throws expr' with an explicit operand is disallowed inside a "
+  "'catch throws' block; use bare 'throw throws' to rethrow the caught error">;
+def err_throw_throws_rethrow_outside_catch : Error<
+  "bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block">;
+def err_throw_throws_no_error_domain : Error<
+  "'throw throws' operand type %0 has no std::error_domain specialization">;
+def err_herbception_legacy_convert_no_domain : Error<
+  "a %select{'throws' function|'catch throws' block}0 can convert an escaping "
+  "legacy C++ exception into a herbception only through "
+  "std::error_domain<std::exception_ptr>, which is not defined; include the "
+  "exception_ptr error_domain header or compile with -fno-exceptions to "
+  "disable C++ exceptions">;
+def err_throw_throws_no_catch_handler : Error<
+  "'throw throws' in a plain (non-'throws') function must be inside a "
+  "'try { } catch throws' block">;
+def err_herbception_noexcept_calls_throws : Error<
+  "call to 'throws' function in a noexcept (non-'throws') function must be "
+  "handled by an enclosing 'try { } catch throws' block">;
+def err_failure_outside_fails_function : Error<
+  "'failure(expr)' is only allowed inside a function declared 'fails{...}'">;
+def err_herbception_destructor_spec : Error<
+  "destructor cannot be declared with a herbception "
+  "('throws'/'fails{...}') exception specification; destructors cannot "
+  "propagate errors">;
+def err_fails_only_free_function : Error<
+  "'fails{...}' is a C-style feature and may only be attached to free "
+  "(non-member) functions; it is not allowed on member functions (including "
+  "static members), lambdas, or function templates">;
+def err_throws_not_allowed_in_coroutine : Error<
+  "'throws' is not allowed on coroutine functions; all herbceptions must be "
+  "caught within the coroutine body">;
+def err_herbception_domain_nullptr : Error<
+  "std::error_domain<T>::domain() must not return nullptr; the fabricated "
+  "std::error dereferences the domain pointer">;
+def err_fails_std_error_type : Error<
+  "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
+  "implicit error type of 'throws' and cannot be returned as an explicit "
+  "fails error type">;
+def err_fails_type_not_trivially_copyable : Error<
+  "the 'fails{...}' error type %0 must be trivially copyable (matching C "
+  "behavior): the error value flows through the {T, i1} ABI slot by value">;
+def err_try_throws_outside_throws_function : Error<
+  "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
+def err_herbception_try_requires_operand : Error<
+  "'try' requires an expression operand">;
+def err_try_expr_requires_throws_call : Error<
+  "'try' expression operand must be a call to a function declared 'throws' or "
+  "'fails{...}'">;
+def err_catch_fails_expr_requires_throws_call : Error<
+  "'catch fails' expression operand must be a call to a function declared "
+  "'throws' or 'fails{...}'">;
+def err_catch_fails_expr_throws_function : Error<
+  "'catch fails' cannot be applied to a 'throws' function; use a "
+  "'try { } catch throws(std::error e) { }' block handler instead">;
+def err_fails_call_without_wrapper : Error<
+  "calling function with 'fails{...}' specifier requires 'try()' or "
+  "'catch fails()' wrapper">;
+def note_fails_function_declared_here : Note<
+  "function declared with 'fails{...}' here">;
 def err_catch_sizeless : Error<
   "cannot catch %select{|reference to }0sizeless type %1">;
 def err_catch_rvalue_ref : Error<"cannot catch exceptions by rvalue reference">;
@@ -13057,6 +13129,9 @@ def note_coroutine_promise_suspend_implicitly_required : Note<
   "required by the %select{initial suspend point|final suspend point}0">;
 def err_coroutine_promise_unhandled_exception_required : Error<
   "%0 is required to declare the member 'unhandled_exception()'">;
+def err_coroutine_promise_unhandled_herbception_required : Error<
+  "%0 is required to declare the member 'unhandled_herbception()' for a "
+  "'throws' coroutine">;
 def warn_coroutine_promise_unhandled_exception_required_with_exceptions : Warning<
   "%0 is required to declare the member 'unhandled_exception()' when exceptions are enabled">,
   InGroup<CoroutineMissingUnhandledException>;

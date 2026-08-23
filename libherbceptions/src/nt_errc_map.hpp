@@ -1,0 +1,401 @@
+// clang-format off
+// Generated from utils/ntkernel-table.json; do not edit.
+// NTSTATUS -> std::errc. Any nonzero NTSTATUS is an error; zero is
+// handled by the caller. Requires <cerrno> and ::std::errc.
+
+#ifdef ETIMEDOUT
+	case 0x102u:
+		return ::std::errc::timed_out;
+#endif
+#ifdef EINPROGRESS
+	case 0x103u:
+		return ::std::errc::operation_in_progress;
+#endif
+#ifdef EACCES
+	case 0x80000002u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EAGAIN
+	case 0x8000000fu:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EAGAIN
+	case 0x80000010u:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EBUSY
+	case 0x80000011u:
+		return ::std::errc::device_or_resource_busy;
+#endif
+#ifdef ENOSYS
+	case 0xc0000002u:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EACCES
+	case 0xc0000005u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EINVAL
+	case 0xc0000008u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef ENOENT
+	case 0xc000000eu:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef ENOENT
+	case 0xc000000fu:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef ENOSYS
+	case 0xc0000010u:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EAGAIN
+	case 0xc0000013u:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef ENOMEM
+	case 0xc0000017u:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef ENOSYS
+	case 0xc000001cu:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EACCES
+	case 0xc000001eu:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc000001fu:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc0000021u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc0000022u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EINVAL
+	case 0xc0000024u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EINVAL
+	case 0xc0000033u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef ENOENT
+	case 0xc0000034u:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef EEXIST
+	case 0xc0000035u:
+		return ::std::errc::file_exists;
+#endif
+#ifdef EINVAL
+	case 0xc0000037u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef ENOENT
+	case 0xc000003au:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef ENOMEM
+	case 0xc0000040u:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef EACCES
+	case 0xc0000041u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EINVAL
+	case 0xc0000042u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EACCES
+	case 0xc0000043u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc000004bu:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOLCK
+	case 0xc0000054u:
+		return ::std::errc::no_lock_available;
+#endif
+#ifdef ENOLCK
+	case 0xc0000055u:
+		return ::std::errc::no_lock_available;
+#endif
+#ifdef EACCES
+	case 0xc0000056u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOSPC
+	case 0xc000007fu:
+		return ::std::errc::no_space_on_device;
+#endif
+#ifdef ENOMEM
+	case 0xc0000087u:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef ENOMEM
+	case 0xc0000097u:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef ENOENT
+	case 0xc000009bu:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef EAGAIN
+	case 0xc000009eu:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EACCES
+	case 0xc00000a2u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EAGAIN
+	case 0xc00000a3u:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef ENOSYS
+	case 0xc00000afu:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EACCES
+	case 0xc00000bau:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENODEV
+	case 0xc00000c0u:
+		return ::std::errc::no_such_device;
+#endif
+#ifdef EXDEV
+	case 0xc00000d4u:
+		return ::std::errc::cross_device_link;
+#endif
+#ifdef EACCES
+	case 0xc00000d5u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOENT
+	case 0xc00000fbu:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef ENOTEMPTY
+	case 0xc0000101u:
+		return ::std::errc::directory_not_empty;
+#endif
+#ifdef EINVAL
+	case 0xc0000103u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EBUSY
+	case 0xc0000107u:
+		return ::std::errc::device_or_resource_busy;
+#endif
+#ifdef EBUSY
+	case 0xc0000108u:
+		return ::std::errc::device_or_resource_busy;
+#endif
+#ifdef EACCES
+	case 0xc000010au:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EMFILE
+	case 0xc000011fu:
+		return ::std::errc::too_many_files_open;
+#endif
+#ifdef ECANCELED
+	case 0xc0000120u:
+		return ::std::errc::operation_canceled;
+#endif
+#ifdef EACCES
+	case 0xc0000121u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc0000123u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EINVAL
+	case 0xc0000128u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EACCES
+	case 0xc0000189u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOMEM
+	case 0xc00001adu:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef EAGAIN
+	case 0xc000022du:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EINVAL
+	case 0xc0000235u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EAGAIN
+	case 0xc000026eu:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EACCES
+	case 0xc000028au:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc000028bu:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc000028du:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc000028eu:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc000028fu:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EACCES
+	case 0xc0000290u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOSYS
+	case 0xc000029cu:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EACCES
+	case 0xc00002c5u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef EAGAIN
+	case 0xc00002d3u:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EACCES
+	case 0xc00002eau:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOENT
+	case 0xc00002f0u:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef ENOMEM
+	case 0xc0000373u:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef ENOMEM
+	case 0xc0000416u:
+		return ::std::errc::not_enough_memory;
+#endif
+#ifdef EBUSY
+	case 0xc0000433u:
+		return ::std::errc::device_or_resource_busy;
+#endif
+#ifdef EBUSY
+	case 0xc0000434u:
+		return ::std::errc::device_or_resource_busy;
+#endif
+#ifdef EINVAL
+	case 0xc0000455u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EACCES
+	case 0xc0000467u:
+		return ::std::errc::permission_denied;
+#endif
+#ifdef ENOENT
+	case 0xc0000491u:
+		return ::std::errc::no_such_file_or_directory;
+#endif
+#ifdef EAGAIN
+	case 0xc0000495u:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EAGAIN
+	case 0xc0000503u:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EBUSY
+	case 0xc0000507u:
+		return ::std::errc::device_or_resource_busy;
+#endif
+#ifdef EINVAL
+	case 0xc000070au:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EINVAL
+	case 0xc000070bu:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EINVAL
+	case 0xc000070cu:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EINVAL
+	case 0xc000070du:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EINVAL
+	case 0xc000070eu:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef EINVAL
+	case 0xc000070fu:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef ENOSYS
+	case 0xc0000710u:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef ENOSYS
+	case 0xc0000711u:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EINVAL
+	case 0xc0000716u:
+		return ::std::errc::invalid_argument;
+#endif
+#ifdef ENOSYS
+	case 0xc000071bu:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef ENOSYS
+	case 0xc000071du:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef ENOSYS
+	case 0xc000071eu:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef ENOSYS
+	case 0xc000071fu:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef ENOSYS
+	case 0xc0000720u:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef ENOSYS
+	case 0xc0000721u:
+		return ::std::errc::function_not_supported;
+#endif
+#ifdef EAGAIN
+	case 0xc000080fu:
+		return ::std::errc::resource_unavailable_try_again;
+#endif
+#ifdef EACCES
+	case 0xc000a203u:
+		return ::std::errc::permission_denied;
+#endif
