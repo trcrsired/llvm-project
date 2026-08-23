@@ -1,6 +1,6 @@
 #pragma once
 
-#include "domain_helpers.h"
+#include "libherbceptions.h"
 #include <herbceptions/error>
 
 namespace std::error_domains::__herbceptions_detail {
@@ -222,6 +222,60 @@ inline constexpr ::std::io_scatter_t __simple_query_information_common_message(
   };
 }
 
+/*
+Writes "(<decimal code>)" for the requested encoding into __numbuf and
+returns it as a scatter. The buffer must be at least
+__format_decimal_value_max_size_with_brackets<::std::uint_least32_t>
+code units wide, each of the largest supported character size.
+*/
+inline constexpr ::std::io_scatter_t
+__simple_query_information_common_code(
+    ::std::error_reporter_encoding encoding, ::std::uint_least32_t __code,
+    char unsigned *__numbuf) noexcept {
+  switch (encoding) {
+  case ::std::error_reporter_encoding::utfebcdic: {
+    auto *__dest{::std::error_domains::__herbceptions_detail::
+                     __format_decimal_value_full_with_bracket<
+                         true, char unsigned>(__numbuf, __code)};
+    return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
+  }
+  case ::std::error_reporter_encoding::utf16: {
+    using __char16_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+        [[__gnu__::__may_alias__]]
+#endif
+        = char16_t *;
+    auto *__dest{
+        ::std::error_domains::__herbceptions_detail::
+            __format_decimal_value_full_with_bracket<false, char16_t>(
+                reinterpret_cast<__char16_may_alias_ptr>(__numbuf), __code)};
+    return {__numbuf,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
+  }
+  case ::std::error_reporter_encoding::utf32: {
+    using __char32_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+        [[__gnu__::__may_alias__]]
+#endif
+        = char32_t *;
+    auto *__dest{
+        ::std::error_domains::__herbceptions_detail::
+            __format_decimal_value_full_with_bracket<false, char32_t>(
+                reinterpret_cast<__char32_may_alias_ptr>(__numbuf), __code)};
+    return {__numbuf,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __numbuf)};
+  }
+  default: {
+    auto *__dest{::std::error_domains::__herbceptions_detail::
+                     __format_decimal_value_full_with_bracket<
+                         false, char unsigned>(__numbuf, __code)};
+    return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
+  }
+  }
+}
+
 inline constexpr void __simple_query_information_common(
     ::std::size_t cd, ::std::error_query_information query,
     ::std::error_reporter_encoding encoding, void *cookie,
@@ -232,79 +286,137 @@ inline constexpr void __simple_query_information_common(
       static_cast<::std::uint_least32_t>(query)) {
     return;
   }
-  ::std::io_scatter_t __scatters[2];
-  auto __pos{__scatters};
-  constexpr ::std::size_t __errno_max_bytes{
-      ::std::error_domains::__herbceptions_detail::
-          __compute_max_buffer_size_for_simple_query() *
-      sizeof(char32_t)};
-  alignas(char32_t) char unsigned __buffer[__errno_max_bytes];
-  switch (query) {
-  case ::std::error_query_information::name: {
-    *__pos = __simple_query_information_common_name(encoding, which_errc);
-    ++__pos;
-    break;
-  }
-  case ::std::error_query_information::name_message: {
-    *__pos = __simple_query_information_common_message(encoding, which_errc);
-    ++__pos;
-    [[fallthrough]];
-  }
-  default: {
-    auto __scatter{
-        ::std::error_domains::__herbceptions_detail::__to_u8scatter_from_errcs(
-            static_cast<::std::uint_least32_t>(cd), which_errc)};
-    char unsigned const *__from_first{
-        reinterpret_cast<char unsigned const *>(__scatter.base)};
-    char unsigned const *__from_last{__from_first + __scatter.len};
-    switch (encoding) {
-    case ::std::error_reporter_encoding::utfebcdic: {
-      auto __dest = ::std::error_domains::__herbceptions_detail::
-          __write_ebcdic_with_ascii_only_range(__from_first, __from_last,
-                                               __buffer);
-      *__pos = {__buffer,
-                static_cast<::std::size_t>(
-                    reinterpret_cast<char unsigned *>(__dest) - __buffer)};
-    }
-    case ::std::error_reporter_encoding::utf16: {
-      using __char16_may_alias_ptr
-#if __has_cpp_attribute(__gnu__::__may_alias__)
-          [[__gnu__::__may_alias__]]
-#endif
-          = char16_t *;
-      auto __dest = ::std::error_domains::__herbceptions_detail::
-          __write_with_ascii_only_range(
-              __from_first, __from_last,
-              reinterpret_cast<__char16_may_alias_ptr>(__buffer));
-      *__pos = {__buffer,
-                static_cast<::std::size_t>(
-                    reinterpret_cast<char unsigned *>(__dest) - __buffer)};
+  auto const __code{static_cast<::std::uint_least32_t>(cd)};
+  if constexpr (::std::error_domains::__herbceptions_detail::
+                    __is_freestanding_kernel_mode) {
+    /*
+    Freestanding kernel mode: the message tables are a waste of rom size,
+    so only [domain](numeric code) is ever reported and the text is never
+    touched. Only a small fixed scratch buffer is used.
+    */
+    ::std::io_scatter_t __scatters[2];
+    ::std::size_t __scatterlen{};
+    switch (query) {
+    case ::std::error_query_information::name: {
+      *__scatters =
+          __simple_query_information_common_name(encoding, which_errc);
+      __scatterlen = 1u;
       break;
     }
-    case ::std::error_reporter_encoding::utf32: {
-      using __char32_may_alias_ptr
-#if __has_cpp_attribute(__gnu__::__may_alias__)
-          [[__gnu__::__may_alias__]]
-#endif
-          = char32_t *;
-      auto __dest = ::std::error_domains::__herbceptions_detail::
-          __write_with_ascii_only_range(
-              __from_first, __from_last,
-              reinterpret_cast<__char32_may_alias_ptr>(__buffer));
-      *__pos = {__buffer,
-                static_cast<::std::size_t>(
-                    reinterpret_cast<char unsigned *>(__dest) - __buffer)};
+    case ::std::error_query_information::message:
+      [[fallthrough]];
+    case ::std::error_query_information::name_message: {
+      alignas(char32_t) char unsigned __numbuf
+          [__format_decimal_value_max_size_with_brackets<
+                   ::std::uint_least32_t> *
+           sizeof(char32_t)];
+      __scatterlen = 0u;
+      if (::std::error_query_information::name_message == query) {
+        *__scatters =
+            __simple_query_information_common_message(encoding, which_errc);
+        ++__scatterlen;
+      }
+      __scatters[__scatterlen] = __simple_query_information_common_code(encoding, __code, __numbuf);
+      ++__scatterlen;
       break;
     }
     default: {
-      *__pos = __scatter;
+      return;
+    }
+    }
+    cookfun(cookie, __scatters, __scatterlen);
+  } else {
+    ::std::io_scatter_t __scatters[3];
+    ::std::size_t __scatterlen{};
+    constexpr ::std::size_t __errno_max_bytes{
+        ::std::error_domains::__herbceptions_detail::
+            __compute_max_buffer_size_for_simple_query() *
+        sizeof(char32_t)};
+    alignas(char32_t) char unsigned __buffer[__errno_max_bytes];
+    switch (query) {
+    case ::std::error_query_information::name: {
+      *__scatters =
+          __simple_query_information_common_name(encoding, which_errc);
+      __scatterlen = 1u;
       break;
     }
+    case ::std::error_query_information::message:
+      [[fallthrough]];
+    case ::std::error_query_information::name_message: {
+      alignas(char32_t) char unsigned __numbuf
+          [__format_decimal_value_max_size_with_brackets<
+                   ::std::uint_least32_t> *
+           sizeof(char32_t)];
+      if (::std::error_query_information::name_message == query) {
+        *__scatters =
+            __simple_query_information_common_message(encoding, which_errc);
+        ++__scatterlen;
+      }
+      __scatters[__scatterlen] = __simple_query_information_common_code(encoding, __code, __numbuf);
+      ++__scatterlen;
+      auto __scatter{
+          ::std::error_domains::__herbceptions_detail::__to_u8scatter_from_errcs(
+              __code, which_errc)};
+      char unsigned const *__from_first{
+          reinterpret_cast<char unsigned const *>(__scatter.base)};
+      char unsigned const *__from_last{__from_first + __scatter.len};
+      switch (encoding) {
+      case ::std::error_reporter_encoding::utfebcdic: {
+        auto __dest = ::std::error_domains::__herbceptions_detail::
+            __write_ebcdic_with_ascii_only_range(__from_first, __from_last,
+                                                 __buffer);
+        __scatters[__scatterlen] = {
+            __buffer,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __buffer)};
+        break;
+      }
+      case ::std::error_reporter_encoding::utf16: {
+        using __char16_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+            [[__gnu__::__may_alias__]]
+#endif
+            = char16_t *;
+        auto __dest = ::std::error_domains::__herbceptions_detail::
+            __write_with_ascii_only_range(
+                __from_first, __from_last,
+                reinterpret_cast<__char16_may_alias_ptr>(__buffer));
+        __scatters[__scatterlen] = {
+            __buffer,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __buffer)};
+        break;
+      }
+      case ::std::error_reporter_encoding::utf32: {
+        using __char32_may_alias_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+            [[__gnu__::__may_alias__]]
+#endif
+            = char32_t *;
+        auto __dest = ::std::error_domains::__herbceptions_detail::
+            __write_with_ascii_only_range(
+                __from_first, __from_last,
+                reinterpret_cast<__char32_may_alias_ptr>(__buffer));
+        __scatters[__scatterlen] = {
+            __buffer,
+            static_cast<::std::size_t>(
+                reinterpret_cast<char unsigned *>(__dest) - __buffer)};
+        break;
+      }
+      default: {
+        __scatters[__scatterlen] = __scatter;
+        break;
+      }
+      }
+      ++__scatterlen;
+      break;
     }
-    ++__pos;
+    default: {
+      return;
+    }
+    }
+    cookfun(cookie, __scatters, __scatterlen);
   }
-  }
-  cookfun(cookie, __scatters, static_cast<::std::size_t>(__pos - __scatters));
 }
 
 } // namespace std::error_domains::__herbceptions_detail
