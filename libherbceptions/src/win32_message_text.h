@@ -3,9 +3,7 @@
 #if defined(_WIN32) || defined(__CYGWIN__)
 
 #include "libherbceptions.h"
-#include <windows.h>
-#undef min
-#undef max
+#include "win32_imports.h"
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 
 namespace std::error_domains::__herbceptions_detail {
@@ -30,14 +28,14 @@ inline void __report_win32_message_text(
       [[__gnu__::__may_alias__]]
 #endif
       = ::std::conditional_t<__win32_use_9xa_apis, char unsigned *, char16_t *>;
-  constexpr ::std::uint_least32_t flags{FORMAT_MESSAGE_FROM_SYSTEM |
-                                        FORMAT_MESSAGE_IGNORE_INSERTS |
-                                        FORMAT_MESSAGE_ALLOCATE_BUFFER};
+  constexpr ::std::uint_least32_t flags{win32::format_message_from_system |
+                                        win32::format_message_ignore_inserts |
+                                        win32::format_message_allocate_buffer};
   __local_free_temp_buffer frombuffer;
   ::std::uint_least32_t dwlen{};
   if constexpr (__win32_use_9xa_apis) {
-    dwlen = FormatMessageA(
-        flags, nullptr, win32err, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+    dwlen = win32::FormatMessageA(
+        flags, nullptr, win32err, HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
         reinterpret_cast<char *>(__builtin_addressof(frombuffer.__bufferptr)),
         0, nullptr);
   } else {
@@ -46,8 +44,8 @@ inline void __report_win32_message_text(
         [[__gnu__::__may_alias__]]
 #endif
         = wchar_t *;
-    dwlen = FormatMessageW(flags, nullptr, win32err,
-                           MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+    dwlen = win32::FormatMessageW(flags, nullptr, win32err,
+                           HB_MAKE_LANGID(win32::lang_english, win32::sublang_english_us),
                            reinterpret_cast<wcharmayaliasptr>(
                                __builtin_addressof(frombuffer.__bufferptr)),
                            0, nullptr);

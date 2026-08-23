@@ -1,9 +1,7 @@
 #include <cstddef>
 #include <cstdlib>
 #ifdef _WIN32
-#include <windows.h>
-#undef min
-#undef max
+#include "win32_imports.h"
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
@@ -32,72 +30,37 @@ namespace std::error_domains::__herbceptions_detail {
 #pragma comment(lib, "ntdll.lib")
 #endif
 
-/*
-Import declarations follow fast_io's nt_preliminary_definition.h scheme:
-real MSVC keeps its own __stdcall decoration, every other frontend binds
-the symbol through an __asm__ rename so 32-bit underscore/@byte decoration
-comes out right without import libraries.
-*/
-#pragma push_macro("__HB_STDCALL")
-#pragma push_macro("__HB_NT_RENAME")
-#undef __HB_STDCALL
-#undef __HB_NT_RENAME
-#if defined(_MSC_VER) && !defined(__clang__)
-#define __HB_STDCALL __stdcall
-#define __HB_NT_RENAME(name, count)
-#elif defined(__clang__) || defined(__GNUC__)
-#define __HB_STDCALL __attribute__((__stdcall__))
-#if defined(_M_HYBRID)
-#define __HB_NT_RENAME(name, count) __asm__("#" #name "@" #count)
-#elif defined(__arm64ec__)
-#define __HB_NT_RENAME(name, count) __asm__("#" #name)
-#elif SIZE_MAX <= UINT_LEAST32_MAX &&                                     \
-    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
-#if !defined(__clang__)
-#define __HB_NT_RENAME(name, count) __asm__(#name "@" #count)
-#else
-#define __HB_NT_RENAME(name, count) __asm__("_" #name "@" #count)
-#endif
-#else
-#define __HB_NT_RENAME(name, count) __asm__(#name)
-#endif
-#else
-#define __HB_STDCALL __stdcall
-#define __HB_NT_RENAME(name, count)
-#endif
-
-extern "C" {
-__declspec(dllimport) void *__HB_STDCALL RtlAllocateHeap(
-    void *heap, unsigned long flags, ::std::size_t size) noexcept __HB_NT_RENAME(
-        RtlAllocateHeap, 12);
-__declspec(dllimport) unsigned char __HB_STDCALL
-RtlFreeHeap(void *heap, unsigned long flags,
-            void *ptr) noexcept __HB_NT_RENAME(RtlFreeHeap, 12);
-}
-
-#pragma pop_macro("__HB_NT_RENAME")
-#pragma pop_macro("__HB_STDCALL")
 
 inline void *__process_heap() noexcept {
 #if defined(_M_X64) || defined(__x86_64__)
   // TEB -> PEB (gs:[0x60]); PEB->ProcessHeap lives at 0x30.
+#if defined(_MSC_VER) && !defined(__clang__)
   void *const peb{reinterpret_cast<void *>(__readgsqword(0x60))};
+#else
+  void *peb;
+  __asm__("movq %%gs:0x60, %0" : "=r"(peb));
+#endif
   return *reinterpret_cast<void **>(
       reinterpret_cast<unsigned char *>(peb) + 0x30);
 #elif defined(_M_IX86) || defined(__i386__)
   // TEB -> PEB (fs:[0x30]); PEB->ProcessHeap lives at 0x18.
-  void *const peb{*reinterpret_cast<void **>(
-      static_cast<::std::uintptr_t>(__readfsdword(0x30)))};
+#if defined(_MSC_VER) && !defined(__clang__)
+  void *const peb{
+      reinterpret_cast<void *>(__readfsdword(0x30))};
+#else
+  void *peb;
+  __asm__("movl %%fs:0x30, %0" : "=r"(peb));
+#endif
   return *reinterpret_cast<void **>(
       reinterpret_cast<unsigned char *>(peb) + 0x18);
 #else
-  return ::GetProcessHeap();
+  return win32::GetProcessHeap();
 #endif
 }
 
 // NT flavor: ntdll heap on the PEB process heap.
 inline void *__nt_heap_alloc_or_die(::std::size_t __sz) noexcept {
-  void *__bufferptr = RtlAllocateHeap(__process_heap(), 0, __sz);
+  void *__bufferptr = win32::RtlAllocateHeap(__process_heap(), 0, __sz);
   if (__bufferptr == nullptr)
     ::std::abort();
   return __bufferptr;
@@ -105,12 +68,12 @@ inline void *__nt_heap_alloc_or_die(::std::size_t __sz) noexcept {
 inline void __nt_heap_free(void *__bufferptr) noexcept {
   if (__bufferptr == nullptr)
     return;
-  RtlFreeHeap(__process_heap(), 0, __bufferptr);
+  win32::RtlFreeHeap(__process_heap(), 0, __bufferptr);
 }
 
 // Win32 flavor: kernel32 heap, available on every Windows including 9x.
 inline void *__win32_heap_alloc_or_die(::std::size_t __sz) noexcept {
-  void *__bufferptr = ::HeapAlloc(::GetProcessHeap(), 0, __sz);
+  void *__bufferptr = win32::HeapAlloc(win32::GetProcessHeap(), 0, __sz);
   if (__bufferptr == nullptr)
     ::std::abort();
   return __bufferptr;
@@ -118,7 +81,7 @@ inline void *__win32_heap_alloc_or_die(::std::size_t __sz) noexcept {
 inline void __win32_heap_free(void *__bufferptr) noexcept {
   if (__bufferptr == nullptr)
     return;
-  ::HeapFree(::GetProcessHeap(), 0, __bufferptr);
+  win32::HeapFree(win32::GetProcessHeap(), 0, __bufferptr);
 }
 
 #endif
@@ -166,7 +129,7 @@ public:
       return;
 #ifdef _WIN32
     if constexpr (__malloconly == 2) {
-      ::LocalFree(this->__bufferptr);
+      win32::LocalFree(this->__bufferptr);
     } else
 #endif
         if constexpr (__malloconly == 1) {
