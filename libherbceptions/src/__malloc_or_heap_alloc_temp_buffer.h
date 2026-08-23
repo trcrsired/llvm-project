@@ -29,13 +29,14 @@ __declspec(dllimport) unsigned char __stdcall RtlFreeHeap(void *heap,
 
 inline void *__process_heap() noexcept {
 #if defined(_M_X64) || defined(__x86_64__)
+  // TEB -> PEB (gs:[0x60]); PEB->ProcessHeap lives at 0x30.
   void *const peb{reinterpret_cast<void *>(__readgsqword(0x60))};
   return *reinterpret_cast<void **>(
-      reinterpret_cast<unsigned char *>(peb) + 0x10);
+      reinterpret_cast<unsigned char *>(peb) + 0x30);
 #elif defined(_M_IX86) || defined(__i386__)
-  void *const peb{
-      *reinterpret_cast<void **>(static_cast<::std::size_t>(__readfsdword(
-          0x30)))};
+  // TEB -> PEB (fs:[0x30]); PEB->ProcessHeap lives at 0x18.
+  void *const peb{*reinterpret_cast<void **>(
+      static_cast<::std::uintptr_t>(__readfsdword(0x30)))};
   return *reinterpret_cast<void **>(
       reinterpret_cast<unsigned char *>(peb) + 0x18);
 #else
