@@ -4,13 +4,51 @@
 #include <windows.h>
 #undef min
 #undef max
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 #endif
 
 namespace std::error_domains::__herbceptions_detail {
 
+#ifdef _WIN32
+
+/*
+The heap routines are reached directly through ntdll and the process heap
+handle is read out of the PEB through the TEB, so no kernel32 import is
+needed for them. They are declared noexcept here so no exception semantics
+can ever bite across the C ABI boundary.
+*/
+extern "C" {
+__declspec(dllimport) void *__stdcall RtlAllocateHeap(
+    void *heap, unsigned long flags, ::std::size_t size) noexcept;
+__declspec(dllimport) unsigned char __stdcall RtlFreeHeap(void *heap,
+                                                          unsigned long flags,
+                                                          void *ptr) noexcept;
+}
+
+inline void *__process_heap() noexcept {
+#if defined(_M_X64) || defined(__x86_64__)
+  void *const peb{reinterpret_cast<void *>(__readgsqword(0x60))};
+  return *reinterpret_cast<void **>(
+      reinterpret_cast<unsigned char *>(peb) + 0x10);
+#elif defined(_M_IX86) || defined(__i386__)
+  void *const peb{
+      *reinterpret_cast<void **>(static_cast<::std::size_t>(__readfsdword(
+          0x30)))};
+  return *reinterpret_cast<void **>(
+      reinterpret_cast<unsigned char *>(peb) + 0x18);
+#else
+  return ::GetProcessHeap();
+#endif
+}
+
+#endif
+
 inline void *__malloc_or_heap_alloc_or_die(::std::size_t __sz) noexcept {
 #ifdef _WIN32
-  void *__bufferptr = HeapAlloc(GetProcessHeap(), 0, __sz);
+  void *__bufferptr =
+      RtlAllocateHeap(__process_heap(), 0, __sz);
 #else
   void *__bufferptr = ::std::malloc(__sz);
 #endif
@@ -22,7 +60,7 @@ inline void __free_or_heap_dealloc(void *__bufferptr) noexcept {
   if (__bufferptr == nullptr)
     return;
 #ifdef _WIN32
-  HeapFree(GetProcessHeap(), 0, __bufferptr);
+  RtlFreeHeap(__process_heap(), 0, __bufferptr);
 #else
   free(__bufferptr);
 #endif
@@ -51,7 +89,7 @@ public:
       return;
 #ifdef _WIN32
     if constexpr (__malloconly == 2) {
-      LocalFree(this->__bufferptr);
+      ::LocalFree(this->__bufferptr);
     } else
 #endif
         if constexpr (__malloconly == 1) {
