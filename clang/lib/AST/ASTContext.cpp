@@ -8730,10 +8730,13 @@ QualType ASTContext::getCatchFailsType(QualType T, QualType E) const {
   RecordDecl *RD = buildImplicitRecord("__herb_catch_fails");
   RD->startDefinition();
 
-  // The anonymous union member { T value; E error; }.
+  // The anonymous union member { T value; E error; }. It must be truly
+  // unnamed: buildImplicitRecord("") would mint an empty IdentifierInfo,
+  // whose zero-length entry corrupts the module/PCH identifier lookup table.
   RecordDecl *Union = buildImplicitRecord("", RecordDecl::TagKind::Union);
-  Union->startDefinition();
+  Union->setDeclName(DeclarationName());
   Union->setAnonymousStructOrUnion(true);
+  Union->startDefinition();
   for (const auto &F : {std::pair<const char *, QualType>{"value", T},
                         std::pair<const char *, QualType>{"error", E}}) {
     FieldDecl *Field = FieldDecl::Create(

@@ -5,7 +5,7 @@
 //   struct { union { T value; E error; }; bool failed; }
 // with .failed = discriminant and .value/.error sourced from the payload slot.
 
-// CHECK: %struct.__herb_catch_fails = type { %union., i8 }
+// CHECK: %struct.__herb_catch_fails = type { %union.anon, i8 }
 
 // A fails{int} function returns {i32, i1} with the 'throws' attribute.
 // CHECK: define dso_local { i32, i1 } @_Z3bari(i32 noundef %x) #[[ATTR:[0-9]+]]
