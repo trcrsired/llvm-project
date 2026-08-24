@@ -16883,18 +16883,40 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
 
   // Herbception: a bare `throws` function implicitly converts any legacy C++
   // exception that escapes it (from a `noexcept(false)` callee) into a
-  // fabricated std::error on the herbception channel. Build and attach the
-  // whole-function conversion expression now so CodeGen can route the escape.
-  // This is the whole-function analogue of the conversion stored on a
-  // `catch throws(std::error)` handler (see ActOnCXXCatchThrowsHandler); a
-  // missing cxa_exception_code / error_domain specialization silently disables
-  // the conversion (best-effort, like the catch-handler case).
+  // fabricated std::error on the herbception channel. The conversion - and
+  // its std::error_domain<std::exception_ptr> requirement - only matters when
+  // a legacy escape is actually possible; otherwise the function compiles
+  // silently without it.
   if (getLangOpts().HerbExceptions && Body && FD && !FD->isInvalidDecl()) {
     if (auto *FPT = FD->getType()->getAs<FunctionProtoType>();
-        FPT && FPT->hasBasicThrowsSpec() && !FD->isDependentContext()) {
-      if (ExprResult Conv = BuildCxaExceptionErrorValue(FD->getLocation());
-          !Conv.isInvalid())
-        FD->setHerbceptionLegacyErrorValue(Conv.get());
+        FPT && FPT->hasBasicThrowsSpec() && !FD->isDependentContext() &&
+        canThrow(Body) == CT_Can) {
+      // Locate std::exception_ptr and check for its domain specialization.
+      QualType ExPtrTy;
+      bool DomainVisible = false;
+      if (NamespaceDecl *Std = getStdNamespace()) {
+        LookupResult R(*this, &PP.getIdentifierTable().get("exception_ptr"),
+                       FD->getLocation(), LookupTagName);
+        if (LookupQualifiedName(R, Std))
+          if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+            ExPtrTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+      }
+      if (!ExPtrTy.isNull())
+        DomainVisible = lookupErrorDomain(FD->getLocation(), ExPtrTy) != nullptr;
+
+      if (!ExPtrTy.isNull() && !DomainVisible) {
+        // A legacy exception can escape and the conversion is unavailable:
+        // hard error (include the exception_ptr domain header or use
+        // -fno-exceptions).
+        Diag(FD->getLocation(),
+             diag::err_herbception_legacy_convert_no_domain)
+            << /*'throws' function=*/0;
+        FD->setInvalidDecl();
+      } else if (DomainVisible) {
+        if (ExprResult Conv = BuildCxaExceptionErrorValue(FD->getLocation());
+            !Conv.isInvalid())
+          FD->setHerbceptionLegacyErrorValue(Conv.get());
+      }
     }
   }
 

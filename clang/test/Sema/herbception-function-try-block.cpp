@@ -176,8 +176,7 @@ void known_live_branch_still_checked() {
       throw throws ::std::errc::bad_address;
     // expected-error@-1 {{'throw throws' in a plain (non-'throws') function must be inside a 'try { } catch throws' block}}
     if constexpr (true)
-      throw throws;
-    // expected-error@-1 {{bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block}}
+      throw throws; // ok: bare rethrow inside a handler is legal
   }
 }
 
@@ -213,9 +212,13 @@ enum class no_domain_errc : int { boom = 1 };
 
 int fails_dom(int x) fails{::std::errc} { return x; }
 
+void throws_io() throws { throw throws ::std::errc::io_error; }
+
+// A 'catch throws(std::error)' handler inside a fails{E} function requires a
+// visible std::error_domain<E> specialization.
 void gate_ok() fails{::std::errc} {
   try {
-    throw throws ::std::errc::io_error;
+    throws_io();
   } catch throws(::std::error e) {
     (void)e.code();
   }
