@@ -907,11 +907,17 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   if (getCurScope() && getCurScope()->isOpenMPSimdDirectiveScope())
     Diag(OpLoc, diag::err_omp_simd_region_cannot_use_stmt) << "throw";
 
+  // Whether we are inside a herbception block handler body (parsed with
+  // HerbceptionCatchDepth, which - unlike the try scope - does not also cover
+  // the try block itself or a function-try-block body).
+  const bool InHerbceptionHandler = HerbceptionCatchDepth > 0;
+
   if (Ex) {
-    // `throw throws expr` with an explicit operand: only allowed in a throws
-    // function to create a new error, not inside a catch-throws block (use
-    // bare `throw throws` to rethrow instead).
-    if (InTry) {
+    // `throw throws expr` with an explicit operand creates a new error. It may
+    // appear in a throws/fails function or inside any try block (the error
+    // routes to the enclosing catch-throws handler), but not inside a
+    // catch-throws handler itself: use bare `throw throws` to rethrow there.
+    if (InHerbceptionHandler) {
       Diag(ThrowsLoc, diag::err_throw_throws_rethrow_disallow_operand);
       return ExprError();
     }
@@ -932,8 +938,8 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   }
 
   // Bare `throw throws` (rethrow without operand): only valid inside a
-  // `catch throws` handler.
-  if (!InTry) {
+  // `catch throws` handler body, which owns the error slot to re-read.
+  if (!InHerbceptionHandler) {
     Diag(ThrowsLoc, diag::err_throw_throws_rethrow_outside_catch);
     return ExprError();
   }
