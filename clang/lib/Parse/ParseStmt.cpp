@@ -1576,7 +1576,18 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
     EnterExpressionEvaluationContext PotentiallyDiscarded(
         Actions, Context, nullptr,
         Sema::ExpressionEvaluationContextRecord::EK_Other, ShouldEnter);
+
+    // Herbception: a throw in a discarded `if constexpr` branch never
+    // happens, and with a dependent condition liveness is only decided at
+    // instantiation - defer the throw-context diagnostics for this branch.
+    const bool HerbceptionMaybeDiscarded =
+        getLangOpts().HerbExceptions && IsConstexpr &&
+        (!ConstexprCondition || !*ConstexprCondition);
+    if (HerbceptionMaybeDiscarded)
+      ++Actions.HerbceptionIfConstexprDepth;
     ThenStmt = ParseStatement(&InnerStatementTrailingElseLoc);
+    if (HerbceptionMaybeDiscarded)
+      --Actions.HerbceptionIfConstexprDepth;
   }
 
   if (Tok.isNot(tok::kw_else))
@@ -1621,7 +1632,17 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
     EnterExpressionEvaluationContext PotentiallyDiscarded(
         Actions, Context, nullptr,
         Sema::ExpressionEvaluationContextRecord::EK_Other, ShouldEnter);
+
+    // See the 'then' branch above: defer herbception throw-context
+    // diagnostics for a discarded (or liveness-unknown) `if constexpr` branch.
+    const bool HerbceptionMaybeDiscarded =
+        getLangOpts().HerbExceptions && IsConstexpr &&
+        (!ConstexprCondition || *ConstexprCondition);
+    if (HerbceptionMaybeDiscarded)
+      ++Actions.HerbceptionIfConstexprDepth;
     ElseStmt = ParseStatement();
+    if (HerbceptionMaybeDiscarded)
+      --Actions.HerbceptionIfConstexprDepth;
 
     if (ElseStmt.isUsable())
       MIChecker.Check();
@@ -2688,10 +2709,14 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry) {
   if (Tok.isNot(tok::l_brace))
     return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
 
+  // Herbception: track try-body nesting so that a throw inside a try nested
+  // within a herbception handler can be routed to the nested handlers.
+  ++Actions.HerbceptionTryBodyDepth;
   StmtResult TryBlock(ParseCompoundStatement(
       /*isStmtExpr=*/false,
       Scope::DeclScope | Scope::TryScope | Scope::CompoundStmtScope |
           (FnTry ? Scope::FnTryCatchScope : Scope::NoScope)));
+  --Actions.HerbceptionTryBodyDepth;
   if (TryBlock.isInvalid())
     return TryBlock;
 
