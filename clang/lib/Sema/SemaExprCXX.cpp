@@ -899,6 +899,14 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
       CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
   const bool InThrowsFunction = CurFPT && CurFPT->hasThrowsSpec();
 
+  // 'throw throws' belongs to the implicit-std::error ('throws') channel only.
+  // A 'fails{E}' function returns errors exclusively through
+  // 'return failure(expr);'.
+  if (CurFPT && CurFPT->hasFailsSpec() && !CurFPT->hasBasicThrowsSpec()) {
+    Diag(ThrowsLoc, diag::err_throw_throws_in_fails_function);
+    return ExprError();
+  }
+
   // Whether we are inside a herbception block handler body (parsed with
   // HerbceptionCatchDepth, which - unlike the try scope - does not also cover
   // the try block itself or a function-try-block body).
@@ -917,7 +925,16 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   const bool InNestedTryWithinHandler =
       HerbceptionTryBodyDepth > 0;
 
-  if (!InThrowsFunction && !InTry && !MaybeDiscarded) {
+  // A herbception catch-throws handler body counts as a valid context on its
+  // own: unlike the try block, its CatchScope is not nested inside the try's
+  // TryScope (handlers are parsed as siblings), so InTry would miss it. Any
+  // catch clause of a try also counts: throws inside traditional handlers
+  // chain forward to sibling herbception handlers (CodeGen verifies).
+  const bool ValidContext =
+      InThrowsFunction || InTry || MaybeDiscarded || HerbceptionCatchDepth ||
+      HerbceptionCatchClauseDepth;
+
+  if (!ValidContext) {
     Diag(ThrowsLoc, diag::err_throw_throws_outside_throws_function);
     return ExprError();
   }

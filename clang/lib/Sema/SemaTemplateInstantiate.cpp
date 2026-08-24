@@ -1561,7 +1561,8 @@ namespace {
                                   TypeSourceInfo *Declarator,
                                   SourceLocation StartLoc,
                                   SourceLocation NameLoc,
-                                  IdentifierInfo *Name);
+                                  IdentifierInfo *Name,
+                                  bool IsHerbception = false);
 
     /// Rebuild the Objective-C exception declaration and register the
     /// declaration as an instantiated local.
@@ -2102,9 +2103,11 @@ TemplateInstantiator::RebuildExceptionDecl(VarDecl *ExceptionDecl,
                                            TypeSourceInfo *Declarator,
                                            SourceLocation StartLoc,
                                            SourceLocation NameLoc,
-                                           IdentifierInfo *Name) {
+                                           IdentifierInfo *Name,
+                                           bool IsHerbception) {
   VarDecl *Var = inherited::RebuildExceptionDecl(ExceptionDecl, Declarator,
-                                                 StartLoc, NameLoc, Name);
+                                                 StartLoc, NameLoc, Name,
+                                                 IsHerbception);
   if (Var)
     getSema().CurrentInstantiationScope->InstantiatedLocal(ExceptionDecl, Var);
   return Var;
