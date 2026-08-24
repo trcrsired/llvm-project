@@ -76,9 +76,12 @@ The keywords carry the ``KEYHERB`` token key
   is suppressed inside an explicit wrapper. ``throw throws`` is handled
   inside ``Parser::ParseThrowExpression``.
 * Block handlers: ``Parser::ParseCXXCatchBlock`` recognizes
-  ``catch throws(E e)`` / ``catch fails(E e)`` and calls
+  ``catch throws(std::error e)`` and calls
   ``Actions.ActOnExceptionDeclarator(..., /*IsHerbception=*/true)`` followed
-  by ``Actions.ActOnCXXCatchThrowsBlock``.
+  by ``Actions.ActOnCXXCatchThrowsBlock``. A ``catch fails(...)`` token
+  sequence is rejected at parse time
+  (``err_catch_fails_expression_only``): ``catch fails`` exists only as an
+  expression.
 
 Function specifiers
 -------------------
@@ -152,13 +155,17 @@ Expressions and statements
   a ``fails{E}`` function (``err_failure_outside_fails_function``) with an
   operand of type ``E``; lowers to the same path as ``throw throws``
   (``BuildCXXThrow(..., /*IsHerbception=*/true)``).
-* ``try { ... } catch throws(E e) { }`` / ``catch fails(E e) { }`` --
-  checked by ``Sema::BuildExceptionDeclaration`` /
-  ``ActOnExceptionDeclarator`` (``IsHerbception``) and
-  ``Sema::ActOnCXXCatchThrowsBlock`` (``SemaStmt.cpp``), which builds
-  ``CXXCatchThrowsStmt``. ``Sema::ActOnCXXTryBlock`` detects try blocks with
-  herbception handlers and skips them from EH type-matching and the
-  "exception used but not catchable" diagnosis.
+* ``try { ... } catch throws(std::error e) { }`` -- checked by
+  ``Sema::BuildExceptionDeclaration`` / ``ActOnExceptionDeclarator``
+  (``IsHerbception``) and ``Sema::ActOnCXXCatchThrowsBlock``
+  (``SemaStmt.cpp``), which builds ``CXXCatchThrowsStmt``. The handler must
+  bind exactly ``std::error``, by value: references, cv-qualifiers, other
+  types and the ellipsis form are rejected
+  (``err_catch_throws_std_error`` / ``err_catch_throws_ellipsis``), and a
+  block-form ``catch fails`` is rejected at parse time
+  (``err_catch_fails_expression_only``). ``Sema::ActOnCXXTryBlock`` detects
+  try blocks with herbception handlers and skips them from EH type-matching
+  and the "exception used but not catchable" diagnosis.
 
 Auto-propagation
 ----------------
