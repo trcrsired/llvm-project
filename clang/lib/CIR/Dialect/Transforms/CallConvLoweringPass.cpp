@@ -391,6 +391,22 @@ static const llvm::abi::Type *mapCIRType(mlir::Type type,
               /*Fields=*/{}, sizeBits, align, llvm::abi::StructPacking::Default,
               /*BaseClasses=*/{}, /*VirtualBaseClasses=*/{}, flags);
 
+        // A packed or padded record past two eightbytes is MEMORY on size
+        // alone (see isSupportedType), so the classifier never needs the real
+        // field layout -- which packing would break anyway. Hand it one field
+        // narrower than the record so the size check forces MEMORY; the
+        // CanPassInRegisters flag above still routes non-trivial C++ records
+        // through an invisible reference.
+        if (recTy.getPacked() || recTy.getPadded()) {
+          const llvm::abi::Type *fieldAbi =
+              tb.getIntegerType(64, llvm::Align(8), /*Signed=*/false);
+          return tb.getRecordType(
+              SmallVector<llvm::abi::FieldInfo>(
+                  1, llvm::abi::FieldInfo(fieldAbi, /*OffsetInBits=*/0)),
+              sizeBits, align, llvm::abi::StructPacking::Default,
+              /*BaseClasses=*/{}, /*VirtualBaseClasses=*/{}, flags);
+        }
+
         SmallVector<llvm::abi::FieldInfo> fields;
         fields.reserve(recTy.getMembers().size());
 
