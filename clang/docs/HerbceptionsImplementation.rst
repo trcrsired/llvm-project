@@ -175,7 +175,11 @@ the current function has a throws/fails spec and
 ``Sema::HerbceptionOperandDepth == 0``, a bare call to a throws/fails
 function is wrapped in ``ActOnHerbceptionTry`` (auto-propagation). In C,
 any unwrapped call is rejected with ``err_fails_call_without_wrapper`` plus
-``note_fails_function_declared_here``.
+``note_fails_function_declared_here``. Inside a ``catch throws(std::error)``
+handler of a ``fails{E}`` function, a bare call to a plain ``fails{E2}``
+function is rejected outright (``err_fails_call_in_catch_throws``): the
+handler slot holds std::error, so the raw E2 payload would be stored
+unconverted; an explicit ``try()`` performs the conversion.
 
 ``noexcept`` boundary
 ---------------------
@@ -287,10 +291,14 @@ Sema
 
 * ``ActOnCXXCatchThrowsBlock`` -- builds ``CXXCatchThrowsStmt``; attaches
   ``BuildCxaExceptionErrorValue``'s expression when the handler binds
-  ``std::error``.
+  ``std::error``; rejects handlers in a ``fails{E}`` function whose ``E``
+  has no visible ``std::error_domain`` specialization
+  (``err_catch_throws_requires_error_domain``).
 * ``ActOnCXXTryBlock`` -- marks try blocks containing
   ``CXXCatchThrowsStmt`` handlers so CodeGen routes the discriminant instead
-  of using EH type-matching.
+  of using EH type-matching; rejects mixing herbception and traditional
+  catch clauses in one statement
+  (``err_catch_throws_mixed_traditional``).
 
 Whole-function conversion
 -------------------------

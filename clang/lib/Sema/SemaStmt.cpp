@@ -4398,6 +4398,20 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
     return StmtError();
   }
 
+  // A `catch throws(std::error)` block inside a `fails{E}` function receives
+  // the errors of `throws` callees and of converted `fails` callees through
+  // the std::error channel; converting this function's own error type E
+  // requires a visible std::error_domain<E> specialization.
+  if (const FunctionDecl *CurFD = getCurFunctionDecl())
+    if (const auto *FPT = CurFD->getType()->getAs<FunctionProtoType>();
+        FPT && FPT->hasFailsSpec()) {
+      QualType ErrTy = FPT->getExceptionType(0);
+      if (!lookupErrorDomain(SpecLoc, ErrTy)) {
+        Diag(SpecLoc, diag::err_catch_throws_requires_error_domain) << ErrTy;
+        return StmtError();
+      }
+    }
+
   // Build the conversion expression that fabricates a std::error from a
   // caught legacy C++ exception (so a `noexcept(false)` call inside the try
   // block throwing is auto-converted and caught here). The conversion is
@@ -4524,6 +4538,20 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
       llvm::all_of(Handlers, [](const Stmt *H) {
         return isa<CXXCatchThrowsStmt>(H);
       });
+
+  // Herbception handlers cannot be combined with traditional catch handlers
+  // in the same try statement: the two channels dispatch independently (a
+  // traditional 'catch(...)' would make the whole statement traditional EH).
+  const bool AnyHerbceptionHandler =
+      llvm::any_of(Handlers, [](const Stmt *H) {
+        return isa<CXXCatchThrowsStmt>(H);
+      });
+  if (AnyHerbceptionHandler && !AllHerbceptionHandlers) {
+    for (const Stmt *H : Handlers)
+      if (const auto *C = dyn_cast<CXXCatchStmt>(H))
+        Diag(C->getCatchLoc(), diag::err_catch_throws_mixed_traditional);
+    return StmtError();
+  }
 
   if (!AllHerbceptionHandlers)
     DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
