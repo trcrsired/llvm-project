@@ -267,8 +267,17 @@ Inside the handler, bare ``throw throws`` rethrows the caught error.
 
 Additional rules for ``catch throws`` handlers:
 
-* They cannot be combined with traditional ``catch`` clauses in one try
-  statement; the two channels dispatch independently.
+* Herbception and traditional catch clauses may be mixed and interleaved in
+  one try statement; the two channels dispatch independently. Legacy C++
+  exceptions match only the traditional clauses (in their relative order,
+  with ``catch(...)`` last among them); herbception errors scan only the
+  ``catch throws`` handlers in their relative order.
+* A ``throw throws`` inside a *traditional* handler chains to the next
+  herbception handler after it.
+* When a try has no traditional clauses, a ``catch throws(std::error)``
+  handler also receives legacy exceptions auto-converted through the
+  exception-pointer domain; with traditional clauses present they are
+  delivered untouched instead.
 * Inside a ``fails{E}`` function, a ``catch throws(std::error)`` handler
   requires a visible ``std::error_domain<E>`` specialization.
 * Inside such a handler, a call to a plain ``fails{...}`` function must be
