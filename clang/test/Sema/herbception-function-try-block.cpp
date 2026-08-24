@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fherbceptions -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -fsyntax-only -verify %s
 //
 // `throw throws expr` is valid inside any try block (including the body of a
 // function-try-block), where the error routes to the enclosing catch-throws
@@ -181,22 +181,29 @@ void known_live_branch_still_checked() {
   }
 }
 
-// 'catch throws' handlers cannot be combined with traditional catch clauses
-// in one try statement.
-void mixed_with_ellipsis_bad() {
+// Herbception and traditional handlers may be mixed freely; the two channels
+// dispatch independently. A traditional 'catch(...)' only claims the legacy
+// stream, and a 'throw throws' inside a traditional handler chains to the
+// next herbception handler after it.
+void mixed_with_ellipsis_ok() {
   try {
+    throw throws ::std::errc::invalid_argument;
   } catch throws(::std::error e) {
+    (void)e.code();
   } catch (...) {
-    // expected-error@-1 {{'catch throws' handlers cannot be combined with traditional catch handlers in the same try statement}}
+    // legacy-only escape hatch
   }
 }
 
 struct LegacyErr {};
-void mixed_with_typed_bad() {
+void mixed_with_typed_ok() {
   try {
+    throw LegacyErr{};
   } catch throws(::std::error e) {
   } catch (LegacyErr &) {
-    // expected-error@-1 {{'catch throws' handlers cannot be combined with traditional catch handlers in the same try statement}}
+    throw throws ::std::errc::io_error; // chains to the handler below
+  } catch throws(::std::error e2) {
+    (void)e2.code();
   }
 }
 
