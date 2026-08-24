@@ -526,6 +526,13 @@ CIRGenFunction::emitCXXTryStmt(const CXXTryStmt &s,
     return mlir::failure();
   }
 
+  // Herbception 'catch throws'/'catch fails' handlers are not supported yet.
+  for (unsigned i = 0, n = s.getNumHandlers(); i != n; ++i)
+    if (isa<CXXCatchThrowsStmt>(s.getHandler(i))) {
+      cgm.errorNYI("emitCXXTryStmt: herbception catch handlers");
+      return mlir::failure();
+    }
+
   // Create the try operation.
   mlir::LogicalResult tryRes = mlir::success();
   auto tryOp = cir::TryOp::create(
@@ -551,7 +558,7 @@ CIRGenFunction::emitCXXTryStmt(const CXXTryStmt &s,
         unsigned numHandlers = s.getNumHandlers();
         mlir::Type ehTokenTy = cir::EhTokenType::get(&getMLIRContext());
         for (unsigned i = 0; i != numHandlers; ++i) {
-          const CXXCatchStmt *catchStmt = s.getHandler(i);
+          const auto *catchStmt = cast<CXXCatchStmt>(s.getHandler(i));
           if (!catchStmt->getExceptionDecl())
             hasCatchAll = true;
           mlir::Region *region = result.addRegion();
@@ -580,7 +587,7 @@ CIRGenFunction::emitCXXTryStmt(const CXXTryStmt &s,
   // catch parameter alloca.
   unsigned numHandlers = s.getNumHandlers();
   for (unsigned i = 0; i != numHandlers; ++i) {
-    const CXXCatchStmt *catchStmt = s.getHandler(i);
+    const auto *catchStmt = cast<CXXCatchStmt>(s.getHandler(i));
     mlir::Region *handler = &tryOp.getHandlerRegions()[i];
     mlir::Location handlerLoc = getLoc(catchStmt->getCatchLoc());
 
