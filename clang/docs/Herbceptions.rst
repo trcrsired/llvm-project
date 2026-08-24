@@ -265,6 +265,27 @@ routes the error value to the handler instead of propagating:
 
 Inside the handler, bare ``throw throws`` rethrows the caught error.
 
+Additional rules for ``catch throws`` handlers:
+
+* They cannot be combined with traditional ``catch`` clauses in one try
+  statement; the two channels dispatch independently.
+* Inside a ``fails{E}`` function, a ``catch throws(std::error)`` handler
+  requires a visible ``std::error_domain<E>`` specialization.
+* Inside such a handler, a call to a plain ``fails{...}`` function must be
+  wrapped in an explicit ``try()`` so its error is converted to
+  ``std::error`` (C-style explicitness):
+
+.. code-block:: cpp
+
+   void g() fails{std::errc} {
+     try {
+       // ...
+     } catch throws(std::error e) {
+       auto r = try(fails_callee());   // ok: converted via error_domain
+       // fails_callee();              // rejected: unconverted raw payload
+     }
+   }
+
 Convertibility between specifiers
 `````````````````````````````````
 
