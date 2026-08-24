@@ -6764,6 +6764,20 @@ static void DiagnosedUnqualifiedCallsToStdFunctions(Sema &S,
       << FixItHint::CreateInsertion(DRE->getLocation(), "std::");
 }
 
+/// Return the function prototype of the callee of \p E if it is a call to a
+/// throws/fails function, or null otherwise.
+static const FunctionProtoType *getHerbceptionCalleeProto(const Expr *E) {
+  const auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
+  if (!Call)
+    return nullptr;
+  const Decl *Callee = Call->getCalleeDecl();
+  if (const auto *FTD = dyn_cast_or_null<FunctionTemplateDecl>(Callee))
+    Callee = FTD->getTemplatedDecl();
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
+    return FD->getType()->getAs<FunctionProtoType>();
+  return nullptr;
+}
+
 ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                MultiExprArg ArgExprs, SourceLocation RParenLoc,
                                Expr *ExecConfig) {
@@ -6800,6 +6814,21 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
             CurFPT && CurFPT->hasThrowsSpec() &&
             isHerbceptionThrowsCall(Call.get())) {
           SourceLocation CallLoc = Call.get()->getBeginLoc();
+
+          // Inside a `catch throws(std::error)` handler the error slot holds a
+          // std::error. A bare call to a plain `fails{E2}` function would
+          // store its raw E2 payload there; require an explicit `try()` (which
+          // resolves std::error_domain<E2> and converts), C-style.
+          if (HerbceptionCatchDepth > 0 && CurFPT->hasFailsSpec()) {
+            const FunctionProtoType *CalleeFPT =
+                getHerbceptionCalleeProto(Call.get());
+            if (CalleeFPT && CalleeFPT->hasFailsSpec() &&
+                !CalleeFPT->hasBasicThrowsSpec()) {
+              Diag(CallLoc, diag::err_fails_call_in_catch_throws);
+              return ExprError();
+            }
+          }
+
           Call = ActOnHerbceptionTry(CallLoc, Call.get());
         }
       }

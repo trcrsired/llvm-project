@@ -166,7 +166,9 @@ The operand is the error value; the compiler fabricates the (otherwise
 unconstructible) ``std::error`` by evaluating
 ``std::error_domain<T>::domain()`` and ``std::error_domain<T>::code(e)``.
 An operand whose type has no ``std::error_domain`` specialization is
-rejected. Inside a ``catch throws`` handler the operand form is disallowed;
+rejected. Inside a ``catch throws`` handler the operand form is allowed
+only when the enclosing function itself declares ``throws`` /
+``fails{...}`` (the new error then leaves via its own channel); otherwise
 use the bare rethrow instead (see below).
 
 A ``fails{E}`` function returns an error with ``failure(expr)`` (C and
@@ -246,10 +248,12 @@ function (whose implicit ``std::error`` can only be handled by a
 Catching errors with a block
 ----------------------------
 
-``catch throws(E e) { ... }`` and ``catch fails(E e) { ... }`` provide
-block-based handlers. A bare call to a ``throws``/``fails`` function inside
-the ``try`` block routes the error value to the handler (which binds the
-exception variable) instead of propagating:
+``catch throws(std::error e) { ... }`` provides block-based handlers. The
+handler must declare exactly ``std::error``, by value: references,
+cv-qualified forms, other types and ``catch throws(...)`` are rejected, and
+there is no block form of ``catch fails`` (it exists only as an expression).
+A bare call to a ``throws``/``fails`` function inside the ``try`` block
+routes the error value to the handler instead of propagating:
 
 .. code-block:: cpp
 
@@ -260,6 +264,36 @@ exception variable) instead of propagating:
    }
 
 Inside the handler, bare ``throw throws`` rethrows the caught error.
+
+Additional rules for ``catch throws`` handlers:
+
+* Herbception and traditional catch clauses may be mixed and interleaved in
+  one try statement; the two channels dispatch independently. Legacy C++
+  exceptions match only the traditional clauses (in their relative order,
+  with ``catch(...)`` last among them); herbception errors scan only the
+  ``catch throws`` handlers in their relative order.
+* A ``throw throws`` inside a *traditional* handler chains to the next
+  herbception handler after it.
+* When a try has no traditional clauses, a ``catch throws(std::error)``
+  handler also receives legacy exceptions auto-converted through the
+  exception-pointer domain; with traditional clauses present they are
+  delivered untouched instead.
+* Inside a ``fails{E}`` function, a ``catch throws(std::error)`` handler
+  requires a visible ``std::error_domain<E>`` specialization.
+* Inside such a handler, a call to a plain ``fails{...}`` function must be
+  wrapped in an explicit ``try()`` so its error is converted to
+  ``std::error`` (C-style explicitness):
+
+.. code-block:: cpp
+
+   void g() fails{std::errc} {
+     try {
+       // ...
+     } catch throws(std::error e) {
+       auto r = try(fails_callee());   // ok: converted via error_domain
+       // fails_callee();              // rejected: unconverted raw payload
+     }
+   }
 
 Convertibility between specifiers
 `````````````````````````````````
@@ -519,7 +553,7 @@ The implementation spans the following areas:
   ``clang/lib/Parse/ParseDeclCXX.cpp``; ``try(expr)``,
   ``catch fails(expr)`` dispatched in ``clang/lib/Parse/ParseExpr.cpp`` and
   built in ``ParseExprCXX.cpp`` alongside ``throw throws``;
-  ``catch throws(E e)`` / ``catch fails(E e)`` block handlers in
+  ``catch throws(E e)`` block handlers in
   ``clang/lib/Parse/ParseStmt.cpp``. ``try``, ``catch``, ``throws``,
   ``fails`` and ``failure`` carry the ``KEYHERB`` keyword flag so they parse
   in C with ``-fherbceptions``.

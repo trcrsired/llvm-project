@@ -898,7 +898,26 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   const FunctionProtoType *CurFPT =
       CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
   const bool InThrowsFunction = CurFPT && CurFPT->hasThrowsSpec();
-  if (!InThrowsFunction && !InTry) {
+
+  // Whether we are inside a herbception block handler body (parsed with
+  // HerbceptionCatchDepth, which - unlike the try scope - does not also cover
+  // the try block itself or a function-try-block body).
+  const bool InHerbceptionHandler = HerbceptionCatchDepth > 0;
+
+  // Inside an `if constexpr` branch the throw may be discarded (or its
+  // liveness only decided at instantiation), so defer all context diagnostics
+  // there; live-but-invalid throws are diagnosed by EmitHerbceptionThrow at
+  // CodeGen time. `if consteval` branches are both potentially live, so they
+  // are checked normally.
+  const bool MaybeDiscarded = HerbceptionIfConstexprDepth > 0;
+
+  // A try nested inside a herbception handler may consume the error with its
+  // own handlers, so an operand throw there is allowed; whether the nested
+  // handlers really catch it is verified at CodeGen time.
+  const bool InNestedTryWithinHandler =
+      HerbceptionTryBodyDepth > 0;
+
+  if (!InThrowsFunction && !InTry && !MaybeDiscarded) {
     Diag(ThrowsLoc, diag::err_throw_throws_outside_throws_function);
     return ExprError();
   }
@@ -908,11 +927,16 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     Diag(OpLoc, diag::err_omp_simd_region_cannot_use_stmt) << "throw";
 
   if (Ex) {
-    // `throw throws expr` with an explicit operand: only allowed in a throws
-    // function to create a new error, not inside a catch-throws block (use
-    // bare `throw throws` to rethrow instead).
-    if (InTry) {
-      Diag(ThrowsLoc, diag::err_throw_throws_rethrow_disallow_operand);
+    // `throw throws expr` with an explicit operand creates a new error. It may
+    // appear in a throws/fails function or inside any try block (the error
+    // routes to the enclosing catch-throws handler). Inside a catch-throws
+    // handler itself the handler's catch scopes are already deactivated
+    // (CodeGen pops them before emitting handlers), so a new error can only
+    // leave via the enclosing function's own throws/fails channel; otherwise
+    // it has nowhere to go.
+    if (InHerbceptionHandler && !InNestedTryWithinHandler &&
+        !InThrowsFunction && !MaybeDiscarded) {
+      Diag(ThrowsLoc, diag::err_throw_throws_no_catch_handler);
       return ExprError();
     }
 
@@ -932,8 +956,8 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   }
 
   // Bare `throw throws` (rethrow without operand): only valid inside a
-  // `catch throws` handler.
-  if (!InTry) {
+  // `catch throws` handler body, which owns the error slot to re-read.
+  if (!InHerbceptionHandler && !MaybeDiscarded) {
     Diag(ThrowsLoc, diag::err_throw_throws_rethrow_outside_catch);
     return ExprError();
   }
