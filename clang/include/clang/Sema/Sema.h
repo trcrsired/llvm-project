@@ -8588,6 +8588,12 @@ public:
   /// instantiation (live violations are diagnosed at CodeGen).
   unsigned HerbceptionIfConstexprDepth = 0;
 
+  /// Whether the parser is inside any catch clause of a try statement
+  /// (traditional or herbception). Herbception throws inside traditional
+  /// handlers chain forward to sibling herbception handlers, so context
+  /// diagnostics are deferred there; CodeGen enforces routability.
+  unsigned HerbceptionCatchClauseDepth = 0;
+
   /// Whether the parser is inside the body of a try statement (any nesting
   /// level). Combined with HerbceptionCatchDepth this distinguishes a nested
   /// try inside a herbception handler - whose own handlers may consume the

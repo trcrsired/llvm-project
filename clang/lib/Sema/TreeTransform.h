@@ -2652,9 +2652,11 @@ public:
                                 TypeSourceInfo *Declarator,
                                 SourceLocation StartLoc,
                                 SourceLocation IdLoc,
-                                IdentifierInfo *Id) {
+                                IdentifierInfo *Id,
+                                bool IsHerbception = false) {
     VarDecl *Var = getSema().BuildExceptionDeclaration(nullptr, Declarator,
-                                                       StartLoc, IdLoc, Id);
+                                                       StartLoc, IdLoc, Id,
+                                                       IsHerbception);
     if (Var)
       getSema().CurContext->addDecl(Var);
     return Var;
@@ -9346,7 +9348,8 @@ TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
 
     Var = getDerived().RebuildExceptionDecl(
         ExceptionDecl, T, ExceptionDecl->getInnerLocStart(),
-        ExceptionDecl->getLocation(), ExceptionDecl->getIdentifier());
+        ExceptionDecl->getLocation(), ExceptionDecl->getIdentifier(),
+        /*IsHerbception=*/true);
     if (!Var || Var->isInvalidDecl())
       return StmtError();
   }

@@ -151,8 +151,10 @@ used for legacy-EH interop (see `Traditional exceptions`_).
 Returning an error
 ------------------
 
-A ``throws`` or ``fails{E}`` function returns an error with ``throw throws
-expr`` (C++ only):
+A ``throws`` function returns an error with ``throw throws expr`` (C++
+only); a ``fails{E}`` function returns an error with ``return failure(expr)``
+instead -- ``throw throws`` is not available inside ``fails{...}``
+functions:
 
 .. code-block:: cpp
 
@@ -171,8 +173,8 @@ only when the enclosing function itself declares ``throws`` /
 ``fails{...}`` (the new error then leaves via its own channel); otherwise
 use the bare rethrow instead (see below).
 
-A ``fails{E}`` function returns an error with ``failure(expr)`` (C and
-C++), where ``expr`` has exactly the type ``E``:
+A ``fails{E}`` function returns an error with ``return failure(expr)``
+(C and C++), where ``expr`` has exactly the type ``E``:
 
 .. code-block:: c
 
