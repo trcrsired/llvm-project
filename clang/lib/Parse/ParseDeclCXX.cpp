@@ -3965,7 +3965,7 @@ Parser::tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType) {
   if (Tok.isNot(tok::kw_noexcept))
     return FailsType;
 
-  SourceLocation KeywordLoc = ConsumeToken();
+  ConsumeToken();
   if (Tok.is(tok::l_paren)) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
@@ -4076,7 +4076,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         ExceptionSpecTokens = new CachedTokens;
         ExceptionSpecTokens->push_back(StartTok);
         ExceptionSpecTokens->push_back(Tok);   // '{'
-        SourceLocation BraceOpen = ConsumeBrace();
+        ConsumeBrace();
         if (!ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
                                   /*StopAtSemi=*/false,
                                   /*ConsumeFinalToken=*/true)) {

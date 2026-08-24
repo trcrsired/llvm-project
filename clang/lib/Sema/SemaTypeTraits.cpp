@@ -31,17 +31,6 @@
 
 using namespace clang;
 
-/// Whether a resolved function prototype propagates a herbception `fails{E}`
-/// error with the exact error type \p E (EST_ThrowsTyped).
-static bool canCalleeHerbceptionThrowFails(const Sema &S,
-                                           const FunctionProtoType *FT,
-                                           QualType E) {
-  ExceptionSpecificationType EST = FT->getExceptionSpecType();
-  if (EST != EST_ThrowsTyped && EST != EST_ThrowsTypedNoexceptFalse)
-    return false;
-  return S.getASTContext().hasSameUnqualifiedType(FT->getExceptionType(0), E);
-}
-
 /// Whether \p T has a complete std::error_domain<T> specialization (directly or
 /// via domain_alias_type), i.e. T can be thrown via `throw throws`. Does not
 /// diagnose; an undefined primary template simply means "not throwsable".
@@ -549,38 +538,6 @@ static bool HasNoThrowOperator(CXXRecordDecl *RD, OverloadedOperatorKind Op,
         auto *CPT = Operator->getType()->castAs<FunctionProtoType>();
         CPT = Self.ResolveExceptionSpec(KeyLoc, CPT);
         if (!CPT || !CPT->isNothrow())
-          return false;
-      }
-    }
-    return FoundOperator;
-  }
-  return false;
-}
-
-/// Whether a special member operator of \p RD is declared `throws` (i.e. can
-/// propagate a herbception error). Trivial/implicit members never can.
-static bool HasHerbceptionThrowsOperator(CXXRecordDecl *RD,
-                                         OverloadedOperatorKind Op,
-                                         Sema &Self, SourceLocation KeyLoc,
-                                         ASTContext &C,
-                                         bool (CXXMethodDecl::*IsDesiredOp)()
-                                             const) {
-  DeclarationName Name = C.DeclarationNames.getCXXOperatorName(Op);
-  DeclarationNameInfo NameInfo(Name, KeyLoc);
-  LookupResult Res(Self, NameInfo, Sema::LookupOrdinaryName);
-  if (Self.LookupQualifiedName(Res, RD)) {
-    bool FoundOperator = false;
-    Res.suppressDiagnostics();
-    for (LookupResult::iterator It = Res.begin(), End = Res.end(); It != End;
-         ++It) {
-      if (isa<FunctionTemplateDecl>(*It))
-        continue;
-      CXXMethodDecl *Operator = cast<CXXMethodDecl>(*It);
-      if ((Operator->*IsDesiredOp)()) {
-        FoundOperator = true;
-        auto *CPT = Operator->getType()->castAs<FunctionProtoType>();
-        CPT = Self.ResolveExceptionSpec(KeyLoc, CPT);
-        if (!CPT || !hasHerbceptionExceptionSpec(CPT->getExceptionSpecType()))
           return false;
       }
     }

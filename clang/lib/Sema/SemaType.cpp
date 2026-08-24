@@ -8332,6 +8332,8 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
       case EST_BasicNoexcept:
       case EST_NoexceptTrue:
       case EST_NoThrow:
+      case EST_BasicThrows:
+      case EST_ThrowsTyped:
         // Exception spec doesn't conflict with nothrow, so don't warn.
         [[fallthrough]];
       case EST_Unparsed:
@@ -8341,6 +8343,7 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
         // We don't have enough information to properly determine if there is a
         // conflict, so suppress the warning.
         break;
+      case EST_ThrowsTypedNoexceptFalse:
       case EST_Dynamic:
       case EST_MSAny:
       case EST_NoexceptFalse:
