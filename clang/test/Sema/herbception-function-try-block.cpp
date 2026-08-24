@@ -32,7 +32,11 @@ private:
 
 template <typename T> struct error_domain;
 
-enum class errc : int { invalid_argument = 22, bad_address = 14 };
+enum class errc : int {
+  invalid_argument = 22,
+  bad_address = 14,
+  io_error = 5,
+};
 
 const error_domain_singleton dummy_domain{};
 
@@ -95,4 +99,84 @@ int plain_function() {
   throw throws ::std::errc::invalid_argument;
   // expected-error@-1 {{'throw throws' is only allowed inside a function declared 'throws' or 'fails{...}'}}
   return 0;
+}
+
+// A throw in an `if constexpr` / `if consteval` branch may be discarded (or
+// its liveness only decided at instantiation), so it is never diagnosed at
+// definition time - this is what makes generic code work.
+template <bool B>
+void tmpl_handler_throw(bool b) {
+  try {
+    if (b)
+      throw throws ::std::errc::invalid_argument;
+  } catch throws(::std::error e) {
+    if constexpr (B)
+      throw throws ::std::errc::bad_address;
+    else
+      throw throws;
+  }
+}
+template void tmpl_handler_throw<true>(bool);
+template void tmpl_handler_throw<false>(bool);
+
+// `if consteval` branches are both potentially live (compile-time vs
+// run-time), so they are checked normally.
+void consteval_if_checked() {
+  try {
+    throw throws ::std::errc::invalid_argument;
+  } catch throws(::std::error e) {
+    if consteval {
+      throw throws ::std::errc::bad_address;
+      // expected-error@-1 {{'throw throws' in a plain (non-'throws') function must be inside a 'try { } catch throws' block}}
+    } else {
+      throw throws; // ok: run-time rethrow inside the handler
+    }
+  }
+}
+
+void consteval_if_ok_in_throws_fn() throws {
+  try {
+    throw throws ::std::errc::invalid_argument;
+  } catch throws(::std::error e) {
+    if consteval {
+      throw throws ::std::errc::bad_address; // ok: leaves via the channel
+    } else {
+      throw throws;
+    }
+  }
+}
+
+// A try nested inside a handler may consume a new error with its own
+// handlers; no propagation out of the function is needed.
+void nested_try_in_handler_ok() {
+  try {
+    throw throws ::std::errc::invalid_argument;
+  } catch throws(::std::error) {
+    try {
+      throw throws ::std::errc::io_error;
+    } catch throws(::std::error e) {
+      (void)e.code();
+    }
+  }
+}
+
+void known_dead_branch_ok() {
+  try {
+    throw throws ::std::errc::invalid_argument;
+  } catch throws(::std::error e) {
+    if constexpr (false)
+      throw throws ::std::errc::bad_address;
+  }
+}
+
+void known_live_branch_still_checked() {
+  try {
+  } catch throws(::std::error e) {
+    if constexpr (true)
+      throw throws ::std::errc::bad_address;
+    // expected-error@-1 {{'throw throws' in a plain (non-'throws') function must be inside a 'try { } catch throws' block}}
+    if constexpr (true)
+      throw throws;
+    // expected-error@-1 {{bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block}}
+  }
 }
