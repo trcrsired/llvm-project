@@ -8577,6 +8577,11 @@ public:
   /// to throws functions are not implicitly wrapped in `try`.
   unsigned HerbceptionOperandDepth = 0;
 
+  /// Whether the parser is inside a herbception `catch throws` / `catch fails`
+  /// block handler body. Only there may bare `throw throws` rethrow the caught
+  /// error, and `throw throws expr` is disallowed.
+  unsigned HerbceptionCatchDepth = 0;
+
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'fails{E}' spec.
   bool isHerbceptionThrowsCall(const Expr *Ex);
