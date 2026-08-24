@@ -4374,34 +4374,53 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
     Diag(CatchLoc, diag::err_herbception_disabled);
     return StmtError();
   }
-  // There's nothing to test that ActOnExceptionDecl didn't already test.
-  // When the handler catches `std::error`, build the conversion expression
-  // that fabricates a std::error from a caught legacy C++ exception (so a
-  // `noexcept(false)` call inside the try block throwing is auto-converted and
-  // caught here). The conversion is only attached when std::error and the
-  // cxa_exception_code domain are available; otherwise it degrades to catching
-  // only herbception throws.
-  Expr *LegacyErrorValue = nullptr;
-  if (const auto *VD = dyn_cast_or_null<VarDecl>(ExDecl)) {
-    if (NamespaceDecl *Std = getStdNamespace()) {
-      LookupResult R(*this, &PP.getIdentifierTable().get("error"), CatchLoc,
-                     LookupTagName);
-      if (LookupQualifiedName(R, Std)) {
-        if (RecordDecl *RD = R.getAsSingle<RecordDecl>()) {
-          QualType StdErrorTy =
-              Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
-          if (Context.hasSameUnqualifiedType(VD->getType(), StdErrorTy)) {
-            ExprResult Conv = BuildCxaExceptionErrorValue(CatchLoc);
-            if (!Conv.isInvalid())
-              LegacyErrorValue = Conv.get();
-          }
-        }
+
+  // A `catch throws` handler must bind exactly std::error, by value: the
+  // herbception error channel only carries the compiler-fabricated
+  // two-word std::error payload. References, cv-qualifiers, any other type
+  // and the ellipsis form are rejected.
+  VarDecl *VD = dyn_cast_or_null<VarDecl>(ExDecl);
+  if (!VD) {
+    Diag(SpecLoc, diag::err_catch_throws_ellipsis);
+    return StmtError();
+  }
+  QualType CaughtTy = VD->getType();
+  QualType StdErrorTy;
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"), CatchLoc,
+                   LookupTagName);
+    if (LookupQualifiedName(R, Std))
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        StdErrorTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+  }
+  if (StdErrorTy.isNull() || !Context.hasSameType(CaughtTy, StdErrorTy)) {
+    Diag(VD->getLocation(), diag::err_catch_throws_std_error) << CaughtTy;
+    return StmtError();
+  }
+
+  // A `catch throws(std::error)` block inside a `fails{E}` function receives
+  // the errors of `throws` callees and of converted `fails` callees through
+  // the std::error channel; converting this function's own error type E
+  // requires a visible std::error_domain<E> specialization.
+  if (const FunctionDecl *CurFD = getCurFunctionDecl())
+    if (const auto *FPT = CurFD->getType()->getAs<FunctionProtoType>();
+        FPT && FPT->hasFailsSpec()) {
+      QualType ErrTy = FPT->getExceptionType(0);
+      if (!lookupErrorDomain(SpecLoc, ErrTy)) {
+        Diag(SpecLoc, diag::err_catch_throws_requires_error_domain) << ErrTy;
+        return StmtError();
       }
     }
-  }
-  return new (Context)
-      CXXCatchThrowsStmt(CatchLoc, SpecLoc, cast_or_null<VarDecl>(ExDecl),
-                         HandlerBlock, LegacyErrorValue);
+
+  // Build the conversion expression that fabricates a std::error from a
+  // caught legacy C++ exception (so a `noexcept(false)` call inside the try
+  // block throwing is auto-converted and caught here). The conversion is
+  // attached when the exception-ptr domain entry points are available;
+  // otherwise it degrades to catching only herbception throws.
+  ExprResult Conv = BuildCxaExceptionErrorValue(CatchLoc);
+  return new (Context) CXXCatchThrowsStmt(
+      CatchLoc, SpecLoc, VD, HandlerBlock,
+      /*LegacyErrorValue=*/Conv.isInvalid() ? nullptr : Conv.get());
 }
 
 namespace {
@@ -4519,6 +4538,20 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
       llvm::all_of(Handlers, [](const Stmt *H) {
         return isa<CXXCatchThrowsStmt>(H);
       });
+
+  // Herbception handlers cannot be combined with traditional catch handlers
+  // in the same try statement: the two channels dispatch independently (a
+  // traditional 'catch(...)' would make the whole statement traditional EH).
+  const bool AnyHerbceptionHandler =
+      llvm::any_of(Handlers, [](const Stmt *H) {
+        return isa<CXXCatchThrowsStmt>(H);
+      });
+  if (AnyHerbceptionHandler && !AllHerbceptionHandlers) {
+    for (const Stmt *H : Handlers)
+      if (const auto *C = dyn_cast<CXXCatchStmt>(H))
+        Diag(C->getCatchLoc(), diag::err_catch_throws_mixed_traditional);
+    return StmtError();
+  }
 
   if (!AllHerbceptionHandlers)
     DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);

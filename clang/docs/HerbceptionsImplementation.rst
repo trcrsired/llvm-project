@@ -76,9 +76,12 @@ The keywords carry the ``KEYHERB`` token key
   is suppressed inside an explicit wrapper. ``throw throws`` is handled
   inside ``Parser::ParseThrowExpression``.
 * Block handlers: ``Parser::ParseCXXCatchBlock`` recognizes
-  ``catch throws(E e)`` / ``catch fails(E e)`` and calls
+  ``catch throws(std::error e)`` and calls
   ``Actions.ActOnExceptionDeclarator(..., /*IsHerbception=*/true)`` followed
-  by ``Actions.ActOnCXXCatchThrowsBlock``.
+  by ``Actions.ActOnCXXCatchThrowsBlock``. A ``catch fails(...)`` token
+  sequence is rejected at parse time
+  (``err_catch_fails_expression_only``): ``catch fails`` exists only as an
+  expression.
 
 Function specifiers
 -------------------
@@ -125,8 +128,12 @@ Expressions and statements
   it creates a *new* error: unless the enclosing function is ``fails{E}``,
   the compiler fabricates the unconstructible ``std::error`` through
   ``error_domain<T>::domain()`` / ``code(e)`` (missing specialization ->
-  ``err_throw_throws_no_error_domain``). Inside a catch-throws handler the
-  operand form is rejected (``err_throw_throws_rethrow_disallow_operand``).
+  ``err_throw_throws_no_error_domain``). Inside a catch-throws handler body
+  the herbception catch scopes are already deactivated (CodeGen pops them
+  before emitting handlers), so the operand form additionally requires the
+  enclosing function to have a throws/fails spec
+  (``err_throw_throws_no_catch_handler``); bare ``throw throws`` rethrows
+  from the handled error slot and is valid nowhere else.
 * bare ``throw throws`` -- rethrow; only valid inside a ``try`` block whose
   handlers are herbception handlers
   (``err_throw_throws_rethrow_outside_catch``). CodeGen reads the error from
@@ -148,13 +155,17 @@ Expressions and statements
   a ``fails{E}`` function (``err_failure_outside_fails_function``) with an
   operand of type ``E``; lowers to the same path as ``throw throws``
   (``BuildCXXThrow(..., /*IsHerbception=*/true)``).
-* ``try { ... } catch throws(E e) { }`` / ``catch fails(E e) { }`` --
-  checked by ``Sema::BuildExceptionDeclaration`` /
-  ``ActOnExceptionDeclarator`` (``IsHerbception``) and
-  ``Sema::ActOnCXXCatchThrowsBlock`` (``SemaStmt.cpp``), which builds
-  ``CXXCatchThrowsStmt``. ``Sema::ActOnCXXTryBlock`` detects try blocks with
-  herbception handlers and skips them from EH type-matching and the
-  "exception used but not catchable" diagnosis.
+* ``try { ... } catch throws(std::error e) { }`` -- checked by
+  ``Sema::BuildExceptionDeclaration`` / ``ActOnExceptionDeclarator``
+  (``IsHerbception``) and ``Sema::ActOnCXXCatchThrowsBlock``
+  (``SemaStmt.cpp``), which builds ``CXXCatchThrowsStmt``. The handler must
+  bind exactly ``std::error``, by value: references, cv-qualifiers, other
+  types and the ellipsis form are rejected
+  (``err_catch_throws_std_error`` / ``err_catch_throws_ellipsis``), and a
+  block-form ``catch fails`` is rejected at parse time
+  (``err_catch_fails_expression_only``). ``Sema::ActOnCXXTryBlock`` detects
+  try blocks with herbception handlers and skips them from EH type-matching
+  and the "exception used but not catchable" diagnosis.
 
 Auto-propagation
 ----------------
@@ -164,7 +175,11 @@ the current function has a throws/fails spec and
 ``Sema::HerbceptionOperandDepth == 0``, a bare call to a throws/fails
 function is wrapped in ``ActOnHerbceptionTry`` (auto-propagation). In C,
 any unwrapped call is rejected with ``err_fails_call_without_wrapper`` plus
-``note_fails_function_declared_here``.
+``note_fails_function_declared_here``. Inside a ``catch throws(std::error)``
+handler of a ``fails{E}`` function, a bare call to a plain ``fails{E2}``
+function is rejected outright (``err_fails_call_in_catch_throws``): the
+handler slot holds std::error, so the raw E2 payload would be stored
+unconverted; an explicit ``try()`` performs the conversion.
 
 ``noexcept`` boundary
 ---------------------
@@ -276,10 +291,14 @@ Sema
 
 * ``ActOnCXXCatchThrowsBlock`` -- builds ``CXXCatchThrowsStmt``; attaches
   ``BuildCxaExceptionErrorValue``'s expression when the handler binds
-  ``std::error``.
+  ``std::error``; rejects handlers in a ``fails{E}`` function whose ``E``
+  has no visible ``std::error_domain`` specialization
+  (``err_catch_throws_requires_error_domain``).
 * ``ActOnCXXTryBlock`` -- marks try blocks containing
   ``CXXCatchThrowsStmt`` handlers so CodeGen routes the discriminant instead
-  of using EH type-matching.
+  of using EH type-matching; rejects mixing herbception and traditional
+  catch clauses in one statement
+  (``err_catch_throws_mixed_traditional``).
 
 Whole-function conversion
 -------------------------
