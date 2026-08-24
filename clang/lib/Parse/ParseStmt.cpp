@@ -2771,11 +2771,19 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
 
   SourceLocation CatchLoc = ConsumeToken();
 
-  // Herbception: `catch throws(E e) { ... }` or `catch fails(E e) { ... }`
-  // block handler. The caught type is the error type, not a traditional C++
-  // exception type.
-  if (getLangOpts().HerbExceptions &&
-      (Tok.is(tok::kw_throws) || Tok.is(tok::kw_fails))) {
+  // Herbception: `catch throws(E e) { ... }` block handler. The caught type
+  // must be std::error (checked by Sema). There is no `catch fails` block
+  // handler: `catch fails` exists only in its expression form,
+  // `catch fails(expr)`.
+  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_fails)) {
+    SourceLocation SpecLoc = ConsumeToken();
+    Diag(SpecLoc, diag::err_catch_fails_expression_only);
+    SkipUntil(tok::l_brace, StopBeforeMatch);
+    if (Tok.is(tok::l_brace))
+      ConsumeBrace();
+    return StmtError();
+  }
+  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_throws)) {
     SourceLocation SpecLoc = ConsumeToken();
 
     BalancedDelimiterTracker T(*this, tok::l_paren);

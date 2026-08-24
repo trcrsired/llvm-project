@@ -280,6 +280,9 @@ def err_expected_statement : Error<"expected statement">;
 def err_expected_lparen_after : Error<"expected '(' after '%0'">;
 def err_expected_lbrace_after : Error<"expected '{' after '%0'">;
 def err_throws_requires_cxx : Error<"'throws' is only available in C++">;
+def err_catch_fails_expression_only : Error<
+    "'catch fails' is only valid as an expression; use 'catch fails(expr)' "
+    "to inspect the error of a fails call">;
 def err_throws_noexcept_false : Error<
   "'throws' and 'noexcept(false)' cannot be combined: a 'throws' function "
   "implies noexcept(true)">;

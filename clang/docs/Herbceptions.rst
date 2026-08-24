@@ -248,10 +248,12 @@ function (whose implicit ``std::error`` can only be handled by a
 Catching errors with a block
 ----------------------------
 
-``catch throws(E e) { ... }`` and ``catch fails(E e) { ... }`` provide
-block-based handlers. A bare call to a ``throws``/``fails`` function inside
-the ``try`` block routes the error value to the handler (which binds the
-exception variable) instead of propagating:
+``catch throws(std::error e) { ... }`` provides block-based handlers. The
+handler must declare exactly ``std::error``, by value: references,
+cv-qualified forms, other types and ``catch throws(...)`` are rejected, and
+there is no block form of ``catch fails`` (it exists only as an expression).
+A bare call to a ``throws``/``fails`` function inside the ``try`` block
+routes the error value to the handler instead of propagating:
 
 .. code-block:: cpp
 
@@ -521,7 +523,7 @@ The implementation spans the following areas:
   ``clang/lib/Parse/ParseDeclCXX.cpp``; ``try(expr)``,
   ``catch fails(expr)`` dispatched in ``clang/lib/Parse/ParseExpr.cpp`` and
   built in ``ParseExprCXX.cpp`` alongside ``throw throws``;
-  ``catch throws(E e)`` / ``catch fails(E e)`` block handlers in
+  ``catch throws(E e)`` block handlers in
   ``clang/lib/Parse/ParseStmt.cpp``. ``try``, ``catch``, ``throws``,
   ``fails`` and ``failure`` carry the ``KEYHERB`` keyword flag so they parse
   in C with ``-fherbceptions``.
