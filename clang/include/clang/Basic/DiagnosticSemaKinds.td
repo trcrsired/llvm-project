@@ -8861,6 +8861,15 @@ def err_catch_throws_std_error : Error<
 def err_catch_throws_ellipsis : Error<
   "'catch throws(...)' is not allowed; a 'catch throws' handler must declare "
   "std::error by value">;
+def err_catch_throws_mixed_traditional : Error<
+  "'catch throws' handlers cannot be combined with traditional catch handlers "
+  "in the same try statement">;
+def err_catch_throws_requires_error_domain : Error<
+  "'catch throws' inside a 'fails{...}' function requires a visible "
+  "std::error_domain specialization for %0">;
+def err_fails_call_in_catch_throws : Error<
+  "'catch throws(std::error)' handles std::error values; wrap this "
+  "'fails{...}' call in 'try()' to convert its error">;
 def note_fails_function_declared_here : Note<
   "function declared with 'fails{...}' here">;
 def err_catch_sizeless : Error<

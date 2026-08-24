@@ -180,3 +180,55 @@ void known_live_branch_still_checked() {
     // expected-error@-1 {{bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block}}
   }
 }
+
+// 'catch throws' handlers cannot be combined with traditional catch clauses
+// in one try statement.
+void mixed_with_ellipsis_bad() {
+  try {
+  } catch throws(::std::error e) {
+  } catch (...) {
+    // expected-error@-1 {{'catch throws' handlers cannot be combined with traditional catch handlers in the same try statement}}
+  }
+}
+
+struct LegacyErr {};
+void mixed_with_typed_bad() {
+  try {
+  } catch throws(::std::error e) {
+  } catch (LegacyErr &) {
+    // expected-error@-1 {{'catch throws' handlers cannot be combined with traditional catch handlers in the same try statement}}
+  }
+}
+
+// A 'catch throws(std::error)' handler inside a fails{E} function requires a
+// visible std::error_domain<E> specialization.
+enum class no_domain_errc : int { boom = 1 };
+
+int fails_dom(int x) fails{::std::errc} { return x; }
+
+void gate_ok() fails{::std::errc} {
+  try {
+    throw throws ::std::errc::io_error;
+  } catch throws(::std::error e) {
+    (void)e.code();
+  }
+}
+
+void gate_missing_domain_bad() fails{no_domain_errc} {
+  try {
+  } catch throws(::std::error e) {
+    // expected-error@-1 {{'catch throws' inside a 'fails{...}' function requires a visible std::error_domain specialization for 'no_domain_errc'}}
+  }
+}
+
+// Inside such a handler, calls to plain fails{...} functions must be wrapped
+// in an explicit try() so their error is converted to std::error.
+void needs_try_in_handler_bad() fails{::std::errc} {
+  try {
+  } catch throws(::std::error e) {
+    fails_dom(1);
+    // expected-error@-1 {{'catch throws(std::error)' handles std::error values; wrap this 'fails{...}' call in 'try()' to convert its error}}
+    auto r = try(fails_dom(2)); // ok: explicit conversion marker
+    (void)r;
+  }
+}
