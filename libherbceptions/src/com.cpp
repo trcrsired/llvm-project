@@ -18,7 +18,6 @@
 #include "ntkernel.h"
 #include "win32_message_text.h"
 
-namespace std::error_domains {
 namespace {
 
 inline constexpr ::std::io_scatter_t
@@ -39,8 +38,6 @@ com_name_message_range(::std::error_reporter_encoding encoding,
   }
   }
 }
-
-using namespace __herbceptions_detail;
 
 /*
 Writes "(0x<hex HRESULT>)" for the requested encoding into __numbuf and
@@ -104,43 +101,49 @@ inline constexpr ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
   if (hr == 0) {
     return ::std::errc{};
   }
-  if (hr & __com_facility_nt_bit) {
+  if (hr & ::std::error_domains::__herbceptions_detail::__com_facility_nt_bit) {
     return ::std::error_domains::__herbceptions_detail::__nt_to_errc(
-        hr & ~__com_facility_nt_bit);
+        hr &
+        ~::std::error_domains::__herbceptions_detail::__com_facility_nt_bit);
   }
-  if (__com_hresult_facility(hr) == __com_facility_win32) {
+  if (::std::error_domains::__herbceptions_detail::__com_hresult_facility(hr) ==
+      ::std::error_domains::__herbceptions_detail::__com_facility_win32) {
     return ::std::error_domains::__herbceptions_detail::__win32_to_errc(
-        hr & __com_hresult_code_mask);
+        hr &
+        ::std::error_domains::__herbceptions_detail::__com_hresult_code_mask);
   }
   return ::std::errc::io_error;
 }
 
-constinit ::std::error_domain_singleton __com_error_domain{
+constinit ::std::error_domain_singleton com_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
           // com <-> com: identity.
-          if (otherdomain == __builtin_addressof(__com_error_domain))
+          if (otherdomain == __builtin_addressof(com_error_domain))
             return cd == othercd;
           auto const hr{static_cast<::std::uint_least32_t>(cd)};
           // com (FACILITY_NT_BIT) <-> nt: exact match on the stripped
           // value. com (FACILITY_WIN32) <-> win32: exact match on
           // HRESULT_CODE. Other combinations compare through std::errc.
           ::std::int_least8_t rule{-1};
-          if ((hr & __com_facility_nt_bit) != 0) {
+          if ((hr & ::std::error_domains::__herbceptions_detail::
+                        __com_facility_nt_bit) != 0) {
             if (otherdomain == ::std::error_domains::__cxa_error_domain_nt()) {
-              rule = __nt_com_equivalent(
-                  static_cast<::std::uint_least32_t>(othercd), hr);
+              rule = ::std::error_domains::__herbceptions_detail::
+                  __nt_com_equivalent(
+                      static_cast<::std::uint_least32_t>(othercd), hr);
             }
           } else if (otherdomain ==
                      ::std::error_domains::__cxa_error_domain_win32()) {
-            rule = __com_win32_equivalent(
-                hr, static_cast<::std::uint_least32_t>(othercd));
+            rule = ::std::error_domains::__herbceptions_detail::
+                __com_win32_equivalent(
+                    hr, static_cast<::std::uint_least32_t>(othercd));
           }
           if (rule >= 0)
             return rule == 1;
-          return __com_error_domain.do_to_errc(cd) ==
+          return com_error_domain.do_to_errc(cd) ==
                  otherdomain->do_to_errc(othercd);
         },
     .do_query_information =
@@ -178,11 +181,12 @@ constinit ::std::error_domain_singleton __com_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned
-                  __numbuf[__herbceptions_detail::
-                               __format_hex_value_max_size_with_brackets<
-                                   ::std::uint_least32_t> *
-                           sizeof(char32_t)];
+              constexpr ::std::size_t bufbytes{
+                  ::std::error_domains::__herbceptions_detail::
+                      __format_hex_value_max_size_with_brackets<
+                          ::std::uint_least32_t> *
+                  sizeof(char32_t)};
+              alignas(char32_t) char unsigned __numbuf[bufbytes];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = com_name_message_range(encoding, 0u, 5u);
@@ -209,7 +213,7 @@ constinit ::std::error_domain_singleton __com_error_domain{
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
               alignas(char32_t) char unsigned
-                  __numbuf[__herbceptions_detail::
+                  __numbuf[::std::error_domains::__herbceptions_detail::
                                __format_hex_value_max_size_with_brackets<
                                    ::std::uint_least32_t> *
                            sizeof(char32_t)];
@@ -219,15 +223,20 @@ constinit ::std::error_domain_singleton __com_error_domain{
               }
               scatters[scatterlen] = __com_code_scatter(encoding, hr, __numbuf);
               ++scatterlen;
-              if (hr & __com_facility_nt_bit) {
-                auto const msg{__herbceptions_detail::__nt_u8_message(
-                    hr & ~__com_facility_nt_bit)};
+              if (hr & ::std::error_domains::__herbceptions_detail::
+                           __com_facility_nt_bit) {
+                auto const msg{
+                    ::std::error_domains::__herbceptions_detail::
+                        __nt_u8_message(
+                            hr & ~::std::error_domains::__herbceptions_detail::
+                                     __com_facility_nt_bit)};
                 if (msg.len != 0) {
                   char unsigned const *from_first{
                       reinterpret_cast<char unsigned const *>(msg.base)};
                   char unsigned const *from_last{from_first + msg.len};
                   alignas(char32_t) char unsigned
-                      buffer[__herbceptions_detail::__nt_max_message_size *
+                      buffer[::std::error_domains::__herbceptions_detail::
+                                 __nt_max_message_size *
                              sizeof(char32_t)];
                   switch (encoding) {
                   case ::std::error_reporter_encoding::utfebcdic: {
@@ -283,7 +292,10 @@ constinit ::std::error_domain_singleton __com_error_domain{
                 }
                 break;
               }
-              if (__com_hresult_facility(hr) == __com_facility_win32) {
+              if (::std::error_domains::__herbceptions_detail::
+                      __com_hresult_facility(hr) ==
+                  ::std::error_domains::__herbceptions_detail::
+                      __com_facility_win32) {
                 // Flush "[com](0x<hr>)" and then report only the
                 // FormatMessage text for the embedded Win32 code; the win32
                 // domain's own (0x<code>) block is deliberately not
@@ -291,8 +303,10 @@ constinit ::std::error_domain_singleton __com_error_domain{
                 // each call appends.
                 cookfun(cookie, scatters, scatterlen);
                 ::std::error_domains::__herbceptions_detail::
-                    __report_win32_message_text(hr & __com_hresult_code_mask,
-                                                encoding, cookie, cookfun);
+                    __report_win32_message_text(
+                        hr & ::std::error_domains::__herbceptions_detail::
+                                 __com_hresult_code_mask,
+                        encoding, cookie, cookfun);
                 return;
               }
               break;
@@ -311,9 +325,7 @@ constinit ::std::error_domain_singleton __com_error_domain{
 
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_com() noexcept {
-  return __builtin_addressof(::std::error_domains::__com_error_domain);
+  return __builtin_addressof(com_error_domain);
 }
-
-} // namespace std::error_domains
 
 #endif // _WIN32 || __CYGWIN__
