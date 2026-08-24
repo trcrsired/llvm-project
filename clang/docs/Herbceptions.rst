@@ -582,15 +582,40 @@ The implementation spans the following areas:
   (posix, win32, nt, com, wine, cmath, parse, exception-ptr), ``std::error``,
   and the name/message query protocol.
 
+Link-time ODR checking
+======================
+
+The ``throws``/``fails`` specifier is deliberately not part of the mangled
+name: a herbception function and its plain counterpart share one symbol.
+That keeps object files link-compatible with non-herbception toolchains,
+but it also means translation units that *disagree* about a function's
+specifier (or about a ``fails{E}`` error type) compile cleanly and then
+link silently -- callers compiled against the plain ABI would read garbage
+from a ``throws`` definition. That is a One Definition Rule violation, and
+only the linker can see it.
+
+When you link with LTO (``-flto``, full or thin), ``ld.lld`` compares the
+herbception signature -- whether the IR function carries the error channel
+and which payload type it returns -- of every externally visible function
+across all bitcode modules, for every supported target, and fails the link
+on a conflict:
+
+.. code-block:: none
+
+   ld.lld: error: herbception ODR violation: symbol '_Z3fooi' has
+   conflicting definitions: it is defined as a herbception ('throws')
+   function with error payload type '{ ptr, i64 }' in 'a.o', but without
+   the herbception error channel in 'b.o'
+
+The check covers both full LTO and ThinLTO. It only sees bitcode inputs:
+definitions coming from native relocatable files (or from modules never
+materialized in-process, e.g. with ``--thinlto-index-only`` or served from
+the ThinLTO cache) are outside its reach.
+
 Known limitations
 =================
 
 * The ABI is experimental and not stable across compiler versions.
-* The ``throws``/``fails`` specifier is *not* yet reflected in the mangled
-  name, so a ``throws`` function and a plain function with the same
-  signature currently share an Itanium mangling. (The return type *is*
-  lowered, so this is safe only within one toolchain that agrees on the
-  convention.)
 * ``FastISel`` falls back to SelectionDAG for ``throws`` calls, so some
   ``-O0`` paths are slightly slower than they would otherwise be.
 * Legacy C++ exception conversion depends on the ``libherbceptions``

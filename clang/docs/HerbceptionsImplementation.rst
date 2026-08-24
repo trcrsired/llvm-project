@@ -508,6 +508,36 @@ the ``ret``).
 conventions but serve as explicit, named entry points for the expanded
 register set.
 
+Linker: LTO ODR checking
+========================
+
+The herbception specifier is deliberately not part of the C++ mangled name,
+so a ``throws`` function and its plain counterpart share the same symbol.
+Two translation units that disagree about the specifier (or about a
+``fails{E}`` error type) therefore link silently, and calls compiled against
+the wrong ABI read garbage return values. Only the linker sees all of the
+definitions, so LTO diagnoses this.
+
+``llvm/include/llvm/LTO/Config.h`` defines ``lto::HerbceptionODRChecker``,
+shared by every module of an LTO link through
+``Config::HerbceptionODR`` (a ``shared_ptr`` so ThinLTO backend threads all
+observe the same registry; controlled by ``Config::CheckHerbceptionODR``,
+on by default). For every externally visible function of each materialized
+bitcode module, ``checkHerbceptionODRForModule`` (``llvm/lib/LTO/LTO.cpp``)
+records whether it carries the IR ``throws`` attribute and the payload
+element type of its ``{T, i1}`` return. Regular-LTO modules are scanned in
+``LTO::addRegularLTO``; ThinLTO modules are scanned on the backend threads
+right after parsing. Conflicts are reported when ``LTO::run`` finishes::
+
+    ld.lld: error: herbception ODR violation: symbol '_Z3fooi' has
+    conflicting definitions: it is defined as a herbception ('throws')
+    function with error payload type '{ ptr, i64 }' in 'a.o', but without
+    the herbception error channel in 'b.o'
+
+Modules that are never materialized in-process -- ``--thinlto-index-only``,
+ThinLTO cache hits and out-of-process DTLTO backends -- are not scanned,
+and definitions coming from native relocatable files are out of reach.
+
 Runtime: libherbceptions
 ========================
 
@@ -593,8 +623,6 @@ throws-attr.ll`` plus the x86 frame-pointer/CFI variants
 Known limitations
 =================
 
-* The ``throws``/``fails`` specifier is not yet reflected in the mangled
-  name.
 * ``FastISel`` falls back to SelectionDAG for ``throws`` calls.
 * Legacy-EH conversion requires the ``libherbceptions`` runtime ABI symbols
   and visible ``std::exception_ptr`` / ``std::error`` declarations; when a
