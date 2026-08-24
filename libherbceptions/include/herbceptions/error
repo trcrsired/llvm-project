@@ -155,7 +155,9 @@ public:
       __docleanup(__code_opaque);
     }
   }
-
+#if __has_cpp_attribute(__gnu__::__returns_nonnull__)
+  [[__gnu__::__returns_nonnull__]]
+#endif
   [[nodiscard]] constexpr ::std::error_domain_singleton const *
   domain() const noexcept {
     return __domain_opaque;
@@ -217,11 +219,11 @@ public:
     }
   }
 #endif
-  constexpr ::std::errc to_errc() const noexcept {
+  [[nodiscard]] constexpr ::std::errc to_errc() const noexcept {
     return __domain_opaque->do_to_errc(__code_opaque);
   }
 
-  void throw_dynamic_exception() const
+  [[noreturn]] void throw_dynamic_exception() const
 #if defined(__cpp_exceptions)
   {
     auto __dothrow{__domain_opaque->do_throw_dynamic_exception};
