@@ -166,7 +166,9 @@ The operand is the error value; the compiler fabricates the (otherwise
 unconstructible) ``std::error`` by evaluating
 ``std::error_domain<T>::domain()`` and ``std::error_domain<T>::code(e)``.
 An operand whose type has no ``std::error_domain`` specialization is
-rejected. Inside a ``catch throws`` handler the operand form is disallowed;
+rejected. Inside a ``catch throws`` handler the operand form is allowed
+only when the enclosing function itself declares ``throws`` /
+``fails{...}`` (the new error then leaves via its own channel); otherwise
 use the bare rethrow instead (see below).
 
 A ``fails{E}`` function returns an error with ``failure(expr)`` (C and
