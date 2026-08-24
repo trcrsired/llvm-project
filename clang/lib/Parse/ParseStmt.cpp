@@ -2771,6 +2771,14 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
 
   SourceLocation CatchLoc = ConsumeToken();
 
+  // Track catch-clause nesting: herbception throws inside traditional
+  // handlers chain forward, so context diagnostics defer inside any clause.
+  ++Actions.HerbceptionCatchClauseDepth;
+  struct PopDepth {
+    Sema &Actions;
+    ~PopDepth() { --Actions.HerbceptionCatchClauseDepth; }
+  } PopDepthGuard{Actions};
+
   // Herbception: `catch throws(E e) { ... }` block handler. The caught type
   // must be std::error (checked by Sema). There is no `catch fails` block
   // handler: `catch fails` exists only in its expression form,

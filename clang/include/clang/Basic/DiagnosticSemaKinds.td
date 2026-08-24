@@ -8867,6 +8867,9 @@ def err_catch_throws_requires_error_domain : Error<
 def err_fails_call_in_catch_throws : Error<
   "'catch throws(std::error)' handles std::error values; wrap this "
   "'fails{...}' call in 'try()' to convert its error">;
+def err_throw_throws_in_fails_function : Error<
+  "'throw throws' is not allowed inside a 'fails{...}' function; use "
+  "'return failure(...)' to return an error">;
 def note_fails_function_declared_here : Note<
   "function declared with 'fails{...}' here">;
 def err_catch_sizeless : Error<
