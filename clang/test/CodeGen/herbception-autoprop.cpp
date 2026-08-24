@@ -5,7 +5,7 @@
 
 // CHECK: define dso_local { i32, i1 } @_Z3bari(i32 noundef %x) #[[ATTR:[0-9]+]]
 int bar(int x) fails{int} {
-  if (x < 0) throw throws x;
+  if (x < 0) return failure(x);
   return x + 1;
 }
 
@@ -20,10 +20,10 @@ int foo(int x) fails{int} {
 // A plain (non-throws) function cannot use auto-propagation: calling a fails
 // function bare must be handled explicitly with catch fails().
 // CHECK-LABEL: define dso_local noundef i32 @_Z6bazouri(i32 noundef %x)
-// CHECK:         %[[E:.*]] = alloca %struct.either, align 4
+// CHECK:         %[[E:.*]] = alloca %struct.__herb_catch_fails, align 4
 int bazour(int x) {
   auto e = catch fails(bar(x));
-  return e.positive ? e.left : e.right;
+  return !e.failed ? e.value : e.error;
 }
 
 // CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }

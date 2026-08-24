@@ -123,7 +123,9 @@ Expressions and statements
 
 * ``throw throws expr`` -- ``Sema::ActOnCXXThrowThrows``
   (``clang/lib/Sema/SemaExprCXX.cpp``). Only valid inside a function with a
-  throws/fails spec or inside a ``try`` block
+  plain ``throws`` spec (a ``fails{E}`` function must use
+  ``return failure(...)`` instead; ``err_throw_throws_in_fails_function``)
+  or inside a ``try`` block / catch clause
   (``err_throw_throws_outside_throws_function``). With an explicit operand
   it creates a *new* error: unless the enclosing function is ``fails{E}``,
   the compiler fabricates the unconstructible ``std::error`` through
