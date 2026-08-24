@@ -199,6 +199,34 @@ static llvm::StringRef getPersonalityFn(CIRGenModule &cgm,
 }
 
 void CIRGenFunction::emitCXXThrowExpr(const CXXThrowExpr *e) {
+  // Herbception `throw throws`: route the error value to the nearest active
+  // `try { } catch throws` handler, or (once supported in CIR) take the
+  // {T, i1} error return path of the enclosing throws function. This is not
+  // a traditional throw.
+  if (e->isHerbception()) {
+    if (herbceptionCatchScopes.empty()) {
+      cgm.errorNYI(e->getExprLoc(),
+                   "emitCXXThrowExpr: 'throw throws' outside a herbception "
+                   "catch handler requires the {T, i1} return path");
+      return;
+    }
+
+    const HerbceptionCatchScope &scope = herbceptionCatchScopes.back();
+    mlir::Location loc = getLoc(e->getSourceRange());
+
+    RunCleanupsScope throwScope(*this);
+    if (const Expr *subExpr = e->getSubExpr())
+      emitAnyExprToMem(subExpr, scope.errorSlot, Qualifiers(),
+                       /*isInitializer=*/false);
+    throwScope.forceCleanup();
+
+    cir::GotoOp::create(builder, loc, scope.handlerLabel);
+    // A throw marks the end of the block; create a new one for codegen after
+    // the throw statement.
+    builder.createBlock(builder.getBlock()->getParent());
+    return;
+  }
+
   const llvm::Triple &triple = getTarget().getTriple();
   if (cgm.getLangOpts().OpenMPIsTargetDevice &&
       (triple.isNVPTX() || triple.isAMDGCN())) {
@@ -487,6 +515,16 @@ void CIRGenFunction::emitBeginCatch(const CXXCatchStmt *catchStmt,
 mlir::LogicalResult
 CIRGenFunction::emitCXXTryStmt(const CXXTryStmt &s,
                                cxxTryBodyEmitter &bodyCallback) {
+  // Herbception `try { } catch throws(E e) { }` handlers are dispatched on
+  // the normal return path (no unwinder), so they bypass the EH machinery
+  // entirely. Route them before any personality function is installed.
+  bool hasHerbceptionHandler = false;
+  for (unsigned i = 0, n = s.getNumHandlers(); i != n; ++i)
+    if (isa<CXXCatchThrowsStmt>(s.getHandler(i)))
+      hasHerbceptionHandler = true;
+  if (hasHerbceptionHandler)
+    return emitHerbceptionCatchTry(s);
+
   mlir::Location loc = getLoc(s.getSourceRange());
 
   // Create a scope to hold try local storage for catch params.
@@ -525,13 +563,6 @@ CIRGenFunction::emitCXXTryStmt(const CXXTryStmt &s,
     cgm.errorNYI("enterCXXTryStmt: EHAsynch");
     return mlir::failure();
   }
-
-  // Herbception 'catch throws'/'catch fails' handlers are not supported yet.
-  for (unsigned i = 0, n = s.getNumHandlers(); i != n; ++i)
-    if (isa<CXXCatchThrowsStmt>(s.getHandler(i))) {
-      cgm.errorNYI("emitCXXTryStmt: herbception catch handlers");
-      return mlir::failure();
-    }
 
   // Create the try operation.
   mlir::LogicalResult tryRes = mlir::success();
@@ -653,6 +684,183 @@ mlir::LogicalResult CIRGenFunction::emitCXXTryStmt(const CXXTryStmt &s) {
   simpleTryBodyEmitter emitter{s};
 
   return emitCXXTryStmt(s, emitter);
+}
+
+mlir::LogicalResult
+CIRGenFunction::emitHerbceptionCatchTry(const CXXTryStmt &s) {
+  // Traditional and herbception clauses may interleave in classic codegen
+  // (the two channels dispatch independently). CIR does not support the
+  // mixed form yet.
+  bool hasTraditional = false;
+  for (unsigned i = 0, n = s.getNumHandlers(); i != n; ++i)
+    if (!isa<CXXCatchThrowsStmt>(s.getHandler(i)))
+      hasTraditional = true;
+  if (hasTraditional) {
+    cgm.errorNYI(s.getSourceRange(),
+                 "emitCXXTryStmt: interleaved traditional and herbception "
+                 "catch handlers");
+    return mlir::failure();
+  }
+
+  // A `catch throws(std::error)` handler carrying a legacy conversion
+  // expression additionally catches traditional C++ exceptions through a
+  // catch-all EH scope; record the first such handler.
+  const CXXCatchThrowsStmt *legacyHandlerStmt = nullptr;
+  for (unsigned i = 0, n = s.getNumHandlers(); i != n; ++i) {
+    const auto *ct = cast<CXXCatchThrowsStmt>(s.getHandler(i));
+    if (ct->getLegacyExceptionErrorValue() && !legacyHandlerStmt)
+      legacyHandlerStmt = ct;
+  }
+
+  const std::string contLabel = "herb.try.cont." + llvm::Twine(
+      herbceptionTryCounter++).str();
+
+  // Allocate the error slot of each handler and make the scopes active while
+  // the try body is emitted, so herbception failure paths route to them.
+  struct HandlerInfo {
+    const CXXCatchThrowsStmt *stmt;
+    std::string label;
+    Address slot;
+  };
+  llvm::SmallVector<HandlerInfo, 4> handlers;
+  unsigned savedScopes = herbceptionCatchScopes.size();
+  for (unsigned i = 0, n = s.getNumHandlers(); i != n; ++i) {
+    const auto *ct = cast<CXXCatchThrowsStmt>(s.getHandler(i));
+    VarDecl *vd = ct->getExceptionDecl();
+    mlir::Type errTy =
+        convertTypeForMem(vd ? vd->getType() : getContext().VoidPtrTy);
+    Address slot = createDefaultAlignTempAlloca(errTy, getLoc(ct->getCatchLoc()),
+                                                "herb.error");
+    std::string label =
+        "catch.throws." + llvm::Twine(herbceptionTryCounter++).str();
+    herbceptionCatchScopes.push_back({label, slot});
+    handlers.push_back({ct, label, slot});
+  }
+
+  // Emit the try body. A `throw throws` inside it stores the error value into
+  // the innermost handler's slot and branches to its label; the cleanups of
+  // this scope run on that exit.
+  if (!legacyHandlerStmt) {
+    RunCleanupsScope bodyCleanups(*this);
+    if (emitStmt(s.getTryBlock(), /*useCurrentScope=*/true).failed()) {
+      herbceptionCatchScopes.truncate(savedScopes);
+      return mlir::failure();
+    }
+  } else {
+    // Wrap the try block in a catch-all EH scope so calls to noexcept(false)
+    // functions inside it become invokes; the caught legacy exception is
+    // converted to a fabricated std::error and routed to its handler.
+    mlir::Location tryLoc = getLoc(s.getBeginLoc());
+    llvm::SmallVector<mlir::Attribute> handlerAttrs;
+    mlir::LogicalResult tryBodyRes = mlir::success();
+    auto tryOp = cir::TryOp::create(
+        builder, tryLoc,
+        /*tryBuilder=*/[&](mlir::OpBuilder &, mlir::Location loc) {
+          RunCleanupsScope bodyCleanups(*this);
+          if (emitStmt(s.getTryBlock(), /*useCurrentScope=*/true).failed())
+            tryBodyRes = mlir::failure();
+          if (!builder.getBlock()->mightHaveTerminator() ||
+              !builder.getBlock()->back().hasTrait<mlir::OpTrait::IsTerminator>())
+            cir::YieldOp::create(builder, loc);
+        },
+        /*handlersBuilder=*/
+        [&](mlir::OpBuilder &b, mlir::Location loc,
+            mlir::OperationState &result) {
+          mlir::Type ehTokenTy = cir::EhTokenType::get(&getMLIRContext());
+          // The catch-all claims every exception, so no unwind region is
+          // added alongside it.
+          mlir::Region *handlerRegion = result.addRegion();
+          b.createBlock(handlerRegion, /*insertPt=*/{}, {ehTokenTy}, {loc});
+          handlerAttrs.push_back(cir::CatchAllAttr::get(&getMLIRContext()));
+        });
+    tryOp.setHandlerTypesAttr(
+        mlir::ArrayAttr::get(&getMLIRContext(), handlerAttrs));
+
+    // Fill the catch-all region: begin the catch, fabricate the std::error
+    // from the thrown object pointer, store it into the handler's slot and
+    // route to it. The exception is deliberately never ended: it is consumed
+    // by the conversion, mirroring classic codegen.
+    mlir::Region &catchAll = tryOp.getHandlerRegions().front();
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToStart(&catchAll.front());
+    mlir::Value ehToken = catchAll.front().getArgument(0);
+
+    RunCleanupsScope convertScope(*this);
+    auto beginCatch = cir::BeginCatchOp::create(
+        builder, getLoc(legacyHandlerStmt->getBeginLoc()),
+        cir::CatchTokenType::get(builder.getContext()), builder.getVoidPtrTy(),
+        ehToken);
+    mlir::Value exnPtr = beginCatch.getExnPtr();
+    const HandlerInfo *target = nullptr;
+    for (const HandlerInfo &h : handlers)
+      if (h.stmt == legacyHandlerStmt) {
+        target = &h;
+        break;
+      }
+    {
+      llvm::SaveAndRestore<mlir::Value> restoreExnPtr(curHerbceptionExnPtr,
+                                                      exnPtr);
+      emitAnyExprToMem(legacyHandlerStmt->getLegacyExceptionErrorValue(),
+                       target->slot, Qualifiers(), /*isInitializer=*/false);
+    }
+    convertScope.forceCleanup();
+
+    cir::GotoOp::create(builder, tryLoc, target->label);
+    if (tryBodyRes.failed()) {
+      herbceptionCatchScopes.truncate(savedScopes);
+      return mlir::failure();
+    }
+  }
+
+  // The herbception handlers are emitted with their catch scopes no longer
+  // active: a `throw throws` inside a handler routes past this try statement
+  // (to an enclosing handler), never to one of its siblings.
+  herbceptionCatchScopes.truncate(savedScopes);
+
+  // Fall through the try body into the continuation.
+  if (!builder.getBlock()->mightHaveTerminator() ||
+      !builder.getBlock()->back().hasTrait<mlir::OpTrait::IsTerminator>())
+    cir::GotoOp::create(builder, getLoc(s.getEndLoc()), contLabel);
+
+  // Emit the handlers. They are reached only through the routing above, so
+  // each one starts a fresh block behind a cir.label.
+  for (const HandlerInfo &h : handlers) {
+    builder.createBlock(builder.getBlock()->getParent());
+    cir::LabelOp::create(builder, getLoc(h.stmt->getCatchLoc()), h.label);
+
+    RunCleanupsScope handlerScope(*this);
+    if (VarDecl *vd = h.stmt->getExceptionDecl()) {
+      // Bind the exception variable directly from the error payload slot. The
+      // error value is compiler-fabricated (its constructors are deleted), so
+      // it is not default/copy-constructed; the variable's destructor is
+      // registered so ~std::error runs do_cleanup exactly once when the
+      // handler exits.
+      AutoVarEmission var = emitAutoVarAlloca(*vd);
+      Address addr = var.getObjectAddress(*this);
+      assert(addr.getElementType() == h.slot.getElementType() &&
+             "herbception error slot type mismatch");
+      mlir::Value errVal =
+          builder.createLoad(getLoc(h.stmt->getCatchLoc()), h.slot);
+      builder.createStore(getLoc(h.stmt->getCatchLoc()), errVal, addr);
+      emitAutoVarCleanups(var);
+    }
+
+    if (emitStmt(h.stmt->getHandlerBlock(), /*useCurrentScope=*/true).failed())
+      return mlir::failure();
+    handlerScope.forceCleanup();
+
+    mlir::Block *block = builder.getBlock();
+    if (block->empty() ||
+        !block->back().hasTrait<mlir::OpTrait::IsTerminator>())
+      cir::GotoOp::create(builder, getLoc(h.stmt->getEndLoc()), contLabel);
+  }
+
+  // The continuation point, reached from the end of the try body or the end
+  // of any handler.
+  builder.createBlock(builder.getBlock()->getParent());
+  cir::LabelOp::create(builder, getLoc(s.getEndLoc()), contLabel);
+
+  return mlir::success();
 }
 
 // in classic codegen this function is mapping to `isInvokeDest` previously
