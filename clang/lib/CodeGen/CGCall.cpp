@@ -245,7 +245,7 @@ using ExtParameterInfoList =
 /// into the AST yet). For `fails{E}`, the error type is the explicit E.
 static llvm::Type *getHerbceptionErrorType(CodeGenTypes &CGT,
                                            const FunctionProtoType *FTP) {
-  if (!FTP->hasThrowsSpec())
+  if (!FTP || !FTP->hasThrowsSpec())
     return nullptr;
   if (FTP->getExceptionSpecType() == EST_ThrowsTyped ||
       FTP->getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse)
