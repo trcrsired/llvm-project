@@ -2790,7 +2790,9 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
     if (Tok.isNot(tok::l_brace))
       return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
 
+    ++Actions.HerbceptionCatchDepth;
     StmtResult Block(ParseCompoundStatement());
+    --Actions.HerbceptionCatchDepth;
     if (Block.isInvalid())
       return Block;
 
