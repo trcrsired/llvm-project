@@ -2029,6 +2029,28 @@ public:
                                      cxxTryBodyEmitter &bodyCallback);
   mlir::LogicalResult emitCXXTryStmt(const clang::CXXTryStmt &s);
 
+private:
+  /// An active `try { } catch throws(E e) { }` handler. While the try body is
+  /// being emitted, herbception failure paths (a `throw throws` or, once
+  /// supported in CIR, a failing throws-call) route to the handler's label,
+  /// passing the error value through its slot.
+  struct HerbceptionCatchScope {
+    /// Name of the cir.label that starts the handler body.
+    std::string handlerLabel;
+    /// The slot holding the error value read by the handler.
+    Address errorSlot;
+  };
+  /// The stack of active herbception catch-throws scopes.
+  llvm::SmallVector<HerbceptionCatchScope, 4> herbceptionCatchScopes;
+  /// Counter used to generate unique labels for herbception handlers.
+  unsigned herbceptionTryCounter = 0;
+  /// While emitting a legacy C++ exception conversion inside a herbception
+  /// catch-all handler, the thrown object pointer from cir.begin_catch.
+  mlir::Value curHerbceptionExnPtr = nullptr;
+
+public:
+  mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
+
   void emitCtorPrologue(const clang::CXXConstructorDecl *ctor,
                         clang::CXXCtorType ctorType, FunctionArgList &args);
 
