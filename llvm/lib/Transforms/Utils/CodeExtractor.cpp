@@ -965,6 +965,7 @@ Function *CodeExtractor::constructFunctionDeclaration(
       case Attribute::CoroElideSafe:
       case Attribute::NoDivergenceSource:
       case Attribute::NoCreateUndefOrPoison:
+      case Attribute::Throws:
         continue;
       // Those attributes should be safe to propagate to the extracted function.
       case Attribute::AlwaysInline:

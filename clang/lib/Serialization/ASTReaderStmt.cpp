@@ -4409,6 +4409,18 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) CXXErrorValueExpr(Empty);
       break;
 
+    case EXPR_CXX_CXA_EXCEPTION:
+      S = new (Context) CXXCxaExceptionExpr(Empty);
+      break;
+
+    case EXPR_CXX_TRY:
+      S = new (Context) CXXTryExpr(Empty);
+      break;
+
+    case EXPR_CXX_CATCH_FAILS:
+      S = new (Context) CXXCatchFailsExpr(Empty);
+      break;
+
     case EXPR_CXX_DEFAULT_ARG:
       S = CXXDefaultArgExpr::CreateEmpty(
           Context, /*HasRewrittenInit=*/Record[ASTStmtReader::NumExprFields]);

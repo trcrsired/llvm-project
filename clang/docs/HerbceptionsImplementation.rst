@@ -12,9 +12,6 @@ This document describes the actual implementation of the herbception
 the user-facing language description and motivation, see
 :ref:`herbceptions`.
 
-Everything below reflects the current state of the implementation on the
-``herbception-analysis`` branch.
-
 Overview
 ========
 
@@ -32,8 +29,56 @@ There is no unwinder, landing pad, or personality function on the
 pure-herbception path. Traditional C++ exceptions are supported only
 through explicit interop points (see `Legacy C++ EH interop`_).
 
+Coroutines cannot be declared ``throws`` / ``fails{...}``: every herbception
+must be caught within the coroutine body
+(``err_throws_not_allowed_in_coroutine``, diagnosed in
+``Sema::ActOnCoroutineBodyStart``, ``clang/lib/Sema/SemaCoroutine.cpp``).
+
 Language surface
 ================
+
+Keywords and parsing
+--------------------
+
+The extension is gated behind ``LANGOPT(HerbExceptions)``
+(``clang/include/clang/LangOptions.def``), driven by the driver flag
+``-fherbceptions`` / ``-fno-herbceptions``
+(``clang/include/clang/Options/Options.td``, forwarded in
+``clang/lib/Driver/ToolChains/Clang.cpp``; independent from
+``-fexceptions``). The flag also predefines the ``__HERBCEPTIONS__`` macro
+(``clang/lib/Frontend/InitPreprocessor.cpp``).
+
+The keywords carry the ``KEYHERB`` token key
+(``def KEYHERB : TokenKey<0x80000000>`` in
+``clang/include/clang/Basic/BuiltinTraits.td``): ``throws``, ``fails`` and
+``failure`` are plain ``KEYHERB``; ``try`` and ``catch`` are
+``KEYCXX|KEYHERB`` so they also parse in C with ``-fherbceptions``
+(``TokenKinds.def``).
+
+* Specifiers: ``Parser::tryParseExceptionSpecification``
+  (``ParseDeclCXX.cpp``) accepts ``throws`` (C++ only, else
+  ``err_throws_requires_cxx``) producing ``EST_BasicThrows``, evaluates
+  ``throws(expr)`` like ``noexcept(expr)`` via ``Sema::ActOnThrowsSpec``
+  (``throws(false)`` degrades to ``EST_BasicNoexcept``), parses ``fails{E}``
+  by storing ``E`` in the exception-type slot (``fails(E)`` is rejected with
+  ``err_fails_paren_not_allowed``), and combines ``noexcept(false)`` with
+  ``fails{E}`` into ``EST_ThrowsTypedNoexceptFalse``. A delayed-parsing
+  path handles the same forms after a trailing return type.
+  ``tryParseNoexceptAfterThrows`` / ``tryParseNoexceptAfterFails`` reject
+  ``throws`` + ``noexcept(false)`` (``err_throws_noexcept_false``) and the
+  ``throws`` + ``fails`` combination (``err_throws_fails_combined``).
+* Expressions: ``Parser::ParseAssignmentExpression`` dispatches
+  ``try(expr)`` -> ``ParseHerbceptionTryExpression``, ``catch fails(expr)``
+  -> ``ParseHerbceptionCatchFailsExpression`` and ``failure(expr)`` ->
+  ``ParseHerbceptionFailureExpression`` (``ParseExpr.cpp``); all three are
+  implemented in ``ParseExprCXX.cpp``. The try/catch-fails parsers bracket
+  their operand with ``Actions.HerbceptionOperandDepth`` so auto-propagation
+  is suppressed inside an explicit wrapper. ``throw throws`` is handled
+  inside ``Parser::ParseThrowExpression``.
+* Block handlers: ``Parser::ParseCXXCatchBlock`` recognizes
+  ``catch throws(E e)`` / ``catch fails(E e)`` and calls
+  ``Actions.ActOnExceptionDeclarator(..., /*IsHerbception=*/true)`` followed
+  by ``Actions.ActOnCXXCatchThrowsBlock``.
 
 Function specifiers
 -------------------
@@ -43,66 +88,116 @@ Function specifiers
 error type ``E``. Both are stored in the function type's exception
 specification:
 
-* ``EST_BasicThrows`` -- bare ``throws`` (``clang/include/clang/AST/
-  TypeBase.h``, see ``FunctionProtoType::hasBasicThrowsSpec()``).
+* ``EST_BasicThrows`` -- bare ``throws`` (and ``throws(true)``);
+  ``FunctionProtoType::hasBasicThrowsSpec()``.
 * ``EST_ThrowsTyped`` -- ``fails{E}``; ``E`` is stored in the exception-type
-  slot.
-* ``EST_ThrowsTypedNoexceptFalse`` -- ``fails{E} noexcept(false)``.
+  slot (``hasFailsSpec()``).
+* ``EST_ThrowsTypedNoexceptFalse`` -- ``noexcept(false) fails{E}``.
+* ``throws(false)`` degrades to ``EST_BasicNoexcept`` (plain ``noexcept``),
+  built by ``Sema::ActOnThrowsSpec`` (``SemaExceptionSpec.cpp``).
 
-A ``throws`` function implies ``noexcept(true)``; combining with
-``noexcept(false)`` is rejected (``SemaDeclAttr.cpp`` /
-``Sema::checkExceptionSpecification``). ``throws(false)`` degrades to plain
-``noexcept``. ``fails{E}`` implies ``noexcept(true)`` by default and is
-trivially-copyable-checked.
+``throws`` combined with ``noexcept(false)`` is rejected during parsing;
+semantic checks live in ``Sema::checkExceptionSpecification`` /
+``actOnDelayedExceptionSpecification`` (``SemaDeclCXX.cpp``):
+``fails{std::error}`` is rejected (``err_fails_std_error_type``), ``E`` must
+be trivially copyable (``err_fails_type_not_trivially_copyable``),
+destructors cannot carry a herbception spec
+(``err_herbception_destructor_spec``) and ``fails{E}`` is restricted to free
+functions (``err_fails_only_free_function`` -- enforced for members via the
+delayed-spec path and for coroutines in ``ActOnCoroutineBodyStart``).
 
 The specifiers are part of the canonical function type because they change
 the calling convention (``{T, i1}`` return). Function pointers, overload
-resolution and virtual overrides therefore treat them as distinct.
+resolution and virtual overrides therefore treat them as distinct
+(``err_herbception_spec_mismatch`` /
+``err_herbception_override_spec_mismatch``). ``FunctionProtoType::canThrow()``
+returns a dedicated ``CT_Deterministic`` for ``EST_BasicThrows`` /
+``EST_ThrowsTyped``. The type printer renders the specifiers as
+``" throws"`` / ``" fails{E}"`` (``TypePrinter.cpp``).
 
 Expressions and statements
 --------------------------
 
-* ``throw throws`` -- ``ActOnCXXThrowThrows``
-  (``clang/lib/Sema/SemaExprCXX.cpp``). Bare ``throw throws`` (no operand)
-  rethrows the caught error inside a ``catch throws`` handler. ``throw throws
-  expr`` with an explicit operand is disallowed.
-* ``try(expr)`` -- ``CXXTryExpr``. Evaluates a ``throws``/``fails`` call;
-  auto-propagates the error.
-* ``catch fails(expr)`` -- ``CXXCatchFailsExpr``. Produces the N2289
-  aggregate ``struct { union { T value; E error; }; bool failed; }`` built by
-  ``ASTContext::getCatchFailsType``.
-* ``failure(expr)`` -- C/C++ way to return an error from a ``fails{E}``
-  function (``ActOnHerbceptionFailure``).
-* ``try { ... } catch throws(E e) { }`` / ``catch fails(E e) { }`` -- block
-  handlers parsed by ``ParseStmt.cpp`` and checked by
-  ``Sema::ActOnCXXCatchThrowsHandler`` (``CXXCatchThrowsStmt``).
+* ``throw throws expr`` -- ``Sema::ActOnCXXThrowThrows``
+  (``clang/lib/Sema/SemaExprCXX.cpp``). Only valid inside a function with a
+  throws/fails spec or inside a ``try`` block
+  (``err_throw_throws_outside_throws_function``). With an explicit operand
+  it creates a *new* error: unless the enclosing function is ``fails{E}``,
+  the compiler fabricates the unconstructible ``std::error`` through
+  ``error_domain<T>::domain()`` / ``code(e)`` (missing specialization ->
+  ``err_throw_throws_no_error_domain``). Inside a catch-throws handler the
+  operand form is rejected (``err_throw_throws_rethrow_disallow_operand``).
+* bare ``throw throws`` -- rethrow; only valid inside a ``try`` block whose
+  handlers are herbception handlers
+  (``err_throw_throws_rethrow_outside_catch``). CodeGen reads the error from
+  the active catch scope's error slot.
+* ``try(expr)`` -- ``Sema::ActOnHerbceptionTry`` builds ``CXXTryExpr``. Only
+  valid inside a throws/fails function
+  (``err_try_throws_outside_throws_function``); the operand must be a call
+  to a throws/fails function (``err_try_expr_requires_throws_call``,
+  deferred while type-dependent). When a ``throws`` caller invokes a
+  ``fails{E}`` callee, the resolved ``error_domain<E>`` record is attached
+  to the node for the E->std::error conversion on the error path.
+* ``catch fails(expr)`` -- ``Sema::ActOnHerbceptionCatchFails`` builds
+  ``CXXCatchFailsExpr`` holding the N2289 aggregate type produced by
+  ``ASTContext::getCatchFailsType(T, E)``:
+  ``struct { union { T value; E error; }; bool failed; }`` (an implicit
+  record named ``__herb_catch_fails``). A plain ``throws`` callee is
+  rejected (``err_catch_fails_expr_throws_function``).
+* ``failure(expr)`` -- ``Sema::ActOnHerbceptionFailure``; only valid inside
+  a ``fails{E}`` function (``err_failure_outside_fails_function``) with an
+  operand of type ``E``; lowers to the same path as ``throw throws``
+  (``BuildCXXThrow(..., /*IsHerbception=*/true)``).
+* ``try { ... } catch throws(E e) { }`` / ``catch fails(E e) { }`` --
+  checked by ``Sema::BuildExceptionDeclaration`` /
+  ``ActOnExceptionDeclarator`` (``IsHerbception``) and
+  ``Sema::ActOnCXXCatchThrowsBlock`` (``SemaStmt.cpp``), which builds
+  ``CXXCatchThrowsStmt``. ``Sema::ActOnCXXTryBlock`` detects try blocks with
+  herbception handlers and skips them from EH type-matching and the
+  "exception used but not catchable" diagnosis.
 
 Auto-propagation
 ----------------
 
-In C++, a bare call to a ``throws``/``fails`` function inside a
-``throws``/``fails`` function auto-propagates the error:
-``Sema::HerbceptionOperandDepth`` suppresses the auto-propagation while
-parsing the operand of ``try(expr)`` / ``catch fails(expr)``. In C, calling a
-``fails{E}`` function without a wrapper is a compile-time error
-(``err_herbception_c_bare_call``).
+In ``Sema::ActOnCallExpr`` (``clang/lib/Sema/SemaExpr.cpp``): in C++, when
+the current function has a throws/fails spec and
+``Sema::HerbceptionOperandDepth == 0``, a bare call to a throws/fails
+function is wrapped in ``ActOnHerbceptionTry`` (auto-propagation). In C,
+any unwrapped call is rejected with ``err_fails_call_without_wrapper`` plus
+``note_fails_function_declared_here``.
 
 ``noexcept`` boundary
 ---------------------
 
-Calling a ``throws`` function bare (or with ``try``) from a ``noexcept(true)``
-function is rejected (``err_herbception_noexcept_calls_throws`` in
-``clang/include/clang/Basic/DiagnosticSemaKinds.td``). ``main()`` is a
-special case: an unhandled error traps via ``__builtin_trap()``
-(``clang/lib/CodeGen/CGCall.cpp``, ``herb.main.trap`` block).
+A call whose result would escape a non-throws/non-fails enclosing function
+is diagnosed at call-lowering time with
+``err_herbception_noexcept_calls_throws`` (``CodeGen::EmitCall``,
+``clang/lib/CodeGen/CGCall.cpp``). ``main()`` is a special case: its error
+path branches to a ``herb.main.trap`` block that executes ``llvm.trap``
+(the success path continues in ``herb.main.ok``).
 
 Type traits
 -----------
 
-``SemaTypeTraits.cpp`` implements ``__is_herbception_throwsable``,
-``__is_invoke_herbceptions_fails`` and ``__invoke_herbception_fails_result``,
-mirrored as ``std::is_herbception_throwsable`` etc. in
-``libherbceptions/include/herbceptions/error``.
+Defined in ``clang/include/clang/Basic/BuiltinTraits.td`` and implemented in
+``clang/lib/Sema/SemaTypeTraits.cpp``:
+
+* ``__is_herbception_throwsable(T)`` -- ``T`` has a usable
+  ``error_domain<T>``.
+* ``__is_invoke_herbceptions_fails(F)`` -- ``F`` is a ``fails{E}`` function
+  type.
+* ``__invoke_herbception_fails_result<F>`` (builtin template,
+  ``BuiltinTemplates.td``; cached result type via
+  ``ASTContext::getInvokeHerbceptionFailsResultType``) -- the
+  ``{ value_type, error_type }`` pair.
+* ``__invoke_herbception_fails_t<F>`` -- the raw ``{T, i1}``-shaped type
+  trait.
+* Herbception analogues of the classic traits:
+  ``__is_herbception_throws_constructible/_assignable/_convertible`` and
+  ``__has_herbception_throws_constructor/_copy/_assign/_move_assign``.
+
+``libherbceptions/include/herbceptions/error`` mirrors these as
+``std``-style trait aliases gated on ``__HERBCEPTIONS__``.
 
 AST
 ===
@@ -110,27 +205,40 @@ AST
 Nodes
 -----
 
-* ``CXXTryExpr`` -- ``try(expr)``.
-* ``CXXCatchFailsExpr`` -- ``catch fails(expr)``.
-* ``CXXCatchThrowsStmt`` -- the ``catch throws(E e)`` / ``catch fails(E e)``
-  handler. It stores the optional *legacy conversion expression*
-  (``getLegacyExceptionErrorValue()``): the ``std::error`` fabrication for a
-  caught traditional C++ exception. Built by
-  ``Sema::ActOnCXXCatchThrowsHandler`` only when the handler binds
-  ``std::error`` and the ``error_domain<std::cxa_exception_code>``
-  specialization is visible.
-* ``CXXErrorValueExpr`` -- a compiler-fabricated ``{domain, code}`` value that
+All registered in ``clang/include/clang/Basic/StmtNodes.td``:
+
+* ``CXXTryExpr`` (``ExprCXX.h``) -- herbception ``try(expr)``; distinct from
+  the statement-level ``CXXTryStmt``. Carries the optional
+  ``CXXRecordDecl *ErrorDomain`` used for the fails-to-std::error
+  conversion.
+* ``CXXCatchFailsExpr`` (``ExprCXX.h``) -- ``catch fails(expr)``; wraps the
+  call and the N2289 aggregate type.
+* ``CXXCatchThrowsStmt`` (``StmtCXX.h``) -- a ``catch throws(E e)`` /
+  ``catch fails(E e)`` handler. Stores the specifier location and the
+  optional *legacy conversion expression*
+  (``getLegacyExceptionErrorValue()``): the fabricated ``std::error`` for a
+  caught traditional C++ exception, built by
+  ``Sema::ActOnCXXCatchThrowsBlock`` only when the handler binds
+  ``std::error`` and the conversion inputs are visible.
+* ``CXXErrorValueExpr`` (``ExprCXX.h``) -- a compiler-fabricated
+  ``{domain, code}`` value (domain/code accessor calls as operands) that
   users cannot construct.
-* ``CXXCxaExceptionExpr`` -- the thrown-object pointer used as the ``code``
-  of a converted legacy exception.
+* ``CXXCxaExceptionExpr`` (``ExprCXX.h``) -- the thrown-object pointer of a
+  legacy exception being converted ("magic" expression lowered per
+  personality).
 
 Exception specification storage
 -------------------------------
 
 ``FunctionProtoType`` stores the herbception specifier in
-``FunctionTypeBits.ExceptionSpecType`` (see ``TypeBase.h``) and, for
-``fails{E}``, the error type in the exceptions slot. The specifier is part of
-the canonical type (``getCanonicalExceptionSpecType``).
+``FunctionTypeBits.ExceptionSpecType`` and, for ``fails{E}``, the error type
+in the exceptions slot. Helpers on ``FunctionProtoType``: ``hasThrowsSpec()``,
+``hasBasicThrowsSpec()``, ``hasFailsSpec()`` and the enum's
+``hasHerbceptionExceptionSpec()`` (``clang/include/clang/AST/TypeBase.h``,
+``clang/include/clang/Basic/ExceptionSpecificationType.h``). Because the
+specifier changes the lowered return type it participates in the canonical
+function type. ``FunctionDecl`` additionally carries the whole-function
+legacy-conversion expression (see below).
 
 Sema
 ====
@@ -138,42 +246,71 @@ Sema
 ``SemaExprCXX.cpp``
 -------------------
 
-* ``ActOnHerbceptionTry`` -- builds ``CXXTryExpr``; validates the operand is a
-  ``throws``/``fails`` call (deferred inside templates).
-* ``ActOnHerbceptionCatchFails`` -- builds ``CXXCatchFailsExpr``; rejects a
-  ``throws`` operand (no explicit error type to name).
-* ``ActOnCXXThrowThrows`` -- bare ``throw throws`` (rethrow in a ``catch
-  throws`` handler); ``throw throws expr`` with an operand is disallowed.
-* ``ActOnHerbceptionFailure`` -- ``failure(expr)``; only valid inside a
-  ``fails{E}`` function, operand must be of type ``E``.
-* ``BuildCxaExceptionErrorValue`` -- best-effort fabrication of the
-  ``std::error`` for a legacy exception:
-  ``{ error_domain<std::cxa_exception_code>::domain(),
-  __cxa_get_exception_ptr(...) }``. Returns ``ExprError`` silently when the
-  ``cxa_exception_code`` type / domain / ``std::error`` are not visible.
-* The ``error_domain<T>::domain()`` null check for the
-  ``std::error_domain`` definition is in ``ActOnFinishFunctionBody``
-  (``SemaDecl.cpp``): returning ``nullptr``/``0`` from ``domain()`` is
-  diagnosed (the fabricated ``std::error`` dereferences it in ``~error()``).
+* ``isHerbceptionThrowsCall`` -- whether an expression is a call to a
+  throws/fails function (used by auto-propagation and the wrapper checks).
+* ``lookupErrorDomain`` -- resolves ``std::error_domain<T>`` to a defined,
+  user-provided specialization (implicit instantiations of the primary
+  template are ignored so that missing specializations stay silent until
+  they matter).
+* ``findOrCreateImplicitExternCFunction`` -- declares-or-reuses an implicit
+  extern ``"C"`` function; reused only when an existing declaration matches
+  exactly.
+* ``BuildCxaExceptionErrorValue`` -- builds the fabrication of the
+  ``std::error`` capturing a legacy exception: calls to
+  ``__cxa_error_domain_{itanium,msvc}_exception_ptr()`` (domain singleton)
+  and ``__cxa_error_code_{itanium,msvc}_exception_ptr(ptr)`` (code minted
+  from a ``CXXCxaExceptionExpr`` operand; MSVC variant takes no argument),
+  producing a ``CXXErrorValueExpr`` typed as ``std::error``. Requires
+  ``std::exception_ptr`` and ``std::error`` to be visible; otherwise returns
+  ``ExprError`` silently (the catch-throws handler still catches herbception
+  throws -- only the legacy-EH conversion is unavailable).
+* ``ActOnHerbceptionTry``, ``ActOnHerbceptionCatchFails``,
+  ``ActOnCXXThrowThrows``, ``ActOnHerbceptionFailure`` -- see
+  `Expressions and statements`_. Template instantiation rebuilds these nodes
+  via ``TreeTransform.h`` (``RebuildCXXTryExpr``,
+  ``RebuildCXXCatchFailsExpr``, ``RebuildCXXErrorValueExpr``), preserving
+  the herbception flags across instantiation.
 
 ``SemaStmt.cpp``
 ----------------
 
-* ``ActOnCXXCatchThrowsHandler`` -- builds ``CXXCatchThrowsStmt``; attaches
-  the legacy conversion expression for a ``std::error`` handler.
-* ``ActOnCXXTryStmt`` -- recognizes a try block containing herbception
-  handlers (``CXXCatchThrowsStmt``) and marks it for the CodeGen path that
-  routes the discriminant.
+* ``ActOnCXXCatchThrowsBlock`` -- builds ``CXXCatchThrowsStmt``; attaches
+  ``BuildCxaExceptionErrorValue``'s expression when the handler binds
+  ``std::error``.
+* ``ActOnCXXTryBlock`` -- marks try blocks containing
+  ``CXXCatchThrowsStmt`` handlers so CodeGen routes the discriminant instead
+  of using EH type-matching.
 
 Whole-function conversion
 -------------------------
 
 A bare ``throws`` function implicitly converts any legacy C++ exception that
-escapes it. ``Sema::ActOnFinishFunctionBody`` (``SemaDecl.cpp``) builds
-``BuildCxaExceptionErrorValue`` for a ``EST_BasicThrows`` definition and
-stores it on the ``FunctionDecl`` via
-``setHerbceptionLegacyErrorValue()``. The member is serialized by
-``ASTWriterDecl.cpp`` / ``ASTReaderDecl.cpp``.
+escapes it. ``Sema::ActOnFinishFunctionBody`` (``SemaDecl.cpp``):
+
+* diagnoses a ``domain()`` returning ``nullptr`` inside a record named
+  ``error_domain`` (``err_herbception_domain_nullptr``; the fabricated
+  ``std::error`` dereferences it in ``~error()``);
+* if the function is ``EST_BasicThrows`` and can call ``noexcept(false)``
+  callees, builds ``BuildCxaExceptionErrorValue`` and stores it on the
+  ``FunctionDecl`` via ``setHerbceptionLegacyErrorValue()``. When the
+  conversion inputs are unavailable this is a hard error
+  (``err_herbception_legacy_convert_no_domain``); a ``throws`` function that
+  cannot let a legacy exception escape compiles silently without the
+  domain. The member is serialized by ``ASTWriterDecl.cpp`` /
+  ``ASTReaderDecl.cpp``.
+
+Constexpr
+---------
+
+Constant evaluation supports the full channel
+(``clang/lib/AST/ExprConstant.cpp``): pending error state
+(``EvalInfo::HerbceptionErrorPending`` / ``HerbceptionErrorValue`` with a
+per-domain opaque singleton map), ``throw throws`` and ``failure`` marking
+failure, propagation through bare calls and ``try(expr)``, and evaluation of
+``try { } catch throws(std::error)`` blocks (comparisons against
+``e.code()`` / domain work because ``domain()`` evaluates to a unique opaque
+constant). The newer bytecode interpreter covers ``CXXCatchFailsExpr``
+(``clang/lib/AST/ByteCode/Compiler.cpp``).
 
 CodeGen
 =======
@@ -182,60 +319,63 @@ CodeGen
 --------------------
 
 ``clang/lib/CodeGen/CGCall.cpp``: ``FunctionProtoType::hasThrowsSpec()`` is
-threaded through ``CGFunctionInfo`` (``hasThrowsReturn()``). The return ABI
-is a ``{ T, i1 }`` struct; the payload slot is sized to
-``max(sizeof(T), sizeof(E))`` via ``getHerbceptionErrorType``
-(``std::error`` is a 2-register ``{void*, size_t}`` struct). The ``throws``
-attribute is added to the function and call site
-(``llvm::Attribute::Throws``).
+threaded through ``CGFunctionInfo`` (``HasThrowsReturn``) together with the
+herbception error IR type (``getHerbceptionErrorType``). The return ABI is a
+``{ T, i1 }`` struct; the payload slot is sized to
+``max(sizeof(T), sizeof(E))`` (``std::error`` is a 2-register
+``{void*, size_t}`` struct). The ``throws`` attribute
+(``llvm::Attribute::Throws``, defined in ``llvm/IR/Attributes.td``; bitcode
+kind ``ATTR_KIND_THROWS``) is added to the function and call site, and the
+function epilogue inserts the discriminant into the returned struct.
 
 Call-site routing
 `````````````````
 
-``clang/lib/CodeGen/CGCall.cpp`` ``EmitCall``: after the call, the
-discriminant is extracted. Depending on the context:
+``EmitCall`` extracts the discriminant after the call. A genuine two-field
+struct return is never misclassified: only a second struct element of type
+``i1`` is treated as a throws discriminant. Depending on the context:
 
 * an enclosing ``catch throws`` / ``catch fails`` scope
-  (``CodeGenFunction::HerbceptionCatchScopes``): store the error value into
-  the handler's slot and branch to the handler;
-* a ``throws``/``fails`` function: store the error value, set the
-  discriminant, run cleanups, branch to the return block
-  (``EmitHerbceptionThrow`` in ``CGStmt.cpp``);
-* ``main()``: trap on error;
-* otherwise: ``err_herbception_noexcept_calls_throws``.
+  (``CodeGenFunction::HerbceptionCatchScopes``): coerce the error value into
+  the handler's slot (through memory where needed) and branch to the
+  handler;
+* a ``throws``/``fails`` function: store the error value into the return
+  slot, set the discriminant, run cleanups, branch to the return block --
+  this is ``EmitHerbceptionThrow`` (``CGStmt.cpp``), which first checks the
+  nearest active catch scope (so bare ``throw throws`` rethrows route to the
+  innermost handler) and coerces the payload between ``T`` / ``E`` /
+  ``std::error`` representations;
+* ``main()``: trap on error (blocks ``herb.main.ok`` / ``herb.main.trap``);
+* otherwise: diagnose with ``err_herbception_noexcept_calls_throws``.
 
-The ``{T, i1}`` heuristic guards against misclassifying a genuine two-field
-struct return: only a second struct element of type ``i1`` is treated as a
-throws discriminant (``CGCall.cpp``).
+Every ``-fherbceptions`` function gets a ``herbception.disc`` alloca in
+``StartFunction`` tagged with ``!coro.outside.frame`` metadata so the
+discriminant never lives in a coroutine frame.
 
 ``try(expr)`` / ``catch fails(expr)``
 -------------------------------------
 
-``CodeGenFunction::EmitHerbceptionTry`` (``CGStmt.cpp``) emits the call,
-reads the discriminant, auto-propagates on error (running cleanups).
-``EmitHerbceptionCatchFails`` emits the N2289 aggregate: stores ``value`` and
-sets ``failed=false`` on success, ``error`` and ``failed=true`` on failure.
+``CodeGenFunction::EmitHerbceptionTry`` (``CGStmt.cpp``) emits the call into
+``try.ok`` / ``try.err`` blocks, auto-propagating on the error path (running
+cleanups). ``EmitHerbceptionCatchFails`` emits the N2289 aggregate: stores
+``value`` and sets ``failed=false`` on success, stores ``error`` and sets
+``failed=true`` on failure (anonymous-union-aware member lookup).
 ``EmitFailsErrorToStdError`` converts a ``fails{E}`` error to ``std::error``
-when calling into a ``throws`` function.
+on the error path by calling the resolved ``error_domain<E>::domain()`` /
+``code()`` static members (honoring an optional ``domain_alias_type``).
 
 Block handlers
 ``````````````
 
 ``clang/lib/CodeGen/CGException.cpp`` ``EmitCXXTryStmt`` routes try
-statements that contain ``CXXCatchThrowsStmt`` handlers to
-``EmitHerbceptionCatchTry``. It creates one block and error slot per handler,
-pushes them on ``HerbceptionCatchScopes`` (so bare calls inside the try body
-route to them), and emits the dispatch. Cleanups (including the caught
-variable's destructor, which runs the domain's ``do_cleanup``) execute
-exactly once.
-
-Coroutines
-----------
-
-``clang/lib/CodeGen/Coroutines.cpp`` and ``CGCall.cpp``: a ``throws``
-coroutine's ramp returns ``{Task, i1}`` with the ``throws`` attribute. The
-discriminant is kept on the stack (``!coro.outside.frame`` metadata) because
-the coroutine frame may be deallocated before the ramp reads it back.
+statements containing ``CXXCatchThrowsStmt`` handlers to
+``EmitHerbceptionCatchTry``. It creates one handler block (``catch.throws``)
+and one error slot (``herb.error``) per handler, pushes them on
+``HerbceptionCatchScopes`` (so bare calls inside the try body route to
+them), emits the dispatch, then pops the scopes. Cleanups (including the
+caught variable's destructor, which runs the domain's ``do_cleanup``)
+execute exactly once. Funclet-based personalities keep the handler inside
+the proper funclet region.
 
 Legacy C++ EH interop
 =====================
@@ -243,15 +383,17 @@ Legacy C++ EH interop
 ``catch throws(std::error e)`` inside a try block
 -------------------------------------------------
 
-When a handler binds ``std::error``, ``EmitHerbceptionCatchTry`` pushes a
-catch-all EH scope around the try block, so calls to ``noexcept(false)``
-functions inside become ``invoke``\ s into a landing pad. The handler block
+When a handler binds ``std::error`` and carries a legacy conversion
+expression, ``EmitHerbceptionCatchTry`` additionally pushes a catch-all EH
+scope around the try block, so calls to ``noexcept(false)`` functions inside
+become ``invoke``\ s into a landing pad. The handler block
 (``herb.legacy.convert``) fabricates the ``std::error``
 (``EmitErrorValueExpr`` + ``EmitCxaExceptionPtr`` in ``CGStmt.cpp``) and
-routes it to the handler. Personality-dependent:
+routes it to the handler. Personality-dependent thrown-pointer extraction:
 
 * Itanium / SjLj: ``__cxa_get_exception_ptr(exn.slot)``.
-* MSVC: ``llvm.eh.exceptionpointer`` from the funclet ``catchpad``.
+* MSVC: ``llvm.eh.exceptionpointer`` from the funclet ``catchpad`` (the
+  handler body is rewritten into a ``catchret`` form).
 * Wasm: ``wasm.get.exception`` (object already stored in ``exn.slot``).
 
 Whole-function conversion
@@ -259,29 +401,40 @@ Whole-function conversion
 
 For a bare ``throws`` function with a stored conversion expression,
 ``EmitStartEHSpec`` (``CGException.cpp``) pushes a whole-function catch-all
-EH scope whose handler is ``getHerbceptionLegacyConvert()``. The handler
-fabricates the ``std::error`` and calls ``EmitHerbceptionThrow``, routing it
-to the throws return path. ``EmitEndEHSpec`` pops the scope;
-``FinishFunction`` emits the block if used. ``EmitStartEHSpec``/``EmitEndEHSpec``
-also handle the ``fails{E}`` terminate scope:
+EH scope whose handler is ``getHerbceptionLegacyConvert()``;
+``emitHerbceptionLegacyConvertBody`` fabricates the ``std::error`` and calls
+``EmitHerbceptionThrow``, routing it to the throws return path (a missing
+conversion expression is a hard error there, mirroring the Sema check).
+``FinishFunction`` emits the block if it was used. ``EmitStartEHSpec`` /
+``EmitEndEHSpec`` also handle the ``fails{E}`` terminate scope:
 
 * default ``fails{E}`` (implies ``noexcept(true)``) -> terminate landing pad;
-* ``fails{E} noexcept(false)`` -> nothing (traditional exceptions propagate).
+* ``EST_ThrowsTypedNoexceptFalse`` -> nothing (traditional exceptions
+  propagate).
 
 Backend
 =======
 
-``supportThrowsCC()`` (``llvm/include/llvm/CodeGen/TargetLowering.h``)
-advertises target-specific discriminant carrying; overridden by X86,
-AArch64, ARM, RISC-V, LoongArch and WebAssembly. See :ref:`herbceptions` for
-the mechanism per target. When false, the discriminant is a regular struct
-member.
+``TargetLowering::supportThrowsCC()`` (``llvm/include/llvm/CodeGen/
+TargetLowering.h``) advertises target-specific discriminant carrying;
+overridden true by X86, AArch64, ARM, RISC-V, LoongArch and WebAssembly.
+``CallLoweringInfo::IsThrows`` threads the property through SelectionDAG
+(``SelectionDAGBuilder.cpp``), FastISel and GlobalISel call lowering.
+FastISel deliberately bails out to SelectionDAG for ``throws`` calls
+(``X86FastISel.cpp``). See :ref:`herbceptions` for the per-target
+mechanism (carry flag on x86/AArch64/ARM via the ADD-with-AllOnes trick in
+``LowerReturn``; extra return value on RISC-V/LoongArch guarded by
+``ArgFlags.isThrows()``; extra multivalue result on WebAssembly).
+``GetReturnInfo`` skips zero-sized return parts for ``throws`` functions
+(``llvm/lib/CodeGen/TargetLoweringBase.cpp``) and sets the ISD ``Throws``
+argument flag. When ``supportThrowsCC()`` is false the discriminant is a
+regular struct member.
 
 Win64 expanded ABI
 ------------------
 
 The standard Win64 ABI returns scalars only in RAX and passes types larger
-than 8 bytes by pointer.  This conflicts with herbceptions because the
+than 8 bytes by pointer. This conflicts with herbceptions because the
 discriminant lives in the carry flag (CF), requiring the payload to reside
 in registers.
 
@@ -289,84 +442,125 @@ The following changes apply only to functions with the ``throws``
 attribute; non-``throws`` functions follow the standard Win64 ABI
 unchanged.
 
-**Empty structs.** An empty struct (zero-sized) does not consume a
-register slot for the return value.  ``GetReturnInfo`` skips zero-sized
-types when the ``throws`` attribute is present
-(``llvm/lib/CodeGen/TargetLoweringBase.cpp``).
+**Empty structs.** An empty struct (zero-sized) does not consume a register
+slot for the return value. ``GetReturnInfo`` skips zero-sized types when the
+``throws`` attribute is present (``llvm/lib/CodeGen/TargetLoweringBase.cpp``).
 
-**Return values (RAX+RDX).** ``CanLowerReturn`` returns ``true`` for
-Win64 ``throws`` functions when every non-discriminant return part is
-at most i64 after decomposition.  The standard calling convention
-(``RetCC_X86``) already assigns i64 leaves to ``[RAX, RDX, RCX, R8]``
-via ``RetCC_X86Common``, so the two i64 halves of a 16-byte payload
-naturally land in RAX and RDX.  The i1 discriminant is carried in CF
-via the ADD-with-AllOnes trick and never consumes a register.
+**Return values (RAX+RDX).** ``CanLowerReturn`` returns ``true`` for Win64
+``throws`` functions when every non-discriminant return part is at most i64
+after decomposition. The standard calling convention (``RetCC_X86``) already
+assigns i64 leaves to ``[RAX, RDX, RCX, R8]`` via ``RetCC_X86Common``, so
+the two i64 halves of a 16-byte payload naturally land in RAX and RDX. The
+i1 discriminant is carried in CF via the ADD-with-AllOnes trick and never
+consumes a register.
 
-**Parameters (RCX+RDX / R8+R9 / stack).**  The ``WinX86_64ABIInfo``
-frontend ABI classifier (``clang/lib/CodeGen/Targets/X86.cpp``) is
-extended with an ``IsThrows`` flag threaded through ``computeInfo``.
-When the function carries a herbception error type, record types that
-are exactly 16 bytes and have no destructor
-(``isDestructedType() == DK_none``) are coerced to ``{i64, i64}``
-instead of being passed by pointer.  ``ComputeValueTypes`` decomposes
-the coerced struct into two i64 leaves; each leaf independently
-consumes one of the four integer parameter registers (RCX, RDX, R8,
-R9), or spills to the stack.  This matches the i686 Windows fastcall
-pattern where two i32 values split into ECX+EDX.
+**Parameters (RCX+RDX / R8+R9 / stack).** The ``WinX86_64ABIInfo`` frontend
+ABI classifier (``clang/lib/CodeGen/Targets/X86.cpp``) is extended with an
+``IsThrows`` flag threaded through ``computeInfo`` (derived from
+``FI.getHerbceptionErrorType() != nullptr``). When the function carries a
+herbception error type, record types that are exactly 16 bytes and have no
+destructor (``isDestructedType() == DK_none``) are coerced to
+``{i64, i64}`` instead of being passed by pointer. ``ComputeValueTypes``
+decomposes the coerced struct into two i64 leaves; each leaf independently
+consumes one of the four integer parameter registers (RCX, RDX, R8, R9), or
+spills to the stack. This matches the i686 Windows fastcall pattern where
+two i32 values split into ECX+EDX.
 
 Types with a destructor, types not exactly 16 bytes, and non-power-of-two
 sizes continue to follow the standard Win64 rule (passed by pointer).
 
 **Frame pointer.** Win64 ``throws`` functions force a frame pointer
-(``X86ISelLoweringCall.cpp``) so the epilogue uses ``MOV RSP, RBP``
-(which does not touch EFLAGS) instead of ``ADD RSP, imm`` (which
-clobbers CF before the ``ret``).
+(``X86ISelLoweringCall.cpp``) so the epilogue uses ``MOV RSP, RBP`` (which
+does not touch EFLAGS) instead of ``ADD RSP, imm`` (which clobbers CF before
+the ``ret``).
 
-**New calling convention definitions.** ``RetCC_X86_Win64_C_Throws``
-and ``CC_X86_Win64_C_Throws`` are documented in
-``llvm/lib/Target/X86/X86CallingConv.td``.  They mirror the standard
-Win64 conventions but serve as explicit, named entry points for the
-expanded register set.
+**New calling convention definitions.** ``RetCC_X86_Win64_C_Throws`` and
+``CC_X86_Win64_C_Throws`` are documented in
+``llvm/lib/Target/X86/X86CallingConv.td``. They mirror the standard Win64
+conventions but serve as explicit, named entry points for the expanded
+register set.
 
 Runtime: libherbceptions
 ========================
 
 ``libherbceptions/`` in the monorepo:
 
-* ``include/herbceptions/error`` -- ``std::error`` (compiler-only
-  fabrication; non-copyable, runs ``do_cleanup`` in ``~error()``),
-  ``error_domain_singleton`` (``do_cleanup``, ``do_equivalent``,
-  ``do_query_information``, ``do_to_errc``, ``do_throw_cxa_exception``,
-  ``__reserved[3]``), and the type traits.
-* ``src/{posix,cxa_exception,win32,nt,com,wine}.cpp`` -- one translation
-  unit per domain, each providing a weak ``__cxa_error_domain_*`` ABI entry
-  point. ``posix`` and ``cxa_exception_code`` are always built; the Windows
-  domains only on ``_WIN32``/``__CYGWIN__``.
-* ``src/domain_helpers.h`` -- ``query_information_pieces``, a writev-style
-  collector used by ``do_query_information``: add up to 8 ``io_scatter_t``
-  pieces, then ``emit(encoding, cookie, cookfun)``. Codecvt happens in
-  ``emit`` (UTF-8 -> UTF-16/UTF-32, byte encodings pass through).
-* ``src/ntkernel.h`` / ``ntkernel-table.ipp`` -- the NTSTATUS table with
-  message lengths and binary-search ``find_ntstatus``.
-* ``test/`` -- ``domain_test.cpp`` (domain identity, ``do_to_errc``,
-  cross-domain equivalence, ``do_query_information`` output).
+* ``include/herbceptions/error`` -- a single header providing:
+
+  - ``class std::error``: default/copy/move construction and assignment all
+    deleted; ``constexpr ~error()`` runs the domain's ``do_cleanup``;
+    accessors ``domain()``, ``code()``, ``equivalent(T)``, ``to_errc()``,
+    ``throw_dynamic_exception()`` (rethrows as a traditional exception via
+    the domain vtable, falling back to ``std::system_error(to_errc())``),
+    ``is_code_of<T>()``; private two-word payload
+    ``{error_domain_singleton const *, std::size_t}`` and a private magic
+    constructor only the compiler uses.
+  - ``struct error_domain_singleton`` with members ``do_cleanup``,
+    ``do_equivalent``, ``do_query_information`` (writev-style scatter/gather
+    name/message query with requested encoding), ``do_to_errc`` and
+    ``do_throw_dynamic_exception``.
+  - the ``template <typename T> class std::error_domain;`` customization
+    point (declared, never defined; any specialization may be thrown).
+  - ``namespace std::error_domains``: extern ``"C"`` singletons
+    ``__cxa_error_domain_{posix,win32,nt,com,wine,cmath,parse}()``.
+  - ``operator==`` between ``std::error`` and any domained value,
+    ``herbception_cast``, and ``std``-style trait aliases for the compiler
+    builtin traits, gated on ``__HERBCEPTIONS__``.
+* ``include/herbceptions/__details/{posix,win32,nt,com,wine,cmath_errc,
+  parse,exception_ptr}.h`` -- per-domain helpers. ``exception_ptr.h``
+  defines the ``error_domain<std::exception_ptr>`` specialization delegating
+  to the itanium/msvc entry points; this header is what makes the
+  legacy-EH conversion available (see `Whole-function conversion`_).
+* ``src/`` -- one translation unit per domain: ``posix.cpp``, ``win32.cpp``,
+  ``nt.cpp``, ``com.cpp``, ``wine.cpp``, ``cmath_errc.cpp``,
+  ``parse.cpp``, plus the legacy-EH bridges ``itanium_exception_ptr.cpp`` /
+  ``msvc_exception_ptr.cpp`` (which own the
+  ``__cxa_error_domain_*_exception_ptr`` / ``__cxa_error_code_*_exception_ptr``
+  symbols consumed directly by compiler-fabricated code), shared query
+  helpers (``simple_query_information_common.h``,
+  ``__malloc_or_heap_alloc_temp_buffer.h``), the NTSTATUS tables
+  (``ntkernel.h``, ``nt_message_table.hpp``, ``nt_errc_map.hpp``) and an
+  EBCDIC table.
+* ``test/domain_test.cpp`` -- domain identity, ``do_to_errc``,
+  cross-domain equivalence, ``do_query_information`` output.
+* ``fuzz/`` and ``utils/`` -- fuzzers and table generators.
+
+Build integration: ``libherbceptions/CMakeLists.txt`` offers
+``HERBCEPTIONS_BUILD_SHARED/STATIC/FREESTANDING/TESTS/FUZZERS`` options, and
+the runtime is registered in ``runtimes/CMakeLists.txt``.
 
 Testing in Clang/LLVM
 =====================
 
-Compiler behavior is covered by ``clang/test/CodeGen/herbception-*.cpp`` and
-``clang/test/Sema/herbception-*.cpp`` (``-fherbceptions``):
-``herbception-throws.cpp`` (``{T, i1}`` lowering, ``try(expr)``),
-``herbception-autoprop.cpp`` (auto-propagation, ``catch fails``),
-``herbception-catch-throws.cpp`` (block handler), ``herbception-catch-fails.cpp``,
-``herbception-legacy-convert.cpp`` (the ``catch throws(std::error)`` legacy
-conversion on Itanium/MSVC/Wasm/SjLj), ``herbception-fails-noexcept.cpp``
-(terminate vs. propagate), ``herbception-coroutine.cpp``,
-``herbception-two-field-struct.cpp`` (the ``{T, i1}`` heuristic),
-``herbception-constexpr.cpp``, ``herbception-fnptr.cpp``,
-``herbception-throws-noexcept.cpp``, ``herbception-dtor-spec.cpp``,
-``herbception-fails-trivially-copyable.cpp``, ``herbception-domain-nullptr.cpp``,
-``herbception-traits.cpp`` and ``herbception-c-bare-call.c``.
+Compiler behavior is covered by ``clang/test/`` files run with
+``-fherbceptions``:
+
+* Sema: ``herbception-catch-fails.cpp``,
+  ``herbception-c-bare-call.c``, ``herbception-constexpr.cpp``,
+  ``herbception-constexpr-throws.cpp``,
+  ``herbception-coroutine-throws.cpp`` (coroutine rejection),
+  ``herbception-domain-nullptr.cpp``, ``herbception-dtor-spec.cpp``,
+  ``herbception-fails-trivially-copyable.cpp``, ``herbception-fnptr.cpp``,
+  ``herbception-legacy-convert-no-domain.cpp``,
+  ``herbception-throws-noexcept.cpp``, ``herbception-traits.cpp``.
+* CodeGen: ``herbception-autoprop.cpp`` (auto-propagation, ``catch fails``),
+  ``herbception-catch-throws.cpp`` and
+  ``herbception-catch-throws-autoprop.cpp`` (block handlers),
+  ``herbception-catch-fails.cpp``, ``herbception-coroutine.cpp`` (a
+  non-throws coroutine under ``-fherbceptions``),
+  ``herbception-fails-noexcept.cpp`` (terminate vs. propagate),
+  ``herbception-legacy-convert.cpp`` (the ``catch throws(std::error)``
+  legacy conversion on Itanium/MSVC/Wasm/SjLj),
+  ``herbception-throws.cpp`` (``{T, i1}`` lowering, ``try(expr)``),
+  ``herbception-two-field-struct.cpp`` (the ``{T, i1}`` heuristic).
+* Preprocessor: ``herbceptions-macro.cpp`` (``__HERBCEPTIONS__``).
+
+LLVM-side tests: ``llvm/test/Feature/throws-attr.ll`` (attribute
+round-trip), backend tests
+``llvm/test/CodeGen/{X86,AArch64,ARM,RISCV,LoongArch,WebAssembly}/
+throws-attr.ll`` plus the x86 frame-pointer/CFI variants
+(``throws-cfi-fp.ll``, ``throws-cfi-no-fp.ll``), and the TableGen test
+``llvm/test/TableGen/callingconv-ifthrows.td``.
 
 Known limitations
 =================
@@ -374,5 +568,10 @@ Known limitations
 * The ``throws``/``fails`` specifier is not yet reflected in the mangled
   name.
 * ``FastISel`` falls back to SelectionDAG for ``throws`` calls.
-* Legacy-EH conversion is best-effort and depends on the user's
-  ``error_domain<std::cxa_exception_code>`` specialization.
+* Legacy-EH conversion requires the ``libherbceptions`` runtime ABI symbols
+  and visible ``std::exception_ptr`` / ``std::error`` declarations; when a
+  legacy escape is possible without them, compilation fails rather than
+  silently skipping the conversion.
+* ``RetCC_X86_Win64_C_Throws`` / ``CC_X86_Win64_C_Throws`` are currently
+  documentation-grade definitions: actual register assignment flows through
+  the standard Win64 convention decomposition described above.
