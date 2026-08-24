@@ -915,10 +915,13 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   if (Ex) {
     // `throw throws expr` with an explicit operand creates a new error. It may
     // appear in a throws/fails function or inside any try block (the error
-    // routes to the enclosing catch-throws handler), but not inside a
-    // catch-throws handler itself: use bare `throw throws` to rethrow there.
-    if (InHerbceptionHandler) {
-      Diag(ThrowsLoc, diag::err_throw_throws_rethrow_disallow_operand);
+    // routes to the enclosing catch-throws handler). Inside a catch-throws
+    // handler itself the handler's catch scopes are already deactivated
+    // (CodeGen pops them before emitting handlers), so a new error can only
+    // leave via the enclosing function's own throws/fails channel; otherwise
+    // it has nowhere to go.
+    if (InHerbceptionHandler && !InThrowsFunction) {
+      Diag(ThrowsLoc, diag::err_throw_throws_no_catch_handler);
       return ExprError();
     }
 

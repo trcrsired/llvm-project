@@ -125,8 +125,12 @@ Expressions and statements
   it creates a *new* error: unless the enclosing function is ``fails{E}``,
   the compiler fabricates the unconstructible ``std::error`` through
   ``error_domain<T>::domain()`` / ``code(e)`` (missing specialization ->
-  ``err_throw_throws_no_error_domain``). Inside a catch-throws handler the
-  operand form is rejected (``err_throw_throws_rethrow_disallow_operand``).
+  ``err_throw_throws_no_error_domain``). Inside a catch-throws handler body
+  the herbception catch scopes are already deactivated (CodeGen pops them
+  before emitting handlers), so the operand form additionally requires the
+  enclosing function to have a throws/fails spec
+  (``err_throw_throws_no_catch_handler``); bare ``throw throws`` rethrows
+  from the handled error slot and is valid nowhere else.
 * bare ``throw throws`` -- rethrow; only valid inside a ``try`` block whose
   handlers are herbception handlers
   (``err_throw_throws_rethrow_outside_catch``). CodeGen reads the error from
