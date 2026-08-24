@@ -177,6 +177,7 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   switch (s->getStmtClass()) {
   case Stmt::NoStmtClass:
   case Stmt::CXXCatchStmtClass:
+  case Stmt::CXXCatchThrowsStmtClass:
   case Stmt::SEHExceptStmtClass:
   case Stmt::SEHFinallyStmtClass:
   case Stmt::MSDependentExistsStmtClass:
