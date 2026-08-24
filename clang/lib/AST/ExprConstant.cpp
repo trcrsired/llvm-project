@@ -5918,6 +5918,7 @@ static EvalStmtResult EvaluateSwitch(StmtResult &Result, EvalInfo &Info,
   case ESR_Continue:
   case ESR_Failed:
   case ESR_Returned:
+  case ESR_ErrorReturned:
     return ESR;
   case ESR_CaseNotFound:
     // This can only happen if the switch case is nested within a statement
@@ -22766,6 +22767,10 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::CXXParenListInitExprClass:
   case Expr::HLSLOutArgExprClass:
   case Expr::CXXExpansionSelectExprClass:
+  case Expr::CXXTryExprClass:
+  case Expr::CXXCatchFailsExprClass:
+  case Expr::CXXErrorValueExprClass:
+  case Expr::CXXCxaExceptionExprClass:
     return ICEDiag(IK_NotICE, E->getBeginLoc());
 
   case Expr::MemberExprClass: {

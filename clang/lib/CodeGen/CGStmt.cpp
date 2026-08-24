@@ -99,6 +99,7 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   switch (S->getStmtClass()) {
   case Stmt::NoStmtClass:
   case Stmt::CXXCatchStmtClass:
+  case Stmt::CXXCatchThrowsStmtClass:
   case Stmt::SEHExceptStmtClass:
   case Stmt::SEHFinallyStmtClass:
   case Stmt::MSDependentExistsStmtClass:

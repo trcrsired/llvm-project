@@ -3790,6 +3790,7 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case HLSLOutArgExprClass:
   case OpenACCAsteriskSizeExprClass:
   case CXXReflectExprClass:
+  case CXXCxaExceptionExprClass:
     // These never have a side-effect.
     return false;
 
@@ -3872,6 +3873,9 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case ConvertVectorExprClass:
   case AsTypeExprClass:
   case CXXParenListInitExprClass:
+  case CXXTryExprClass:
+  case CXXCatchFailsExprClass:
+  case CXXErrorValueExprClass:
     // These have a side-effect if any subexpression does.
     break;
 

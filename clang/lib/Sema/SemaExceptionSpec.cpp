@@ -483,6 +483,18 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   case EST_NoThrow:
     OS <<"__attribute__((nothrow))";
     break;
+  case EST_BasicThrows:
+    OS << "throws";
+    break;
+  case EST_ThrowsTypedNoexceptFalse:
+    OS << "noexcept(false) ";
+    [[fallthrough]];
+  case EST_ThrowsTyped:
+    OS << "fails{";
+    assert(OldProto->getNumExceptions() == 1 && "Expected fails error type");
+    OS << OldProto->getExceptionType(0).getAsString(getPrintingPolicy());
+    OS << "}";
+    break;
   case EST_None:
   case EST_MSAny:
   case EST_Unevaluated:
@@ -1387,6 +1399,20 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
     //     polymorphic class type
     return canTypeidThrow(*this, cast<CXXTypeidExpr>(S));
 
+  case Expr::CXXTryExprClass:
+  case Expr::CXXCatchFailsExprClass:
+    // Herbception wrappers propagate errors on the deterministic channel and
+    // introduce no traditional EH path.
+    return CT_Cannot;
+
+  case Expr::CXXErrorValueExprClass:
+    // A fabricated error value; its domain()/code() accessors are calls.
+    return canSubStmtsThrow(*this, S);
+
+  case Expr::CXXCxaExceptionExprClass:
+    // The magic thrown-object pointer never throws.
+    return CT_Cannot;
+
     //   - a potentially evaluated call to a function, member function, function
     //     pointer, or member function pointer that does not have a non-throwing
     //     exception-specification
@@ -1700,6 +1726,7 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
   case Stmt::CoreturnStmtClass:
   case Stmt::CoroutineBodyStmtClass:
   case Stmt::CXXCatchStmtClass:
+  case Stmt::CXXCatchThrowsStmtClass:
   case Stmt::CXXForRangeStmtClass:
   case Stmt::DefaultStmtClass:
   case Stmt::DoStmtClass:
@@ -1859,9 +1886,10 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
     auto *TS = cast<CXXTryStmt>(S);
     // try /*...*/ catch (...) { H } can throw only if H can throw.
     // Any other try-catch can throw if any substatement can throw.
-    const CXXCatchStmt *FinalHandler = TS->getCatchHandler(TS->getNumHandlers() - 1);
-    if (!FinalHandler->getExceptionDecl())
-      return canThrow(FinalHandler->getHandlerBlock());
+    const Stmt *FinalHandler = TS->getHandler(TS->getNumHandlers() - 1);
+    if (const auto *Catch = dyn_cast<CXXCatchStmt>(FinalHandler);
+        Catch && !Catch->getExceptionDecl())
+      return canThrow(Catch->getHandlerBlock());
     return canSubStmtsThrow(*this, S);
   }
 

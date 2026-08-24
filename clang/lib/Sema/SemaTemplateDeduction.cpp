@@ -2077,6 +2077,8 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
         llvm::APSInt Noexcept(1);
         switch (FPA->canThrow()) {
         case CT_Cannot:
+        // A herbception 'throws'/'fails{E}' spec is noexcept(true).
+        case CT_Deterministic:
           Noexcept = 1;
           [[fallthrough]];
 

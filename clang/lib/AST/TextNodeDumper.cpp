@@ -2202,6 +2202,15 @@ void TextNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
   case EST_NoThrow:
     OS << " exceptionspec_nothrow";
     break;
+  case EST_BasicThrows:
+    OS << " exceptionspec_basic_throws";
+    break;
+  case EST_ThrowsTyped:
+    OS << " exceptionspec_throws_typed";
+    break;
+  case EST_ThrowsTypedNoexceptFalse:
+    OS << " exceptionspec_throws_typed_noexcept_false";
+    break;
   case EST_BasicNoexcept:
     OS << " exceptionspec_basic_noexcept";
     break;
