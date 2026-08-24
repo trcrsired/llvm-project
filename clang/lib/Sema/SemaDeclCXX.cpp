@@ -239,6 +239,16 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
     ClearExceptions();
     ComputedEST = EST_None;
     return;
+  // A herbception 'throws'/'fails{E}' spec implies noexcept(true): the call
+  // cannot propagate a traditional C++ exception.
+  case EST_BasicThrows:
+  case EST_ThrowsTyped:
+    return;
+  // An explicit 'noexcept(false) fails{E}' can throw anything.
+  case EST_ThrowsTypedNoexceptFalse:
+    ClearExceptions();
+    ComputedEST = EST_None;
+    return;
   // FIXME: If the call to this decl is using any of its default arguments, we
   // need to search them for potentially-throwing calls.
   // If this function has a basic noexcept, it doesn't affect the outcome.
@@ -19783,6 +19793,10 @@ bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
   case EST_DynamicNone:
   case EST_MSAny:
   case EST_None:
+  // Herbception specs never contain a noexcept expression to traverse.
+  case EST_BasicThrows:
+  case EST_ThrowsTyped:
+  case EST_ThrowsTypedNoexceptFalse:
     break;
 
   case EST_DependentNoexcept:
