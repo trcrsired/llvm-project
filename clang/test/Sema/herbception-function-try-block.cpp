@@ -64,12 +64,22 @@ void operand_in_try_body() {
   }
 }
 
-void operand_in_handler() {
+void operand_in_innermost_handler_ok() throws {
+  try {
+    throw throws ::std::errc::invalid_argument;
+  } catch throws(::std::error e) {
+    // A new error raised inside a handler leaves via the enclosing
+    // function's own throws channel.
+    throw throws ::std::errc::bad_address;
+  }
+}
+
+void operand_in_handler_nowhere_to_go() {
   try {
     throw throws ::std::errc::invalid_argument;
   } catch throws(::std::error e) {
     throw throws ::std::errc::bad_address;
-    // expected-error@-1 {{'throw throws expr' with an explicit operand is disallowed inside a 'catch throws' block; use bare 'throw throws' to rethrow the caught error}}
+    // expected-error@-1 {{'throw throws' in a plain (non-'throws') function must be inside a 'try { } catch throws' block}}
   }
 }
 
