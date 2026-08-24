@@ -4539,20 +4539,6 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
         return isa<CXXCatchThrowsStmt>(H);
       });
 
-  // Herbception handlers cannot be combined with traditional catch handlers
-  // in the same try statement: the two channels dispatch independently (a
-  // traditional 'catch(...)' would make the whole statement traditional EH).
-  const bool AnyHerbceptionHandler =
-      llvm::any_of(Handlers, [](const Stmt *H) {
-        return isa<CXXCatchThrowsStmt>(H);
-      });
-  if (AnyHerbceptionHandler && !AllHerbceptionHandlers) {
-    for (const Stmt *H : Handlers)
-      if (const auto *C = dyn_cast<CXXCatchStmt>(H))
-        Diag(C->getCatchLoc(), diag::err_catch_throws_mixed_traditional);
-    return StmtError();
-  }
-
   if (!AllHerbceptionHandlers)
     DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
 
@@ -4590,11 +4576,20 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
       continue;
     CXXCatchStmt *H = cast<CXXCatchStmt>(Handlers[i]);
 
-    // Diagnose when the handler is a catch-all handler, but it isn't the last
-    // handler for the try block. [except.handle]p5. Also, skip exception
-    // declarations that are invalid, since we can't usefully report on them.
+    // Diagnose when the handler is a catch-all handler, but it isn't the
+    // last handler for the try block. [except.handle]p5. With herbception
+    // handlers, only later *traditional* handlers count: the two channels
+    // dispatch independently, so 'catch throws' clauses may follow a
+    // traditional 'catch(...)'. Also, skip exception declarations that are
+    // invalid, since we can't usefully report on them.
     if (!H->getExceptionDecl()) {
-      if (i < NumHandlers - 1)
+      bool LaterTraditional = false;
+      for (unsigned j = i + 1; j < NumHandlers; ++j)
+        if (!isa<CXXCatchThrowsStmt>(Handlers[j])) {
+          LaterTraditional = true;
+          break;
+        }
+      if (LaterTraditional)
         return StmtError(Diag(H->getBeginLoc(), diag::err_early_catch_all));
       continue;
     } else if (H->getExceptionDecl()->isInvalidDecl())

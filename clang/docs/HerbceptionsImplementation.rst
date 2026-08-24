@@ -296,9 +296,9 @@ Sema
   (``err_catch_throws_requires_error_domain``).
 * ``ActOnCXXTryBlock`` -- marks try blocks containing
   ``CXXCatchThrowsStmt`` handlers so CodeGen routes the discriminant instead
-  of using EH type-matching; rejects mixing herbception and traditional
-  catch clauses in one statement
-  (``err_catch_throws_mixed_traditional``).
+  of using EH type-matching; the [except.handle]p5 catch-all-position check
+  considers only later *traditional* clauses, so traditional and herbception
+  clauses may interleave freely.
 
 Whole-function conversion
 -------------------------
@@ -388,13 +388,19 @@ Block handlers
 
 ``clang/lib/CodeGen/CGException.cpp`` ``EmitCXXTryStmt`` routes try
 statements containing ``CXXCatchThrowsStmt`` handlers to
-``EmitHerbceptionCatchTry``. It creates one handler block (``catch.throws``)
-and one error slot (``herb.error``) per handler, pushes them on
-``HerbceptionCatchScopes`` (so bare calls inside the try body route to
-them), emits the dispatch, then pops the scopes. Cleanups (including the
-caught variable's destructor, which runs the domain's ``do_cleanup``)
-execute exactly once. Funclet-based personalities keep the handler inside
-the proper funclet region.
+``EmitHerbceptionCatchTry``. Traditional clauses (typed and ``catch(...)``)
+may interleave with them: they are pushed as one regular ``EHCatchScope``
+(legacy stream, relative order), while the herbception handlers each get a
+handler block (``catch.throws``) and an error slot (``herb.error``) pushed
+on ``HerbceptionCatchScopes`` (so bare calls inside the try body route to
+them). Herbception errors scan the herbception handlers in order; legacy
+exceptions match only the traditional clauses; the exception-ptr
+auto-conversion catch-all is installed only when no traditional clause
+competes for the legacy stream. While a traditional handler body runs, its
+"next herbception handler" scope is active, so ``throw throws`` there chains
+forward. Cleanups (including the caught variable's destructor, which runs
+the domain's ``do_cleanup``) execute exactly once. Funclet-based
+personalities keep the handler inside the proper funclet region.
 
 Legacy C++ EH interop
 =====================
@@ -402,8 +408,9 @@ Legacy C++ EH interop
 ``catch throws(std::error e)`` inside a try block
 -------------------------------------------------
 
-When a handler binds ``std::error`` and carries a legacy conversion
-expression, ``EmitHerbceptionCatchTry`` additionally pushes a catch-all EH
+When a pure-herbception try (no traditional clauses) has a handler binding
+``std::error`` that carries a legacy conversion expression,
+``EmitHerbceptionCatchTry`` additionally pushes a catch-all EH
 scope around the try block, so calls to ``noexcept(false)`` functions inside
 become ``invoke``\ s into a landing pad. The handler block
 (``herb.legacy.convert``) fabricates the ``std::error``
