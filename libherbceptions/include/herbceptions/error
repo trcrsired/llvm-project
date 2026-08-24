@@ -268,20 +268,27 @@ private:
 };
 
 namespace error_domains {
-#if defined(_MSC_VER)
-#if defined(_HERBCEPTIONS_BUILDING_RUNTIME) && defined(herbceptions_EXPORTS)
+#if (defined(_WIN32) || defined(__CYGWIN__)) && !defined(__WINE__)
+#if defined(__GNUC__) || defined(__clang__)
+#if defined(_HERBCEPTIONS_BUILDING_RUNTIME)
+#define __HERBCEPTIONS_API [[__gnu__::__dllexport__, __gnu__::__weak__]]
+#else
+#define __HERBCEPTIONS_API [[__gnu__::__dllimport__, __gnu__::__const__]]
+#endif
+#elif defined(_MSC_VER)
+#if defined(_HERBCEPTIONS_BUILDING_RUNTIME)
 #define __HERBCEPTIONS_API __declspec(dllexport)
-#elif defined(_HERBCEPTIONS_BUILDING_RUNTIME)
-#define __HERBCEPTIONS_API
 #else
 #define __HERBCEPTIONS_API __declspec(dllimport)
 #endif
-#elif defined(_WIN32) || defined(_WIN64)
-// MinGW: the GNU toolchain auto-imports DLL symbols and links static
-// libraries directly, so no dllimport/dllexport is needed.
-#define __HERBCEPTIONS_API
+#endif
 #else
-#define __HERBCEPTIONS_API [[__gnu__::__visibility__("default")]]
+#if defined(_HERBCEPTIONS_BUILD_RUNTIME)
+#define __HERBCEPTIONS_API                                                     \
+  [[__gnu__::__visibility__("default"), __gnu__::__weak__]]
+#else
+#define __HERBCEPTIONS_API [[__gnu__::__const__]]
+#endif
 #endif
 extern "C" {
 __HERBCEPTIONS_API
