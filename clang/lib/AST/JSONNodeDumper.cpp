@@ -677,6 +677,17 @@ void JSONNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
   case EST_NoThrow:
     JOS.attribute("exceptionSpec", "nothrow");
     break;
+  case EST_BasicThrows:
+    JOS.attribute("exceptionSpec", "throws");
+    break;
+  case EST_ThrowsTyped:
+  case EST_ThrowsTypedNoexceptFalse: {
+    JOS.attribute("exceptionSpec", "fails");
+    llvm::json::Array Types;
+    for (QualType QT : E.ExceptionSpec.Exceptions)
+      Types.push_back(createQualType(QT));
+    JOS.attribute("exceptionTypes", std::move(Types));
+  } break;
   // FIXME: I cannot find a way to trigger these cases while dumping the AST. I
   // suspect you can only run into them when executing an AST dump from within
   // the debugger, which is not a use case we worry about for the JSON dumping

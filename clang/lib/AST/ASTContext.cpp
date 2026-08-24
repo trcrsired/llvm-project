@@ -14521,6 +14521,14 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
   case EST_Uninstantiated:
   case EST_Unparsed:
     llvm_unreachable("shouldn't see unresolved exception specifications here");
+
+  // Herbception specs are part of the canonical type: they can only merge
+  // with an identical spec (a mismatched combination is rejected by Sema).
+  case EST_BasicThrows:
+  case EST_ThrowsTyped:
+  case EST_ThrowsTypedNoexceptFalse:
+    assert(EST2 == EST1 && "mismatched herbception exception specifications");
+    return ESI1;
   }
 
   llvm_unreachable("invalid ExceptionSpecificationType");
