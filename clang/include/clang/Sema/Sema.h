@@ -8582,6 +8582,18 @@ public:
   /// error, and `throw throws expr` is disallowed.
   unsigned HerbceptionCatchDepth = 0;
 
+  /// Whether the parser is inside an `if constexpr` branch subtree. Herbception
+  /// throw-context diagnostics are suppressed there: a discarded branch never
+  /// throws, and for dependent conditions liveness is only decided at
+  /// instantiation (live violations are diagnosed at CodeGen).
+  unsigned HerbceptionIfConstexprDepth = 0;
+
+  /// Whether the parser is inside the body of a try statement (any nesting
+  /// level). Combined with HerbceptionCatchDepth this distinguishes a nested
+  /// try inside a herbception handler - whose own handlers may consume the
+  /// error locally - from a throw directly in handler code.
+  unsigned HerbceptionTryBodyDepth = 0;
+
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'fails{E}' spec.
   bool isHerbceptionThrowsCall(const Expr *Ex);
