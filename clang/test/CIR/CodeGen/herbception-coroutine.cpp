@@ -1,4 +1,5 @@
-// RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fherbceptions -fclangir -emit-cir %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s -check-prefix=CIR
 
 // Coroutines must not use 'throws'. This test verifies that a non-throws
 // coroutine still compiles correctly with -fherbceptions.
@@ -47,8 +48,8 @@ struct std::coroutine_traits<Task, int> {
   using promise_type = Task::promise_type;
 };
 
-// CHECK: define{{.*}} @_Z9make_taski
-// CHECK: coroutine
+// CIR: cir.func coroutine
+
 Task make_task(int x) {
   co_return;
 }

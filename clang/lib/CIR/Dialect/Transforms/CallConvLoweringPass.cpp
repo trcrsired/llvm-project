@@ -184,9 +184,17 @@ static bool isSupportedType(mlir::Type ty, const DataLayout &dl) {
   if (auto arrTy = dyn_cast<cir::ArrayType>(ty))
     return isSupportedType(arrTy.getElementType(), dl);
   if (auto recTy = dyn_cast<cir::RecordType>(ty)) {
-    // An incomplete record has no layout to classify, and a packed one needs
-    // pad-aware eightbyte classification this bridge does not implement.
-    if (!recTy.isComplete() || recTy.getPacked())
+    // An incomplete record has no layout to classify.
+    if (!recTy.isComplete())
+      return false;
+    // A packed or padded record needs pad-aware eightbyte classification this
+    // bridge does not implement -- but a record past two eightbytes is MEMORY
+    // on size alone, which needs no field information, so such records are
+    // accepted there (mapCIRType maps them without reading their layout).
+    bool memoryOnSizeAlone = dl.getTypeSizeInBits(recTy).getFixedValue() > 128;
+    if (memoryOnSizeAlone && !recTy.isUnion())
+      return true;
+    if (recTy.getPacked())
       return false;
     if (recTy.isUnion()) {
       // The classifier sizes a union's eightbytes from the union itself, which
@@ -337,6 +345,22 @@ static const llvm::abi::Type *mapCIRType(mlir::Type type,
           return tb.getRecordType(
               /*Fields=*/{}, sizeBits, align, llvm::abi::StructPacking::Default,
               /*BaseClasses=*/{}, /*VirtualBaseClasses=*/{}, flags);
+
+        // A packed or padded record past two eightbytes is MEMORY on size
+        // alone (see isSupportedType), so the classifier never needs the real
+        // field layout -- which packing would break anyway. Hand it one field
+        // narrower than the record so the size check forces MEMORY; the
+        // CanPassInRegisters flag above still routes non-trivial C++ records
+        // through an invisible reference.
+        if (recTy.getPacked() || recTy.getPadded()) {
+          const llvm::abi::Type *fieldAbi =
+              tb.getIntegerType(64, llvm::Align(8), /*Signed=*/false);
+          return tb.getRecordType(
+              SmallVector<llvm::abi::FieldInfo>(
+                  1, llvm::abi::FieldInfo(fieldAbi, /*OffsetInBits=*/0)),
+              sizeBits, align, llvm::abi::StructPacking::Default,
+              /*BaseClasses=*/{}, /*VirtualBaseClasses=*/{}, flags);
+        }
 
         SmallVector<llvm::abi::FieldInfo> fields;
         fields.reserve(recTy.getMembers().size());
@@ -761,6 +785,12 @@ void CallConvLoweringPass::runOnOperation() {
   llvm::MapVector<cir::FuncOp, FunctionClassification> classifications;
   bool anyFailed = false;
   moduleOp.walk([&](cir::FuncOp f) {
+    // Herbception: a 'cir.throws' function returns the shaped {T, i1} record
+    // through the backend's out-of-band discriminant mechanism, so its wire
+    // form is exactly as written regardless of size; leave it and its direct
+    // call sites alone.
+    if (f->hasAttr("cir.throws"))
+      return;
     std::optional<FunctionClassification> fc;
     if (isX86)
       fc = classifyX86_64Function(f, dl, *x86TypeMapper,
@@ -798,6 +828,9 @@ void CallConvLoweringPass::runOnOperation() {
       return;
     cir::FuncOp callee = lookupCallee(op, symbolTable);
     if (!callee)
+      return;
+    // Herbception: calls to 'cir.throws' callees keep the written form.
+    if (callee->hasAttr("cir.throws"))
       return;
     callers[callee].push_back(op);
 
