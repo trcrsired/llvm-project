@@ -2476,16 +2476,6 @@ RValue CIRGenFunction::emitCallExpr(const clang::CallExpr *e,
                                     ReturnValueSlot returnValue) {
   assert(!cir::MissingFeatures::objCBlocks());
 
-  // CIR does not lower the {T, i1} herbception calling convention yet: a
-  // call to a throws/fails function would silently use the wrong ABI.
-  if (getLangOpts().HerbExceptions) {
-    if (const auto *fd = dyn_cast_or_null<FunctionDecl>(e->getCalleeDecl()))
-      if (const auto *fpt = fd->getType()->getAs<FunctionProtoType>())
-        if (fpt->hasThrowsSpec())
-          cgm.errorNYI(e->getSourceRange(),
-                       "call to a 'throws'/'fails{E}' function");
-  }
-
   if (const auto *ce = dyn_cast<CXXMemberCallExpr>(e))
     return emitCXXMemberCallExpr(ce, returnValue);
 

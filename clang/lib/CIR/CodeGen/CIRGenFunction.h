@@ -2018,6 +2018,11 @@ public:
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
 
+  /// Herbception (throws): wrap the plain return payload into the function's
+  /// shaped {T, i1} result record, with the discriminant set to false.
+  mlir::Value wrapHerbceptionReturnValue(mlir::Location loc,
+                                         mlir::Value payload);
+
   struct cxxTryBodyEmitter {
     virtual mlir::LogicalResult operator()(CIRGenFunction &cgf) = 0;
     virtual ~cxxTryBodyEmitter() = default;

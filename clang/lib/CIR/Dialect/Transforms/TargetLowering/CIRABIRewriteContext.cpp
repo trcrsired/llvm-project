@@ -812,6 +812,7 @@ SmallVector<mlir::NamedAttribute> buildSretSlotAttrs(mlir::OpBuilder &builder,
   attrs.push_back(builder.getNamedAttr("llvm.writable", builder.getUnitAttr()));
   attrs.push_back(
       builder.getNamedAttr("llvm.dead_on_unwind", builder.getUnitAttr()));
+  attrs.push_back(builder.getNamedAttr("llvm.noundef", builder.getUnitAttr()));
   return attrs;
 }
 
@@ -1135,10 +1136,15 @@ mlir::LogicalResult CIRABIRewriteContext::rewriteFunctionDefinition(
   }
 
   // Rebuild res_attrs: layer llvm.signext / llvm.zeroext onto an Extend
-  // return.
+  // return.  A return rewritten to void (sret or Ignore) must drop the
+  // stale result attributes entirely, or the verifier sees one res_attr
+  // for zero results.
   if (fc.returnInfo.kind == ArgKind::Extend) {
     auto existing = funcOp->getAttrOfType<mlir::ArrayAttr>("res_attrs");
     funcOp->setAttr("res_attrs", updateResAttrs(ctx, existing, fc.returnInfo));
+  } else if (newResultTypes.empty() ||
+             mlir::isa<cir::VoidType>(newResultTypes.front())) {
+    funcOp->removeAttr("res_attrs");
   }
 
   return mlir::success();

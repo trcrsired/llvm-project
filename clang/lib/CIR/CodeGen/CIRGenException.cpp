@@ -200,29 +200,72 @@ static llvm::StringRef getPersonalityFn(CIRGenModule &cgm,
 
 void CIRGenFunction::emitCXXThrowExpr(const CXXThrowExpr *e) {
   // Herbception `throw throws`: route the error value to the nearest active
-  // `try { } catch throws` handler, or (once supported in CIR) take the
-  // {T, i1} error return path of the enclosing throws function. This is not
-  // a traditional throw.
+  // `try { } catch throws` handler, or take the {T, i1} error return path of
+  // the enclosing throws function. This is not a traditional throw.
   if (e->isHerbception()) {
-    if (herbceptionCatchScopes.empty()) {
+    mlir::Location loc = getLoc(e->getSourceRange());
+
+    if (!herbceptionCatchScopes.empty()) {
+      const HerbceptionCatchScope &scope = herbceptionCatchScopes.back();
+
+      RunCleanupsScope throwScope(*this);
+      if (const Expr *subExpr = e->getSubExpr())
+        emitAnyExprToMem(subExpr, scope.errorSlot, Qualifiers(),
+                         /*isInitializer=*/false);
+      throwScope.forceCleanup();
+
+      cir::GotoOp::create(builder, loc, scope.handlerLabel);
+      // A throw marks the end of the block; create a new one for codegen
+      // after the throw statement.
+      builder.createBlock(builder.getBlock()->getParent());
+      return;
+    }
+
+    // Error return path: the enclosing function must carry a herbception
+    // spec; store {error, true} and return.
+    if (!curFnInfo || !curFnInfo->hasThrowsReturn()) {
       cgm.errorNYI(e->getExprLoc(),
                    "emitCXXThrowExpr: 'throw throws' outside a herbception "
                    "catch handler requires the {T, i1} return path");
       return;
     }
+    const Expr *subExpr = e->getSubExpr();
+    if (!subExpr) {
+      cgm.errorNYI(loc, "emitCXXThrowExpr: bare 'throw throws' in a throws "
+                        "function");
+      return;
+    }
 
-    const HerbceptionCatchScope &scope = herbceptionCatchScopes.back();
-    mlir::Location loc = getLoc(e->getSourceRange());
-
-    RunCleanupsScope throwScope(*this);
-    if (const Expr *subExpr = e->getSubExpr())
-      emitAnyExprToMem(subExpr, scope.errorSlot, Qualifiers(),
+    auto fn = cast<cir::FuncOp>(curFn);
+    auto shapedTy = cast<cir::RecordType>(fn.getFunctionType().getReturnType());
+    CharUnits align =
+        CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
+    Address tmp = createTempAlloca(shapedTy, align, loc, "__herb.ret");
+    llvm::SmallVector<mlir::Type> members(shapedTy.getMembers().begin(),
+                                          shapedTy.getMembers().end());
+    {
+      RunCleanupsScope throwScope(*this);
+      mlir::Value payloadPtr = builder.createGetMember(
+          loc, builder.getPointerTo(members[0]), tmp.getBasePointer(), "", 0);
+      // The fabricated value has the named std::error/E record type while
+      // the payload slot may be the anonymous {void *, size_t} shape; coerce
+      // through a pointer bitcast (same layout, same size).
+      mlir::Type errTy = convertTypeForMem(subExpr->getType());
+      mlir::Value errPtr = payloadPtr;
+      if (errTy != members[0])
+        errPtr = builder.createBitcast(payloadPtr, builder.getPointerTo(errTy));
+      emitAnyExprToMem(subExpr, Address(errPtr, errTy, align), Qualifiers(),
                        /*isInitializer=*/false);
-    throwScope.forceCleanup();
-
-    cir::GotoOp::create(builder, loc, scope.handlerLabel);
+      mlir::Value discPtr = builder.createGetMember(
+          loc, builder.getPointerTo(members[1]), tmp.getBasePointer(), "", 1);
+      builder.createStore(loc, builder.getBool(true, loc),
+                          Address(discPtr, members[1], align));
+      throwScope.forceCleanup();
+    }
+    mlir::Value result = builder.createLoad(loc, tmp);
+    cir::ReturnOp::create(builder, loc, result);
     // A throw marks the end of the block; create a new one for codegen after
-    // the throw statement.
+    // the throw statement (the ops there are unreachable).
     builder.createBlock(builder.getBlock()->getParent());
     return;
   }
