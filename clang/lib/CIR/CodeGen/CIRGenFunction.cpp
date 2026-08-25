@@ -356,12 +356,37 @@ cir::ReturnOp CIRGenFunction::LexicalScope::emitReturn(mlir::Location loc) {
 
   if (!fn.getFunctionType().hasVoidReturn()) {
     // Load the value from `__retval` and return it via the `cir.return` op.
-    auto value = cir::LoadOp::create(
-        builder, loc, fn.getFunctionType().getReturnType(), *cgf.fnRetAlloca);
-    return cir::ReturnOp::create(builder, loc,
-                                 llvm::ArrayRef(value.getResult()));
+    mlir::Type retTy = fn.getFunctionType().getReturnType();
+    mlir::Value value =
+        cir::LoadOp::create(builder, loc, retTy, *cgf.fnRetAlloca);
+
+    // Herbception (throws): wrap the payload into the shaped {T, i1} result.
+    if (cgf.curFnInfo && cgf.curFnInfo->hasThrowsReturn())
+      value = cgf.wrapHerbceptionReturnValue(loc, value);
+
+    return cir::ReturnOp::create(builder, loc, value);
   }
   return cir::ReturnOp::create(builder, loc);
+}
+
+mlir::Value CIRGenFunction::wrapHerbceptionReturnValue(mlir::Location loc,
+                                                       mlir::Value payload) {
+  auto fn = cast<cir::FuncOp>(curFn);
+  auto shapedTy = cast<cir::RecordType>(fn.getFunctionType().getReturnType());
+  CharUnits align =
+      CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
+  Address tmp = createTempAlloca(shapedTy, align, loc, "__herb.ret");
+  llvm::SmallVector<mlir::Type> members(shapedTy.getMembers().begin(),
+                                        shapedTy.getMembers().end());
+  for (unsigned idx = 0; idx < members.size(); ++idx) {
+    // Build the member pointer directly: the generic helper consults the
+    // data layout, which anonymous records have no entry for.
+    mlir::Value memberPtr = builder.createGetMember(
+        loc, builder.getPointerTo(members[idx]), tmp.getBasePointer(), "", idx);
+    builder.createStore(loc, idx == 0 ? payload : builder.getBool(false, loc),
+                        Address(memberPtr, members[idx], align));
+  }
+  return builder.createLoad(loc, tmp);
 }
 
 // This is copied from CodeGenModule::MayDropFunctionReturn.  This is a
@@ -516,6 +541,11 @@ void CIRGenFunction::startFunction(GlobalDecl gd, QualType returnType,
   curFn = fn;
 
   const Decl *d = gd.getDecl();
+
+  // Herbception (throws) and other signature-level queries need the arranged
+  // function info; classic CodeGen sets CurFnInfo here as well.
+  if (dyn_cast_or_null<clang::FunctionDecl>(d))
+    curFnInfo = &cgm.getTypes().arrangeGlobalDeclaration(gd);
 
   didCallStackSave = false;
   curCodeDecl = d;
