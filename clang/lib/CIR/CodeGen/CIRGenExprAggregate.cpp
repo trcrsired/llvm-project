@@ -236,6 +236,14 @@ public:
     CIRGenFunction::CXXDefaultInitExprScope Scope(cgf, die);
     Visit(die->getExpr());
   }
+  void VisitCXXTryExpr(const CXXTryExpr *E) {
+    RValue rv = cgf.emitHerbceptionTry(E);
+    emitFinalDestCopy(E->getType(), rv);
+  }
+  void VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
+    RValue rv = cgf.emitHerbceptionCatchFails(E);
+    emitFinalDestCopy(E->getType(), rv);
+  }
   void VisitCXXBindTemporaryExpr(CXXBindTemporaryExpr *e) {
     // Ensure that we have a slot, but if we already do, remember
     // whether it was externally destructed.

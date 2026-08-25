@@ -660,6 +660,12 @@ void CIRGenModule::constructFunctionReturnAttributes(
   const cir::ABIArgInfo retInfo = info.getReturnInfo();
   const cir::CIRDataLayout &layout = getDataLayout();
 
+  // Herbception: the return is a shaped {T, i1} record returned via sret; the
+  // noundef attribute must not be applied to the sret pointer because the
+  // LLVM IR verifier rejects noundef on sret with an aggregate type.
+  if (info.hasThrowsReturn())
+    return;
+
   if (codeGenOpts.EnableNoundefAttrs && hasStrictReturn(retTy, targetDecl) &&
       !retTy->isVoidType() &&
       determineNoUndef(retTy, getTypes(), layout, retInfo))
@@ -1466,9 +1472,10 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
   // Herbception (throws): a call returning {T, i1} carries the failure
   // discriminant out-of-band. Route it: to the innermost active catch-throws
   // handler, to main()'s trap, or diagnose propagation out of a function
-  // that cannot carry it.
-  if (funcInfo.hasThrowsReturn() && !isMustTail &&
-      !isa<cir::VoidType>(convertType(retTy))) {
+  // that cannot carry it. When emitting the operand of a `try(expr)` /
+  // `catch fails(expr)` expression, skip routing: the caller handles the
+  // discriminant itself.
+  if (funcInfo.hasThrowsReturn() && !isMustTail && !inHerbceptionOperand) {
     mlir::ResultRange results = theCall->getOpResults();
     auto shapedTy = cast<cir::RecordType>(results[0].getType());
     assert(shapedTy.getMembers().size() == 2 && "expected a {T, i1} return");
@@ -1528,7 +1535,32 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
           });
       builder.setInsertionPointAfter(trapIf);
     } else {
-      cgm.errorNYI(loc, "herbception error escaping a noexcept function");
+      // Propagate the error through the enclosing throws function: store the
+      // payload into a shaped temp with discriminant true and return.
+      if (curFnInfo && curFnInfo->hasThrowsReturn() && fnRetAlloca) {
+        RunCleanupsScope propagateScope(*this);
+        Address payloadPtr = memberAddr(0);
+        mlir::Value payload = builder.createLoad(loc, payloadPtr);
+        // Coerce the callee's payload into the caller's shaped member[0]
+        // type if they differ (same-layout coercion through memory).
+        mlir::Type callerPayloadTy = members[0];
+        if (payload.getType() != callerPayloadTy) {
+          Address ptmp =
+              createTempAlloca(payload.getType(), align, loc, "herb.payload");
+          builder.createStore(loc, payload, ptmp);
+          mlir::Value casted = builder.createBitcast(
+              ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
+          payload =
+              builder.createLoad(loc, Address(casted, callerPayloadTy, align));
+        }
+        mlir::Value wrapped = wrapHerbceptionReturnValue(loc, payload,
+                                                         /*disc=*/true);
+        cir::ReturnOp::create(builder, loc, wrapped);
+        propagateScope.forceCleanup();
+        builder.createBlock(builder.getBlock()->getParent());
+      } else {
+        cgm.errorNYI(loc, "herbception error escaping a noexcept function");
+      }
     }
 
     // Hand the caller the success payload read back as the declared type.
@@ -1548,13 +1580,36 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
         v = builder.getBool(false, loc);
       return RValue::get(v);
     }
-    case cir::TEK_Aggregate:
-      cgm.errorNYI(loc, "aggregate return from a throws function call");
-      return getUndefRValue(retTy);
+    case cir::TEK_Aggregate: {
+      // Aggregate success value: store the payload into the return slot and
+      // return it as an aggregate RValue.
+      mlir::Value payload = builder.createLoad(loc, payloadOut);
+      Address destPtr = returnValue.getValue();
+      if (!destPtr.isValid())
+        destPtr = createMemTemp(retTy, loc, "herb.agg.payload");
+      emitAggregateStore(payload, destPtr);
+      return RValue::getAggregate(destPtr);
+    }
     default:
       cgm.errorNYI(loc, "complex return from a throws function call");
       return getUndefRValue(retTy);
     }
+  }
+
+  // When emitting the operand of a `try(expr)` / `catch fails(expr)`
+  // expression, return the raw {T, i1} result as an aggregate RValue. The
+  // caller handles the discriminant itself.
+  if (funcInfo.hasThrowsReturn() && !isMustTail && inHerbceptionOperand) {
+    mlir::ResultRange results = theCall->getOpResults();
+    assert(results.size() == 1 && "throws call must return a single {T, i1}");
+    auto shapedTy = cast<cir::RecordType>(results[0].getType());
+    assert(shapedTy.getMembers().size() == 2 &&
+           "throws call must return {T, i1}");
+    CharUnits align =
+        CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
+    Address destPtr = createTempAlloca(shapedTy, align, loc, "__herb.call");
+    builder.createStore(loc, results[0], destPtr);
+    return RValue::getAggregate(destPtr);
   }
 
   mlir::Type retCIRTy = convertType(retTy);

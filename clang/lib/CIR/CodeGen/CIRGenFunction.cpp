@@ -357,8 +357,19 @@ cir::ReturnOp CIRGenFunction::LexicalScope::emitReturn(mlir::Location loc) {
   if (!fn.getFunctionType().hasVoidReturn()) {
     // Load the value from `__retval` and return it via the `cir.return` op.
     mlir::Type retTy = fn.getFunctionType().getReturnType();
-    mlir::Value value =
-        cir::LoadOp::create(builder, loc, retTy, *cgf.fnRetAlloca);
+    mlir::Value value;
+
+    if (cgf.fnRetAlloca) {
+      // Normal case: load from the return alloca.
+      value = cir::LoadOp::create(builder, loc, retTy, *cgf.fnRetAlloca);
+    } else if (cgf.curFnInfo && cgf.curFnInfo->hasThrowsReturn()) {
+      // Herbception (throws) with void AST return type: the payload is the
+      // error type. Create a default value (null) of the error type.
+      mlir::Type errTy = cgf.curFnInfo->getHerbceptionErrorType();
+      value = builder.getNullValue(errTy, loc);
+    } else {
+      llvm_unreachable("emitReturn: no return alloca for non-void function");
+    }
 
     // Herbception (throws): wrap the payload into the shaped {T, i1} result.
     if (cgf.curFnInfo && cgf.curFnInfo->hasThrowsReturn())
@@ -370,7 +381,8 @@ cir::ReturnOp CIRGenFunction::LexicalScope::emitReturn(mlir::Location loc) {
 }
 
 mlir::Value CIRGenFunction::wrapHerbceptionReturnValue(mlir::Location loc,
-                                                       mlir::Value payload) {
+                                                       mlir::Value payload,
+                                                       bool disc) {
   auto fn = cast<cir::FuncOp>(curFn);
   auto shapedTy = cast<cir::RecordType>(fn.getFunctionType().getReturnType());
   CharUnits align =
@@ -383,7 +395,7 @@ mlir::Value CIRGenFunction::wrapHerbceptionReturnValue(mlir::Location loc,
     // data layout, which anonymous records have no entry for.
     mlir::Value memberPtr = builder.createGetMember(
         loc, builder.getPointerTo(members[idx]), tmp.getBasePointer(), "", idx);
-    builder.createStore(loc, idx == 0 ? payload : builder.getBool(false, loc),
+    builder.createStore(loc, idx == 0 ? payload : builder.getBool(disc, loc),
                         Address(memberPtr, members[idx], align));
   }
   return builder.createLoad(loc, tmp);

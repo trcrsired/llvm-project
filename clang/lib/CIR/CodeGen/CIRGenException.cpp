@@ -15,6 +15,7 @@
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Location.h"
 
+#include "clang/Basic/DiagnosticSema.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/Support/SaveAndRestore.h"
 
@@ -224,15 +225,39 @@ void CIRGenFunction::emitCXXThrowExpr(const CXXThrowExpr *e) {
     // Error return path: the enclosing function must carry a herbception
     // spec; store {error, true} and return.
     if (!curFnInfo || !curFnInfo->hasThrowsReturn()) {
-      cgm.errorNYI(e->getExprLoc(),
-                   "emitCXXThrowExpr: 'throw throws' outside a herbception "
-                   "catch handler requires the {T, i1} return path");
+      cgm.getDiags().Report(e->getExprLoc(),
+                            diag::err_throw_throws_no_catch_handler);
       return;
     }
     const Expr *subExpr = e->getSubExpr();
     if (!subExpr) {
-      cgm.errorNYI(loc, "emitCXXThrowExpr: bare 'throw throws' in a throws "
-                        "function");
+      // Bare `throw throws` (rethrow) in a throws function: the error value is
+      // already in the return slot from a previous catch. Wrap it with the
+      // discriminant set to true and return.
+      if (!fnRetAlloca) {
+        // Void throws function: no return slot. The error type is the payload
+        // type; create a temp, wrap with disc=true and return.
+        auto fn = cast<cir::FuncOp>(curFn);
+        auto shapedTy =
+            cast<cir::RecordType>(fn.getFunctionType().getReturnType());
+        mlir::Type errTy = shapedTy.getMembers()[0];
+        CharUnits errAlign =
+            CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(errTy));
+        Address errSlot = createTempAlloca(errTy, errAlign, loc, "herb.error");
+        mlir::Value payload = builder.createLoad(loc, errSlot);
+        mlir::Value wrapped = wrapHerbceptionReturnValue(loc, payload,
+                                                         /*disc=*/true);
+        cir::ReturnOp::create(builder, loc, wrapped);
+        builder.createBlock(builder.getBlock()->getParent());
+        return;
+      }
+      mlir::Type retTy =
+          cast<cir::FuncOp>(curFn).getFunctionType().getReturnType();
+      mlir::Value value =
+          cir::LoadOp::create(builder, loc, retTy, *fnRetAlloca);
+      value = wrapHerbceptionReturnValue(loc, value, /*disc=*/true);
+      cir::ReturnOp::create(builder, loc, value);
+      builder.createBlock(builder.getBlock()->getParent());
       return;
     }
 
@@ -929,4 +954,220 @@ bool CIRGenFunction::isCatchOrCleanupRequired() {
     return false;
 
   return ehStack.requiresCatchOrCleanup();
+}
+
+RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
+  assert(curFnInfo && curFnInfo->hasThrowsReturn() &&
+         "herbception try outside a throws function");
+
+  const Expr *sub = E->getSubExpr()->IgnoreParenImpCasts();
+  const CallExpr *call = cast<CallExpr>(sub);
+  QualType callTy = call->getType();
+
+  // Emit the call. It returns {T, i1}; suppress routing to an enclosing
+  // herbception catch scope: this expression handles the discriminant itself.
+  // The result is an aggregate RValue holding the {T, i1} shaped struct.
+  RValue callRValue;
+  {
+    llvm::SaveAndRestore<bool> saveInOperand(inHerbceptionOperand, true);
+    callRValue = emitCallExpr(call);
+  }
+  assert(callRValue.isAggregate() &&
+         "throws call must return aggregate {T, i1}");
+
+  // Copy the {T, i1} result to a temp so we can extract members.
+  Address callAddr = callRValue.getAggregateAddress();
+  auto shapedTy = cast<cir::RecordType>(callAddr.getElementType());
+  assert(shapedTy.getMembers().size() == 2 &&
+         "throws call must return {T, i1}");
+  CharUnits align =
+      CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
+  Address tmp =
+      createTempAlloca(shapedTy, align, getLoc(E->getExprLoc()), "__herb.ret");
+  builder.createStore(getLoc(E->getExprLoc()),
+                      callRValue.getAggregateAddress().getPointer(), tmp);
+
+  llvm::SmallVector<mlir::Type> members(shapedTy.getMembers().begin(),
+                                        shapedTy.getMembers().end());
+  auto memberAddr = [&](unsigned idx) {
+    mlir::Value memberPtr = builder.createGetMember(
+        getLoc(E->getExprLoc()), builder.getPointerTo(members[idx]),
+        tmp.getPointer(), "", idx);
+    return Address(memberPtr, members[idx], align);
+  };
+
+  mlir::Location loc = getLoc(E->getExprLoc());
+  mlir::Value disc = builder.createLoad(loc, memberAddr(1));
+  Address successAddr = memberAddr(0);
+
+  // Error path: if an enclosing catch-throws handler is active, route to it;
+  // otherwise auto-propagate through the enclosing throws function.
+  cir::IfOp routeIf = cir::IfOp::create(
+      builder, loc, disc,
+      /*withElseRegion=*/false, [&](mlir::OpBuilder &, mlir::Location) {
+        // Error path
+        if (!herbceptionCatchScopes.empty()) {
+          const HerbceptionCatchScope &scope = herbceptionCatchScopes.back();
+          mlir::Value payload = builder.createLoad(loc, successAddr);
+          mlir::Type slotTy = scope.errorSlot.getElementType();
+          if (slotTy != payload.getType()) {
+            Address ptmp =
+                createTempAlloca(payload.getType(), align, loc, "herb.payload");
+            builder.createStore(loc, payload, ptmp);
+            mlir::Value casted = builder.createBitcast(
+                ptmp.getBasePointer(), builder.getPointerTo(slotTy));
+            payload = builder.createLoad(loc, Address(casted, slotTy, align));
+          }
+          builder.createStore(loc, payload, scope.errorSlot);
+          cir::GotoOp::create(builder, loc, scope.handlerLabel);
+        } else {
+          // Auto-propagate: wrap the error payload with disc=true and return.
+          mlir::Value payload = builder.createLoad(loc, successAddr);
+          mlir::Type callerPayloadTy = members[0];
+          if (payload.getType() != callerPayloadTy) {
+            Address ptmp =
+                createTempAlloca(payload.getType(), align, loc, "herb.payload");
+            builder.createStore(loc, payload, ptmp);
+            mlir::Value casted = builder.createBitcast(
+                ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
+            payload = builder.createLoad(
+                loc, Address(casted, callerPayloadTy, align));
+          }
+          mlir::Value wrapped =
+              wrapHerbceptionReturnValue(loc, payload, /*disc=*/true);
+          cir::ReturnOp::create(builder, loc, wrapped);
+        }
+      });
+
+  // Success path: the try expression's value is the success value.
+  builder.setInsertionPointAfter(routeIf);
+
+  if (getEvaluationKind(callTy) == cir::TEK_Scalar) {
+    mlir::Value v = builder.createLoad(loc, successAddr);
+    return RValue::get(v);
+  }
+  if (getEvaluationKind(callTy) == cir::TEK_Aggregate) {
+    Address payloadAddr = createMemTemp(callTy, loc, "try.payload");
+    mlir::Value payload = builder.createLoad(loc, successAddr);
+    emitAggregateStore(payload, payloadAddr);
+    return RValue::getAggregate(payloadAddr);
+  }
+  cgm.errorNYI(E->getSourceRange(), "emitHerbceptionTry: complex result");
+  return getUndefRValue(callTy);
+}
+
+RValue CIRGenFunction::emitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
+  const Expr *sub = E->getSubExpr()->IgnoreParenImpCasts();
+  const CallExpr *call = cast<CallExpr>(sub);
+
+  // Emit the call. It returns {T, i1}; suppress routing to an enclosing
+  // herbception catch scope. The result is an aggregate RValue holding the
+  // {T, i1} shaped struct.
+  RValue callRValue;
+  {
+    llvm::SaveAndRestore<bool> saveInOperand(inHerbceptionOperand, true);
+    callRValue = emitCallExpr(call);
+  }
+  assert(callRValue.isAggregate() &&
+         "throws call must return aggregate {T, i1}");
+
+  // Copy the {T, i1} result to a temp so we can extract members.
+  Address callAddr = callRValue.getAggregateAddress();
+  auto shapedTy = cast<cir::RecordType>(callAddr.getElementType());
+  assert(shapedTy.getMembers().size() == 2 &&
+         "throws call must return {T, i1}");
+  CharUnits align =
+      CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
+  Address tmp =
+      createTempAlloca(shapedTy, align, getLoc(E->getExprLoc()), "__herb.ret");
+  builder.createStore(getLoc(E->getExprLoc()),
+                      callRValue.getAggregateAddress().getPointer(), tmp);
+
+  llvm::SmallVector<mlir::Type> members(shapedTy.getMembers().begin(),
+                                        shapedTy.getMembers().end());
+
+  mlir::Location loc = getLoc(E->getExprLoc());
+  auto memberAddr = [&](unsigned idx) {
+    mlir::Value memberPtr = builder.createGetMember(
+        loc, builder.getPointerTo(members[idx]), tmp.getPointer(), "", idx);
+    return Address(memberPtr, members[idx], align);
+  };
+
+  mlir::Value disc = builder.createLoad(loc, memberAddr(1));
+  mlir::Value payload = builder.createLoad(loc, memberAddr(0));
+
+  // Build the catch-fails value: struct { union { T value; E error; }; bool
+  // failed; }
+  QualType eitherTy = E->getType();
+  const RecordDecl *RD = eitherTy->getAsRecordDecl();
+  assert(RD && "either type must be a record");
+
+  Address addr = createMemTempWithoutCast(eitherTy, loc, "herb.catch");
+
+  // Find field by name, descending through anonymous union if present.
+  auto findField =
+      [&](StringRef Name) -> std::pair<const FieldDecl *, const FieldDecl *> {
+    for (const FieldDecl *F : RD->fields()) {
+      if (F->getName() == Name)
+        return {F, F};
+      if (F->isAnonymousStructOrUnion()) {
+        if (const auto *FR = F->getType()->getAsRecordDecl())
+          for (const FieldDecl *Sub : FR->fields())
+            if (Sub->getName() == Name)
+              return {F, Sub};
+      }
+    }
+    return {nullptr, nullptr};
+  };
+
+  auto storeField = [&](StringRef Name, mlir::Value V) {
+    auto [outer, inner] = findField(Name);
+    if (!inner)
+      return;
+    // For fields inside an anonymous union, we need to:
+    // 1. Get the address of the union (a direct field of the struct)
+    // 2. Get the address of the field inside the union
+    const RecordDecl *fieldParent = inner->getParent();
+    if (fieldParent->isUnion()) {
+      // Field is inside a union - get union address first, then field address
+      const CIRGenRecordLayout &layout =
+          cgm.getTypes().getCIRGenRecordLayout(RD);
+      unsigned unionIndex = layout.getCIRFieldNo(outer);
+      mlir::Type unionTy = layout.getCIRType().getMembers()[unionIndex];
+      mlir::Value unionPtr = builder.createGetMember(
+          loc, builder.getPointerTo(unionTy), addr.getPointer(),
+          outer->getName(), unionIndex);
+      // For unions, all fields map to index 0
+      mlir::Type fieldType = convertType(inner->getType());
+      mlir::Value fieldPtr = builder.createGetMember(
+          loc, builder.getPointerTo(fieldType), unionPtr, inner->getName(), 0);
+      Address fieldAddr(fieldPtr, fieldType, align);
+      builder.createStore(loc, V, fieldAddr);
+    } else {
+      // Direct field of the record - use the record layout
+      const CIRGenRecordLayout &layout =
+          cgm.getTypes().getCIRGenRecordLayout(fieldParent);
+      unsigned fieldIndex = layout.getCIRFieldNo(inner);
+      Address fieldAddr = emitAddrOfFieldStorage(addr, inner, Name, fieldIndex);
+      if (!fieldAddr.isValid())
+        return;
+      mlir::Type fieldTy = fieldAddr.getElementType();
+      mlir::Value toStore = V;
+      if (fieldTy != V.getType()) {
+        Address ptmp =
+            createTempAlloca(V.getType(), align, loc, "herb.payload");
+        builder.createStore(loc, V, ptmp);
+        mlir::Value casted = builder.createBitcast(
+            ptmp.getBasePointer(), builder.getPointerTo(fieldTy));
+        toStore = builder.createLoad(loc, Address(casted, fieldTy, align));
+      }
+      builder.createStore(loc, toStore, fieldAddr);
+    }
+  };
+
+  storeField("failed", disc);
+  storeField("value", payload);
+  storeField("error", payload);
+
+  return RValue::getAggregate(addr);
 }
