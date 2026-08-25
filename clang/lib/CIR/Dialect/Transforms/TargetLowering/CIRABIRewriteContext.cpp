@@ -812,7 +812,6 @@ SmallVector<mlir::NamedAttribute> buildSretSlotAttrs(mlir::OpBuilder &builder,
   attrs.push_back(builder.getNamedAttr("llvm.writable", builder.getUnitAttr()));
   attrs.push_back(
       builder.getNamedAttr("llvm.dead_on_unwind", builder.getUnitAttr()));
-  attrs.push_back(builder.getNamedAttr("llvm.noundef", builder.getUnitAttr()));
   return attrs;
 }
 
