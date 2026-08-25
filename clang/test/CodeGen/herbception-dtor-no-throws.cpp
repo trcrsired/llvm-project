@@ -1,4 +1,4 @@
-// RUN: not %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fherbceptions -fclangir -emit-cir %s 2>&1 | FileCheck %s
+// RUN: not %clang -std=c++20 -fherbceptions -fno-exceptions -S -emit-llvm %s 2>&1 | FileCheck %s
 
 // Destructors must NOT have throws - this should be a compile error.
 
