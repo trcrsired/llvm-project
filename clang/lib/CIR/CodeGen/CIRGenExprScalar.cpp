@@ -946,6 +946,14 @@ public:
     return builder.getBool(e->getValue(), cgf.getLoc(e->getExprLoc()));
   }
 
+  // Herbception `try(expr)`: evaluate the throws/fails call and auto-propagate
+  // its error on failure. Returns the success value.
+  mlir::Value VisitCXXTryExpr(const CXXTryExpr *E) {
+    RValue rv = cgf.emitHerbceptionTry(E);
+    assert(rv.isScalar() && "scalar CXXTryExpr expects scalar result");
+    return rv.getValue();
+  }
+
   mlir::Value emitFixedPointConversion(mlir::Value src, QualType srcTy,
                                        QualType dstTy, mlir::Location loc);
 

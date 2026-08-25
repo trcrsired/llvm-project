@@ -2021,7 +2021,13 @@ public:
   /// Herbception (throws): wrap the plain return payload into the function's
   /// shaped {T, i1} result record, with the discriminant set to false.
   mlir::Value wrapHerbceptionReturnValue(mlir::Location loc,
-                                         mlir::Value payload);
+                                         mlir::Value payload) {
+    return wrapHerbceptionReturnValue(loc, payload, /*disc=*/false);
+  }
+  /// Herbception (throws): wrap the plain return payload into the function's
+  /// shaped {T, i1} result record, with the discriminant set to \p disc.
+  mlir::Value wrapHerbceptionReturnValue(mlir::Location loc,
+                                         mlir::Value payload, bool disc);
 
   struct cxxTryBodyEmitter {
     virtual mlir::LogicalResult operator()(CIRGenFunction &cgf) = 0;
@@ -2049,12 +2055,25 @@ private:
   llvm::SmallVector<HerbceptionCatchScope, 4> herbceptionCatchScopes;
   /// Counter used to generate unique labels for herbception handlers.
   unsigned herbceptionTryCounter = 0;
+  /// While emitting the operand of a `try(expr)` / `catch fails(expr)`
+  /// expression. While set, calls inside are already being handled by
+  /// emitHerbceptionTry/emitHerbceptionCatchFails and must not be routed to an
+  /// enclosing herbception catch scope.
+  bool inHerbceptionOperand = false;
   /// While emitting a legacy C++ exception conversion inside a herbception
   /// catch-all handler, the thrown object pointer from cir.begin_catch.
   mlir::Value curHerbceptionExnPtr = nullptr;
 
 public:
   mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
+
+  /// Herbception: emit a `try(expr)` expression. Evaluates the throws/fails
+  /// call and auto-propagates its error on failure. Returns the success value.
+  RValue emitHerbceptionTry(const clang::CXXTryExpr *E);
+
+  /// Herbception: emit a `catch fails(expr)` expression. Evaluates the
+  /// throws/fails call and produces an `either{T, E}` value.
+  RValue emitHerbceptionCatchFails(const clang::CXXCatchFailsExpr *E);
 
   void emitCtorPrologue(const clang::CXXConstructorDecl *ctor,
                         clang::CXXCtorType ctorType, FunctionArgList &args);
