@@ -756,12 +756,13 @@ bool CIRGenTypes::isZeroInitializable(const RecordDecl *rd) {
 const CIRGenFunctionInfo &CIRGenTypes::arrangeCIRFunctionInfo(
     CanQualType returnType, bool isInstanceMethod,
     llvm::ArrayRef<CanQualType> argTypes, FunctionType::ExtInfo info,
-    RequiredArgs required) {
+    RequiredArgs required, bool throwsReturn, mlir::Type herbceptionErrorTy) {
   assert(llvm::all_of(argTypes,
                       [](CanQualType t) { return t.isCanonicalAsParam(); }));
   // Lookup or create unique function info.
   llvm::FoldingSetNodeID id;
-  CIRGenFunctionInfo::Profile(id, isInstanceMethod, info, required, returnType,
+  CIRGenFunctionInfo::Profile(id, isInstanceMethod, throwsReturn,
+                              herbceptionErrorTy, info, required, returnType,
                               argTypes);
 
   void *insertPos = nullptr;
@@ -780,10 +781,28 @@ const CIRGenFunctionInfo &CIRGenTypes::arrangeCIRFunctionInfo(
 
   // Construction the function info. We co-allocate the ArgInfos.
   fi = CIRGenFunctionInfo::create(info, isInstanceMethod, returnType, argTypes,
-                                  required);
+                                  required, throwsReturn, herbceptionErrorTy);
   functionInfos.InsertNode(fi, insertPos);
 
   return *fi;
+}
+
+mlir::Type
+CIRGenTypes::getHerbceptionErrorType(const clang::FunctionProtoType *ftp) {
+  if (!ftp || !ftp->hasThrowsSpec())
+    return {};
+  if (ftp->getExceptionSpecType() == EST_ThrowsTyped ||
+      ftp->getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse)
+    return convertType(ftp->getExceptionType(0));
+  // Bare `throws`: implicit std::error = {void *, size_t}, fabricated here
+  // because std::error is not wired into the AST.
+  auto &ctx = getMLIRContext();
+  mlir::Type voidPtrTy = builder.getPointerTo(builder.getVoidTy());
+  mlir::Type sizeTy = convertType(astContext.getSizeType());
+  llvm::SmallVector<mlir::Type> members{voidPtrTy, sizeTy};
+  return cir::StructType::get(&ctx, members,
+                              /*packed=*/false, /*is_class=*/false,
+                              cir::RecordType::getAllDataKinds(members));
 }
 
 const CIRGenFunctionInfo &
