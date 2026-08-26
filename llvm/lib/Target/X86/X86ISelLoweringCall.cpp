@@ -953,15 +953,43 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   if (ThrowsDiscriminant.getNode()) {
     EVT DiscVT = ThrowsDiscriminant.getValueType();
     assert(DiscVT.isInteger() && "throws discriminant must be an integer");
-    MVT RegVT = DiscVT == MVT::i1 ? MVT::i8 : DiscVT.getSimpleVT();
-    SDValue Disc = DAG.getNode(ISD::ZERO_EXTEND, dl, RegVT,
-                               ThrowsDiscriminant);
-    SDValue AllOnes = DAG.getAllOnesConstant(dl, RegVT);
-    SDValue Add = DAG.getNode(X86ISD::ADD, dl,
-                              DAG.getVTList(RegVT, MVT::i32), Disc, AllOnes);
-    // Add.getValue(1) is EFLAGS with carry set iff Disc != 0.
-    Chain = DAG.getCopyToReg(Chain, dl, X86::EFLAGS, Add.getValue(1), Glue);
-    Glue = Chain.getValue(1);
+    // The builder hands over the raw CopyToParts part, which is typically an
+    // (unfolded) extension of the IR-level i1; look through it so constants
+    // are recognized.
+    SDValue DiscVal = ThrowsDiscriminant;
+    // Look through the wrappers the builder leaves in place: extensions from
+    // the IR-level i1 and MERGE_VALUES results from aggregate returns.
+    while (true) {
+      unsigned Opc = DiscVal.getOpcode();
+      if (Opc == ISD::ANY_EXTEND || Opc == ISD::ZERO_EXTEND ||
+          Opc == ISD::SIGN_EXTEND)
+        DiscVal = DiscVal.getOperand(0);
+      else if (Opc == ISD::MERGE_VALUES)
+        DiscVal = DiscVal.getNode()->getOperand(DiscVal.getResNo());
+      else
+        break;
+    }
+    // A constant discriminant folds to stc/clc directly instead of
+    // materializing the constant into a GPR just to compute its carry out.
+    if (auto *C = dyn_cast<ConstantSDNode>(DiscVal)) {
+      unsigned Opc = C->isZero() ? X86ISD::CLC : X86ISD::STC;
+      SmallVector<SDValue, 2> Ops;
+      Ops.push_back(Chain);
+      if (Glue.getNode())
+        Ops.push_back(Glue);
+      Chain = DAG.getNode(Opc, dl, DAG.getVTList(MVT::Other, MVT::Glue), Ops);
+      Glue = Chain.getValue(1);
+    } else {
+      MVT RegVT = DiscVT == MVT::i1 ? MVT::i8 : DiscVT.getSimpleVT();
+      SDValue Disc =
+          DAG.getNode(ISD::ZERO_EXTEND, dl, RegVT, ThrowsDiscriminant);
+      SDValue AllOnes = DAG.getAllOnesConstant(dl, RegVT);
+      SDValue Add = DAG.getNode(X86ISD::ADD, dl, DAG.getVTList(RegVT, MVT::i32),
+                                Disc, AllOnes);
+      // Add.getValue(1) is EFLAGS with carry set iff Disc != 0.
+      Chain = DAG.getCopyToReg(Chain, dl, X86::EFLAGS, Add.getValue(1), Glue);
+      Glue = Chain.getValue(1);
+    }
     RetOps.push_back(DAG.getRegister(X86::EFLAGS, MVT::i32));
   }
 

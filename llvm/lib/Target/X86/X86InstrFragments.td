@@ -214,6 +214,15 @@ def X86setcc_c : SDNode<"X86ISD::SETCC_CARRY", SDTX86SetCC_C>;
 def X86read_cf : SDNode<"X86ISD::READ_CF", SDTX86ReadCF,
                         [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
+// Herbception (throws): set/clear the carry flag directly (stc/clc). Used to
+// return a constant discriminant from a throws function without materializing
+// the ADD-with-AllOnes trick. Chained + glued like X86read_cf so the flag
+// state survives until the glued RET.
+def X86set_carry   : SDNode<"X86ISD::STC", SDTNone,
+                        [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+def X86clear_carry : SDNode<"X86ISD::CLC", SDTNone,
+                        [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+
 // Get a random integer and indicate whether it is valid in CF.
 def X86rdrand  : SDNode<"X86ISD::RDRAND",   SDTX86rdrand,
                         [SDNPHasChain, SDNPSideEffect]>;

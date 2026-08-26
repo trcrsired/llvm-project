@@ -137,6 +137,7 @@ private:
                           SplitStrategy Strategy, unsigned OtherOpc = 0);
   bool visitORR(MachineInstr &MI);
   bool visitCSEL(MachineInstr &MI);
+  bool visitHERB_CSET(MachineInstr &MI);
   bool visitINSERT(MachineInstr &MI);
   bool visitINSviGPR(MachineInstr &MI, unsigned Opc);
   bool visitINSvi64lane(MachineInstr &MI);
@@ -370,6 +371,51 @@ bool AArch64MIPeepholeOptImpl::visitCSEL(MachineInstr &MI) {
       .addReg(MI.getOperand(1).getReg())
       .addImm(0);
 
+  MI.eraseFromParent();
+  return true;
+}
+
+bool AArch64MIPeepholeOptImpl::visitHERB_CSET(MachineInstr &MI) {
+  // Herbception (throws): fold HERB_CSET + CBZ/CBNZ into B.cc/B.cs.
+  // HERB_CSET produces 1 if NZCV.C is set, else 0.
+  // CBZ branches if the value is zero -> branch if C is clear -> B.cc.
+  // CBNZ branches if the value is non-zero -> branch if C is set -> B.cs.
+  Register DstReg = MI.getOperand(0).getReg();
+  MachineBasicBlock *MBB = MI.getParent();
+
+  // The HERB_CSET result must have exactly one use (the branch).
+  MachineInstr *Branch = nullptr;
+  for (MachineInstr &U : MRI->use_nodbg_instructions(DstReg)) {
+    if (Branch)
+      return false; // multiple uses, can't fold
+    Branch = &U;
+  }
+  if (!Branch)
+    return false;
+
+  unsigned BrOpc = Branch->getOpcode();
+  bool IsCBZ;
+  if (BrOpc == AArch64::CBZW || BrOpc == AArch64::CBZX)
+    IsCBZ = true;
+  else if (BrOpc == AArch64::CBNZW || BrOpc == AArch64::CBNZX)
+    IsCBZ = false;
+  else
+    return false;
+
+  // CBZ branches on zero -> C is clear -> B.cc (AArch64CC::LO).
+  // CBNZ branches on non-zero -> C is set -> B.cs (AArch64CC::HS).
+  AArch64CC::CondCode CC = IsCBZ ? AArch64CC::LO : AArch64CC::HS;
+
+  // Build the conditional branch.
+  BuildMI(*MBB, Branch, Branch->getDebugLoc(), TII->get(AArch64::Bcc))
+      .addImm(CC)
+      .addMBB(Branch->getOperand(Branch->getNumOperands() - 1).getMBB());
+
+  LLVM_DEBUG(dbgs() << "Herbception: folded HERB_CSET + "
+                    << (IsCBZ ? "CBZ" : "CBNZ") << " into B."
+                    << (IsCBZ ? "cc" : "cs") << '\n');
+
+  Branch->eraseFromParent();
   MI.eraseFromParent();
   return true;
 }
@@ -1045,6 +1091,10 @@ bool AArch64MIPeepholeOptImpl::run(MachineFunction &MF) {
       case AArch64::CSELWr:
       case AArch64::CSELXr:
         Changed |= visitCSEL(MI);
+        break;
+      case AArch64::HERB_CSETWr:
+      case AArch64::HERB_CSETXr:
+        Changed |= visitHERB_CSET(MI);
         break;
       case AArch64::INSvi64gpr:
         Changed |= visitINSviGPR(MI, AArch64::INSvi64lane);
