@@ -29,7 +29,8 @@ enum class cmath_errc : ::std::uint_least32_t {
 
 inline constexpr bool operator==(::std::cmath_errc __a,
                                  ::std::cmath_errc __b) noexcept {
-  return __a == __b;
+  return static_cast<::std::uint_least32_t>(__a) ==
+         static_cast<::std::uint_least32_t>(__b);
 }
 
 template <> class error_domain<::std::cmath_errc> {

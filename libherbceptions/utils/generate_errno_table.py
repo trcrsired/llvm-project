@@ -233,7 +233,7 @@ def emit_cmath() -> str:
         "",
     ]
     for name, msg in CMATH_ERRORS:
-        lines.append(f"\tcase ::std::cmath_errc::{name}:")
+        lines.append(f"\tcase static_cast<::std::uint_least32_t>(::std::cmath_errc::{name}):")
         lines.append(f"\t\treturn __tsc(u8\"{msg}\");")
     lines.append("\tdefault:")
     lines.append(f"\t\treturn __tsc(u8\"{default_msg}\");")
@@ -343,7 +343,7 @@ def emit_wine_errc_map() -> str:
         "// clang-format off",
         "// Requires <cerrno> and herbceptions/__details/wine.h.",
         "",
-        "\tcase ::std::wine_errc::success:",
+        "\tcase static_cast<::std::uint_least32_t>(::std::wine_errc::success):",
         "\t\treturn ::std::errc{};",
     ]
     for name, msg, *rest in ERRORS:
@@ -357,7 +357,7 @@ def emit_wine_errc_map() -> str:
             lines.append(f"#if {rest[0]}")
         else:
             lines.append(f"#ifdef {name}")
-        lines.append(f"\tcase ::std::wine_errc::{wine_name}:")
+        lines.append(f"\tcase static_cast<::std::uint_least32_t>(::std::wine_errc::{wine_name}):")
         if passthrough is None:
             lines.append(f"\t\treturn ::std::errc::{wine_name};")
         else:
@@ -365,7 +365,7 @@ def emit_wine_errc_map() -> str:
         lines.append("#endif")
     # Vendored errno absent from the POSIX ERRORS table above.
     lines.append("#ifdef ESTALE")
-    lines.append("\tcase ::std::wine_errc::stale_file_handle:")
+    lines.append("\tcase static_cast<::std::uint_least32_t>(::std::wine_errc::stale_file_handle):")
     lines.append("\t\treturn static_cast<::std::errc>(ESTALE);")
     lines.append("#endif")
     lines.append("\tdefault:")

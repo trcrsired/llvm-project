@@ -134,9 +134,6 @@ inline void __report_win32_message_text(
                      reinterpret_cast<char unsigned *>(__dest) - buffer)};
       break;
     }
-    [[fallthrough]];
-  }
-  default: {
     scatter = {__from_first,
                static_cast<::std::size_t>(
                    reinterpret_cast<char unsigned *>(__from_last) -
