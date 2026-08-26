@@ -1537,7 +1537,7 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
     } else {
       // Propagate the error through the enclosing throws function: store the
       // payload into a shaped temp with discriminant true and return.
-      if (curFnInfo && curFnInfo->hasThrowsReturn() && fnRetAlloca) {
+      if (curFnInfo && curFnInfo->hasThrowsReturn()) {
         RunCleanupsScope propagateScope(*this);
         Address payloadPtr = memberAddr(0);
         mlir::Value payload = builder.createLoad(loc, payloadPtr);
@@ -1578,6 +1578,18 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
         v = builder.createLoad(loc, payloadOut);
       else
         v = builder.getBool(false, loc);
+      // For void herbception functions, the success RValue is discarded by
+      // the caller (expression statement). Emit a cir.return directly so the
+      // block has a terminator instead of falling through to an empty block
+      // that gets erased (which would leave the function without a return).
+      if (isa<cir::VoidType>(retCIRTy2) && curFnInfo &&
+          curFnInfo->hasThrowsReturn()) {
+        mlir::Value wrapped = wrapHerbceptionReturnValue(loc, v,
+                                                          /*disc=*/false);
+        cir::ReturnOp::create(builder, loc, wrapped);
+        builder.createBlock(builder.getBlock()->getParent());
+        return getUndefRValue(retTy);
+      }
       return RValue::get(v);
     }
     case cir::TEK_Aggregate: {
