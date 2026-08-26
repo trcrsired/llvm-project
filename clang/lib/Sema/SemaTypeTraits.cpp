@@ -2884,7 +2884,6 @@ static void DiagnoseNonAbstractReason(Sema &SemaRef, SourceLocation Loc,
 }
 
 void Sema::DiagnoseTypeTraitDetails(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
   if (E->containsErrors())
     return;
 
