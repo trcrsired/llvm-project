@@ -1398,7 +1398,7 @@ static void CollectARMPACBTIOptions(const ToolChain &TC, const ArgList &Args,
                                        options::OPT_mbranch_protection_EQ)
                      : Args.getLastArg(options::OPT_mbranch_protection_EQ);
   if (!A) {
-    if (Triple.isOSOpenBSD() && isAArch64) {
+    if ((Triple.isOSOpenBSD() || Triple.isAndroid()) && isAArch64) {
       CmdArgs.push_back("-msign-return-address=non-leaf");
       CmdArgs.push_back("-msign-return-address-key=a_key");
       CmdArgs.push_back("-mbranch-target-enforce");
@@ -1420,7 +1420,8 @@ static void CollectARMPACBTIOptions(const ToolChain &TC, const ArgList &Args,
       D.Diag(diag::err_drv_unsupported_option_argument)
           << A->getSpelling() << Scope;
     Key = "a_key";
-    IndirectBranches = Triple.isOSOpenBSD() && isAArch64;
+    IndirectBranches =
+        (Triple.isOSOpenBSD() || Triple.isAndroid()) && isAArch64;
     BranchProtectionPAuthLR = false;
     GuardedControlStack = false;
   } else {
@@ -8694,7 +8695,8 @@ ObjCRuntime Clang::AddObjCRuntimeArgs(const ArgList &args,
     if ((runtime.getKind() == ObjCRuntime::GNUstep) &&
         (runtime.getVersion() >= VersionTuple(2, 0)))
       if (!getToolChain().getTriple().isOSBinFormatELF() &&
-          !getToolChain().getTriple().isOSBinFormatCOFF()) {
+          !getToolChain().getTriple().isOSBinFormatCOFF() &&
+          !getToolChain().getTriple().isOSBinFormatWasm()) {
         getToolChain().getDriver().Diag(
             diag::err_drv_gnustep_objc_runtime_incompatible_binary)
           << runtime.getVersion().getMajor();
