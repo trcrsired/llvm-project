@@ -9872,18 +9872,17 @@ SDValue AArch64TargetLowering::LowerCallResult(
     // Herbception (throws): the discriminant is the last return value and is
     // carried in NZCV.C, read right after the call.
     if (IsThrows && i == RVLocs.size() - 1) {
-      SDValue NZCV = DAG.getCopyFromReg(Chain, DL, AArch64::NZCV, FlagsVT,
-                                        InGlue);
-      Chain = NZCV.getValue(1);
-      InGlue = NZCV.getValue(2);
-      // CSINC 0,0, inverse(HS): result is 1 if C==1, else 0.
-      SDValue Val = DAG.getNode(AArch64ISD::CSINC, DL, MVT::i32,
-                                DAG.getConstant(0, DL, MVT::i32),
-                                DAG.getConstant(0, DL, MVT::i32),
-                                getCondCode(DAG,
-                                            getInvertedCondCode(AArch64CC::HS)),
-                                NZCV.getValue(0));
-      Val = DAG.getZExtOrTrunc(Val, DL, VA.getValVT());
+      // HERB_READ_CF: chained+glued node that reads NZCV.C into a GPR.
+      // The peephole can fold HERB_READ_CF + CBZ/CBNZ into B.cc/B.cs.
+      SmallVector<SDValue, 2> Ops;
+      Ops.push_back(Chain);
+      if (InGlue.getNode())
+        Ops.push_back(InGlue);
+      SDValue Val =
+          DAG.getNode(AArch64ISD::HERB_READ_CF, DL,
+                      DAG.getVTList(VA.getValVT(), MVT::Other, MVT::Glue), Ops);
+      Chain = Val.getValue(1);
+      InGlue = Val.getValue(2);
       InVals.push_back(Val);
       continue;
     }

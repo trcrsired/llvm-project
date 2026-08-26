@@ -37,7 +37,7 @@ define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-NEXT:    str x30, [sp, #-16]!
 ; CHECK-NEXT:    bl ret_error
 ; CHECK-NEXT:    cset w8, hs
-; CHECK-NEXT:    cmp w8, #0
+; CHECK-NEXT:    tst w8, #0x1
 ; CHECK-NEXT:    mov w8, #100
 ; CHECK-NEXT:    csel x0, x8, x0, ne
 ; CHECK-NEXT:    ldr x30, [sp], #16
