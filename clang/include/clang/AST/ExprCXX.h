@@ -4568,7 +4568,9 @@ public:
                   SourceLocation Keyword, SourceLocation RParen)
       : Expr(CXXNoexceptExprClass, Ty, VK_PRValue, OK_Ordinary),
         Operand(Operand), Range(Keyword, RParen) {
-    CXXNoexceptExprBits.Value = Val == CT_Cannot;
+    // Herbception `throws` implies noexcept(true) for C++ exceptions:
+    // CT_Deterministic means the function cannot throw C++ exceptions.
+    CXXNoexceptExprBits.Value = Val != CT_Can;
     setDependence(computeDependence(this, Val));
   }
 
