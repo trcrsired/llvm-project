@@ -436,24 +436,40 @@ Type traits
 .. code-block:: cpp
 
    // T can be thrown via `throw throws`: a usable error_domain<T> exists.
-   static_assert(__is_herbception_throwsable(std::my_errc));
+   static_assert(__is_herbceptions_throwsable(std::my_errc));
 
    // Function type is declared `fails{E}` (not plain `throws`).
    static_assert(__is_invoke_herbceptions_fails(decltype(f)));
 
    // { value_type, error_type } of an invoke-fails function type.
-   using R = __invoke_herbception_fails_result<decltype(f)>;
+   using R = __invoke_herbceptions_fails_result<decltype(f)>;
 
 Additional traits mirror the classic ``traits`` family along the herbception
-channel: ``__is_herbception_throws_constructible``,
-``__is_herbception_throws_assignable``,
-``__is_herbception_throws_convertible``,
-``__has_herbception_throws_constructor``, ``__has_herbception_throws_copy``,
-``__has_herbception_throws_assign`` and
-``__has_herbception_throws_move_assign``. The type trait
-``__invoke_herbception_fails_t`` yields the raw ``{
+channel: ``__is_herbceptions_throws_constructible``,
+``__is_herbceptions_throws_assignable``,
+``__is_herbceptions_throws_convertible``,
+``__has_herbceptions_throws_constructor``, ``__has_herbceptions_throws_copy``,
+``__has_herbceptions_throws_assign`` and
+``__has_herbceptions_throws_move_assign``. The type trait
+``__invoke_herbceptions_fails_t`` yields the raw ``{
   T, i1}``-shaped result
 type of a ``fails`` function type.
+
+Convenience specializations of ``__is_herbceptions_throws_constructible`` mirror
+the standard ``is_nothrow_copy_constructible`` / ``is_nothrow_move_constructible``
+family::
+
+   // Copy/move construction that can propagate a herbception.
+   static_assert(std::is_herbceptions_throws_copy_constructible_v<T>);
+   static_assert(std::is_herbceptions_throws_move_constructible_v<T>);
+
+Invocation traits test whether a callable can propagate a herbception error
+through the ``throws`` channel when invoked::
+
+   // F is invocable with Args... and the call can throw.
+   static_assert(std::is_herbceptions_throws_invocable_v<F, Args...>);
+   // Same, and the result is convertible to R.
+   static_assert(std::is_herbceptions_throws_invocable_r_v<R, F, Args...>);
 
 Runtime support
 ===============

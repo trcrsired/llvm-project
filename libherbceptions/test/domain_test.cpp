@@ -109,11 +109,62 @@ int main() {
   CHECK(posix->do_equivalent(2, posix, 2));
 
   // Herbception type traits (available under -fherbceptions).
-  static_assert(::std::is_herbception_throwsable_v<::std::errc>);
-  static_assert(!::std::is_herbception_throwsable_v<int>);
+  static_assert(::std::is_herbceptions_throwsable_v<::std::errc>);
+  static_assert(!::std::is_herbceptions_throwsable_v<int>);
   static_assert(
       ::std::is_invoke_herbceptions_fails_v<int (*)(int) fails{::std::errc}>);
   static_assert(!::std::is_invoke_herbceptions_fails_v<int (*)(int)>);
+
+  // is_herbceptions_throws_constructible
+  // A class with a throws copy constructor.
+  struct throws_copy {
+    throws_copy(throws_copy const &) throws;
+  };
+  static_assert(
+      ::std::is_herbceptions_throws_constructible_v<throws_copy,
+                                                    throws_copy const &>);
+  static_assert(
+      ::std::is_herbceptions_throws_copy_constructible_v<throws_copy>);
+  // A class without a throws copy constructor.
+  struct noexcept_copy {
+    noexcept_copy(noexcept_copy const &) noexcept;
+  };
+  static_assert(
+      !::std::is_herbceptions_throws_copy_constructible_v<noexcept_copy>);
+  // Move constructible
+  struct throws_move {
+    throws_move(throws_move &&) throws;
+  };
+  static_assert(
+      ::std::is_herbceptions_throws_move_constructible_v<throws_move>);
+  struct noexcept_move {
+    noexcept_move(noexcept_move &&) noexcept;
+  };
+  static_assert(
+      !::std::is_herbceptions_throws_move_constructible_v<noexcept_move>);
+
+  // is_herbceptions_throws_invocable
+  // A throws function is invocable and can throw.
+  auto throws_func = []() throws {};
+  static_assert(
+      ::std::is_herbceptions_throws_invocable_v<decltype(throws_func)>);
+  // A noexcept function is invocable but cannot throw.
+  auto noexcept_func = []() noexcept {};
+  static_assert(
+      !::std::is_herbceptions_throws_invocable_v<decltype(noexcept_func)>);
+  // int is not invocable.
+  static_assert(!::std::is_herbceptions_throws_invocable_v<int>);
+  // is_herbceptions_throws_invocable_r
+  auto throws_int_func = []() throws -> int { return 0; };
+  static_assert(
+      ::std::is_herbceptions_throws_invocable_r_v<int,
+                                                  decltype(throws_int_func)>);
+  static_assert(
+      ::std::is_herbceptions_throws_invocable_r_v<void,
+                                                  decltype(throws_int_func)>);
+  static_assert(
+      !::std::is_herbceptions_throws_invocable_r_v<int, decltype(throws_func)>);
+  static_assert(!::std::is_herbceptions_throws_invocable_r_v<int, int>);
 
 #if (defined(_WIN32) || defined(__CYGWIN__)) && 0
   auto const *win32 = ::std::error_domains::__cxa_error_domain_win32();

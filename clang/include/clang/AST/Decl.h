@@ -2480,6 +2480,19 @@ public:
     return getDefaultedFunctionKind().asComparison();
   }
 
+  /// Herbception: the compiler-fabricated `std::error` conversion expression
+  /// that converts a legacy C++ exception escaping this `throws` function into
+  /// the herbception channel (the whole-function equivalent of the conversion
+  /// attached to a `catch throws(std::error)` handler). Null when the
+  /// conversion is unavailable (e.g. the cxa_exception_code header is missing)
+  /// or this function is not a bare `throws` function.
+  Expr *getHerbceptionLegacyErrorValue() const {
+    return HerbceptionLegacyErrorValue;
+  }
+  void setHerbceptionLegacyErrorValue(Expr *E) {
+    HerbceptionLegacyErrorValue = E;
+  }
+
   /// Whether this function is variadic.
   bool isVariadic() const;
 

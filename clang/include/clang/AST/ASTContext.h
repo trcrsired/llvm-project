@@ -513,9 +513,9 @@ class ASTContext : public RefCountedBase<ASTContext> {
       CatchFailsTypes;
 
   /// Cache of the synthetic `{value_type, error_type}` records produced by the
-  /// __invoke_herbception_fails_result builtin, keyed by (V, E).
+  /// __invoke_herbceptions_fails_result builtin, keyed by (V, E).
   mutable llvm::DenseMap<std::pair<CanQualType, CanQualType>, RecordDecl *>
-      InvokeHerbceptionFailsResultTypes;
+      InvokeHerbceptionsFailsResultTypes;
 
   /// Type for the Block descriptor for Blocks CodeGen.
   ///
@@ -1720,8 +1720,8 @@ public:
   /// Return the synthetic result struct for invoking a `fails{E}` function:
   /// `struct { using value_type = V; using error_type = E; }` (or void for
   /// error_type when the callable does not use fails). Backs the
-  /// __invoke_herbception_fails_result builtin.
-  QualType getInvokeHerbceptionFailsResultType(QualType V, QualType E) const;
+  /// __invoke_herbceptions_fails_result builtin.
+  QualType getInvokeHerbceptionsFailsResultType(QualType V, QualType E) const;
 
   /// Return a read_only pipe type for the specified type.
   QualType getReadPipeType(QualType T) const;

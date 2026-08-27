@@ -377,9 +377,9 @@ def RemoveCVRef : TransformTypeTrait {
 // invoke_result_t extracts a callable's return type. The result is E if the
 // argument is a function type (or pointer/reference to one) with a fails{E}
 // spec, and void otherwise.
-def InvokeHerbceptionFailsType : TransformTypeTrait {
-  let Spelling = "__invoke_herbception_fails_t";
-  let StdName = "invoke_herbception_fails_t";
+def InvokeHerbceptionsFailsType : TransformTypeTrait {
+  let Spelling = "__invoke_herbceptions_fails_t";
+  let StdName = "invoke_herbceptions_fails_t";
   let KeyFlags = [KEYHERB];
 }
 
@@ -611,50 +611,64 @@ def IsNothrowConvertible : BinaryTrait {
 // there are no `fails{E}` variants because fails{E} is a C-style feature
 // restricted to free functions.
 //
-//   __is_herbception_throws_*  tests whether the operation can propagate an
+//   __is_herbceptions_throws_*  tests whether the operation can propagate an
 //                              error via the `throws` channel (std::error).
-//   __is_herbception_throwsable<T>  tests whether T can be thrown (i.e. has a
+//   __is_herbceptions_throwsable<T>  tests whether T can be thrown (i.e. has a
 //                              usable std::error_domain<T> specialization).
 //===----------------------------------------------------------------------===//
 
-def IsHerbceptionThrowsConstructible : VariadicTrait {
-  let Spelling = "__is_herbception_throws_constructible";
+def IsHerbceptionsThrowsConstructible : VariadicTrait {
+  let Spelling = "__is_herbceptions_throws_constructible";
   let KeyFlags = [KEYHERB];
 }
-def IsHerbceptionThrowsAssignable : BinaryTrait {
-  let Spelling = "__is_herbception_throws_assignable";
+def IsHerbceptionsThrowsAssignable : BinaryTrait {
+  let Spelling = "__is_herbceptions_throws_assignable";
   let KeyFlags = [KEYHERB];
 }
-def IsHerbceptionThrowsConvertible : BinaryTrait {
-  let Spelling = "__is_herbception_throws_convertible";
+def IsHerbceptionsThrowsConvertible : BinaryTrait {
+  let Spelling = "__is_herbceptions_throws_convertible";
   let KeyFlags = [KEYHERB];
 }
-def HasHerbceptionThrowsConstructor : UnaryTrait {
-  let Spelling = "__has_herbception_throws_constructor";
+def HasHerbceptionsThrowsConstructor : UnaryTrait {
+  let Spelling = "__has_herbceptions_throws_constructor";
   let KeyFlags = [KEYHERB];
 }
-def HasHerbceptionThrowsCopy : UnaryTrait {
-  let Spelling = "__has_herbception_throws_copy";
+def HasHerbceptionsThrowsCopy : UnaryTrait {
+  let Spelling = "__has_herbceptions_throws_copy";
   let KeyFlags = [KEYHERB];
 }
-def HasHerbceptionThrowsAssign : UnaryTrait {
-  let Spelling = "__has_herbception_throws_assign";
+def HasHerbceptionsThrowsAssign : UnaryTrait {
+  let Spelling = "__has_herbceptions_throws_assign";
   let KeyFlags = [KEYHERB];
 }
-def HasHerbceptionThrowsMoveAssign : UnaryTrait {
-  let Spelling = "__has_herbception_throws_move_assign";
+def HasHerbceptionsThrowsMoveAssign : UnaryTrait {
+  let Spelling = "__has_herbceptions_throws_move_assign";
   let KeyFlags = [KEYHERB];
 }
-def IsHerbceptionThrowsable : UnaryTrait {
-  let Spelling = "__is_herbception_throwsable";
+def IsHerbceptionsThrowsable : UnaryTrait {
+  let Spelling = "__is_herbceptions_throwsable";
   let KeyFlags = [KEYHERB];
 }
 
 // Whether F is a function type (or function pointer/reference) declared with a
 // `fails{E}` herbception spec, named to mirror invoke_result_t/invoke_return_t.
-// To obtain the error type E, use __invoke_herbception_fails_t(F).
-def IsInvokeHerbceptionFails : UnaryTrait {
+// To obtain the error type E, use __invoke_herbceptions_fails_t(F).
+def IsInvokeHerbceptionsFails : UnaryTrait {
   let Spelling = "__is_invoke_herbceptions_fails";
+  let KeyFlags = [KEYHERB];
+}
+
+// Whether F is invocable with Args... and the resulting call can propagate a
+// herbception error through the `throws` channel. Mirrors is_invocable.
+def IsHerbceptionsThrowsInvocable : VariadicTrait {
+  let Spelling = "__is_herbceptions_throws_invocable";
+  let KeyFlags = [KEYHERB];
+}
+// Whether F is invocable with Args..., the result is convertible to R, and the
+// resulting call can propagate a herbception error through the `throws` channel.
+// Mirrors is_invocable_r.
+def IsHerbceptionsThrowsInvocableR : VariadicTrait {
+  let Spelling = "__is_herbceptions_throws_invocable_r";
   let KeyFlags = [KEYHERB];
 }
 

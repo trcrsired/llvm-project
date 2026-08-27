@@ -199,19 +199,19 @@ Type traits
 Defined in ``clang/include/clang/Basic/BuiltinTraits.td`` and implemented in
 ``clang/lib/Sema/SemaTypeTraits.cpp``:
 
-* ``__is_herbception_throwsable(T)`` -- ``T`` has a usable
+* ``__is_herbceptions_throwsable(T)`` -- ``T`` has a usable
   ``error_domain<T>``.
 * ``__is_invoke_herbceptions_fails(F)`` -- ``F`` is a ``fails{E}`` function
   type.
-* ``__invoke_herbception_fails_result<F>`` (builtin template,
+* ``__invoke_herbceptions_fails_result<F>`` (builtin template,
   ``BuiltinTemplates.td``; cached result type via
-  ``ASTContext::getInvokeHerbceptionFailsResultType``) -- the
+  ``ASTContext::getInvokeHerbceptionsFailsResultType``) -- the
   ``{ value_type, error_type }`` pair.
-* ``__invoke_herbception_fails_t<F>`` -- the raw ``{T, i1}``-shaped type
+* ``__invoke_herbceptions_fails_t<F>`` -- the raw ``{T, i1}``-shaped type
   trait.
 * Herbception analogues of the classic traits:
-  ``__is_herbception_throws_constructible/_assignable/_convertible`` and
-  ``__has_herbception_throws_constructor/_copy/_assign/_move_assign``.
+  ``__is_herbceptions_throws_constructible/_assignable/_convertible`` and
+  ``__has_herbceptions_throws_constructor/_copy/_assign/_move_assign``.
 
 ``libherbceptions/include/herbceptions/error`` mirrors these as
 ``std``-style trait aliases gated on ``__HERBCEPTIONS__``.
