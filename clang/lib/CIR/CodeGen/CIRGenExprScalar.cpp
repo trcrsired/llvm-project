@@ -946,6 +946,10 @@ public:
     return builder.getBool(e->getValue(), cgf.getLoc(e->getExprLoc()));
   }
 
+  mlir::Value VisitCXXThrowsExpr(CXXThrowsExpr *e) {
+    return builder.getBool(e->getValue(), cgf.getLoc(e->getExprLoc()));
+  }
+
   // Herbception `try(expr)`: evaluate the throws/fails call and auto-propagate
   // its error on failure. Returns the success value.
   mlir::Value VisitCXXTryExpr(const CXXTryExpr *E) {
