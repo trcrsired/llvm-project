@@ -1,5 +1,5 @@
 #pragma once
-#include "herbception-a.h"
+#include "herbceptions-a.h"
 
 // Cross-module reference: defined in herbc_b, calls a declaration from herbc_a.
 inline int wrap_fail(int x) fails{int} {

@@ -1,6 +1,6 @@
 // RUN: rm -rf %t && mkdir -p %t
-// RUN: %clang_cc1 -std=c++26 -fherbceptions -fmodules -fmodule-map-file=%S/Inputs/herbception.modulemap -fmodules-cache-path=%t -I %S/Inputs -verify %s
-// RUN: %clang_cc1 -std=c++26 -fherbceptions -fmodules -fmodule-map-file=%S/Inputs/herbception.modulemap -fmodules-cache-path=%t -I %S/Inputs -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s
+// RUN: %clang_cc1 -std=c++26 -fherbceptions -fmodules -fmodule-map-file=%S/Inputs/herbceptions.modulemap -fmodules-cache-path=%t -I %S/Inputs -verify %s
+// RUN: %clang_cc1 -std=c++26 -fherbceptions -fmodules -fmodule-map-file=%S/Inputs/herbceptions.modulemap -fmodules-cache-path=%t -I %S/Inputs -emit-llvm -disable-llvm-passes -o - %s | FileCheck %s
 //
 // Herbception declarations and inline definitions imported from C++ modules:
 // exercises deserialization of throws/fails function definitions (including
@@ -9,7 +9,7 @@
 
 // expected-no-diagnostics
 
-#include "herbception-b.h"
+#include "herbceptions-b.h"
 
 int use_throws_io() {
   try {
