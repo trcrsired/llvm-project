@@ -175,9 +175,6 @@ constinit ::std::error_domain_singleton win32_error_domain{
               ++scatterlen;
               break;
             }
-            default: {
-              return;
-            }
             }
             cookfun(cookie, scatters, scatterlen);
           } else {
@@ -209,9 +206,6 @@ constinit ::std::error_domain_singleton win32_error_domain{
               ::std::error_domains::__herbceptions_detail::
                   __report_win32_message_text(win32err, encoding, cookie,
                                               cookfun);
-              return;
-            }
-            default: {
               return;
             }
             }
