@@ -8731,6 +8731,9 @@ public:
   ExprResult BuildCXXNoexceptExpr(SourceLocation KeyLoc, Expr *Operand,
                                   SourceLocation RParen);
 
+  ExprResult ActOnThrowsExpr(SourceLocation KeyLoc, SourceLocation LParen,
+                             Expr *Operand, SourceLocation RParen);
+
   ExprResult ActOnStartCXXMemberReference(Scope *S, Expr *Base,
                                           SourceLocation OpLoc,
                                           tok::TokenKind OpKind,

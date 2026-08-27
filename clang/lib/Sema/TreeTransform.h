@@ -3799,6 +3799,11 @@ public:
     return SemaRef.BuildCXXNoexceptExpr(Range.getBegin(), Arg, Range.getEnd());
   }
 
+  ExprResult RebuildCXXThrowsExpr(SourceRange Range, Expr *Arg) {
+    return SemaRef.ActOnThrowsExpr(Range.getBegin(), SourceLocation(), Arg,
+                                   Range.getEnd());
+  }
+
   UnsignedOrNone
   ComputeSizeOfPackExprWithoutSubstitution(ArrayRef<TemplateArgument> PackArgs);
 
@@ -16912,6 +16917,21 @@ TreeTransform<Derived>::TransformCXXNoexceptExpr(CXXNoexceptExpr *E) {
     return E;
 
   return getDerived().RebuildCXXNoexceptExpr(E->getSourceRange(),SubExpr.get());
+}
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXThrowsExpr(CXXThrowsExpr *E) {
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::Unevaluated);
+  ExprResult SubExpr = getDerived().TransformExpr(E->getOperand());
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getOperand())
+    return E;
+
+  return getDerived().RebuildCXXThrowsExpr(E->getSourceRange(), SubExpr.get());
 }
 
 template<typename Derived>

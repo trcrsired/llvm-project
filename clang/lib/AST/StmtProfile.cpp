@@ -2422,6 +2422,10 @@ void StmtProfiler::VisitCXXNoexceptExpr(const CXXNoexceptExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitCXXThrowsExpr(const CXXThrowsExpr *S) {
+  VisitExpr(S);
+}
+
 void StmtProfiler::VisitPackExpansionExpr(const PackExpansionExpr *S) {
   VisitExpr(S);
 }

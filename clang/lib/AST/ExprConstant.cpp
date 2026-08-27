@@ -16427,6 +16427,7 @@ public:
   bool VisitUnaryImag(const UnaryOperator *E);
 
   bool VisitCXXNoexceptExpr(const CXXNoexceptExpr *E);
+  bool VisitCXXThrowsExpr(const CXXThrowsExpr *E);
   bool VisitSizeOfPackExpr(const SizeOfPackExpr *E);
   bool VisitSourceLocExpr(const SourceLocExpr *E);
   bool VisitConceptSpecializationExpr(const ConceptSpecializationExpr *E);
@@ -20548,6 +20549,10 @@ bool IntExprEvaluator::VisitSizeOfPackExpr(const SizeOfPackExpr *E) {
 }
 
 bool IntExprEvaluator::VisitCXXNoexceptExpr(const CXXNoexceptExpr *E) {
+  return Success(E->getValue(), E);
+}
+
+bool IntExprEvaluator::VisitCXXThrowsExpr(const CXXThrowsExpr *E) {
   return Success(E->getValue(), E);
 }
 

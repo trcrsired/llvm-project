@@ -1536,6 +1536,27 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
     break;
   }
 
+  case tok::kw_throws: { // herbception: 'throws' '(' expression ')'
+    if (NotPrimaryExpression)
+      *NotPrimaryExpression = true;
+    SourceLocation KeyLoc = ConsumeToken();
+    BalancedDelimiterTracker T(*this, tok::l_paren);
+
+    if (T.expectAndConsume(diag::err_expected_lparen_after, "throws"))
+      return ExprError();
+    EnterExpressionEvaluationContext Unevaluated(
+        Actions, Sema::ExpressionEvaluationContext::Unevaluated);
+    Res = ParseExpression();
+
+    T.consumeClose();
+
+    if (!Res.isInvalid())
+      Res = Actions.ActOnThrowsExpr(KeyLoc, T.getOpenLocation(), Res.get(),
+                                    T.getCloseLocation());
+    AllowSuffix = false;
+    break;
+  }
+
 #define TYPE_TRAIT(N,Spelling,K) \
   case tok::kw_##Spelling:
 #include "clang/Basic/TokenKinds.def"
