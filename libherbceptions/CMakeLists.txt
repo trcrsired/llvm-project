@@ -18,18 +18,19 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(libherbceptions CXX)
 endif()
 
-set(HERBCEPTIONS_VERSION 1.0.0)
-string(REGEX REPLACE "^([0-9]+)\\..*" "\\1" HERBCEPTIONS_VERSION_MAJOR
-  ${HERBCEPTIONS_VERSION})
+set(LIBHERBCEPTIONS_VERSION 1.0.0)
+string(REGEX REPLACE "^([0-9]+)\\..*" "\\1" LIBHERBCEPTIONS_VERSION_MAJOR
+  ${LIBHERBCEPTIONS_VERSION})
 
-option(HERBCEPTIONS_BUILD_SHARED "Build the shared library" ON)
-option(HERBCEPTIONS_BUILD_STATIC "Build the static library" ON)
-option(HERBCEPTIONS_FREESTANDING "Header-only freestanding build" OFF)
-option(HERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
-option(HERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
-option(HERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
+option(LIBHERBCEPTIONS_BUILD_SHARED "Build the shared library" ON)
+option(LIBHERBCEPTIONS_BUILD_STATIC "Build the static library" ON)
+option(LIBHERBCEPTIONS_HEADERS_ONLY "Header-only build" OFF)
+option(LIBHERBCEPTIONS_FREESTANDING "Build with -ffreestanding" OFF)
+option(LIBHERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
+option(LIBHERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
+option(LIBHERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
 
-set(HERBCEPTIONS_SOURCES
+set(LIBHERBCEPTIONS_SOURCES
   src/posix.cpp
   src/parse.cpp
   src/cmath_errc.cpp
@@ -41,38 +42,32 @@ set(HERBCEPTIONS_SOURCES
   src/wine.cpp
 )
 
-# Generated configuration header, picked up by <herbceptions/error> through
-# __has_include(<__libherbceptions_config_site.h>) (mirrors libc++).
-set(HERBCEPTIONS_CONFIG_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/include")
-configure_file(src/config.h.in
-  "${HERBCEPTIONS_CONFIG_INCLUDE}/__libherbceptions_config_site.h"
-  @ONLY
-)
-
 add_library(herbceptions_headers INTERFACE)
 target_include_directories(herbceptions_headers INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<BUILD_INTERFACE:${HERBCEPTIONS_CONFIG_INCLUDE}>
   $<INSTALL_INTERFACE:include>
 )
 
-# Freestanding build: header-only, no runtime sources.
-if(HERBCEPTIONS_FREESTANDING)
+if(LIBHERBCEPTIONS_FREESTANDING)
+  target_compile_options(herbceptions_headers INTERFACE -ffreestanding)
+endif()
+
+# Headers-only build: no runtime sources.
+if(LIBHERBCEPTIONS_HEADERS_ONLY)
   add_library(herbceptions ALIAS herbceptions_headers)
   add_library(herbceptions_static ALIAS herbceptions_headers)
-  target_compile_definitions(herbceptions_headers INTERFACE
-    __HERBCEPTIONS_FREESTANDING__=1)
   return()
 endif()
 
-add_library(herbceptions SHARED ${HERBCEPTIONS_SOURCES})
-add_library(herbceptions_static STATIC ${HERBCEPTIONS_SOURCES})
+add_library(herbceptions SHARED ${LIBHERBCEPTIONS_SOURCES})
+add_library(herbceptions_static STATIC ${LIBHERBCEPTIONS_SOURCES})
 foreach(target herbceptions herbceptions_static)
   target_link_libraries(${target} PUBLIC herbceptions_headers)
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
-  # The public header uses concepts; the runtimes build defaults to an older
-  # standard.
+  if(LIBHERBCEPTIONS_FREESTANDING)
+    target_compile_options(${target} PRIVATE -ffreestanding)
+  endif()
   set_target_properties(${target} PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
@@ -80,33 +75,29 @@ foreach(target herbceptions herbceptions_static)
   )
 endforeach()
 set_target_properties(herbceptions PROPERTIES
-  VERSION ${HERBCEPTIONS_VERSION}
-  SOVERSION ${HERBCEPTIONS_VERSION_MAJOR}
+  VERSION ${LIBHERBCEPTIONS_VERSION}
+  SOVERSION ${LIBHERBCEPTIONS_VERSION_MAJOR}
 )
 
-# Inside an LLVM runtimes build nothing is installed yet: consume the
-# freshly built libc++ headers and libraries straight out of the runtimes
-# tree instead of relying on -stdlib=libc++ finding them.
 if(TARGET cxx_shared OR TARGET cxx_static OR LLVM_RUNTIMES_BUILD)
-  set(HERBCEPTIONS_IN_RUNTIMES ON)
-  message(STATUS "HB runtime hook: LIST_DIR=${CMAKE_CURRENT_LIST_DIR} BIN=${CMAKE_BINARY_DIR}")
-  # libcxxabi's cxxabi.h must shadow libc++'s stub one.
+  set(LIBHERBCEPTIONS_IN_RUNTIMES ON)
+  message(STATUS "libherbceptions runtime hook: LIST_DIR=${CMAKE_CURRENT_LIST_DIR} BIN=${CMAKE_BINARY_DIR}")
   foreach(d "${CMAKE_CURRENT_SOURCE_DIR}/../libcxxabi/include"
             "${CMAKE_BINARY_DIR}/include/c++/v1")
     cmake_path(NORMAL_PATH d)
     if(EXISTS "${d}")
-      message(STATUS "HB inc: ${d}")
+      message(STATUS "libherbceptions inc: ${d}")
     else()
-      message(STATUS "HB missing: ${d}")
+      message(STATUS "libherbceptions missing: ${d}")
     endif()
-    if(EXISTS "${d}" AND NOT "${d}" IN_LIST HERBCEPTIONS_LIBCXX_INCLUDES)
-      list(APPEND HERBCEPTIONS_LIBCXX_INCLUDES "${d}")
+    if(EXISTS "${d}" AND NOT "${d}" IN_LIST LIBHERBCEPTIONS_LIBCXX_INCLUDES)
+      list(APPEND LIBHERBCEPTIONS_LIBCXX_INCLUDES "${d}")
     endif()
   endforeach()
   foreach(target herbceptions herbceptions_static)
-    if(HERBCEPTIONS_LIBCXX_INCLUDES)
+    if(LIBHERBCEPTIONS_LIBCXX_INCLUDES)
       target_compile_options(${target} PRIVATE -nostdinc++)
-      foreach(d IN LISTS HERBCEPTIONS_LIBCXX_INCLUDES)
+      foreach(d IN LISTS LIBHERBCEPTIONS_LIBCXX_INCLUDES)
         target_compile_options(${target} PRIVATE "-isystem${d}")
       endforeach()
     endif()
@@ -119,8 +110,7 @@ if(TARGET cxx_shared OR TARGET cxx_static OR LLVM_RUNTIMES_BUILD)
     endif()
   endforeach()
 endif()
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND HERBCEPTIONS_BUILD_SHARED)
-  # The DLL's import library would collide with the static archive.
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND LIBHERBCEPTIONS_BUILD_SHARED)
   set_target_properties(herbceptions_static PROPERTIES
     OUTPUT_NAME herbceptions_static)
 else()
@@ -128,7 +118,6 @@ else()
     OUTPUT_NAME herbceptions)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  # The runtime reaches the process heap through ntdll directly.
   target_link_libraries(herbceptions PRIVATE ntdll)
   target_link_libraries(herbceptions_static PRIVATE ntdll)
 endif()
@@ -138,17 +127,13 @@ install(DIRECTORY include/
   FILES_MATCHING PATTERN "*.h"
   PATTERN "error"
 )
-install(FILES "${HERBCEPTIONS_CONFIG_INCLUDE}/__libherbceptions_config_site.h"
-  DESTINATION include
-)
 install(TARGETS herbceptions herbceptions_static
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
 )
 
-# Tests (opt-in).
-if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
+if(LIBHERBCEPTIONS_BUILD_TESTS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
   add_executable(herbceptions_domain_test test/domain_test.cpp)
   target_link_libraries(herbceptions_domain_test PRIVATE herbceptions)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -158,17 +143,11 @@ if(HERBCEPTIONS_BUILD_TESTS AND NOT HERBCEPTIONS_FREESTANDING)
   add_test(NAME herbceptions_domain_test COMMAND herbceptions_domain_test)
 endif()
 
-# Fuzz targets (opt-in): LLVMFuzzerTestOneInput drivers. With
-# HERBCEPTIONS_FUZZ_ENGINE=ON they link against libFuzzer, whose runtime is
-# built against libc++; otherwise a standalone replay/mutation driver from
-# fuzz/fuzz_harness.h takes over.
-if(HERBCEPTIONS_BUILD_FUZZERS AND NOT HERBCEPTIONS_FREESTANDING)
-  # The runtime itself must be instrumented too, or libFuzzer's coverage
-  # guidance cannot see any of the code under test.
+if(LIBHERBCEPTIONS_BUILD_FUZZERS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
   foreach(target herbceptions herbceptions_static)
     target_compile_options(${target} PRIVATE -fsanitize=fuzzer-no-link)
   endforeach()
-  set(HERBCEPTIONS_LIBCXX_DIR
+  set(LIBHERBCEPTIONS_LIBCXX_DIR
     "$ENV{HOME}/toolchains/llvm/x86_64-linux-gnu/x86_64-linux-gnu/usr"
     CACHE PATH "libc++ installation used by the fuzzer runtime")
 
@@ -177,24 +156,21 @@ if(HERBCEPTIONS_BUILD_FUZZERS AND NOT HERBCEPTIONS_FREESTANDING)
     target_include_directories(${name} PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(${name} PRIVATE herbceptions)
-    if(HERBCEPTIONS_FUZZ_ENGINE)
+    if(LIBHERBCEPTIONS_FUZZ_ENGINE)
       target_compile_definitions(${name} PRIVATE
-        HERBCEPTIONS_HAVE_FUZZ_ENGINE=1)
-      # Only libc++ may be visible: mixing it with libstdc++ breaks.
+        LIBHERBCEPTIONS_HAVE_FUZZ_ENGINE=1)
       target_compile_options(${name} PRIVATE -fsanitize=fuzzer
         -nostdinc++
-        "-isystem${HERBCEPTIONS_LIBCXX_DIR}/include/c++/v1")
+        "-isystem${LIBHERBCEPTIONS_LIBCXX_DIR}/include/c++/v1")
       target_link_options(${name} PRIVATE -fsanitize=fuzzer
         -nostdlib++
-        "-L${HERBCEPTIONS_LIBCXX_DIR}/lib" -lc++ -lc++abi)
+        "-L${LIBHERBCEPTIONS_LIBCXX_DIR}/lib" -lc++ -lc++abi)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
       target_link_libraries(${name} PRIVATE ntdll)
     endif()
   endfunction()
 
-  # Platform selection: trust CMAKE_SYSTEM_NAME and the compiler frontend
-  # variant; WIN32/MSVC lie for cross builds.
   add_herbceptions_fuzzer(error_codes_fuzzer)
   if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
