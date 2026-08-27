@@ -8190,6 +8190,28 @@ ExprResult Sema::ActOnNoexceptExpr(SourceLocation KeyLoc, SourceLocation,
   return BuildCXXNoexceptExpr(KeyLoc, Operand, RParen);
 }
 
+ExprResult Sema::ActOnThrowsExpr(SourceLocation KeyLoc, SourceLocation,
+                                 Expr *Operand, SourceLocation RParen) {
+  if (!getLangOpts().HerbExceptions)
+    return ExprError(Diag(KeyLoc, diag::err_herbception_disabled));
+
+  ExprResult R = CheckPlaceholderExpr(Operand);
+  if (R.isInvalid())
+    return R;
+
+  R = CheckUnevaluatedOperand(R.get());
+  if (R.isInvalid())
+    return ExprError();
+
+  Operand = R.get();
+
+  // throws(expr) tests the implicit `throws` channel (null E).
+  bool CanHerbceptionThrow = canHerbceptionThrow(Operand, QualType());
+  return new (Context)
+      CXXThrowsExpr(Context.BoolTy, Operand, CanHerbceptionThrow, KeyLoc,
+                    RParen);
+}
+
 static void MaybeDecrementCount(
     Expr *E, llvm::DenseMap<const VarDecl *, int> &RefsMinusAssignments) {
   DeclRefExpr *LHS = nullptr;

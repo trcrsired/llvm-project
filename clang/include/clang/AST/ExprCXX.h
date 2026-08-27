@@ -4596,6 +4596,47 @@ public:
   }
 };
 
+/// Represents a herbception throws expression.
+///
+/// The throws expression tests whether a given expression might propagate a
+/// herbception error. Its result is a boolean constant.
+class CXXThrowsExpr : public Expr {
+  friend class ASTStmtReader;
+
+  Stmt *Operand;
+  SourceRange Range;
+
+public:
+  CXXThrowsExpr(QualType Ty, Expr *Operand, bool Val,
+                SourceLocation Keyword, SourceLocation RParen)
+      : Expr(CXXThrowsExprClass, Ty, VK_PRValue, OK_Ordinary),
+        Operand(Operand), Range(Keyword, RParen) {
+    CXXThrowsExprBits.Value = Val;
+    setDependence(computeDependence(this));
+  }
+
+  CXXThrowsExpr(EmptyShell Empty) : Expr(CXXThrowsExprClass, Empty) {}
+
+  Expr *getOperand() const { return static_cast<Expr *>(Operand); }
+
+  SourceLocation getBeginLoc() const { return Range.getBegin(); }
+  SourceLocation getEndLoc() const { return Range.getEnd(); }
+  SourceRange getSourceRange() const { return Range; }
+
+  bool getValue() const { return CXXThrowsExprBits.Value; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXThrowsExprClass;
+  }
+
+  // Iterators
+  child_range children() { return child_range(&Operand, &Operand + 1); }
+
+  const_child_range children() const {
+    return const_child_range(&Operand, &Operand + 1);
+  }
+};
+
 /// Represents a C++11 pack expansion that produces a sequence of
 /// expressions.
 ///
