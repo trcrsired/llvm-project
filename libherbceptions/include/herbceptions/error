@@ -7,13 +7,6 @@ libc++, so this also works under -ffreestanding). The {domain, code} ABI slot
 and the do_to_errc signature use the standard std::errc type.
 */
 
-// Generated build configuration (see libherbceptions/config.h.in): defines
-// _LIBHERBCEPTIONS_FREESTANDING and the version macros. Optional by design -
-// a consumer providing its own configuration simply omits the file.
-#if __has_include(<__libherbceptions_config_site.h>)
-#include <__libherbceptions_config_site.h>
-#endif
-
 // Prevent macro pollution from Windows headers and from the <system_error>
 // include: save and undef common macros so they cannot break this header or
 // the types defined here. They are restored at the end of the header.
