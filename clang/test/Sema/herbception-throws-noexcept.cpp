@@ -33,3 +33,19 @@ struct S {
 auto l1 = []() noexcept(true) throws {};
 auto l2 = []() throws noexcept {};
 auto l3 = []() noexcept(false) throws {}; // expected-error {{'throws' and 'noexcept(false)' cannot be combined: a 'throws' function implies noexcept(true)}}
+
+// throws(expr) expression operator: detects whether an expression can propagate
+// a herbception error through the implicit `throws` channel.
+void throws_fn() throws;
+void fails_fn() fails{int};
+void plain_fn() noexcept;
+
+static_assert(throws(throws_fn()), "throws function should be detected");
+static_assert(!throws(fails_fn()), "fails{E} function should NOT be detected");
+static_assert(!throws(plain_fn()), "noexcept function should NOT be detected");
+
+// throws(expr) works in constant expressions.
+constexpr bool test_throws() {
+  return throws(throws_fn());
+}
+static_assert(test_throws(), "throws in constexpr");
