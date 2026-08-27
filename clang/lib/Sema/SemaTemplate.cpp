@@ -3513,8 +3513,8 @@ static QualType checkBuiltinTemplateIdType(
     return Ts.getPackAsArray()[N].getAsType();
   }
 
-  case BTK__invoke_herbception_fails_result: {
-    // __invoke_herbception_fails_result<F, Args...> yields a synthetic struct
+  case BTK__invoke_herbceptions_fails_result: {
+    // __invoke_herbceptions_fails_result<F, Args...> yields a synthetic struct
     // with `value_type` (F's return type) and `error_type` (the fails{E} error
     // type, or void when F is not a fails function).
     assert(Converted.size() >= 1);
@@ -3532,7 +3532,7 @@ static QualType checkBuiltinTemplateIdType(
       if (FPT->hasFailsSpec())
         ErrorTy = FPT->getExceptionType(0);
     }
-    return SemaRef.Context.getInvokeHerbceptionFailsResultType(ValueTy,
+    return SemaRef.Context.getInvokeHerbceptionsFailsResultType(ValueTy,
                                                                ErrorTy);
   }
 

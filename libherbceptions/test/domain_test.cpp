@@ -109,8 +109,8 @@ int main() {
   CHECK(posix->do_equivalent(2, posix, 2));
 
   // Herbception type traits (available under -fherbceptions).
-  static_assert(::std::is_herbception_throwsable_v<::std::errc>);
-  static_assert(!::std::is_herbception_throwsable_v<int>);
+  static_assert(::std::is_herbceptions_throwsable_v<::std::errc>);
+  static_assert(!::std::is_herbceptions_throwsable_v<int>);
   static_assert(
       ::std::is_invoke_herbceptions_fails_v<int (*)(int) fails{::std::errc}>);
   static_assert(!::std::is_invoke_herbceptions_fails_v<int (*)(int)>);

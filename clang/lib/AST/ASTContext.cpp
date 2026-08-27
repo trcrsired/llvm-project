@@ -8785,12 +8785,12 @@ QualType ASTContext::getCatchFailsType(QualType T, QualType E) const {
 }
 
 QualType
-ASTContext::getInvokeHerbceptionFailsResultType(QualType V, QualType E) const {
+ASTContext::getInvokeHerbceptionsFailsResultType(QualType V, QualType E) const {
   CanQualType CV = getCanonicalType(V);
   CanQualType CE = getCanonicalType(E);
   auto Key = std::make_pair(CV, CE);
-  auto It = InvokeHerbceptionFailsResultTypes.find(Key);
-  if (It != InvokeHerbceptionFailsResultTypes.end())
+  auto It = InvokeHerbceptionsFailsResultTypes.find(Key);
+  if (It != InvokeHerbceptionsFailsResultTypes.end())
     return getCanonicalTagType(It->second);
 
   // struct { using value_type = V; using error_type = E; }
@@ -8808,7 +8808,7 @@ ASTContext::getInvokeHerbceptionFailsResultType(QualType V, QualType E) const {
   addTypedef("error_type", E);
 
   RD->completeDefinition();
-  InvokeHerbceptionFailsResultTypes[Key] = RD;
+  InvokeHerbceptionsFailsResultTypes[Key] = RD;
   return getCanonicalTagType(RD);
 }
 
