@@ -1406,6 +1406,7 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
 
   case Expr::CXXTryExprClass:
   case Expr::CXXCatchFailsExprClass:
+  case Expr::CXXThrowsExprClass:
     // Herbception wrappers propagate errors on the deterministic channel and
     // introduce no traditional EH path.
     return CT_Cannot;
