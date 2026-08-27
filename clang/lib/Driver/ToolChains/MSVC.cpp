@@ -1448,7 +1448,6 @@ llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
     llvm::SmallVector<std::string> vec;
     if (DriverArgs.hasArg(options::OPT_nostdinc, options::OPT_nostdlibinc))
       return vec;
-    std::string includePaths;
     auto SysRoot = getDriver().SysRoot;
     if (SysRoot.empty()) {
       if (!VCToolChainPath.empty()) {
@@ -1467,6 +1466,8 @@ llvm::SmallVector<std::string> MSVCToolChain::getCXXStdlibIncludeDirs(
       }
       // ensure the correct order
       auto UnixSysRootResults = ToolChain::getCXXStdlibIncludeDirs(DriverArgs);
+      if (vec.empty())
+        return UnixSysRootResults;
       for (auto &e : UnixSysRootResults) {
         vec.push_back(::std::move(e));
       }
