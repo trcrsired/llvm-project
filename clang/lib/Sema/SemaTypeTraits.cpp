@@ -34,7 +34,7 @@ using namespace clang;
 /// Whether \p T has a complete std::error_domain<T> specialization (directly or
 /// via domain_alias_type), i.e. T can be thrown via `throw throws`. Does not
 /// diagnose; an undefined primary template simply means "not throwsable".
-static bool isHerbceptionThrowsable(Sema &S, SourceLocation Loc, QualType T) {
+static bool isHerbceptionsThrowsable(Sema &S, SourceLocation Loc, QualType T) {
   NamespaceDecl *Std = S.getStdNamespace();
   if (!Std)
     return false;
@@ -372,14 +372,14 @@ static bool CheckUnaryTypeTraitTypeCompleteness(Sema &S, TypeTrait UTT,
     // Fall-through
 
     // Herbception traits: throwsable checks error_domain<T> existence and the
-    // has_herbception_throws_* traits inspect the type's special members; none
+    // has_herbceptions_throws_* traits inspect the type's special members; none
     // require completeness of the argument to be evaluated.
-  case UTT_IsHerbceptionThrowsable:
-  case UTT_IsInvokeHerbceptionFails:
-  case UTT_HasHerbceptionThrowsConstructor:
-  case UTT_HasHerbceptionThrowsCopy:
-  case UTT_HasHerbceptionThrowsAssign:
-  case UTT_HasHerbceptionThrowsMoveAssign:
+  case UTT_IsHerbceptionsThrowsable:
+  case UTT_IsInvokeHerbceptionsFails:
+  case UTT_HasHerbceptionsThrowsConstructor:
+  case UTT_HasHerbceptionsThrowsCopy:
+  case UTT_HasHerbceptionsThrowsAssign:
+  case UTT_HasHerbceptionsThrowsMoveAssign:
     // Fall-through
 
     // These traits are modeled on the type predicates in C++0x
@@ -705,16 +705,16 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     llvm_unreachable("not a UTT");
     // Type trait expressions corresponding to the primary type category
     // predicates in C++0x [meta.unary.cat].
-  case UTT_IsHerbceptionThrowsable:
+  case UTT_IsHerbceptionsThrowsable:
     // True when T can be thrown via `throw throws`, i.e. there is a usable
     // std::error_domain<T> specialization (directly or via domain_alias_type).
     if (T->isDependentType())
       return false;
     if (!Self.getLangOpts().HerbExceptions)
       return false;
-    return isHerbceptionThrowsable(Self, KeyLoc, T);
+    return isHerbceptionsThrowsable(Self, KeyLoc, T);
 
-  case UTT_IsInvokeHerbceptionFails:
+  case UTT_IsInvokeHerbceptionsFails:
     // True when T is a function type (or pointer/reference to one) declared
     // with a `fails{E}` herbception spec.
     if (T->isDependentType())
@@ -730,10 +730,10 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
              FPT->hasFailsSpec();
     return false;
 
-  case UTT_HasHerbceptionThrowsConstructor:
-  case UTT_HasHerbceptionThrowsCopy:
-  case UTT_HasHerbceptionThrowsAssign:
-  case UTT_HasHerbceptionThrowsMoveAssign:
+  case UTT_HasHerbceptionsThrowsConstructor:
+  case UTT_HasHerbceptionsThrowsCopy:
+  case UTT_HasHerbceptionsThrowsAssign:
+  case UTT_HasHerbceptionsThrowsMoveAssign:
     // GNU/MS-style: true iff the relevant special member of the class is
     // declared `throws` (i.e. can propagate a herbception error). Trivial and
     // implicitly-declared members never can. Non-class types cannot either.
@@ -741,9 +741,9 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
       return false;
     if (auto *RD = T->getAsCXXRecordDecl()) {
       bool Found = false;
-      if (UTT == UTT_HasHerbceptionThrowsAssign ||
-          UTT == UTT_HasHerbceptionThrowsMoveAssign) {
-        bool IsMove = UTT == UTT_HasHerbceptionThrowsMoveAssign;
+      if (UTT == UTT_HasHerbceptionsThrowsAssign ||
+          UTT == UTT_HasHerbceptionsThrowsMoveAssign) {
+        bool IsMove = UTT == UTT_HasHerbceptionsThrowsMoveAssign;
         for (const auto *ND : RD->lookup(
                  C.DeclarationNames.getCXXOperatorName(OO_Equal))) {
           auto *Method = dyn_cast<CXXMethodDecl>(ND);
@@ -760,7 +760,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
             return false;
         }
       } else {
-        bool IsCopy = UTT == UTT_HasHerbceptionThrowsCopy;
+        bool IsCopy = UTT == UTT_HasHerbceptionsThrowsCopy;
         for (const auto *ND : Self.LookupConstructors(RD)) {
           if (isa<FunctionTemplateDecl>(ND->getUnderlyingDecl()))
             continue;
@@ -1408,7 +1408,7 @@ static bool EvaluateBooleanTypeTrait(Sema &S, TypeTrait Kind,
   case clang::TT_IsConstructible:
   case clang::TT_IsNothrowConstructible:
   case clang::TT_IsTriviallyConstructible:
-  case clang::TT_IsHerbceptionThrowsConstructible: {
+  case clang::TT_IsHerbceptionsThrowsConstructible: {
     // C++11 [meta.unary.prop]:
     //   is_trivially_constructible is defined as:
     //
@@ -1528,7 +1528,7 @@ static bool EvaluateBooleanTypeTrait(Sema &S, TypeTrait Kind,
       // CT_Deterministic means the function cannot throw C++ exceptions.
       return S.canThrow(Result.get()) != CT_Can;
 
-    if (Kind == clang::TT_IsHerbceptionThrowsConstructible)
+    if (Kind == clang::TT_IsHerbceptionsThrowsConstructible)
       // Herbception `throws` channel (implicit std::error).
       return S.canHerbceptionThrow(Result.get(), QualType());
 
@@ -1811,7 +1811,7 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
   case BTT_IsConvertible:
   case BTT_IsConvertibleTo:
   case BTT_IsNothrowConvertible:
-  case BTT_IsHerbceptionThrowsConvertible: {
+  case BTT_IsHerbceptionsThrowsConvertible: {
     if (RhsT->isVoidType())
       return LhsT->isVoidType();
     llvm::BumpPtrAllocator OpaqueExprAllocator;
@@ -1821,7 +1821,7 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
       return false;
 
     if (BTT != BTT_IsNothrowConvertible &&
-        BTT != BTT_IsHerbceptionThrowsConvertible)
+        BTT != BTT_IsHerbceptionsThrowsConvertible)
       return true;
 
     if (BTT == BTT_IsNothrowConvertible)
@@ -1834,7 +1834,7 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
 
   case BTT_IsAssignable:
   case BTT_IsNothrowAssignable:
-  case BTT_IsHerbceptionThrowsAssignable:
+  case BTT_IsHerbceptionsThrowsAssignable:
   case BTT_IsTriviallyAssignable: {
     // C++11 [meta.unary.prop]p3:
     //   is_trivially_assignable is defined as:
@@ -1899,7 +1899,7 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
       // CT_Deterministic means the function cannot throw C++ exceptions.
       return Self.canThrow(Result.get()) != CT_Can;
 
-    if (BTT == BTT_IsHerbceptionThrowsAssignable)
+    if (BTT == BTT_IsHerbceptionsThrowsAssignable)
       // Herbception `throws` channel (implicit std::error).
       return Self.canHerbceptionThrow(Result.get(), QualType());
 
