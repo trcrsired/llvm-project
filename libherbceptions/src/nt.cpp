@@ -184,9 +184,6 @@ constinit ::std::error_domain_singleton nt_error_domain{
               ++scatterlen;
               break;
             }
-            default: {
-              return;
-            }
             }
             cookfun(cookie, scatters, scatterlen);
           } else {
@@ -279,9 +276,6 @@ constinit ::std::error_domain_singleton nt_error_domain{
               }
               ++scatterlen;
               break;
-            }
-            default: {
-              return;
             }
             }
             cookfun(cookie, scatters, scatterlen);
