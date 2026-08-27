@@ -323,9 +323,6 @@ inline constexpr void __simple_query_information_common(
       ++__scatterlen;
       break;
     }
-    default: {
-      return;
-    }
     }
     cookfun(cookie, __scatters, __scatterlen);
   } else {
@@ -413,9 +410,6 @@ inline constexpr void __simple_query_information_common(
       }
       ++__scatterlen;
       break;
-    }
-    default: {
-      return;
     }
     }
     cookfun(cookie, __scatters, __scatterlen);

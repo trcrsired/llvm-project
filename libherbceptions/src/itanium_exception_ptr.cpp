@@ -370,9 +370,6 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
               }
               break;
             }
-            default: {
-              return;
-            }
             }
             cookfun(cookie, scatters, scatterlen);
           } else {
@@ -452,9 +449,6 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                   ++scatterlen;
                 }
                 break;
-              }
-              default: {
-                return;
               }
               }
             } else {
