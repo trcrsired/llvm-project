@@ -3307,7 +3307,7 @@ ExprResult Parser::ParseRequiresExpression() {
         // Compound requirement
         // C++ [expr.prim.req.compound]
         //     compound-requirement:
-        //         '{' expression '}' 'noexcept'[opt]
+        //         '{' expression '}' 'noexcept'[opt] 'throws'[opt]
         //             return-type-requirement[opt] ';'
         //     return-type-requirement:
         //         trailing-return-type
@@ -3330,9 +3330,12 @@ ExprResult Parser::ParseRequiresExpression() {
 
         concepts::Requirement *Req = nullptr;
         SourceLocation NoexceptLoc;
+        SourceLocation ThrowsLoc;
         TryConsumeToken(tok::kw_noexcept, NoexceptLoc);
+        TryConsumeToken(tok::kw_throws, ThrowsLoc);
         if (Tok.is(tok::semi)) {
-          Req = Actions.ActOnCompoundRequirement(Expression.get(), NoexceptLoc);
+          Req = Actions.ActOnCompoundRequirement(Expression.get(), NoexceptLoc,
+                                                 ThrowsLoc);
           if (Req)
             Requirements.push_back(Req);
           break;
@@ -3360,8 +3363,8 @@ ExprResult Parser::ParseRequiresExpression() {
         }
 
         Req = Actions.ActOnCompoundRequirement(
-            Expression.get(), NoexceptLoc, SS, takeTemplateIdAnnotation(Tok),
-            TemplateParameterDepth);
+            Expression.get(), NoexceptLoc, ThrowsLoc, SS,
+            takeTemplateIdAnnotation(Tok), TemplateParameterDepth);
         ConsumeAnnotationToken();
         if (Req)
           Requirements.push_back(Req);
@@ -3505,6 +3508,13 @@ ExprResult Parser::ParseRequiresExpression() {
         // User may have tried to put some compound requirement stuff here
         if (Tok.is(tok::kw_noexcept)) {
           Diag(Tok, diag::err_requires_expr_simple_requirement_noexcept)
+              << FixItHint::CreateInsertion(StartLoc, "{")
+              << FixItHint::CreateInsertion(Tok.getLocation(), "}");
+          SkipUntil(tok::semi, tok::r_brace, SkipUntilFlags::StopBeforeMatch);
+          break;
+        }
+        if (Tok.is(tok::kw_throws)) {
+          Diag(Tok, diag::err_requires_expr_simple_requirement_throws)
               << FixItHint::CreateInsertion(StartLoc, "{")
               << FixItHint::CreateInsertion(Tok.getLocation(), "}");
           SkipUntil(tok::semi, tok::r_brace, SkipUntilFlags::StopBeforeMatch);
