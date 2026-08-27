@@ -2454,19 +2454,6 @@ public:
   void setDefaultedOrDeletedInfo(DefaultedOrDeletedFunctionInfo *Info);
   DefaultedOrDeletedFunctionInfo *getDefaultedOrDeletedInfo() const;
 
-  /// Herbception: the compiler-fabricated `std::error` conversion expression
-  /// that converts a legacy C++ exception escaping this `throws` function into
-  /// the herbception channel (the whole-function equivalent of the conversion
-  /// attached to a `catch throws(std::error)` handler). Null when the
-  /// conversion is unavailable (e.g. the cxa_exception_code header is missing)
-  /// or this function is not a bare `throws` function.
-  Expr *getHerbceptionLegacyErrorValue() const {
-    return HerbceptionLegacyErrorValue;
-  }
-  void setHerbceptionLegacyErrorValue(Expr *E) {
-    HerbceptionLegacyErrorValue = E;
-  }
-
   /// Determine the kind of defaulting that would be done for a given function.
   ///
   /// If the function is both a default constructor and a copy / move
