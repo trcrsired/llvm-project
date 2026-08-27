@@ -1547,6 +1547,101 @@ static bool EvaluateBooleanTypeTrait(Sema &S, TypeTrait Kind,
     return false;
   }
 
+  case clang::TT_IsHerbceptionsThrowsInvocable:
+  case clang::TT_IsHerbceptionsThrowsInvocableR: {
+    // Whether F is invocable with Args... (and result convertible to R for the
+    // _r variant) and the resulting call can propagate a herbception error
+    // through the `throws` channel.
+    // Strategy: use __builtin_invoke to build the call expression (handles
+    // function pointers, member pointers, functors), then check
+    // canHerbceptionThrow.
+    assert(!Args.empty());
+
+    for (const auto *TSI : Args) {
+      QualType ArgTy = TSI->getType();
+      if (ArgTy->isVoidType() || ArgTy->isIncompleteArrayType())
+        continue;
+      if (S.RequireCompleteType(
+              KWLoc, ArgTy, diag::err_incomplete_type_used_in_type_trait_expr))
+        return false;
+    }
+
+    // For the _r variant, the first argument is R, the second is F, and the
+    // rest are the call arguments. For the non-_r variant, the first argument
+    // is F.
+    QualType R, F;
+    unsigned ArgStart;
+    if (Kind == clang::TT_IsHerbceptionsThrowsInvocableR) {
+      if (Args.size() < 2)
+        return false;
+      R = Args[0]->getType();
+      F = Args[1]->getType();
+      ArgStart = 2;
+    } else {
+      F = Args[0]->getType();
+      ArgStart = 1;
+    }
+
+    if (F->isIncompleteType())
+      return false;
+
+    llvm::BumpPtrAllocator OpaqueExprAllocator;
+    SmallVector<Expr *, 2> ArgExprs;
+    ArgExprs.reserve(Args.size() - ArgStart);
+    for (unsigned I = ArgStart, N = Args.size(); I != N; ++I) {
+      QualType ArgTy = Args[I]->getType();
+      if (ArgTy->isObjectType() || ArgTy->isFunctionType())
+        ArgTy = S.Context.getRValueReferenceType(ArgTy);
+      ArgExprs.push_back(
+          new (OpaqueExprAllocator.Allocate<OpaqueValueExpr>())
+              OpaqueValueExpr(Args[I]->getTypeLoc().getBeginLoc(),
+                              ArgTy.getNonLValueExprType(S.Context),
+                              Expr::getValueKindForType(ArgTy)));
+    }
+
+    // Build a call expression F(Args...) in a SFINAE trap to test invocability.
+    QualType CallResultType;
+    bool CanThrow = false;
+    {
+      EnterExpressionEvaluationContext Unevaluated(
+          S, Sema::ExpressionEvaluationContext::Unevaluated);
+      Sema::SFINAETrap SFINAE(S, /*ForValidityCheck=*/true);
+      Sema::ContextRAII TUContext(S, S.Context.getTranslationUnitDecl());
+
+      // Build the callee: an opaque value representing F.
+      QualType CalleeTy = F;
+      if (CalleeTy->isObjectType() || CalleeTy->isFunctionType())
+        CalleeTy = S.Context.getRValueReferenceType(CalleeTy);
+      Expr *Callee = new (OpaqueExprAllocator.Allocate<OpaqueValueExpr>())
+          OpaqueValueExpr(KWLoc, CalleeTy.getNonLValueExprType(S.Context),
+                          Expr::getValueKindForType(CalleeTy));
+
+      ExprResult Call = S.BuildCallExpr(/*Scope=*/nullptr, Callee, KWLoc,
+                                        ArgExprs, RParenLoc);
+      if (Call.isInvalid() || SFINAE.hasErrorOccurred())
+        return false;
+
+      CallResultType = Call.get()->getType();
+      CanThrow = S.canHerbceptionThrow(Call.get(), QualType());
+    }
+
+    // For the _r variant, check convertibility of the result to R.
+    if (Kind == clang::TT_IsHerbceptionsThrowsInvocableR && CanThrow) {
+      if (!R->isVoidType()) {
+        // Use EvaluateBinaryTypeTrait with BTT_IsConvertible.
+        TypeSourceInfo *ResultTSI =
+            S.Context.getTrivialTypeSourceInfo(CallResultType, KWLoc);
+        TypeSourceInfo *RTSI = S.Context.getTrivialTypeSourceInfo(R, KWLoc);
+        bool Convertible = EvaluateBinaryTypeTrait(S, BTT_IsConvertible,
+                                                   ResultTSI, RTSI, KWLoc);
+        if (!Convertible)
+          return false;
+      }
+    }
+
+    return CanThrow;
+  }
+
   default:
     llvm_unreachable("not a TT");
   }
