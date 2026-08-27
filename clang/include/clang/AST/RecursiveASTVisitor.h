@@ -2570,6 +2570,11 @@ DEF_TRAVERSE_STMT(ObjCAtCatchStmt, {
   // children() iterates over the handler block.
 })
 
+DEF_TRAVERSE_STMT(CXXCatchThrowsStmt, {
+  TRY_TO(TraverseDecl(S->getExceptionDecl()));
+  // children() iterates over the handler block.
+})
+
 DEF_TRAVERSE_STMT(DeclStmt, {
   for (auto *I : S->decls()) {
     TRY_TO(TraverseDecl(I));
@@ -3531,8 +3536,10 @@ bool RecursiveASTVisitor<Derived>::VisitOMPFinalClause(OMPFinalClause *C) {
 template <typename Derived>
 bool
 RecursiveASTVisitor<Derived>::VisitOMPNumThreadsClause(OMPNumThreadsClause *C) {
+  if (auto *E = C->getDimsModifierExpr())
+    TRY_TO(VisitStmt(E));
+  TRY_TO(VisitOMPClauseList(C));
   TRY_TO(VisitOMPClauseWithPreInit(C));
-  TRY_TO(TraverseStmt(C->getNumThreads()));
   return true;
 }
 
