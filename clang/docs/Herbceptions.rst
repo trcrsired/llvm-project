@@ -1,7 +1,7 @@
 .. _herbceptions:
 
 ==========================================================
-Herbceptions: Zero-Overhead Deterministic Errors
+Herbceptions
 ==========================================================
 
 .. contents::
@@ -16,10 +16,10 @@ Herbceptions: Zero-Overhead Deterministic Errors
 Overview
 ========
 
-Herbceptions (after Herb Sutter's `P0709R4: Zero-overhead deterministic
-exceptions <https://wg21.link/p0709r4>`_) replace the traditional two-phase
+Herbceptions (after Herb Sutter's `P0709R4 <https://wg21.link/p0709r4>`_) replace the traditional two-phase
 C++ exception model with a **deterministic error channel**. A function that
-can fail declares *that it can fail* with a ``throws`` (C++) or ``fails{E}``
+can fail declares *that it can fail* with a ``throws`` (C++) or ``fails{
+  E}``
 (C and C++) specifier, and the error is returned through the normal return
 path, discriminated by a boolean flag carried next to the value.
 
@@ -83,30 +83,37 @@ Semantically:
    T foo() fails{E};                  // noexcept(true) + fails{E} channel
    T foo() noexcept(false) fails{E};  // explicit override: allows both
 
-* ``throws`` and ``fails{E}`` are part of the *canonical function type* and
-  change the function ABI (the return type is lowered to ``{T, i1}``). This
+* ``throws`` and ``fails{
+  E}`` are part of the *canonical function type* and
+  change the function ABI (the return type is lowered to ``{
+  T, i1}``). This
   is unlike ``noexcept`` since C++17, which is not part of the canonical
   type.
 * ``throws(false)`` means the function cannot fail: it degrades to plain
   ``noexcept``.
 * A ``throws`` function implies ``noexcept(true)``; combining ``throws``
-  with ``noexcept(false)`` is a compile-time error. ``fails{E}`` also
+  with ``noexcept(false)`` is a compile-time error. ``fails{
+  E}`` also
   implies ``noexcept(true)`` by default; only an explicit
-  ``noexcept(false) fails{E}`` lets traditional C++ exceptions propagate
+  ``noexcept(false) fails{
+  E}`` lets traditional C++ exceptions propagate
   through the function instead of hitting its terminate landing pad.
 * ``fails(E)`` (parentheses) is rejected; the braces form is mandatory.
-  Combining ``throws`` and ``fails{...}`` on one declaration is rejected.
+  Combining ``throws`` and ``fails{
+  ...}`` on one declaration is rejected.
 
 Restrictions
 ------------
 
 * ``throws`` is only available in C++.
-* ``fails{E}`` is a C-style feature restricted to **free functions**: member
+* ``fails{
+  E}`` is a C-style feature restricted to **free functions**: member
   functions, lambdas, and coroutines cannot declare it.
 * ``throws`` is **not allowed on coroutine declarations**; every herbception
   must be caught within the coroutine body.
 * Destructors cannot be declared with a herbception specification.
-* ``fails{std::error}`` is rejected: the implicit error type of ``throws``
+* ``fails{
+  std::error}`` is rejected: the implicit error type of ``throws``
   is compiler-fabricated and cannot be named explicitly.
 * ``E`` must be trivially copyable.
 
@@ -129,13 +136,13 @@ and a ``code(E)`` projection. ``T`` need not be an enum -- any type with an
 .. code-block:: cpp
 
     namespace std {
-    enum class my_errc : unsigned { ok = 0, bad = 1 };
-    template <> struct error_domain<my_errc> {
-      static constexpr error_domain_singleton const *domain() noexcept;
-      static constexpr unsigned long code(my_errc e) noexcept {
-        return static_cast<unsigned long>(e);
-      }
-    };
+  enum class my_errc : unsigned { ok = 0, bad = 1 };
+  template <> struct error_domain<my_errc> {
+    static constexpr error_domain_singleton const *domain() noexcept;
+    static constexpr unsigned long code(my_errc e) noexcept {
+      return static_cast<unsigned long>(e);
+    }
+  };
     }
 
 Returning ``nullptr`` from ``domain()`` is a compile-time error: the
@@ -152,16 +159,19 @@ Returning an error
 ------------------
 
 A ``throws`` function returns an error with ``throw throws expr`` (C++
-only); a ``fails{E}`` function returns an error with ``return failure(expr)``
-instead -- ``throw throws`` is not available inside ``fails{...}``
+only); a ``fails{
+  E}`` function returns an error with ``return failure(expr)``
+instead -- ``throw throws`` is not available inside ``fails{
+  ...}``
 functions:
 
 .. code-block:: cpp
 
    int read_file(const char *path) throws {
-     FILE *f = fopen(path, "rb");
-     if (!f) throw throws std::errc(errno);
-     return fileno(f);
+  FILE *f = fopen(path, "rb");
+  if (!f)
+    throw throws std::errc(errno);
+  return fileno(f);
    }
 
 The operand is the error value; the compiler fabricates the (otherwise
@@ -170,17 +180,20 @@ unconstructible) ``std::error`` by evaluating
 An operand whose type has no ``std::error_domain`` specialization is
 rejected. Inside a ``catch throws`` handler the operand form is allowed
 only when the enclosing function itself declares ``throws`` /
-``fails{...}`` (the new error then leaves via its own channel); otherwise
+``fails{
+  ...}`` (the new error then leaves via its own channel); otherwise
 use the bare rethrow instead (see below).
 
-A ``fails{E}`` function returns an error with ``return failure(expr)``
+A ``fails{
+  E}`` function returns an error with ``return failure(expr)``
 (C and C++), where ``expr`` has exactly the type ``E``:
 
 .. code-block:: c
 
    int divide(int a, int b) fails{int} {
-     if (b == 0) return failure(42);
-     return a / b;
+  if (b == 0)
+    return failure(42);
+  return a / b;
    }
 
 Bare ``throw throws`` (without an operand) rethrows the error currently
@@ -196,14 +209,15 @@ error; no wrapper is required:
 .. code-block:: cpp
 
    int process(int x) throws {
-     int fd = open_wrapped(x);        // auto-propagates on failure
-     return fd;
+  int fd = open_wrapped(x); // auto-propagates on failure
+  return fd;
    }
 
 The auto-propagation is suppressed while parsing the operand of an explicit
 ``try(expr)`` or ``catch fails(expr)``.
 
-**C** -- calling a ``fails{E}`` function without an explicit wrapper is a
+**C** -- calling a ``fails{
+  E}`` function without an explicit wrapper is a
 compile-time error. The error must be handled with ``try(expr)`` or
 ``catch fails(expr)``:
 
@@ -214,7 +228,12 @@ compile-time error. The error must be handled with ``try(expr)`` or
    int x = some_fails_func();
 
    int x = try(some_fails_func());                    // auto-propagate
-   struct { union { int value; int error; }; bool failed; }
+   struct {
+  union {
+    int value;
+    int error;
+  };
+  bool failed; }
      e = catch fails(some_fails_func());               // inspect
 
 Explicit handling
@@ -223,16 +242,23 @@ Explicit handling
 ``try(expr)`` -- evaluates ``expr`` (a call to a ``throws``/``fails``
 function); on failure it auto-propagates the error; on success it yields the
 success value. It is only valid inside a function that itself declares
-``throws``/``fails{...}``:
+``throws``/``fails{
+  ...}``:
 
 .. code-block:: cpp
 
    int foo(int x) throws {
-     return try(bar(x)) + 1;   // if bar fails, foo fails with bar's error
+  return try
+    (bar(x)) + 1; // if bar fails, foo fails with bar's error
    }
 
 ``catch fails(expr)`` -- evaluates ``expr`` and produces the N2289 aggregate
-``struct { union { T value; E error; }; bool failed; }``. ``value`` and
+``struct {
+  union {
+    T value;
+    E error;
+  };
+  bool failed; }``. ``value`` and
 ``error`` are accessible through the anonymous union; ``failed`` is false on
 success and true on error. It cannot be applied to a plain ``throws``
 function (whose implicit ``std::error`` can only be handled by a
@@ -242,15 +268,16 @@ function (whose implicit ``std::error`` can only be handled by a
 
    auto e = catch fails(bar(x));
    if (e.failed) {
-     handle(e.error);
+  handle(e.error);
    } else {
-     use(e.value);
+  use(e.value);
    }
 
 Catching errors with a block
 ----------------------------
 
-``catch throws(std::error e) { ... }`` provides block-based handlers. The
+``catch throws(std::error e) {
+  ... }`` provides block-based handlers. The
 handler must declare exactly ``std::error``, by value: references,
 cv-qualified forms, other types and ``catch throws(...)`` are rejected, and
 there is no block form of ``catch fails`` (it exists only as an expression).
@@ -260,9 +287,12 @@ routes the error value to the handler instead of propagating:
 .. code-block:: cpp
 
    try {
-     try foo();          // foo() throws
+  try
+    foo(); // foo() throws
    } catch throws(std::error e) {
-     if (e == std::errc::no_such_file_or_directory) { ... }
+  if (e == std::errc::no_such_file_or_directory) {
+    ...
+  }
    }
 
 Inside the handler, bare ``throw throws`` rethrows the caught error.
@@ -280,31 +310,36 @@ Additional rules for ``catch throws`` handlers:
   handler also receives legacy exceptions auto-converted through the
   exception-pointer domain; with traditional clauses present they are
   delivered untouched instead.
-* Inside a ``fails{E}`` function, a ``catch throws(std::error)`` handler
+* Inside a ``fails{
+  E}`` function, a ``catch throws(std::error)`` handler
   requires a visible ``std::error_domain<E>`` specialization.
-* Inside such a handler, a call to a plain ``fails{...}`` function must be
+* Inside such a handler, a call to a plain ``fails{
+  ...}`` function must be
   wrapped in an explicit ``try()`` so its error is converted to
   ``std::error`` (C-style explicitness):
 
 .. code-block:: cpp
 
    void g() fails{std::errc} {
-     try {
-       // ...
-     } catch throws(std::error e) {
-       auto r = try(fails_callee());   // ok: converted via error_domain
-       // fails_callee();              // rejected: unconverted raw payload
-     }
+  try {
+    // ...
+  } catch throws(std::error e) {
+    auto r = try
+      (fails_callee()); // ok: converted via error_domain
+    // fails_callee();              // rejected: unconverted raw payload
+  }
    }
 
 Convertibility between specifiers
 `````````````````````````````````
 
-* Calling a ``fails{E}`` function from a ``throws`` function (by bare call
+* Calling a ``fails{
+  E}`` function from a ``throws`` function (by bare call
   or ``try(expr)``) converts the error to ``std::error`` through the
   ``std::error_domain<E>`` accessors (``domain()`` / ``code()``); a missing
   specialization is rejected.
-* Calling a ``throws`` function from a ``fails{E}`` function propagates the
+* Calling a ``throws`` function from a ``fails{
+  E}`` function propagates the
   fabricated two-word ``std::error`` payload verbatim into the error slot;
   no conversion is performed.
 
@@ -313,7 +348,8 @@ Convertibility between specifiers
 
 A herbception error must never silently escape a ``noexcept(true)``
 function. Calling a ``throws`` function without handling it from a function
-that is neither ``throws`` nor ``fails{...}`` is a diagnostic, and
+that is neither ``throws`` nor ``fails{
+  ...}`` is a diagnostic, and
 ``try foo()`` (which propagates) is likewise rejected there; use a
 ``try { } catch throws(...)`` block instead. ``int main()`` is a special
 case: an unhandled error terminates via ``llvm.trap``.
@@ -350,17 +386,21 @@ work as usual.
 Constexpr
 ---------
 
-``fails{E}`` functions, ``throw throws``, ``try(expr)`` auto-propagation,
+``fails{
+  E}`` functions, ``throw throws``, ``try(expr)`` auto-propagation,
 ``catch fails(expr)`` and ``try { } catch throws(std::error)`` blocks are
 usable in constant expressions:
 
 .. code-block:: cpp
 
    constexpr int f(int x) fails{int} {
-     if (x == 0) return failure(42);
-     return 2 * x;
+  if (x == 0)
+    return failure(42);
+  return 2 * x;
    }
-   constexpr int g(int x) fails{int} { return try(f(x)); }
+   constexpr int g(int x) fails{int} {
+  return try
+    (f(x)); }
    static_assert(g(3) == 6);
    static_assert(g(0) == 42);
 
@@ -371,7 +411,8 @@ expressions.
 Coroutines
 ----------
 
-Coroutines cannot declare ``throws`` or ``fails{...}``; all herbceptions
+Coroutines cannot declare ``throws`` or ``fails{
+  ...}``; all herbceptions
 must be caught within the coroutine body.
 
 Feature-test macro
@@ -382,9 +423,9 @@ feature:
 
 .. code-block:: cpp
 
-   #ifdef __HERBCEPTIONS__
+#ifdef __HERBCEPTIONS__
    int foo() throws;
-   #endif
+#endif
 
 Type traits
 -----------
@@ -410,7 +451,8 @@ channel: ``__is_herbception_throws_constructible``,
 ``__has_herbception_throws_constructor``, ``__has_herbception_throws_copy``,
 ``__has_herbception_throws_assign`` and
 ``__has_herbception_throws_move_assign``. The type trait
-``__invoke_herbception_fails_t`` yields the raw ``{T, i1}``-shaped result
+``__invoke_herbception_fails_t`` yields the raw ``{
+  T, i1}``-shaped result
 type of a ``fails`` function type.
 
 Runtime support
@@ -423,27 +465,28 @@ vtables for the standard domains and the ``std::error`` class. Its API
 .. code-block:: cpp
 
    class error {
-     // Only the compiler fabricates std::error values: default/copy/move
-     // construction and assignment are deleted, and ~error() runs the
-     // domain's do_cleanup. The private payload is exactly two words
-     // ({const error_domain_singleton*, size_t}) so it flows through the
-     // {void*, size_t} ABI slot unchanged.
-     [[nodiscard]] constexpr error_domain_singleton const *domain() const noexcept;
-     [[nodiscard]] constexpr std::size_t code() const noexcept;
-     template <class T> constexpr bool equivalent(T ec) const noexcept;
-     constexpr std::errc to_errc() const noexcept;
-     void throw_dynamic_exception() const;   // rethrow as a traditional exception
-     template <class T> constexpr bool is_code_of() const noexcept;
+  // Only the compiler fabricates std::error values: default/copy/move
+  // construction and assignment are deleted, and ~error() runs the
+  // domain's do_cleanup. The private payload is exactly two words
+  // ({const error_domain_singleton*, size_t}) so it flows through the
+  // {void*, size_t} ABI slot unchanged.
+  [[nodiscard]] constexpr error_domain_singleton const *domain() const noexcept;
+  [[nodiscard]] constexpr std::size_t code() const noexcept;
+  template <class T> constexpr bool equivalent(T ec) const noexcept;
+  constexpr std::errc to_errc() const noexcept;
+  void throw_dynamic_exception() const; // rethrow as a traditional exception
+  template <class T> constexpr bool is_code_of() const noexcept;
    };
 
    struct error_domain_singleton {
-     void (*do_cleanup)(std::size_t) noexcept;
-     bool (*do_equivalent)(std::size_t, error_domain_singleton const *, std::size_t) noexcept;
-     void (*do_query_information)(std::size_t, error_query_information,
-                                  error_reporter_encoding, void *,
-                                  error_reporter_io_cookie_function) noexcept;
-     std::errc (*do_to_errc)(std::size_t) noexcept;
-     void (*do_throw_dynamic_exception)(std::size_t, std::dynamic_exception_abi);
+  void (*do_cleanup)(std::size_t) noexcept;
+  bool (*do_equivalent)(std::size_t, error_domain_singleton const *,
+                        std::size_t) noexcept;
+  void (*do_query_information)(std::size_t, error_query_information,
+                               error_reporter_encoding, void *,
+                               error_reporter_io_cookie_function) noexcept;
+  std::errc (*do_to_errc)(std::size_t) noexcept;
+  void (*do_throw_dynamic_exception)(std::size_t, std::dynamic_exception_abi);
    };
 
 ``do_query_information`` produces a domain *name* and/or *message* for an
@@ -454,24 +497,29 @@ errors without hard-coding domain knowledge.
 LLVM IR representation
 ======================
 
-A function declared ``throws`` / ``fails{E}`` is lowered with the LLVM
+A function declared ``throws`` / ``fails{
+  E}`` is lowered with the LLVM
 ``throws`` attribute and a struct return:
 
 .. code-block:: llvm
 
    ; C++: T foo() throws;
-   define { T, i1 } @foo(...) #0 { ... }
+   define {
+  T, i1 } @foo(...) #0 { ... }
 
    ; C: void foo() fails{E};
-   define { E, i1 } @foo(...) #0 { ... }
+   define {
+  E, i1 } @foo(...) #0 { ... }
 
    attributes #0 = { throws }
 
 The ``i1`` discriminant is ``false`` for success and ``true`` for error. The
 payload slot is a value-or-error union of size ``max(T, E)``: on success it
 holds ``T``, on failure the error value. For the implicit ``std::error`` type
-(a 2-register ``{void*, size_t}`` struct) a ``T throws`` function returns
-``{ {ptr, i64}, i1 }``.
+(a 2-register ``{
+  void *, size_t}`` struct) a ``T throws`` function returns
+``{
+  {ptr, i64}, i1 }``.
 
 Call-site lowering
 ------------------
@@ -499,8 +547,10 @@ symbols and ``__cxa_get_exception_ptr`` / ``llvm.eh.exceptionpointer`` /
 ``wasm.get.exception``) and routes it to the throws return path. The same
 conversion is applied inside a `try { } catch throws(std::error)` block.
 
-A default ``fails{E}`` function instead pushes a terminate landing pad
-(``noexcept`` semantics); an explicit ``fails{E} noexcept(false)`` pushes
+A default ``fails{
+  E}`` function instead pushes a terminate landing pad
+(``noexcept`` semantics); an explicit ``fails{
+  E} noexcept(false)`` pushes
 nothing and lets traditional exceptions propagate.
 
 Target-specific discriminant
@@ -543,14 +593,16 @@ the struct return:
      - branch on the extra result
 
 On targets without ``supportThrowsCC()``, the discriminant falls back to the
-``{T, i1}`` struct return (two registers or sret).
+``{
+  T, i1}`` struct return (two registers or sret).
 
 Implementation notes
 ====================
 
 The implementation spans the following areas:
 
-* **Parsing** -- ``throws`` / ``fails{E}`` (including the delayed-parsing
+* **Parsing** -- ``throws`` / ``fails{
+  E}`` (including the delayed-parsing
   path and the ``noexcept`` combination checks) in
   ``clang/lib/Parse/ParseDeclCXX.cpp``; ``try(expr)``,
   ``catch fails(expr)`` dispatched in ``clang/lib/Parse/ParseExpr.cpp`` and
@@ -572,7 +624,8 @@ The implementation spans the following areas:
   ``EST_BasicThrows`` / ``EST_ThrowsTyped`` /
   ``EST_ThrowsTypedNoexceptFalse`` exception-specification kinds; the N2289
   ``catch fails`` aggregate built by ``ASTContext::getCatchFailsType``.
-* **CodeGen** -- ``{T, i1}`` return lowering with a payload sized
+* **CodeGen** -- ``{
+  T, i1}`` return lowering with a payload sized
   ``max(T, E)``, the ``throws`` attribute, the whole-function legacy-EH
   conversion scope (``EmitStartEHSpec`` / ``getHerbceptionLegacyConvert`` in
   ``clang/lib/CodeGen/CGException.cpp``), ``catch throws``/``catch fails``
@@ -589,7 +642,8 @@ The ``throws``/``fails`` specifier is deliberately not part of the mangled
 name: a herbception function and its plain counterpart share one symbol.
 That keeps object files link-compatible with non-herbception toolchains,
 but it also means translation units that *disagree* about a function's
-specifier (or about a ``fails{E}`` error type) compile cleanly and then
+specifier (or about a ``fails{
+  E}`` error type) compile cleanly and then
 link silently -- callers compiled against the plain ABI would read garbage
 from a ``throws`` definition. That is a One Definition Rule violation, and
 only the linker can see it.

@@ -1944,6 +1944,7 @@ enum StmtCode {
 
   EXPR_CXX_EXPRESSION_TRAIT, // ExpressionTraitExpr
   EXPR_CXX_NOEXCEPT,         // CXXNoexceptExpr
+EXPR_CXX_THROWS,           // CXXThrowsExpr
 
   EXPR_OPAQUE_VALUE,                // OpaqueValueExpr
   EXPR_BINARY_CONDITIONAL_OPERATOR, // BinaryConditionalOperator

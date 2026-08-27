@@ -2099,6 +2099,25 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
 
   // Success path: the try expression's value is the success value.
   EmitBlock(OkBB);
+
+  // Define the forwarded payload on the success path as well: the error path
+  // stores the payload into the return slot, so mirror it here. Otherwise
+  // SROA promotes the return slot into a select with an undef arm, which
+  // blocks tail calls and bloats the plain "throws-call-as-statement"
+  // forwarding idiom.
+  {
+    llvm::Type *SlotTy = ReturnValue.getElementType();
+    llvm::Value *Coerced = Success;
+    if (Coerced->getType() != SlotTy)
+      Coerced = Builder.CreateBitCast(Coerced, SlotTy);
+    auto *I = Builder.CreateStore(Coerced, ReturnValue);
+    addInstToCurrentSourceAtom(I, I->getValueOperand());
+  }
+
+  // A statement-level call has no value to materialize.
+  if (CallTy->isVoidType())
+    return RValue::getIgnored();
+
   if (getEvaluationKind(CallTy) == TEK_Scalar) {
     if (PayloadTy == ConvertType(CallTy))
       return RValue::get(Success);

@@ -915,10 +915,12 @@ void ASTStmtReader::VisitRequiresExpr(RequiresExpr *E) {
         std::optional<concepts::ExprRequirement::ReturnTypeRequirement> Req;
         ConceptSpecializationExpr *SubstitutedConstraintExpr = nullptr;
         SourceLocation NoexceptLoc;
+        SourceLocation ThrowsLoc;
         if (RK == concepts::Requirement::RK_Simple) {
           Req.emplace();
         } else {
           NoexceptLoc = Record.readSourceLocation();
+          ThrowsLoc = Record.readSourceLocation();
           switch (/* returnTypeRequirementKind */Record.readInt()) {
             case 0:
               // No return type requirement.
@@ -942,11 +944,13 @@ void ASTStmtReader::VisitRequiresExpr(RequiresExpr *E) {
         if (Expr *Ex = E.dyn_cast<Expr *>())
           R = new (Record.getContext()) concepts::ExprRequirement(
                   Ex, RK == concepts::Requirement::RK_Simple, NoexceptLoc,
+                  ThrowsLoc,
                   std::move(*Req), Status, SubstitutedConstraintExpr);
         else
           R = new (Record.getContext()) concepts::ExprRequirement(
               cast<concepts::Requirement::SubstitutionDiagnostic *>(E),
               RK == concepts::Requirement::RK_Simple, NoexceptLoc,
+              ThrowsLoc,
               std::move(*Req));
       } break;
       case concepts::Requirement::RK_Nested: {
@@ -2315,6 +2319,13 @@ void ASTStmtReader::VisitExpressionTraitExpr(ExpressionTraitExpr *E) {
 void ASTStmtReader::VisitCXXNoexceptExpr(CXXNoexceptExpr *E) {
   VisitExpr(E);
   E->CXXNoexceptExprBits.Value = Record.readInt();
+  E->Range = readSourceRange();
+  E->Operand = Record.readSubExpr();
+}
+
+void ASTStmtReader::VisitCXXThrowsExpr(CXXThrowsExpr *E) {
+  VisitExpr(E);
+  E->CXXThrowsExprBits.Value = Record.readInt();
   E->Range = readSourceRange();
   E->Operand = Record.readSubExpr();
 }
@@ -4539,6 +4550,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case EXPR_CXX_NOEXCEPT:
       S = new (Context) CXXNoexceptExpr(Empty);
+      break;
+
+    case EXPR_CXX_THROWS:
+      S = new (Context) CXXThrowsExpr(Empty);
       break;
 
     case EXPR_PACK_EXPANSION:

@@ -396,6 +396,11 @@ ExprDependence clang::computeDependence(CXXNoexceptExpr *E, CanThrowResult CT) {
   return D;
 }
 
+ExprDependence clang::computeDependence(CXXThrowsExpr *E) {
+  auto D = E->getOperand()->getDependence() & ~ExprDependence::TypeValue;
+  return D;
+}
+
 ExprDependence clang::computeDependence(PackExpansionExpr *E) {
   return (E->getPattern()->getDependence() & ~ExprDependence::UnexpandedPack) |
          ExprDependence::TypeValueInstantiation;

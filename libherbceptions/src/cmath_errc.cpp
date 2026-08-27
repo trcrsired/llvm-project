@@ -35,15 +35,14 @@ constinit ::std::error_domain_singleton cmath_error_domain{
                                                 cookfun, 1);
         },
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      switch (static_cast<::std::cmath_errc>(
-          static_cast<::std::uint_least32_t>(cd))) {
-      case ::std::cmath_errc::invalid:
+      switch (static_cast<::std::uint_least32_t>(cd)) {
+      case static_cast<::std::uint_least32_t>(::std::cmath_errc::invalid):
         return ::std::errc::argument_out_of_domain;
-      case ::std::cmath_errc::divbyzero:
-      case ::std::cmath_errc::overflow:
-      case ::std::cmath_errc::underflow:
+      case static_cast<::std::uint_least32_t>(::std::cmath_errc::divbyzero):
+      case static_cast<::std::uint_least32_t>(::std::cmath_errc::overflow):
+      case static_cast<::std::uint_least32_t>(::std::cmath_errc::underflow):
         return ::std::errc::result_out_of_range;
-      case ::std::cmath_errc::inexact:
+      case static_cast<::std::uint_least32_t>(::std::cmath_errc::inexact):
         return ::std::errc{};
       default:
         return ::std::errc::io_error;

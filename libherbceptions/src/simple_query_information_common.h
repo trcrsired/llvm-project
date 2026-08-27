@@ -24,7 +24,7 @@ __to_u8scatter_from_parse_errc(::std::uint_least32_t __eno) noexcept {
 inline constexpr ::std::io_scatter_t
 __to_u8scatter_from_cmath_errc(::std::uint_least32_t __eno) noexcept {
   using ::std::error_domains::__herbceptions_detail::__tsc;
-  switch (static_cast<::std::cmath_errc>(__eno)) {
+  switch (__eno) {
 #include "cmath_table.hpp"
   }
 }

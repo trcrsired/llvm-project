@@ -1524,7 +1524,9 @@ static bool EvaluateBooleanTypeTrait(Sema &S, TypeTrait Kind,
     }
 
     if (Kind == clang::TT_IsNothrowConstructible)
-      return S.canThrow(Result.get()) == CT_Cannot;
+      // Herbception `throws` implies noexcept(true) for C++ exceptions:
+      // CT_Deterministic means the function cannot throw C++ exceptions.
+      return S.canThrow(Result.get()) != CT_Can;
 
     if (Kind == clang::TT_IsHerbceptionThrowsConstructible)
       // Herbception `throws` channel (implicit std::error).
@@ -1823,7 +1825,9 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
       return true;
 
     if (BTT == BTT_IsNothrowConvertible)
-      return Self.canThrow(Result.get()) == CT_Cannot;
+      // Herbception `throws` implies noexcept(true) for C++ exceptions:
+      // CT_Deterministic means the function cannot throw C++ exceptions.
+      return Self.canThrow(Result.get()) != CT_Can;
     // Herbception `throws` channel (implicit std::error).
     return Self.canHerbceptionThrow(Result.get(), QualType());
   }
@@ -1891,7 +1895,9 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
       return true;
 
     if (BTT == BTT_IsNothrowAssignable)
-      return Self.canThrow(Result.get()) == CT_Cannot;
+      // Herbception `throws` implies noexcept(true) for C++ exceptions:
+      // CT_Deterministic means the function cannot throw C++ exceptions.
+      return Self.canThrow(Result.get()) != CT_Can;
 
     if (BTT == BTT_IsHerbceptionThrowsAssignable)
       // Herbception `throws` channel (implicit std::error).

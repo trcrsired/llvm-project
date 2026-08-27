@@ -2818,8 +2818,20 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
   if (FI.isCmseNSCall())
     FuncAttrs.addAttribute("cmse_nonsecure_call");
-  if (FI.hasThrowsReturn())
+  if (FI.hasThrowsReturn()) {
     FuncAttrs.addAttribute(llvm::Attribute::Throws);
+    // Herbception `throws` implies noexcept by default: errors return through
+    // the normal path, so the function must also be NoUnwind to keep
+    // mayThrow() false. An explicit `noexcept(false) fails{E}` can throw C++
+    // exceptions, so it does not get NoUnwind.
+    const FunctionProtoType *proto =
+        CalleeInfo.getCalleeFunctionProtoType();
+    if (proto) {
+      ExceptionSpecificationType EST = proto->getExceptionSpecType();
+      if (EST == EST_BasicThrows || EST == EST_ThrowsTyped)
+        FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+    }
+  }
 
   // Collect function IR attributes from the callee prototype if we have one.
   AddAttributesFromFunctionProtoType(getContext(), FuncAttrs,
