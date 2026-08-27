@@ -169,6 +169,53 @@ else()
 endif()
 
 if(LIBHERBCEPTIONS_BUILD_TESTS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
+  # Lit-based test infrastructure.
+  if(NOT TARGET llvm-lit)
+    find_program(LLVM_LIT_EXECUTABLE llvm-lit
+      HINTS ${LLVM_TOOLS_DIR} $ENV{LLVM_TOOLS_DIR}
+      DOC "Path to llvm-lit")
+    if(LLVM_LIT_EXECUTABLE)
+      message(STATUS "Found llvm-lit: ${LLVM_LIT_EXECUTABLE}")
+    else()
+      message(STATUS "llvm-lit not found - tests will not be runnable")
+    endif()
+  endif()
+
+  # Configure the lit site configuration.
+  configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/lit.site.cfg.py.in
+    ${CMAKE_CURRENT_BINARY_DIR}/test/lit.site.cfg.py
+    @ONLY)
+
+  # Lit test suite.
+  set(LIBHERBCEPTIONS_TEST_DEPENDS)
+  if(TARGET herbceptions_static)
+    list(APPEND LIBHERBCEPTIONS_TEST_DEPENDS herbceptions_static)
+  endif()
+
+  if(LLVM_LIT_EXECUTABLE)
+    # Find FileCheck.
+    find_program(FILECHECK_EXECUTABLE FileCheck
+      HINTS ${LLVM_TOOLS_DIR} $ENV{LLVM_TOOLS_DIR}
+      DOC "Path to FileCheck")
+    if(FILECHECK_EXECUTABLE)
+      message(STATUS "Found FileCheck: ${FILECHECK_EXECUTABLE}")
+    else()
+      message(STATUS "FileCheck not found - tests may fail")
+    endif()
+
+    add_custom_target(check-herbceptions
+      COMMAND ${LLVM_LIT_EXECUTABLE}
+        ${CMAKE_CURRENT_BINARY_DIR}/test
+        --verbose
+        --param cxx=${CMAKE_CXX_COMPILER}
+        --param filecheck=${FILECHECK_EXECUTABLE}
+      DEPENDS ${LIBHERBCEPTIONS_TEST_DEPENDS}
+      COMMENT "Running libherbceptions tests"
+      USES_TERMINAL)
+  endif()
+
+  # Legacy CTest support (kept for compatibility).
   add_executable(herbceptions_domain_test test/domain_test.cpp)
   target_link_libraries(herbceptions_domain_test PRIVATE herbceptions)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
