@@ -5020,6 +5020,7 @@ recurse:
   case Expr::CXXCatchFailsExprClass:
   case Expr::CXXErrorValueExprClass:
   case Expr::CXXCxaExceptionExprClass:
+  case Expr::CXXThrowsExprClass:
     llvm_unreachable("unexpected statement kind");
 
   case Expr::ConstantExprClass:
