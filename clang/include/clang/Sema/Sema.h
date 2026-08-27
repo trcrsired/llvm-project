@@ -8944,17 +8944,20 @@ public:
                                               const IdentifierInfo *TypeName,
                                               TemplateIdAnnotation *TemplateId);
   concepts::Requirement *ActOnCompoundRequirement(Expr *E,
-                                                  SourceLocation NoexceptLoc);
+                                                  SourceLocation NoexceptLoc,
+                                                  SourceLocation ThrowsLoc);
   concepts::Requirement *ActOnCompoundRequirement(
-      Expr *E, SourceLocation NoexceptLoc, CXXScopeSpec &SS,
+      Expr *E, SourceLocation NoexceptLoc, SourceLocation ThrowsLoc,
+      CXXScopeSpec &SS,
       TemplateIdAnnotation *TypeConstraint, unsigned Depth);
   concepts::Requirement *ActOnNestedRequirement(Expr *Constraint);
   concepts::ExprRequirement *BuildExprRequirement(
       Expr *E, bool IsSatisfied, SourceLocation NoexceptLoc,
+      SourceLocation ThrowsLoc,
       concepts::ExprRequirement::ReturnTypeRequirement ReturnTypeRequirement);
   concepts::ExprRequirement *BuildExprRequirement(
       concepts::Requirement::SubstitutionDiagnostic *ExprSubstDiag,
-      bool IsSatisfied, SourceLocation NoexceptLoc,
+      bool IsSatisfied, SourceLocation NoexceptLoc, SourceLocation ThrowsLoc,
       concepts::ExprRequirement::ReturnTypeRequirement ReturnTypeRequirement);
   concepts::TypeRequirement *BuildTypeRequirement(TypeSourceInfo *Type);
   concepts::TypeRequirement *BuildTypeRequirement(

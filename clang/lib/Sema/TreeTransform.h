@@ -3881,16 +3881,17 @@ public:
   concepts::ExprRequirement *
   RebuildExprRequirement(
       concepts::Requirement::SubstitutionDiagnostic *SubstDiag, bool IsSimple,
-      SourceLocation NoexceptLoc,
+      SourceLocation NoexceptLoc, SourceLocation ThrowsLoc,
       concepts::ExprRequirement::ReturnTypeRequirement Ret) {
     return SemaRef.BuildExprRequirement(SubstDiag, IsSimple, NoexceptLoc,
-                                        std::move(Ret));
+                                        ThrowsLoc, std::move(Ret));
   }
 
   concepts::ExprRequirement *
   RebuildExprRequirement(Expr *E, bool IsSimple, SourceLocation NoexceptLoc,
+                         SourceLocation ThrowsLoc,
                          concepts::ExprRequirement::ReturnTypeRequirement Ret) {
-    return SemaRef.BuildExprRequirement(E, IsSimple, NoexceptLoc,
+    return SemaRef.BuildExprRequirement(E, IsSimple, NoexceptLoc, ThrowsLoc,
                                         std::move(Ret));
   }
 
@@ -15915,10 +15916,12 @@ TreeTransform<Derived>::TransformExprRequirement(concepts::ExprRequirement *Req)
   if (Expr *E = dyn_cast<Expr *>(TransExpr))
     return getDerived().RebuildExprRequirement(E, Req->isSimple(),
                                                Req->getNoexceptLoc(),
+                                               Req->getThrowsLoc(),
                                                std::move(*TransRetReq));
   return getDerived().RebuildExprRequirement(
       cast<concepts::Requirement::SubstitutionDiagnostic *>(TransExpr),
-      Req->isSimple(), Req->getNoexceptLoc(), std::move(*TransRetReq));
+      Req->isSimple(), Req->getNoexceptLoc(), Req->getThrowsLoc(),
+      std::move(*TransRetReq));
 }
 
 template<typename Derived>

@@ -1185,20 +1185,24 @@ ASTNodeImporter::ImportExprRequirement(concepts::ExprRequirement *From) {
   ExpectedSLoc NoexceptLocOrErr = import(From->getNoexceptLoc());
   if (!NoexceptLocOrErr)
     return NoexceptLocOrErr.takeError();
+  ExpectedSLoc ThrowsLocOrErr = import(From->getThrowsLoc());
+  if (!ThrowsLocOrErr)
+    return ThrowsLocOrErr.takeError();
 
   if (Status == ExprRequirement::SS_ExprSubstitutionFailure) {
     auto DiagOrErr = import(From->getExprSubstitutionDiagnostic());
     if (!DiagOrErr)
       return DiagOrErr.takeError();
     return new (Importer.getToContext()) ExprRequirement(
-        *DiagOrErr, IsRKSimple, *NoexceptLocOrErr, std::move(*Req));
+        *DiagOrErr, IsRKSimple, *NoexceptLocOrErr, *ThrowsLocOrErr,
+        std::move(*Req));
   } else {
     Expected<Expr *> ExprOrErr = import(From->getExpr());
     if (!ExprOrErr)
       return ExprOrErr.takeError();
     return new (Importer.getToContext()) concepts::ExprRequirement(
-        *ExprOrErr, IsRKSimple, *NoexceptLocOrErr, std::move(*Req), Status,
-        SubstitutedConstraintExpr);
+        *ExprOrErr, IsRKSimple, *NoexceptLocOrErr, *ThrowsLocOrErr,
+        std::move(*Req), Status, SubstitutedConstraintExpr);
   }
 }
 

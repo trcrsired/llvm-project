@@ -565,6 +565,7 @@ void ASTStmtWriter::VisitRequiresExpr(RequiresExpr *E) {
         Record.AddStmt(cast<Expr *>(ExprReq->Value));
       if (ExprReq->getKind() == concepts::Requirement::RK_Compound) {
         Record.AddSourceLocation(ExprReq->NoexceptLoc);
+        Record.AddSourceLocation(ExprReq->ThrowsLoc);
         const auto &RetReq = ExprReq->getReturnTypeRequirement();
         if (RetReq.isSubstitutionFailure()) {
           Record.push_back(2);
