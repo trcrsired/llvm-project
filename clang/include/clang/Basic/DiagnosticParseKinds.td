@@ -960,6 +960,9 @@ def err_requires_expr_expected_type_constraint : Error<
 def err_requires_expr_simple_requirement_noexcept : Error<
   "'noexcept' can only be used in a compound requirement (with '{' '}' around "
   "the expression)">;
+def err_requires_expr_simple_requirement_throws : Error<
+  "'throws' can only be used in a compound requirement (with '{' '}' around "
+  "the expression)">;
 def err_requires_expr_in_simple_requirement : Error<
   "requires expression in requirement body; did "
   "you intend to place it in a nested requirement? (add another 'requires' "

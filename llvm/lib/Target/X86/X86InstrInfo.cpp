@@ -5467,6 +5467,96 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
   }
   }
 
+  // Herbception (throws): the post-call discriminant is materialized with a
+  // HERB_SETCCr (pseudo setb, glued directly to the call) and typically reaches
+  // a conditional branch through a TEST8ri $1 round-trip:
+  //   %disc = herb_setb implicit EFLAGS
+  //   ...                          // must not clobber EFLAGS
+  //   testb $1, %disc
+  //   jcc eq/ne
+  // When EFLAGS survives untouched from the HERB_SETCCr to the branch, replace
+  // the branch with a direct jc/jae on CF and erase the HERB_SETCCr/TEST8ri
+  // pair.
+  if (CmpInstr.getOpcode() == X86::TEST8ri && CmpValue == 0 &&
+      CmpInstr.getOperand(1).isImm() && CmpInstr.getOperand(1).getImm() == 1 &&
+      CmpInstr.getOperand(0).isReg()) {
+    const TargetRegisterInfo *TRI = &getRegisterInfo();
+    Register DiscReg = CmpInstr.getOperand(0).getReg();
+    MachineInstr *SetB =
+        DiscReg.isVirtual() ? MRI->getVRegDef(DiscReg) : nullptr;
+    MachineBasicBlock *MBB = CmpInstr.getParent();
+    if (SetB && SetB->getOpcode() == X86::HERB_SETCCr &&
+        SetB->getParent() == MBB) {
+      bool Clean = true;
+      // The TEST must be the only non-debug user of the discriminant.
+      for (MachineInstr &U : MRI->use_nodbg_instructions(DiscReg))
+        if (&U != &CmpInstr) {
+          Clean = false;
+          break;
+        }
+      // Nothing between the SETCCr and the branch may clobber EFLAGS or
+      // touch the discriminant register. A call-sequence adjustment with
+      // zero byte counts is eliminated outright, so it does not clobber.
+      auto IsHarmlessAdjCallStack = [](const MachineInstr &MI) {
+        switch (MI.getOpcode()) {
+        default:
+          return false;
+        case X86::ADJCALLSTACKDOWN32:
+        case X86::ADJCALLSTACKUP32:
+        case X86::ADJCALLSTACKDOWN64:
+        case X86::ADJCALLSTACKUP64:
+          return MI.getOperand(0).getImm() == 0 &&
+                 MI.getOperand(1).getImm() == 0;
+        }
+      };
+      for (MachineBasicBlock::iterator It =
+               std::next(MachineBasicBlock::iterator(SetB));
+           Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It)
+        if (IsHarmlessAdjCallStack(*It))
+          continue;
+        else if (It->modifiesRegister(X86::EFLAGS, TRI) ||
+                 It->readsRegister(DiscReg, TRI))
+          Clean = false;
+      // Exactly one EFLAGS consumer before the next EFLAGS redefinition: a
+      // je/jne that can become jc/jae. Any other EFLAGS reader would observe
+      // the deleted TEST's flags.
+      MachineInstr *Br = nullptr;
+      X86::CondCode BrCC = X86::COND_INVALID;
+      for (MachineBasicBlock::iterator It =
+               std::next(MachineBasicBlock::iterator(CmpInstr));
+           Clean && It != MBB->end();) {
+        if (It->readsRegister(X86::EFLAGS, TRI)) {
+          X86::CondCode OldCC = X86::getCondFromMI(*It);
+          if (!Br && OldCC != X86::COND_INVALID &&
+              (OldCC == X86::COND_E || OldCC == X86::COND_NE) &&
+              It->getOpcode() == X86::JCC_1) {
+            Br = &*It;
+            BrCC = OldCC;
+            ++It;
+            continue;
+          }
+          Clean = false;
+          break;
+        }
+        if (It->modifiesRegister(X86::EFLAGS, TRI))
+          break;
+        ++It;
+      }
+      if (Clean && Br) {
+        // testb $1, %disc sets ZF iff the discriminant bit is zero, i.e. iff
+        // CF was clear. je therefore corresponds to jae (CF clear) and jne to
+        // jb (CF set).
+        Br->getOperand(1).setImm(BrCC == X86::COND_E ? X86::COND_AE
+                                                     : X86::COND_B);
+        LLVM_DEBUG(dbgs() << "Herbception: folded setb/test/jcc into j"
+                          << (BrCC == X86::COND_E ? "ae" : "b") << '\n');
+        CmpInstr.eraseFromParent();
+        SetB->eraseFromParent();
+        return true;
+      }
+    }
+  }
+
   // The following code tries to remove the comparison by re-using EFLAGS
   // from earlier instructions.
 
@@ -6356,6 +6446,13 @@ bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     return Expand2AddrUndef(MIB, get(X86::SBB32rr));
   case X86::SETB_C64r:
     return Expand2AddrUndef(MIB, get(X86::SBB64rr));
+  case X86::HERB_SETCCr: {
+    // Herbception (throws): lower the pseudo to a real SETCCr(COND_B).
+    // The EFLAGS use is already implicit from the Uses = [EFLAGS] constraint.
+    MIB->setDesc(get(X86::SETCCr));
+    MIB.addImm(X86::COND_B);
+    return true;
+  }
   case X86::MMX_SET0:
     return Expand2AddrUndef(MIB, get(X86::MMX_PXORrr));
   case X86::V_SET0:

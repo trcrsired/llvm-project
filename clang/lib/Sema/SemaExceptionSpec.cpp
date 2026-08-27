@@ -118,8 +118,10 @@ ExprResult Sema::ActOnNoexceptSpec(Expr *NoexceptExpr,
 ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
                                  ExceptionSpecificationType &EST) {
   // `throws` (no argument) defaults to EST_BasicThrows. With an argument,
-  // `throws(true)` is EST_BasicThrows; `throws(false)` means the function
-  // cannot fail (like noexcept).
+  // `throws(true)` is EST_BasicThrows; `throws(false)` is also EST_BasicThrows
+  // (the function is still a throws function, just with a false condition).
+  // The noexcept implication is always present for throws functions unless
+  // the user explicitly specifies noexcept(false).
   if (!ThrowsExpr) {
     EST = EST_BasicThrows;
     return ExprResult();
@@ -142,7 +144,10 @@ ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
     EST = EST_BasicThrows;
     return Converted;
   }
-  EST = Result.getBoolValue() ? EST_BasicThrows : EST_BasicNoexcept;
+  // Both throws(true) and throws(false) set EST_BasicThrows.
+  // The condition only affects whether the function can actually fail,
+  // not whether it's a throws function.
+  EST = EST_BasicThrows;
   return Converted;
 }
 

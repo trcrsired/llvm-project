@@ -10,8 +10,7 @@ define { i64, i1 } @ret_success(i64 %x) #0 {
 ; CHECK-LABEL: ret_success:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    movq %rdi, %rax
-; CHECK-NEXT:    xorl %ecx, %ecx
-; CHECK-NEXT:    addb $-1, %cl
+; CHECK-NEXT:    clc
 ; CHECK-NEXT:    retq
 entry:
   %r.i = insertvalue { i64, i1 } poison, i64 %x, 0
@@ -24,8 +23,7 @@ define { i64, i1 } @ret_error(i64 %x) #0 {
 ; CHECK-LABEL: ret_error:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    movq %rdi, %rax
-; CHECK-NEXT:    movb $1, %cl
-; CHECK-NEXT:    addb $-1, %cl
+; CHECK-NEXT:    stc
 ; CHECK-NEXT:    retq
 entry:
   %r.i = insertvalue { i64, i1 } poison, i64 %x, 0
@@ -50,6 +48,13 @@ define i64 @call_and_select(i64 %x) #1 {
 ; CHECK32:         calll ret_error@PLT
 ; CHECK32-NEXT:    setb %cl
 ; CHECK32-NEXT:    testb $1, %cl
+; CHECK32-NEXT:    je .LBB2_2
+; CHECK32-NEXT:  # %bb.1:
+; CHECK32-NEXT:    xorl %edx, %edx
+; CHECK32-NEXT:    movl $100, %eax
+; CHECK32-NEXT:  .LBB2_2: # %entry
+; CHECK32-NEXT:    addl $12, %esp
+; CHECK32-NEXT:    retl
 entry:
   %c = call { i64, i1 } @ret_error(i64 %x)
   %val = extractvalue { i64, i1 } %c, 0
@@ -60,3 +65,43 @@ entry:
 
 attributes #0 = { throws }
 attributes #1 = { nounwind }
+
+; Herbception (throws): branch on carry flag. When the discriminant is used
+; only for a branch, the backend folds setb + test + jcc into a single jcc
+; on CF (jae/jb), eliminating the setb.
+declare void @capture(i32) #3
+define void @call_and_branch() #1 {
+; CHECK-LABEL: call_and_branch:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    pushq %rax
+; CHECK-NEXT:    callq ret_error@PLT
+; CHECK-NEXT:    jae .LBB3_1
+; CHECK-NEXT:  # %bb.2: # %err
+; CHECK-NEXT:    movl $7, %edi
+; CHECK-NEXT:    popq %rax
+; CHECK-NEXT:    jmp capture@PLT # TAILCALL
+; CHECK-NEXT:  .LBB3_1: # %cont
+; CHECK-NEXT:    popq %rax
+; CHECK-NEXT:    retq
+; CHECK32-LABEL: call_and_branch:
+; CHECK32:       # %bb.0:
+; CHECK32:         calll ret_error@PLT
+; CHECK32-NEXT:    jae .LBB3_2
+; CHECK32-NEXT:  # %bb.1: # %err
+; CHECK32-NEXT:    movl $7, (%esp)
+; CHECK32-NEXT:    calll capture@PLT
+; CHECK32-NEXT:  .LBB3_2: # %cont
+; CHECK32-NEXT:    addl $12, %esp
+; CHECK32-NEXT:    retl
+entry:
+  %call = tail call { i32, i1 } @ret_error()
+  %d = extractvalue { i32, i1 } %call, 1
+  br i1 %d, label %err, label %cont
+err:
+  tail call void @capture(i32 7)
+  ret void
+cont:
+  ret void
+}
+
+attributes #3 = { nounwind }

@@ -42,7 +42,7 @@ constinit ::std::error_domain_singleton __wine_error_domain{
     // and returns the semantically matching errc; anything without an errc
     // meaning falls back to io_error.
     .do_to_errc = [](::std::size_t cd) noexcept -> ::std::errc {
-      switch (static_cast<::std::wine_errc>(cd)) {
+      switch (static_cast<::std::uint_least32_t>(cd)) {
 #include "wine_errc_map.hpp"
       }
       return ::std::errc::io_error;

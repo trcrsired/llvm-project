@@ -1173,6 +1173,17 @@ protected:
     unsigned Value : 1;
   };
 
+  class CXXThrowsExprBitfields {
+    friend class ASTStmtReader;
+    friend class CXXThrowsExpr;
+
+    LLVM_PREFERRED_TYPE(ExprBitfields)
+    unsigned : NumExprBits;
+
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned Value : 1;
+  };
+
   class SubstNonTypeTemplateParmExprBitfields {
     friend class ASTStmtReader;
     friend class SubstNonTypeTemplateParmExpr;
@@ -1405,6 +1416,7 @@ protected:
     UnresolvedLookupExprBitfields UnresolvedLookupExprBits;
     UnresolvedMemberExprBitfields UnresolvedMemberExprBits;
     CXXNoexceptExprBitfields CXXNoexceptExprBits;
+    CXXThrowsExprBitfields CXXThrowsExprBits;
     SubstNonTypeTemplateParmExprBitfields SubstNonTypeTemplateParmExprBits;
     LambdaExprBitfields LambdaExprBits;
     RequiresExprBitfields RequiresExprBits;

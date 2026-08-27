@@ -8190,6 +8190,28 @@ ExprResult Sema::ActOnNoexceptExpr(SourceLocation KeyLoc, SourceLocation,
   return BuildCXXNoexceptExpr(KeyLoc, Operand, RParen);
 }
 
+ExprResult Sema::ActOnThrowsExpr(SourceLocation KeyLoc, SourceLocation,
+                                 Expr *Operand, SourceLocation RParen) {
+  if (!getLangOpts().HerbExceptions)
+    return ExprError(Diag(KeyLoc, diag::err_herbception_disabled));
+
+  ExprResult R = CheckPlaceholderExpr(Operand);
+  if (R.isInvalid())
+    return R;
+
+  R = CheckUnevaluatedOperand(R.get());
+  if (R.isInvalid())
+    return ExprError();
+
+  Operand = R.get();
+
+  // throws(expr) tests the implicit `throws` channel (null E).
+  bool CanHerbceptionThrow = canHerbceptionThrow(Operand, QualType());
+  return new (Context)
+      CXXThrowsExpr(Context.BoolTy, Operand, CanHerbceptionThrow, KeyLoc,
+                    RParen);
+}
+
 static void MaybeDecrementCount(
     Expr *E, llvm::DenseMap<const VarDecl *, int> &RefsMinusAssignments) {
   DeclRefExpr *LHS = nullptr;
@@ -8599,6 +8621,7 @@ IfExistsResult Sema::CheckMicrosoftIfExistsSymbol(Scope *S,
 concepts::Requirement *Sema::ActOnSimpleRequirement(Expr *E) {
   return BuildExprRequirement(E, /*IsSimple=*/true,
                               /*NoexceptLoc=*/SourceLocation(),
+                              /*ThrowsLoc=*/SourceLocation(),
                               /*ReturnTypeRequirement=*/{});
 }
 
@@ -8633,14 +8656,16 @@ concepts::Requirement *Sema::ActOnTypeRequirement(
 }
 
 concepts::Requirement *
-Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc) {
-  return BuildExprRequirement(E, /*IsSimple=*/false, NoexceptLoc,
+Sema::ActOnCompoundRequirement(Expr *E, SourceLocation NoexceptLoc,
+                               SourceLocation ThrowsLoc) {
+  return BuildExprRequirement(E, /*IsSimple=*/false, NoexceptLoc, ThrowsLoc,
                               /*ReturnTypeRequirement=*/{});
 }
 
 concepts::Requirement *
 Sema::ActOnCompoundRequirement(
-    Expr *E, SourceLocation NoexceptLoc, CXXScopeSpec &SS,
+    Expr *E, SourceLocation NoexceptLoc, SourceLocation ThrowsLoc,
+    CXXScopeSpec &SS,
     TemplateIdAnnotation *TypeConstraint, unsigned Depth) {
   // C++2a [expr.prim.req.compound] p1.3.3
   //   [..] the expression is deduced against an invented function template
@@ -8666,7 +8691,8 @@ Sema::ActOnCompoundRequirement(
                           /*EllipsisLoc=*/SourceLocation(),
                           /*AllowUnexpandedPack=*/true))
     // Just produce a requirement with no type requirements.
-    return BuildExprRequirement(E, /*IsSimple=*/false, NoexceptLoc, {});
+    return BuildExprRequirement(E, /*IsSimple=*/false, NoexceptLoc, ThrowsLoc,
+                                {});
 
   auto *TPL = TemplateParameterList::Create(Context, SourceLocation(),
                                             SourceLocation(),
@@ -8674,13 +8700,14 @@ Sema::ActOnCompoundRequirement(
                                             SourceLocation(),
                                             /*RequiresClause=*/nullptr);
   return BuildExprRequirement(
-      E, /*IsSimple=*/false, NoexceptLoc,
+      E, /*IsSimple=*/false, NoexceptLoc, ThrowsLoc,
       concepts::ExprRequirement::ReturnTypeRequirement(TPL));
 }
 
 concepts::ExprRequirement *
 Sema::BuildExprRequirement(
     Expr *E, bool IsSimple, SourceLocation NoexceptLoc,
+    SourceLocation ThrowsLoc,
     concepts::ExprRequirement::ReturnTypeRequirement ReturnTypeRequirement) {
   auto Status = concepts::ExprRequirement::SS_Satisfied;
   ConceptSpecializationExpr *SubstitutedConstraintExpr = nullptr;
@@ -8689,6 +8716,10 @@ Sema::BuildExprRequirement(
     Status = concepts::ExprRequirement::SS_Dependent;
   else if (NoexceptLoc.isValid() && canThrow(E) == CanThrowResult::CT_Can)
     Status = concepts::ExprRequirement::SS_NoexceptNotMet;
+  else if (NoexceptLoc.isValid() && canHerbceptionThrow(E, QualType()))
+    Status = concepts::ExprRequirement::SS_NoexceptNotMet;
+  else if (ThrowsLoc.isValid() && !canHerbceptionThrow(E, QualType()))
+    Status = concepts::ExprRequirement::SS_ThrowsNotMet;
   else if (ReturnTypeRequirement.isSubstitutionFailure())
     Status = concepts::ExprRequirement::SS_TypeRequirementSubstitutionFailure;
   else if (ReturnTypeRequirement.isTypeConstraint()) {
@@ -8728,12 +8759,13 @@ Sema::BuildExprRequirement(
                               IDC->printPretty(OS, /*Helper=*/nullptr,
                                                getPrintingPolicy());
                             }),
-          IsSimple, NoexceptLoc, ReturnTypeRequirement);
+          IsSimple, NoexceptLoc, ThrowsLoc, ReturnTypeRequirement);
     }
     if (!SubstitutedConstraintExpr->isSatisfied())
       Status = concepts::ExprRequirement::SS_ConstraintsNotSatisfied;
   }
   return new (Context) concepts::ExprRequirement(E, IsSimple, NoexceptLoc,
+                                                 ThrowsLoc,
                                                  ReturnTypeRequirement, Status,
                                                  SubstitutedConstraintExpr);
 }
@@ -8741,10 +8773,11 @@ Sema::BuildExprRequirement(
 concepts::ExprRequirement *
 Sema::BuildExprRequirement(
     concepts::Requirement::SubstitutionDiagnostic *ExprSubstitutionDiagnostic,
-    bool IsSimple, SourceLocation NoexceptLoc,
+    bool IsSimple, SourceLocation NoexceptLoc, SourceLocation ThrowsLoc,
     concepts::ExprRequirement::ReturnTypeRequirement ReturnTypeRequirement) {
   return new (Context) concepts::ExprRequirement(ExprSubstitutionDiagnostic,
                                                  IsSimple, NoexceptLoc,
+                                                 ThrowsLoc,
                                                  ReturnTypeRequirement);
 }
 

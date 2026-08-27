@@ -2824,10 +2824,12 @@ TemplateInstantiator::TransformExprRequirement(concepts::ExprRequirement *Req) {
   assert(TransRetReq && "All code paths leading here must set TransRetReq");
   if (Expr *E = TransExpr.dyn_cast<Expr *>())
     return RebuildExprRequirement(E, Req->isSimple(), Req->getNoexceptLoc(),
+                                  Req->getThrowsLoc(),
                                   std::move(*TransRetReq));
   return RebuildExprRequirement(
       cast<concepts::Requirement::SubstitutionDiagnostic *>(TransExpr),
-      Req->isSimple(), Req->getNoexceptLoc(), std::move(*TransRetReq));
+      Req->isSimple(), Req->getNoexceptLoc(), Req->getThrowsLoc(),
+      std::move(*TransRetReq));
 }
 
 concepts::NestedRequirement *

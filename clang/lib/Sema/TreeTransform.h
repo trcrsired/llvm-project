@@ -3799,6 +3799,11 @@ public:
     return SemaRef.BuildCXXNoexceptExpr(Range.getBegin(), Arg, Range.getEnd());
   }
 
+  ExprResult RebuildCXXThrowsExpr(SourceRange Range, Expr *Arg) {
+    return SemaRef.ActOnThrowsExpr(Range.getBegin(), SourceLocation(), Arg,
+                                   Range.getEnd());
+  }
+
   UnsignedOrNone
   ComputeSizeOfPackExprWithoutSubstitution(ArrayRef<TemplateArgument> PackArgs);
 
@@ -3879,16 +3884,17 @@ public:
   concepts::ExprRequirement *
   RebuildExprRequirement(
       concepts::Requirement::SubstitutionDiagnostic *SubstDiag, bool IsSimple,
-      SourceLocation NoexceptLoc,
+      SourceLocation NoexceptLoc, SourceLocation ThrowsLoc,
       concepts::ExprRequirement::ReturnTypeRequirement Ret) {
     return SemaRef.BuildExprRequirement(SubstDiag, IsSimple, NoexceptLoc,
-                                        std::move(Ret));
+                                        ThrowsLoc, std::move(Ret));
   }
 
   concepts::ExprRequirement *
   RebuildExprRequirement(Expr *E, bool IsSimple, SourceLocation NoexceptLoc,
+                         SourceLocation ThrowsLoc,
                          concepts::ExprRequirement::ReturnTypeRequirement Ret) {
-    return SemaRef.BuildExprRequirement(E, IsSimple, NoexceptLoc,
+    return SemaRef.BuildExprRequirement(E, IsSimple, NoexceptLoc, ThrowsLoc,
                                         std::move(Ret));
   }
 
@@ -15927,10 +15933,12 @@ TreeTransform<Derived>::TransformExprRequirement(concepts::ExprRequirement *Req)
   if (Expr *E = dyn_cast<Expr *>(TransExpr))
     return getDerived().RebuildExprRequirement(E, Req->isSimple(),
                                                Req->getNoexceptLoc(),
+                                               Req->getThrowsLoc(),
                                                std::move(*TransRetReq));
   return getDerived().RebuildExprRequirement(
       cast<concepts::Requirement::SubstitutionDiagnostic *>(TransExpr),
-      Req->isSimple(), Req->getNoexceptLoc(), std::move(*TransRetReq));
+      Req->isSimple(), Req->getNoexceptLoc(), Req->getThrowsLoc(),
+      std::move(*TransRetReq));
 }
 
 template<typename Derived>
@@ -16912,6 +16920,21 @@ TreeTransform<Derived>::TransformCXXNoexceptExpr(CXXNoexceptExpr *E) {
     return E;
 
   return getDerived().RebuildCXXNoexceptExpr(E->getSourceRange(),SubExpr.get());
+}
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXThrowsExpr(CXXThrowsExpr *E) {
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::Unevaluated);
+  ExprResult SubExpr = getDerived().TransformExpr(E->getOperand());
+  if (SubExpr.isInvalid())
+    return ExprError();
+
+  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getOperand())
+    return E;
+
+  return getDerived().RebuildCXXThrowsExpr(E->getSourceRange(), SubExpr.get());
 }
 
 template<typename Derived>

@@ -19,7 +19,8 @@ enum class nt_errc : ::std::uint_least32_t {};
 
 inline constexpr bool operator==(::std::nt_errc __a,
                                  ::std::nt_errc __b) noexcept {
-  return __a == __b;
+  return static_cast<::std::uint_least32_t>(__a) ==
+         static_cast<::std::uint_least32_t>(__b);
 }
 
 template <> class error_domain<::std::nt_errc> {
