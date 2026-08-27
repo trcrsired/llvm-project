@@ -11,6 +11,9 @@
 // mapping, cross-domain equivalence, do_name/do_message, and the herbception
 // type traits.
 //
+// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib -lherbceptions %s -o %t && %t | %FileCheck %s
+// CHECK: PASS
+//
 //===----------------------------------------------------------------------===//
 
 #include "herbceptions/error"
