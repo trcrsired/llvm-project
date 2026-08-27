@@ -26,6 +26,8 @@ option(LIBHERBCEPTIONS_BUILD_SHARED "Build the shared library" ON)
 option(LIBHERBCEPTIONS_BUILD_STATIC "Build the static library" ON)
 option(LIBHERBCEPTIONS_HEADERS_ONLY "Header-only build" OFF)
 option(LIBHERBCEPTIONS_FREESTANDING "Build with -ffreestanding" OFF)
+option(LIBHERBCEPTIONS_ENABLE_EXCEPTIONS "Enable C++ dynamic exception handling (not herbceptions)" ON)
+option(LIBHERBCEPTIONS_ENABLE_RTTI "Enable C++ RTTI" ON)
 option(LIBHERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
 option(LIBHERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
 option(LIBHERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
@@ -51,6 +53,22 @@ target_include_directories(herbceptions_headers INTERFACE
 if(LIBHERBCEPTIONS_FREESTANDING)
   target_compile_options(herbceptions_headers INTERFACE -ffreestanding)
 endif()
+if(NOT LIBHERBCEPTIONS_ENABLE_EXCEPTIONS)
+  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(herbceptions_headers INTERFACE -fno-exceptions)
+  endif()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_definitions(herbceptions_headers INTERFACE _HAS_EXCEPTIONS=0)
+  endif()
+endif()
+if(NOT LIBHERBCEPTIONS_ENABLE_RTTI)
+  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(herbceptions_headers INTERFACE -fno-rtti)
+  endif()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_definitions(herbceptions_headers INTERFACE _HAS_RTTI=0)
+  endif()
+endif()
 
 # Headers-only build: no runtime sources.
 if(LIBHERBCEPTIONS_HEADERS_ONLY)
@@ -59,9 +77,16 @@ if(LIBHERBCEPTIONS_HEADERS_ONLY)
   return()
 endif()
 
-add_library(herbceptions SHARED ${LIBHERBCEPTIONS_SOURCES})
+if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
+  add_library(herbceptions SHARED ${LIBHERBCEPTIONS_SOURCES})
+endif()
 add_library(herbceptions_static STATIC ${LIBHERBCEPTIONS_SOURCES})
-foreach(target herbceptions herbceptions_static)
+if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
+  set(HERBCEPTIONS_TARGETS herbceptions herbceptions_static)
+else()
+  set(HERBCEPTIONS_TARGETS herbceptions_static)
+endif()
+foreach(target IN LISTS HERBCEPTIONS_TARGETS)
   target_link_libraries(${target} PUBLIC herbceptions_headers)
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
@@ -74,10 +99,12 @@ foreach(target herbceptions herbceptions_static)
     CXX_EXTENSIONS OFF
   )
 endforeach()
-set_target_properties(herbceptions PROPERTIES
-  VERSION ${LIBHERBCEPTIONS_VERSION}
-  SOVERSION ${LIBHERBCEPTIONS_VERSION_MAJOR}
-)
+if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
+  set_target_properties(herbceptions PROPERTIES
+    VERSION ${LIBHERBCEPTIONS_VERSION}
+    SOVERSION ${LIBHERBCEPTIONS_VERSION_MAJOR}
+  )
+endif()
 
 if(TARGET cxx_shared OR TARGET cxx_static OR LLVM_RUNTIMES_BUILD)
   set(LIBHERBCEPTIONS_IN_RUNTIMES ON)
@@ -118,7 +145,9 @@ else()
     OUTPUT_NAME herbceptions)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  target_link_libraries(herbceptions PRIVATE ntdll)
+  if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
+    target_link_libraries(herbceptions PRIVATE ntdll)
+  endif()
   target_link_libraries(herbceptions_static PRIVATE ntdll)
 endif()
 
@@ -127,11 +156,17 @@ install(DIRECTORY include/
   FILES_MATCHING PATTERN "*.h"
   PATTERN "error"
 )
-install(TARGETS herbceptions herbceptions_static
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-)
+if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
+  install(TARGETS herbceptions herbceptions_static
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+  )
+else()
+  install(TARGETS herbceptions_static
+    ARCHIVE DESTINATION lib
+  )
+endif()
 
 if(LIBHERBCEPTIONS_BUILD_TESTS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
   add_executable(herbceptions_domain_test test/domain_test.cpp)
