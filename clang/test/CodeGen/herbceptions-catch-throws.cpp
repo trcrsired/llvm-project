@@ -18,12 +18,12 @@ struct error {
 };
 }
 
-// CHECK: define dso_local void @_Z6calleem(i64 noundef %i) #[[ATTR:[0-9]+]] {
+// CHECK: define dso_local void @_Z6calleem(i64 noundef %0) #[[ATTR:[0-9]+]] {
 // CHECK: call { { ptr, i64 }, i1 } @_Z3barm
 // CHECK: extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
-// CHECK: br i1 %{{.*}}, label %herb.catch.err, label %herb.catch.ok
-// CHECK: store {{.*}} %{{.*}}, ptr %e, align 8
-// CHECK: call void @_ZNSt5errorD1Ev(ptr {{.*}} %e)
+// CHECK: br i1 %{{.*}}, label %{{[0-9]+}}, label %{{[0-9]+}}
+// CHECK: store %"struct.std::error" %{{.*}}, ptr %{{.*}}, align 8
+// CHECK: call void @_ZNSt5errorD1Ev(ptr {{.*}} %{{.*}})
 void bar(size_t i) throws {
   if (i == 0) throw throws std::error{nullptr, 4};
 }

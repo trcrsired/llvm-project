@@ -658,6 +658,20 @@ def IsInvokeHerbceptionsFails : UnaryTrait {
   let KeyFlags = [KEYHERB];
 }
 
+// Whether F is invocable with Args... and the resulting call can propagate a
+// herbception error through the `throws` channel. Mirrors is_invocable.
+def IsHerbceptionsThrowsInvocable : VariadicTrait {
+  let Spelling = "__is_herbceptions_throws_invocable";
+  let KeyFlags = [KEYHERB];
+}
+// Whether F is invocable with Args..., the result is convertible to R, and the
+// resulting call can propagate a herbception error through the `throws` channel.
+// Mirrors is_invocable_r.
+def IsHerbceptionsThrowsInvocableR : VariadicTrait {
+  let Spelling = "__is_herbceptions_throws_invocable_r";
+  let KeyFlags = [KEYHERB];
+}
+
 def ArrayRank : ArrayTrait {
   let Spelling = "__array_rank";
 }

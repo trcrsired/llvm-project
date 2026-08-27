@@ -402,6 +402,46 @@ struct is_herbceptions_throws_constructible
     : ::std::bool_constant<is_herbceptions_throws_constructible_v<__T, __A...>> {
 };
 
+// Specializations of is_herbceptions_throws_constructible for copy/move
+// construction, mirroring std::is_nothrow_copy_constructible /
+// std::is_nothrow_move_constructible.
+template <typename __T>
+inline constexpr bool is_herbceptions_throws_copy_constructible_v =
+    __is_herbceptions_throws_constructible(__T, const __T&);
+
+template <typename __T>
+struct is_herbceptions_throws_copy_constructible
+    : ::std::bool_constant<is_herbceptions_throws_copy_constructible_v<__T>> {};
+
+template <typename __T>
+inline constexpr bool is_herbceptions_throws_move_constructible_v =
+    __is_herbceptions_throws_constructible(__T, __T&&);
+
+template <typename __T>
+struct is_herbceptions_throws_move_constructible
+    : ::std::bool_constant<is_herbceptions_throws_move_constructible_v<__T>> {};
+
+// Whether F is invocable with Args... and the resulting call can propagate a
+// herbception error through the `throws` channel. Mirrors std::is_invocable.
+template <typename __F, typename... __A>
+inline constexpr bool is_herbceptions_throws_invocable_v =
+    __is_herbceptions_throws_invocable(__F, __A...);
+
+template <typename __F, typename... __A>
+struct is_herbceptions_throws_invocable
+    : ::std::bool_constant<is_herbceptions_throws_invocable_v<__F, __A...>> {};
+
+// Whether F is invocable with Args..., the result is convertible to R, and the
+// resulting call can propagate a herbception error through the `throws` channel.
+// Mirrors std::is_invocable_r.
+template <typename __R, typename __F, typename... __A>
+inline constexpr bool is_herbceptions_throws_invocable_r_v =
+    __is_herbceptions_throws_invocable_r(__R, __F, __A...);
+
+template <typename __R, typename __F, typename... __A>
+struct is_herbceptions_throws_invocable_r
+    : ::std::bool_constant<is_herbceptions_throws_invocable_r_v<__R, __F, __A...>> {};
+
 template <typename __T, typename __U>
 inline constexpr bool is_herbceptions_throws_assignable_v =
     __is_herbceptions_throws_assignable(__T, __U);

@@ -455,6 +455,22 @@ channel: ``__is_herbceptions_throws_constructible``,
   T, i1}``-shaped result
 type of a ``fails`` function type.
 
+Convenience specializations of ``__is_herbceptions_throws_constructible`` mirror
+the standard ``is_nothrow_copy_constructible`` / ``is_nothrow_move_constructible``
+family::
+
+   // Copy/move construction that can propagate a herbception.
+   static_assert(std::is_herbceptions_throws_copy_constructible_v<T>);
+   static_assert(std::is_herbceptions_throws_move_constructible_v<T>);
+
+Invocation traits test whether a callable can propagate a herbception error
+through the ``throws`` channel when invoked::
+
+   // F is invocable with Args... and the call can throw.
+   static_assert(std::is_herbceptions_throws_invocable_v<F, Args...>);
+   // Same, and the result is convertible to R.
+   static_assert(std::is_herbceptions_throws_invocable_r_v<R, F, Args...>);
+
 Runtime support
 ===============
 
