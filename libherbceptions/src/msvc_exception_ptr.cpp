@@ -77,6 +77,21 @@ void __cdecl __ExceptionPtrRethrow(void *)
 #endif
         ;
 
+void __cdecl __ExceptionPtrCopy(void *, void const *) noexcept
+#if defined(__clang__) || defined(__GNUC__)
+#if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
+    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
+#if !defined(__clang__)
+    __asm__("?__ExceptionPtrCopy@@YAXPAXPBX@Z")
+#else
+    __asm__("?__ExceptionPtrCopy@@YAXPAXPBX@Z")
+#endif
+#else
+    __asm__("?__ExceptionPtrCopy@@YAXPEAXPEBX@Z")
+#endif
+#endif
+        ;
+
 } // namespace std::error_domains::__details
 
 namespace {
@@ -691,14 +706,15 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
         }
 #endif
 };
-} // namespace
-
-extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_msvc_exception_ptr() noexcept {
   struct error_domain_msvc_eh_ptr {
     void *rec;
     void *ref;
   };
+ 
+} // namespace
+
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__cxa_error_code_msvc_exception_ptr() noexcept {
   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
       __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
   ::std::error_domains::__details::__ExceptionPtrCurrentException(
@@ -709,6 +725,14 @@ __cxa_error_code_msvc_exception_ptr() noexcept {
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_msvc_exception_ptr() noexcept {
   return __builtin_addressof(msvc_exception_ptr_domain);
+}
+
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__cxa_error_code_msvc_exception_ptr_clone(void const* src) noexcept {
+   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
+      __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
+  ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, src);
+  return reinterpret_cast<::std::size_t>(ehptr_storage);
 }
 
 #endif
