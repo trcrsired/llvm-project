@@ -1,6 +1,6 @@
 // RUN: not %clang_cc1 -fherbceptions -fcxx-exceptions -fsyntax-only %s 2>&1 | FileCheck %s
 
-// The herbception 'throws'/'fails{...}' specifier is part of the canonical
+// The herbception 'throws'/'return_failure{...}' specifier is part of the canonical
 // function type because it changes the calling convention ({T, i1} return
 // instead of T). Therefore:
 //   - a throws function pointer is only compatible with a throws function,
@@ -9,7 +9,7 @@
 //   - a virtual function override must use the same herbception specifier.
 
 using size_t = __SIZE_TYPE__;
-namespace std { struct error { void *domain; size_t code; }; }
+namespace std { struct error { void *domain; __SIZE_TYPE__ code; }; }
 
 void throws_fn(size_t) throws {}
 void plain_fn(size_t) {}
@@ -30,7 +30,7 @@ struct BaseThrows {
   virtual void f() throws;
 };
 struct DerivedMissingThrows : BaseThrows {
-  // CHECK: error: overriding function has a different herbception ('throws'/'fails{...}') specifier than the base version
+  // CHECK: error: overriding function has a different herbception ('throws'/'return_failure{...}') specifier than the base version
   void f() override;
 };
 
@@ -38,7 +38,7 @@ struct BasePlain {
   virtual void f();
 };
 struct DerivedAddsThrows : BasePlain {
-  // CHECK: error: overriding function has a different herbception ('throws'/'fails{...}') specifier than the base version
+  // CHECK: error: overriding function has a different herbception ('throws'/'return_failure{...}') specifier than the base version
   void f() throws override;
 };
 

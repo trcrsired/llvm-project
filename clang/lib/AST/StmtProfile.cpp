@@ -2193,7 +2193,7 @@ void StmtProfiler::VisitCXXTryExpr(const CXXTryExpr *S) {
   VisitStmt(S->getSubExpr());
 }
 
-void StmtProfiler::VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *S) {
+void StmtProfiler::VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *S) {
   VisitExpr(S);
   VisitStmt(S->getSubExpr());
 }

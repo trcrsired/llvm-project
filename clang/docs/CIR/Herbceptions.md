@@ -1,4 +1,4 @@
-# Herbceptions (throws/fails) in ClangIR
+# Herbceptions (throws/return_failure) in ClangIR
 
 Herbceptions are an error handling mechanism for C++ that uses a `{T, i1}` return
 type to carry both the success value and a failure discriminant. This document
@@ -6,7 +6,7 @@ describes how herbceptions are implemented in ClangIR.
 
 ## Overview
 
-A function declared with `throws` or `fails{E}` has its return type transformed
+A function declared with `throws` or `return_failure{E}` has its return type transformed
 into a `{T, i1}` record, where `T` is the original return type (or the error
 type for `void` functions) and `i1` is the failure discriminant.
 
@@ -101,12 +101,12 @@ cir.if %disc_val {
 }
 ```
 
-### catch fails(expr)
+### catch return_failure(expr)
 
-The `catch fails(expr)` expression builds an `either{T, E}` aggregate:
+The `catch return_failure(expr)` expression builds an `either{T, E}` aggregate:
 
 ```cpp
-auto e = catch fails(bar(x));
+auto e = catch return_failure(bar(x));
 return !e.failed ? e.value * 2 : e.error;
 ```
 

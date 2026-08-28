@@ -2062,7 +2062,7 @@ void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
   Code = serialization::EXPR_CXX_TRY;
 }
 
-void ASTStmtWriter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+void ASTStmtWriter::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getCatchLoc());
   Record.AddStmt(E->getSubExpr());

@@ -378,8 +378,8 @@ def RemoveCVRef : TransformTypeTrait {
 // argument is a function type (or pointer/reference to one) with a fails{E}
 // spec, and void otherwise.
 def InvokeHerbceptionsFailsType : TransformTypeTrait {
-  let Spelling = "__invoke_herbceptions_fails_t";
-  let StdName = "invoke_herbceptions_fails_t";
+  let Spelling = "__invoke_herbceptions_return_failure_t";
+  let StdName = "invoke_herbceptions_return_failure_t";
   let KeyFlags = [KEYHERB];
 }
 
@@ -652,9 +652,9 @@ def IsHerbceptionsThrowsable : UnaryTrait {
 
 // Whether F is a function type (or function pointer/reference) declared with a
 // `fails{E}` herbception spec, named to mirror invoke_result_t/invoke_return_t.
-// To obtain the error type E, use __invoke_herbceptions_fails_t(F).
+// To obtain the error type E, use __invoke_herbceptions_return_failure_t(F).
 def IsInvokeHerbceptionsFails : UnaryTrait {
-  let Spelling = "__is_invoke_herbceptions_fails";
+  let Spelling = "__is_invoke_herbceptions_return_failure";
   let KeyFlags = [KEYHERB];
 }
 

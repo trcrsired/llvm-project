@@ -147,7 +147,7 @@ def CXXThrowExpr : StmtNode<Expr>;
 def CXXErrorValueExpr : StmtNode<Expr>;
 def CXXCxaExceptionExpr : StmtNode<Expr>;
 def CXXTryExpr : StmtNode<Expr>;
-def CXXCatchFailsExpr : StmtNode<Expr>;
+def CXXCatchReturnFailureExpr : StmtNode<Expr>;
 def CXXDefaultArgExpr : StmtNode<Expr>;
 def CXXDefaultInitExpr : StmtNode<Expr>;
 def CXXScalarValueInitExpr : StmtNode<Expr>;

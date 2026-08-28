@@ -338,6 +338,10 @@ Retry:
     Res = ParseReturnStatement();
     SemiError = "return";
     break;
+  case tok::kw_return_failure:      // herbception: return_failure-statement
+    Res = ParseReturnFailureStatement();
+    SemiError = "return_failure";
+    break;
   case tok::kw_co_return:            // C++ Coroutines: co_return statement
     Res = ParseReturnStatement();
     SemiError = "co_return";
@@ -2535,6 +2539,22 @@ StmtResult Parser::ParseReturnStatement() {
   return Actions.ActOnReturnStmt(ReturnLoc, R.get(), getCurScope());
 }
 
+StmtResult Parser::ParseReturnFailureStatement() {
+  assert(Tok.is(tok::kw_return_failure) && "Not a return_failure stmt!");
+  SourceLocation ReturnFailureLoc = ConsumeToken();
+
+  ExprResult R;
+  if (Tok.isNot(tok::semi)) {
+    R = ParseExpression();
+    if (R.isInvalid()) {
+      SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
+      return StmtError();
+    }
+  }
+  return Actions.ActOnHerbceptionReturnFailureStmt(ReturnFailureLoc, R.get(),
+                                                   getCurScope());
+}
+
 StmtResult Parser::ParseDeferStatement(SourceLocation *TrailingElseLoc) {
   assert(Tok.is(tok::kw__Defer));
   SourceLocation DeferLoc = ConsumeToken();
@@ -2783,7 +2803,7 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
   // must be std::error (checked by Sema). There is no `catch fails` block
   // handler: `catch fails` exists only in its expression form,
   // `catch fails(expr)`.
-  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_fails)) {
+  if (getLangOpts().HerbExceptions && Tok.is(tok::kw_return_failure)) {
     SourceLocation SpecLoc = ConsumeToken();
     Diag(SpecLoc, diag::err_catch_fails_expression_only);
     SkipUntil(tok::l_brace, StopBeforeMatch);

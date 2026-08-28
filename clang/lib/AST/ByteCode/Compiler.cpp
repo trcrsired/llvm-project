@@ -3771,7 +3771,7 @@ bool Compiler<Emitter>::VisitCXXTryExpr(const CXXTryExpr *E) {
 }
 
 template <class Emitter>
-bool Compiler<Emitter>::VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
+bool Compiler<Emitter>::VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
   return this->emitInvalid(E);
 }
 

@@ -37,11 +37,11 @@ auto l3 = []() noexcept(false) throws {}; // expected-error {{'throws' and 'noex
 // throws(expr) expression operator: detects whether an expression can propagate
 // a herbception error through the implicit `throws` channel.
 void throws_fn() throws;
-void fails_fn() fails{int};
+void fails_fn() return_failure{int};
 void plain_fn() noexcept;
 
 static_assert(throws(throws_fn()), "throws function should be detected");
-static_assert(!throws(fails_fn()), "fails{E} function should NOT be detected");
+static_assert(!throws(fails_fn()), "return_failure{E} function should NOT be detected");
 static_assert(!throws(plain_fn()), "noexcept function should NOT be detected");
 
 // throws(expr) works in constant expressions.
@@ -49,3 +49,15 @@ constexpr bool test_throws() {
   return throws(throws_fn());
 }
 static_assert(test_throws(), "throws in constexpr");
+
+// FFI boundary: throw throws cxx_std_error{domain, code} is allowed — the
+// global struct cxx_std_error ({void*, uintptr_t}) is layout-compatible with
+// std::error and passes through without going through error_domain.
+struct cxx_std_error { void *domain; __SIZE_TYPE__ code; };
+
+extern "C" struct cxx_std_error get_c_error();
+
+void ffi_throws() throws {
+  struct cxx_std_error e = get_c_error();
+  throw throws e;
+}

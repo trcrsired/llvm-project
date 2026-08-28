@@ -2397,7 +2397,7 @@ void StmtPrinter::VisitCXXTryExpr(CXXTryExpr *Node) {
   OS << ")";
 }
 
-void StmtPrinter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *Node) {
+void StmtPrinter::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *Node) {
   OS << "catch fails(";
   PrintExpr(Node->getSubExpr());
   OS << ")";

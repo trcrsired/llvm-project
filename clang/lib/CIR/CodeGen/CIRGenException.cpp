@@ -1056,7 +1056,7 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
   return getUndefRValue(callTy);
 }
 
-RValue CIRGenFunction::emitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
+RValue CIRGenFunction::emitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E) {
   const Expr *sub = E->getSubExpr()->IgnoreParenImpCasts();
   const CallExpr *call = cast<CallExpr>(sub);
 

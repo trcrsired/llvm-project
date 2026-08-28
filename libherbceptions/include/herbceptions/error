@@ -168,7 +168,7 @@ public:
   domain() const noexcept {
     return __domain_opaque;
   }
-  [[nodiscard]] constexpr ::std::size_t code() const noexcept {
+  [[nodiscard]] constexpr __SIZE_TYPE__ code() const noexcept {
     return __code_opaque;
   }
 
@@ -264,14 +264,13 @@ private:
   // The {domain, code} payload, laid out as exactly two words so the value
   // flows through the {void*, size_t} ABI slot unchanged.
   ::std::error_domain_singleton const *__domain_opaque{};
-  ::std::size_t __code_opaque{};
-
-  // a magic function compiler will know how to construct it
-  explicit constexpr error(void const *__domain, ::std::size_t __code) noexcept
-      : __domain_opaque(
-            static_cast<::std::error_domain_singleton const *>(__domain)),
-        __code_opaque(__code) {}
+  __SIZE_TYPE__ __code_opaque{};
 };
+
+static_assert(sizeof(::std::error) == 2 * sizeof(void*),
+              "std::error must be exactly two pointers in size");
+static_assert(alignof(::std::error) == alignof(void*),
+              "std::error alignment must match pointer alignment");
 
 namespace error_domains {
 #if (defined(_WIN32) || defined(__CYGWIN__)) && !defined(__WINE__)

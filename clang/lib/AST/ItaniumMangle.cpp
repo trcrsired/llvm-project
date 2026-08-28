@@ -5019,7 +5019,7 @@ recurse:
   case Expr::CXXParenListInitExprClass:
   case Expr::CXXExpansionSelectExprClass:
   case Expr::CXXTryExprClass:
-  case Expr::CXXCatchFailsExprClass:
+  case Expr::CXXCatchReturnFailureExprClass:
   case Expr::CXXErrorValueExprClass:
   case Expr::CXXCxaExceptionExprClass:
   case Expr::CXXThrowsExprClass:

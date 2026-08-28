@@ -1423,7 +1423,7 @@ public:
 /// Represents a herbception `catch fails(expr)` expression: evaluate \p SubExpr
 /// (which must call a `throws`/`fails{E}` function) and produce an
 /// `either{T, E}` value with `.positive`, `.left` and `.right` fields.
-class CXXCatchFailsExpr : public Expr {
+class CXXCatchReturnFailureExpr : public Expr {
   friend class ASTStmtReader;
 
   /// The subexpression being "caught".
@@ -1435,12 +1435,12 @@ class CXXCatchFailsExpr : public Expr {
 public:
   /// \p Ty is the `either{T, E}` type. \p Loc is the location of the catch
   /// keyword.
-  CXXCatchFailsExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc)
-      : Expr(CXXCatchFailsExprClass, Ty, VK_PRValue, OK_Ordinary),
+  CXXCatchReturnFailureExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc)
+      : Expr(CXXCatchReturnFailureExprClass, Ty, VK_PRValue, OK_Ordinary),
         SubExpr(SubExpr), CatchLoc(Loc) {
     setDependence(computeDependence(this));
   }
-  CXXCatchFailsExpr(EmptyShell Empty) : Expr(CXXCatchFailsExprClass, Empty) {}
+  CXXCatchReturnFailureExpr(EmptyShell Empty) : Expr(CXXCatchReturnFailureExprClass, Empty) {}
 
   const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
   Expr *getSubExpr() { return cast<Expr>(SubExpr); }
@@ -1453,7 +1453,7 @@ public:
   }
 
   static bool classof(const Stmt *T) {
-    return T->getStmtClass() == CXXCatchFailsExprClass;
+    return T->getStmtClass() == CXXCatchReturnFailureExprClass;
   }
 
   // Iterators

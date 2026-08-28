@@ -727,7 +727,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
       T = RT->getPointeeType();
     if (const auto *FPT = T->getAs<FunctionProtoType>())
       return hasHerbceptionExceptionSpec(FPT->getExceptionSpecType()) &&
-             FPT->hasFailsSpec();
+             FPT->hasReturnFailureSpec();
     return false;
 
   case UTT_HasHerbceptionsThrowsConstructor:

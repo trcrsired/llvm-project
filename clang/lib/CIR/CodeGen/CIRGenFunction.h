@@ -2057,7 +2057,7 @@ private:
   unsigned herbceptionTryCounter = 0;
   /// While emitting the operand of a `try(expr)` / `catch fails(expr)`
   /// expression. While set, calls inside are already being handled by
-  /// emitHerbceptionTry/emitHerbceptionCatchFails and must not be routed to an
+  /// emitHerbceptionTry/emitHerbceptionCatchReturnFailure and must not be routed to an
   /// enclosing herbception catch scope.
   bool inHerbceptionOperand = false;
   /// While emitting a legacy C++ exception conversion inside a herbception
@@ -2073,7 +2073,7 @@ public:
 
   /// Herbception: emit a `catch fails(expr)` expression. Evaluates the
   /// throws/fails call and produces an `either{T, E}` value.
-  RValue emitHerbceptionCatchFails(const clang::CXXCatchFailsExpr *E);
+  RValue emitHerbceptionCatchReturnFailure(const clang::CXXCatchReturnFailureExpr *E);
 
   void emitCtorPrologue(const clang::CXXConstructorDecl *ctor,
                         clang::CXXCtorType ctorType, FunctionArgList &args);
