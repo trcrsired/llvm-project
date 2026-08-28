@@ -10771,7 +10771,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // known then.)
   if (const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>()) {
     if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
-        FPT->hasFailsSpec() &&
+        FPT->hasReturnFailureSpec() &&
         (NewFD->isCXXClassMember() || NewFD->getDescribedFunctionTemplate())) {
       Diag(D.getIdentifierLoc(), diag::err_fails_only_free_function);
       NewFD->setInvalidDecl();

@@ -902,7 +902,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   // 'throw throws' belongs to the implicit-std::error ('throws') channel only.
   // A 'fails{E}' function returns errors exclusively through
   // 'return failure(expr);'.
-  if (CurFPT && CurFPT->hasFailsSpec() && !CurFPT->hasBasicThrowsSpec()) {
+  if (CurFPT && CurFPT->hasReturnFailureSpec() && !CurFPT->hasBasicThrowsSpec()) {
     Diag(ThrowsLoc, diag::err_throw_throws_in_fails_function);
     return ExprError();
   }
@@ -961,7 +961,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     // type is the implicit `std::error`, which users cannot construct: only the
     // compiler can, by going through `error_domain<T>` to call its `domain()`
     // and `code()` functions. Fabricate that value here.
-    if (!CurFPT || !CurFPT->hasFailsSpec()) {
+    if (!CurFPT || !CurFPT->hasReturnFailureSpec()) {
       ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
       if (Fabricated.isInvalid())
         return ExprError();
@@ -1354,7 +1354,7 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
                 dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
           if (const auto *CalleeFPT =
                   FD->getType()->getAs<FunctionProtoType>();
-              CalleeFPT && CalleeFPT->hasFailsSpec())
+              CalleeFPT && CalleeFPT->hasReturnFailureSpec())
             ErrorDomain = lookupErrorDomain(TryLoc,
                                             CalleeFPT->getExceptionType(0));
     }
@@ -1364,7 +1364,7 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
                                   ErrorDomain);
 }
 
-ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
+ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
                                             SourceLocation FailsLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
     Diag(CatchLoc, diag::err_herbception_disabled);
@@ -1394,7 +1394,7 @@ ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
       FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl());
     if (const auto *FPT = FD ? FD->getType()->getAs<FunctionProtoType>()
                              : nullptr;
-        FPT && FPT->hasBasicThrowsSpec() && !FPT->hasFailsSpec()) {
+        FPT && FPT->hasBasicThrowsSpec() && !FPT->hasReturnFailureSpec()) {
       Diag(Ex->getBeginLoc(), diag::err_catch_fails_expr_throws_function);
       return ExprError();
     }
@@ -1411,17 +1411,17 @@ ExprResult Sema::ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
       if (const auto *CalleeFPT =
               FD->getType()->getAs<FunctionProtoType>()) {
         ValueTy = FD->getReturnType();
-        if (CalleeFPT->hasFailsSpec())
+        if (CalleeFPT->hasReturnFailureSpec())
           ErrorTy = CalleeFPT->getExceptionType(0);
       }
 
   // `catch fails(expr)` yields the N2289 aggregate
   // `struct { union { T value; E error; }; bool failed; }` in both C and C++.
-  QualType EitherTy = Context.getCatchFailsType(ValueTy, ErrorTy);
-  return new (Context) CXXCatchFailsExpr(Ex, EitherTy, CatchLoc);
+  QualType EitherTy = Context.getCatchReturnFailureType(ValueTy, ErrorTy);
+  return new (Context) CXXCatchReturnFailureExpr(Ex, EitherTy, CatchLoc);
 }
 
-ExprResult Sema::ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex) {
+ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
     Diag(FailureLoc, diag::err_herbception_disabled);
     return ExprError();
@@ -1437,7 +1437,7 @@ ExprResult Sema::ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex) {
   const FunctionDecl *CurFD = getCurFunctionDecl();
   const FunctionProtoType *CurFPT =
       CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
-  if (!CurFPT || !CurFPT->hasFailsSpec()) {
+  if (!CurFPT || !CurFPT->hasReturnFailureSpec()) {
     Diag(FailureLoc, diag::err_failure_outside_fails_function);
     return ExprError();
   }
@@ -1447,6 +1447,27 @@ ExprResult Sema::ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex) {
   // `throw throws expr` for a fails{E} function.
   return BuildCXXThrow(FailureLoc, Ex, /*IsThrownVarInScope=*/false,
                        /*IsHerbception=*/true);
+}
+
+StmtResult Sema::ActOnHerbceptionReturnFailureStmt(
+    SourceLocation ReturnFailureLoc, Expr *E, Scope *CurScope) {
+  if (!getLangOpts().HerbExceptions) {
+    Diag(ReturnFailureLoc, diag::err_herbception_disabled);
+    return StmtError();
+  }
+
+  // `return_failure expr;` is the statement form: build the expression
+  // `return_failure(expr)` and wrap it as an expression statement.
+  if (!E) {
+    Diag(ReturnFailureLoc, diag::err_herbception_try_requires_operand);
+    return StmtError();
+  }
+
+  ExprResult Expr = ActOnHerbceptionReturnFailure(ReturnFailureLoc, E);
+  if (Expr.isInvalid())
+    return StmtError();
+
+  return ActOnExprStmt(Expr.get());
 }
 
 ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,

@@ -672,7 +672,7 @@ namespace clang {
     ExpectedStmt VisitCXXTryExpr(CXXTryExpr *E);
     ExpectedStmt VisitCXXErrorValueExpr(CXXErrorValueExpr *E);
     ExpectedStmt VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E);
-    ExpectedStmt VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E);
+    ExpectedStmt VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E);
     ExpectedStmt VisitCXXNoexceptExpr(CXXNoexceptExpr *E);
     ExpectedStmt VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E);
     ExpectedStmt VisitCXXScalarValueInitExpr(CXXScalarValueInitExpr *E);
@@ -8492,7 +8492,7 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryExpr(CXXTryExpr *E) {
                  ToErrorDomain);
 }
 
-ExpectedStmt ASTNodeImporter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+ExpectedStmt ASTNodeImporter::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E) {
   Error Err = Error::success();
   auto ToSubExpr = importChecked(Err, E->getSubExpr());
   auto ToType = importChecked(Err, E->getType());
@@ -8501,7 +8501,7 @@ ExpectedStmt ASTNodeImporter::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
     return std::move(Err);
 
   return new (Importer.getToContext())
-      CXXCatchFailsExpr(ToSubExpr, ToType, ToCatchLoc);
+      CXXCatchReturnFailureExpr(ToSubExpr, ToType, ToCatchLoc);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *E) {

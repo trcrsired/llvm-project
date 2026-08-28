@@ -4862,14 +4862,14 @@ private:
   /// call on failure.
   ExprResult ParseHerbceptionTryExpression();
 
-  /// ParseHerbceptionCatchFailsExpression - This handles the herbception
+  /// ParseHerbceptionCatchReturnFailureExpression - This handles the herbception
   /// `catch fails(expr)` expression, which produces an `either{T, E}` value.
-  ExprResult ParseHerbceptionCatchFailsExpression();
+  ExprResult ParseHerbceptionCatchReturnFailureExpression();
 
-  /// ParseHerbceptionFailureExpression - This handles the herbception
+  /// ParseHerbceptionReturnFailureExpression - This handles the herbception
   /// `failure(expr)` expression, which returns \p expr via the failure channel
   /// of a `fails{E}` function.
-  ExprResult ParseHerbceptionFailureExpression();
+  ExprResult ParseHerbceptionReturnFailureExpression();
 
   //===--------------------------------------------------------------------===//
   // C++ 2.13.5: C++ Boolean Literals
@@ -7631,6 +7631,13 @@ public:
   ///         'co_return' braced-init-list ';'
   /// \endverbatim
   StmtResult ParseReturnStatement();
+
+  /// ParseReturnFailureStatement
+  /// \verbatim
+  ///       herbception-return-statement:
+  ///         'return_failure' expression[opt] ';'
+  /// \endverbatim
+  StmtResult ParseReturnFailureStatement();
 
   StmtResult ParseBreakOrContinueStatement(bool IsContinue);
 

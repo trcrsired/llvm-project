@@ -810,7 +810,7 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
       Proto += ")";
     } else if (FT && FT->hasBasicThrowsSpec()) {
       Proto += " throws";
-    } else if (FT && FT->hasFailsSpec()) {
+    } else if (FT && FT->hasReturnFailureSpec()) {
       Proto += " fails{";
       for (unsigned I = 0, N = FT->getNumExceptions(); I != N; ++I) {
         if (I)

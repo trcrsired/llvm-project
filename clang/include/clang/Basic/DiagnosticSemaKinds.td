@@ -2051,9 +2051,9 @@ def ext_override_exception_spec : ExtWarn<err_override_exception_spec.Summary>,
   InGroup<MicrosoftExceptionSpec>;
 def err_herbception_spec_mismatch : Error<
   "function pointer or reference types with different herbception "
-  "('throws'/'fails{...}') specs are incompatible">;
+  "('throws'/'return_failure{...}') specs are incompatible">;
 def err_herbception_override_spec_mismatch : Error<
-  "overriding function has a different herbception ('throws'/'fails{...}') "
+  "overriding function has a different herbception ('throws'/'return_failure{...}') "
   "specifier than the base version, which changes the calling convention">;
 def err_incompatible_exception_specs : Error<
   "target exception specification is not superset of source">;
@@ -8795,7 +8795,7 @@ def err_catch_incomplete_ref : Error<
 def err_catch_incomplete : Error<"cannot catch incomplete type %0">;
 def err_throw_throws_outside_throws_function : Error<
   "'throw throws' is only allowed inside a function declared 'throws' or "
-  "'fails{...}'">;
+  "'return_failure{...}'">;
 def err_herbception_disabled : Error<
     "herbception is disabled; use -fherbceptions to enable it">;
 def err_throw_throws_requires_operand : Error<
@@ -8820,13 +8820,15 @@ def err_herbception_noexcept_calls_throws : Error<
   "call to 'throws' function in a noexcept (non-'throws') function must be "
   "handled by an enclosing 'try { } catch throws' block">;
 def err_failure_outside_fails_function : Error<
-  "'failure(expr)' is only allowed inside a function declared 'fails{...}'">;
+  "'return_failure(expr)' is only allowed inside a function declared 'return_failure{...}'">;
+def err_return_return_failure : Error<
+  "'return' cannot be used with 'return_failure': use 'return_failure expr;' directly">;
 def err_herbception_destructor_spec : Error<
   "destructor cannot be declared with a herbception "
-  "('throws'/'fails{...}') exception specification; destructors cannot "
+  "('throws'/'return_failure{...}') exception specification; destructors cannot "
   "propagate errors">;
 def err_fails_only_free_function : Error<
-  "'fails{...}' is a C-style feature and may only be attached to free "
+  "'return_failure{...}' is a C-style feature and may only be attached to free "
   "(non-member) functions; it is not allowed on member functions (including "
   "static members), lambdas, or function templates">;
 def err_throws_not_allowed_in_coroutine : Error<
@@ -8836,44 +8838,44 @@ def err_herbception_domain_nullptr : Error<
   "std::error_domain<T>::domain() must not return nullptr; the fabricated "
   "std::error dereferences the domain pointer">;
 def err_fails_std_error_type : Error<
-  "'fails{std::error}' is not allowed: std::error is the compiler-fabricated "
+  "'return_failure{std::error}' is not allowed: std::error is the compiler-fabricated "
   "implicit error type of 'throws' and cannot be returned as an explicit "
-  "fails error type">;
+  "return_failure error type">;
 def err_fails_type_not_trivially_copyable : Error<
-  "the 'fails{...}' error type %0 must be trivially copyable (matching C "
+  "the 'return_failure{...}' error type %0 must be trivially copyable (matching C "
   "behavior): the error value flows through the {T, i1} ABI slot by value">;
 def err_try_throws_outside_throws_function : Error<
-  "'try' is only allowed inside a function declared 'throws' or 'fails{...}'">;
+  "'try' is only allowed inside a function declared 'throws' or 'return_failure{...}'">;
 def err_herbception_try_requires_operand : Error<
   "'try' requires an expression operand">;
 def err_try_expr_requires_throws_call : Error<
   "'try' expression operand must be a call to a function declared 'throws' or "
-  "'fails{...}'">;
+  "'return_failure{...}'">;
 def err_catch_fails_expr_requires_throws_call : Error<
-  "'catch fails' expression operand must be a call to a function declared "
-  "'throws' or 'fails{...}'">;
+  "'catch return_failure' expression operand must be a call to a function declared "
+  "'throws' or 'return_failure{...}'">;
 def err_catch_fails_expr_throws_function : Error<
-  "'catch fails' cannot be applied to a 'throws' function; use a "
+  "'catch return_failure' cannot be applied to a 'throws' function; use a "
   "'try { } catch throws(std::error e) { }' block handler instead">;
 def err_fails_call_without_wrapper : Error<
-  "calling function with 'fails{...}' specifier requires 'try()' or "
-  "'catch fails()' wrapper">;
+  "calling function with 'return_failure{...}' specifier requires 'try()' or "
+  "'catch return_failure()' wrapper">;
 def err_catch_throws_std_error : Error<
   "'catch throws' must declare std::error by value, not %0">;
 def err_catch_throws_ellipsis : Error<
   "'catch throws(...)' is not allowed; a 'catch throws' handler must declare "
   "std::error by value">;
 def err_catch_throws_requires_error_domain : Error<
-  "'catch throws' inside a 'fails{...}' function requires a visible "
+  "'catch throws' inside a 'return_failure{...}' function requires a visible "
   "std::error_domain specialization for %0">;
 def err_fails_call_in_catch_throws : Error<
   "'catch throws(std::error)' handles std::error values; wrap this "
-  "'fails{...}' call in 'try()' to convert its error">;
+  "'return_failure{...}' call in 'try()' to convert its error">;
 def err_throw_throws_in_fails_function : Error<
-  "'throw throws' is not allowed inside a 'fails{...}' function; use "
-  "'return failure(...)' to return an error">;
+  "'throw throws' is not allowed inside a 'return_failure{...}' function; use "
+  "'return_failure(...)' to return an error">;
 def note_fails_function_declared_here : Note<
-  "function declared with 'fails{...}' here">;
+  "function declared with 'return_failure{...}' here">;
 def err_catch_sizeless : Error<
   "cannot catch %select{|reference to }0sizeless type %1">;
 def err_catch_rvalue_ref : Error<"cannot catch exceptions by rvalue reference">;

@@ -21,7 +21,7 @@ int use_throws_io() {
 }
 
 int use_wrap_fail(int x) {
-  auto e = catch fails(wrap_fail(x));
+  auto e = catch return_failure(wrap_fail(x));
   return e.failed ? e.error : e.value;
 }
 

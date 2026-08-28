@@ -3536,8 +3536,8 @@ public:
   }
 
   /// Build a new herbception catch fails expression.
-  ExprResult RebuildCXXCatchFailsExpr(SourceLocation CatchLoc, Expr *Sub) {
-    return getSema().ActOnHerbceptionCatchFails(CatchLoc, CatchLoc, Sub);
+  ExprResult RebuildCXXCatchReturnFailureExpr(SourceLocation CatchLoc, Expr *Sub) {
+    return getSema().ActOnHerbceptionCatchReturnFailure(CatchLoc, CatchLoc, Sub);
   }
 
   /// Build a new C++ default-argument expression.
@@ -15218,8 +15218,8 @@ TreeTransform<Derived>::TransformCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
 }
 
 template <typename Derived>
-ExprResult TreeTransform<Derived>::TransformCXXCatchFailsExpr(
-    CXXCatchFailsExpr *E) {
+ExprResult TreeTransform<Derived>::TransformCXXCatchReturnFailureExpr(
+    CXXCatchReturnFailureExpr *E) {
   ++getSema().HerbceptionOperandDepth;
   ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
   --getSema().HerbceptionOperandDepth;
@@ -15229,7 +15229,7 @@ ExprResult TreeTransform<Derived>::TransformCXXCatchFailsExpr(
   if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
     return E;
 
-  return getDerived().RebuildCXXCatchFailsExpr(E->getCatchLoc(), SubExpr.get());
+  return getDerived().RebuildCXXCatchReturnFailureExpr(E->getCatchLoc(), SubExpr.get());
 }
 
 template<typename Derived>

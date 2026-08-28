@@ -51,7 +51,7 @@ def __type_pack_element : CPlusPlusBuiltinTemplate<
 // fails{E} error type, or void when F is not a fails function), mirroring
 // invoke_result_t's `type` member. `throws` functions need no such wrapper:
 // their error type is always the implicit std::error.
-def __invoke_herbceptions_fails_result : CPlusPlusBuiltinTemplate<
+def __invoke_herbceptions_return_failure_result : CPlusPlusBuiltinTemplate<
   [Class<"F">, Class<"Args", /*is_variadic=*/1>]>;
 
 // template <template <class... Args> BaseTemplate,

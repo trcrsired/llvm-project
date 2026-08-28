@@ -37,11 +37,11 @@ auto l3 = []() noexcept(false) throws {}; // expected-error {{'throws' and 'noex
 // throws(expr) expression operator: detects whether an expression can propagate
 // a herbception error through the implicit `throws` channel.
 void throws_fn() throws;
-void fails_fn() fails{int};
+void fails_fn() return_failure{int};
 void plain_fn() noexcept;
 
 static_assert(throws(throws_fn()), "throws function should be detected");
-static_assert(!throws(fails_fn()), "fails{E} function should NOT be detected");
+static_assert(!throws(fails_fn()), "return_failure{E} function should NOT be detected");
 static_assert(!throws(plain_fn()), "noexcept function should NOT be detected");
 
 // throws(expr) works in constant expressions.

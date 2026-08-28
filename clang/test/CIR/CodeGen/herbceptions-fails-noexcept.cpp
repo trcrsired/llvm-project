@@ -1,8 +1,8 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -emit-llvm -o - %s | FileCheck %s
 
-// A default 'fails{E}' function implies noexcept(true): any legacy C++
+// A default 'return_failure{E}' function implies noexcept(true): any legacy C++
 // exception escaping it calls std::terminate (a terminate landing pad is
-// pushed, exactly like a noexcept function). A 'fails{E} noexcept(false)'
+// pushed, exactly like a noexcept function). A 'return_failure{E} noexcept(false)'
 // function instead allows traditional C++ exceptions to propagate, so it has
 // no terminate scope.
 
@@ -17,14 +17,14 @@ extern void legacy();
 // CHECK:         to label %invoke.cont unwind label %terminate.lpad
 // CHECK: terminate.lpad:
 // CHECK: call void @__clang_call_terminate
-int defaultf() fails{E} {
+int defaultf() return_failure{E} {
   legacy();
   return 1;
 }
 
 // CHECK: define dso_local { i32, i1 } @_Z8nofalsefv() #[[NF:[0-9]+]] {
 // CHECK: call void @_Z6legacyv()
-int nofalsef() fails{E} noexcept(false) {
+int nofalsef() return_failure{E} noexcept(false) {
   legacy();
   return 1;
 }

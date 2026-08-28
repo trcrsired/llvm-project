@@ -711,7 +711,7 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
     if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
       if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
-          FPT && FPT->hasFailsSpec()) {
+          FPT && FPT->hasReturnFailureSpec()) {
         Diag(KWLoc, diag::err_fails_only_free_function);
         const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
       }

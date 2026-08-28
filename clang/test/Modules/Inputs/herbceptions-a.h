@@ -36,8 +36,8 @@ template <> struct error_domain<errc> {
 // serialized into the module file (the path that regressed when the legacy
 // conversion expression moved before the body block).
 inline void throws_io() throws { throw throws std::errc::io_error; }
-inline int fail_fn(int x) fails{int} {
+inline int fail_fn(int x) return_failure{int} {
   if (x < 0)
-    return failure(x);
+    return_failure x;
   return x;
 }

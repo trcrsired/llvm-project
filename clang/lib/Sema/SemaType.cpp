@@ -10375,7 +10375,7 @@ QualType Sema::BuildUnaryTransformType(QualType BaseType, UTTKind UKind,
     else if (const auto *RT = FnTy->getAs<ReferenceType>())
       FnTy = RT->getPointeeType();
     if (const auto *FPT = FnTy->getAs<FunctionProtoType>();
-        FPT && FPT->hasFailsSpec())
+        FPT && FPT->hasReturnFailureSpec())
       Result = FPT->getExceptionType(0);
     else
       Result = Context.VoidTy;

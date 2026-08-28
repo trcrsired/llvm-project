@@ -968,7 +968,7 @@ FunctionProtoType::printExceptionSpecification(raw_ostream &OS,
     OS << " __attribute__((nothrow))";
   } else if (hasBasicThrowsSpec()) {
     OS << " throws";
-  } else if (hasFailsSpec()) {
+  } else if (hasReturnFailureSpec()) {
     OS << " fails{";
     for (unsigned I = 0, N = getNumExceptions(); I != N; ++I) {
       if (I)

@@ -9008,7 +9008,7 @@ public:
   /// Evaluate a herbception `catch fails(expr)`: call the fails{E} function;
   /// if it fails, build the N2289 aggregate {union{T value; E error}; bool
   /// failed} with .failed=1/.error=E, else .failed=0/.value=T.
-  bool VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
+  bool VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
     APValue Result, ErrorVal;
     APValue *ErrorPtr = &ErrorVal;
     if (!handleCallExpr(cast<CallExpr>(E->getSubExpr()->IgnoreParenImpCasts()),
@@ -22773,7 +22773,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::HLSLOutArgExprClass:
   case Expr::CXXExpansionSelectExprClass:
   case Expr::CXXTryExprClass:
-  case Expr::CXXCatchFailsExprClass:
+  case Expr::CXXCatchReturnFailureExprClass:
   case Expr::CXXErrorValueExprClass:
   case Expr::CXXCxaExceptionExprClass:
     return ICEDiag(IK_NotICE, E->getBeginLoc());
