@@ -64,9 +64,9 @@ add_header_macro(
   DEPENDS
     .llvm-libc-macros.fcntl_macros
     .llvm-libc-types.mode_t
+    .llvm-libc-types.struct_f_owner_ex
     .llvm-libc-types.struct_flock
     .llvm-libc-types.struct_flock64
-    .llvm-libc-types.off64_t
     .llvm-libc-types.pid_t
     .llvm-libc-types.off_t
     .llvm_libc_common_h
@@ -254,6 +254,14 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-macros.syslog_macros
+)
+
+add_header_macro(
+  sys_syslog
+  ../libc/include/sys/syslog.yaml
+  sys/syslog.h
+  DEPENDS
+    .syslog
 )
 
 add_header_macro(
@@ -1027,6 +1035,14 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-types.struct_sockaddr_un
+)
+
+add_header_macro(
+  sys_vfs
+  ../libc/include/sys/vfs.yaml
+  sys/vfs.h
+  DEPENDS
+    .sys_statfs
 )
 
 add_header_macro(
