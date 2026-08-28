@@ -11,7 +11,7 @@
 namespace std {
 struct error {
   void *domain;
-  __UINTPTR_TYPE__ code;
+  __SIZE_TYPE__ code;
   ~error() noexcept;
 };
 enum class errc : unsigned { io_error = 5 };
@@ -19,7 +19,7 @@ template <typename T> class error_domain;
 template <> class error_domain<errc> {
 public:
   static void *domain() noexcept;
-  static __UINTPTR_TYPE__ code(errc) noexcept;
+  static __SIZE_TYPE__ code(errc) noexcept;
 };
 } // namespace std
 

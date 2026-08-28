@@ -168,7 +168,7 @@ public:
   domain() const noexcept {
     return __domain_opaque;
   }
-  [[nodiscard]] constexpr __UINTPTR_TYPE__ code() const noexcept {
+  [[nodiscard]] constexpr __SIZE_TYPE__ code() const noexcept {
     return __code_opaque;
   }
 
@@ -264,7 +264,7 @@ private:
   // The {domain, code} payload, laid out as exactly two words so the value
   // flows through the {void*, size_t} ABI slot unchanged.
   ::std::error_domain_singleton const *__domain_opaque{};
-  __UINTPTR_TYPE__ __code_opaque{};
+  __SIZE_TYPE__ __code_opaque{};
 };
 
 static_assert(sizeof(::std::error) == 2 * sizeof(void*),

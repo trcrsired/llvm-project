@@ -21,12 +21,12 @@ public:
   error(error const &) = delete;
   error &operator=(error const &) = delete;
   constexpr ~error() noexcept {}
-  __UINTPTR_TYPE__ code() const noexcept { return code_opaque; }
+  __SIZE_TYPE__ code() const noexcept { return code_opaque; }
 
 private:
   void const *domain_opaque{};
-  __UINTPTR_TYPE__ code_opaque{};
-  explicit constexpr error(void const *domain, __UINTPTR_TYPE__ code) noexcept
+  __SIZE_TYPE__ code_opaque{};
+  explicit constexpr error(void const *domain, __SIZE_TYPE__ code) noexcept
       : domain_opaque(domain), code_opaque(code) {}
 };
 
@@ -44,7 +44,7 @@ template <> struct error_domain<errc> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return &dummy_domain;
   }
-  static constexpr __UINTPTR_TYPE__ code(errc e) noexcept {
+  static constexpr __SIZE_TYPE__ code(errc e) noexcept {
     return static_cast<unsigned long>(e);
   }
 };

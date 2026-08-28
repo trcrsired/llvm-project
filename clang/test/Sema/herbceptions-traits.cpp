@@ -22,7 +22,7 @@ template <> struct error_domain<win32_errc> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return &dummy_domain;
   }
-  static constexpr __UINTPTR_TYPE__ code(errc_type e) noexcept {
+  static constexpr __SIZE_TYPE__ code(errc_type e) noexcept {
     return static_cast<unsigned long>(e);
   }
 };
@@ -33,7 +33,7 @@ template <> struct error_domain<myerr> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return &dummy_domain;
   }
-  static constexpr __UINTPTR_TYPE__ code(errc_type e) noexcept {
+  static constexpr __SIZE_TYPE__ code(errc_type e) noexcept {
     return static_cast<unsigned long>(e);
   }
 };
