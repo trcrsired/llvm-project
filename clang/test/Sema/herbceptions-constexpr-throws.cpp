@@ -28,11 +28,11 @@ public:
     if (docleanup) docleanup(code_opaque);
   }
   constexpr error_domain_singleton const* domain() const noexcept { return domain_opaque; }
-  constexpr unsigned long code() const noexcept { return code_opaque; }
+  constexpr __UINTPTR_TYPE__ code() const noexcept { return code_opaque; }
 private:
   error_domain_singleton const* domain_opaque{};
-  unsigned long code_opaque{};
-  explicit constexpr error(void const* domain, unsigned long code) noexcept
+  __UINTPTR_TYPE__ code_opaque{};
+  explicit constexpr error(void const* domain, __UINTPTR_TYPE__ code) noexcept
       : domain_opaque(static_cast<error_domain_singleton const*>(domain)), code_opaque(code) {}
   friend constexpr error __builtin_herbception_error(void const*, unsigned long);
 };
@@ -50,7 +50,7 @@ template<>
 struct error_domain<win32_errc> {
   using errc_type = win32_errc;
   static constexpr error_domain_singleton const* domain() noexcept { return &dummy_domain; }
-  static constexpr unsigned long code(errc_type e) noexcept {
+  static constexpr __UINTPTR_TYPE__ code(errc_type e) noexcept {
     return static_cast<unsigned long>(e);
   }
 };

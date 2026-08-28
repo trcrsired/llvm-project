@@ -9,7 +9,7 @@
 //   - a virtual function override must use the same herbception specifier.
 
 using size_t = __SIZE_TYPE__;
-namespace std { struct error { void *domain; size_t code; }; }
+namespace std { struct error { void *domain; __UINTPTR_TYPE__ code; }; }
 
 void throws_fn(size_t) throws {}
 void plain_fn(size_t) {}

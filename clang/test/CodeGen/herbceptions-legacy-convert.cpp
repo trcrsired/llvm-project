@@ -14,7 +14,7 @@
 namespace std {
 struct error {
   void *d;
-  unsigned long long c;
+  __UINTPTR_TYPE__ c;
   ~error() noexcept;
 };
 struct exception_ptr;

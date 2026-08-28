@@ -13,7 +13,7 @@ template <> struct error_domain<bad1> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return nullptr; // expected-error {{std::error_domain<T>::domain() must not return nullptr; the fabricated std::error dereferences the domain pointer}}
   }
-  static constexpr unsigned long code(bad1) noexcept { return 0; }
+  static constexpr __UINTPTR_TYPE__ code(bad1) noexcept { return 0; }
 };
 
 enum class bad2 : unsigned { a = 1 };
@@ -21,7 +21,7 @@ template <> struct error_domain<bad2> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return 0; // expected-error {{std::error_domain<T>::domain() must not return nullptr; the fabricated std::error dereferences the domain pointer}}
   }
-  static constexpr unsigned long code(bad2) noexcept { return 0; }
+  static constexpr __UINTPTR_TYPE__ code(bad2) noexcept { return 0; }
 };
 
 namespace {
@@ -33,6 +33,6 @@ template <> struct error_domain<ok> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return &good_domain;
   }
-  static constexpr unsigned long code(ok) noexcept { return 0; }
+  static constexpr __UINTPTR_TYPE__ code(ok) noexcept { return 0; }
 };
 } // namespace std
