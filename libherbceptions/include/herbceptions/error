@@ -34,7 +34,20 @@ and the do_to_errc signature use the standard std::errc type.
 #include <cstdint>
 #include <type_traits>
 // for ::std::errc
+// avoid include system_error as much as we can to reduce compile time
+#if !defined(__cpp_exceptions) && defined(_LIBCPP_VERSION) &&                  \
+    __has_include(<__system_error/errc.h>)
+#include <__system_error/errc.h>
+#include <cerrno>
+#elif !defined(__cpp_exceptions) && defined(__GLIBCXX__) &&                    \
+    __has_include(<bits/error_constants.h>)
+#include <bits/error_constants.h>
+#elif !defined(__cpp_exceptions) && defined(_MSVC_STL_UPDATE) &&               \
+    __has_include(<xerrc.h>)
+#include <xerrc.h>
+#else
 #include <system_error>
+#endif
 
 namespace std {
 
