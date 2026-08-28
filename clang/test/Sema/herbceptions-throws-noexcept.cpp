@@ -49,3 +49,15 @@ constexpr bool test_throws() {
   return throws(throws_fn());
 }
 static_assert(test_throws(), "throws in constexpr");
+
+// FFI boundary: throw throws cxx_std_error{domain, code} is allowed — the
+// global struct cxx_std_error ({void*, uintptr_t}) is layout-compatible with
+// std::error and passes through without going through error_domain.
+struct cxx_std_error { void *domain; __UINTPTR_TYPE__ code; };
+
+extern "C" struct cxx_std_error get_c_error();
+
+void ffi_throws() throws {
+  struct cxx_std_error e = get_c_error();
+  throw throws e;
+}

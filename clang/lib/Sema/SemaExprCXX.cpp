@@ -1101,6 +1101,36 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
     }
   }
 
+  // FFI boundary: if the operand is the global struct cxx_std_error
+  // ({void*, uintptr_t}), use it directly without going through
+  // error_domain<T>::domain()/code(). This allows throwing a C-produced error
+  // value returned from an extern "C" function declared
+  // return_failure{struct cxx_std_error}.
+  if (const auto *RT = T->getAsRecordDecl()) {
+    if (RT->isStruct() && !RT->isUnion() && RT->getName() == "cxx_std_error") {
+      // Must be at global scope (not nested in another namespace/scope).
+      const DeclContext *DC = RT->getDeclContext();
+      if (DC->isTranslationUnit()) {
+        auto Fields = RT->fields();
+        auto It = Fields.begin();
+        if (It != Fields.end()) {
+          FieldDecl *F1 = *It;
+          ++It;
+          if (It != Fields.end()) {
+            FieldDecl *F2 = *It;
+            ++It;
+            if (It == Fields.end() && F1->getType()->isPointerType() &&
+                F2->getType()->isIntegerType() &&
+                Context.getTypeSize(F2->getType()) ==
+                    Context.getTypeSize(Context.VoidPtrTy)) {
+              return Operand;
+            }
+          }
+        }
+      }
+    }
+  }
+
   CXXRecordDecl *Domain = lookupErrorDomain(Loc, T);
   if (!Domain) {
     Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
