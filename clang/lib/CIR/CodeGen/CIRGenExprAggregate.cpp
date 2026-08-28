@@ -240,8 +240,8 @@ public:
     RValue rv = cgf.emitHerbceptionTry(E);
     emitFinalDestCopy(E->getType(), rv);
   }
-  void VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
-    RValue rv = cgf.emitHerbceptionCatchFails(E);
+  void VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
+    RValue rv = cgf.emitHerbceptionCatchReturnFailure(E);
     emitFinalDestCopy(E->getType(), rv);
   }
   void VisitCXXBindTemporaryExpr(CXXBindTemporaryExpr *e) {

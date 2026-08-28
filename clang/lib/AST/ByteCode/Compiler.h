@@ -207,7 +207,7 @@ public:
   bool VisitCXXThrowExpr(const CXXThrowExpr *E);
   bool VisitCXXTryExpr(const CXXTryExpr *E);
   bool VisitCXXErrorValueExpr(const CXXErrorValueExpr *E);
-  bool VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E);
+  bool VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E);
   bool VisitCXXReinterpretCastExpr(const CXXReinterpretCastExpr *E);
   bool VisitCXXDynamicCastExpr(const CXXDynamicCastExpr *E);
   bool VisitCXXNoexceptExpr(const CXXNoexceptExpr *E);

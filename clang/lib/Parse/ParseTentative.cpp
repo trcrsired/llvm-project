@@ -1727,7 +1727,7 @@ bool Parser::isCXXFunctionDeclarator(
     else {
       const Token &Next = NextToken();
       if (Next.isOneOf(tok::amp, tok::ampamp, tok::kw_const, tok::kw_volatile,
-                       tok::kw_throw, tok::kw_throws, tok::kw_fails,
+                       tok::kw_throw, tok::kw_throws, tok::kw_return_failure,
                        tok::kw_noexcept, tok::l_square, tok::l_brace,
                        tok::kw_try, tok::equal, tok::arrow) ||
           isCXX11VirtSpecifier(Next))
@@ -1909,7 +1909,7 @@ Parser::TryParseFunctionDeclarator(bool MayHaveTrailingReturnType) {
 
   // Herbception exception-specification: 'throws' (implicit std::error) or
   // 'fails{E}' (explicit error type).
-  if (Tok.isOneOf(tok::kw_throws, tok::kw_fails)) {
+  if (Tok.isOneOf(tok::kw_throws, tok::kw_return_failure)) {
     ConsumeToken();
     if (Tok.is(tok::l_brace)) {
       ConsumeBrace();

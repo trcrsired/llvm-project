@@ -8716,12 +8716,12 @@ QualType ASTContext::getBlockDescriptorType() const {
   return getCanonicalTagType(BlockDescriptorType);
 }
 
-QualType ASTContext::getCatchFailsType(QualType T, QualType E) const {
+QualType ASTContext::getCatchReturnFailureType(QualType T, QualType E) const {
   CanQualType CT = getCanonicalType(T);
   CanQualType CE = getCanonicalType(E);
   auto Key = std::make_pair(CT, CE);
-  auto It = CatchFailsTypes.find(Key);
-  if (It != CatchFailsTypes.end())
+  auto It = CatchReturnFailureTypes.find(Key);
+  if (It != CatchReturnFailureTypes.end())
     return getCanonicalTagType(It->second);
 
   // N2289: struct { union { T value; E error; }; bool failed; }.
@@ -8780,7 +8780,7 @@ QualType ASTContext::getCatchFailsType(QualType T, QualType E) const {
   RD->addDecl(FailedField);
 
   RD->completeDefinition();
-  CatchFailsTypes[Key] = RD;
+  CatchReturnFailureTypes[Key] = RD;
   return getCanonicalTagType(RD);
 }
 

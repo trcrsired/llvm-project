@@ -510,10 +510,10 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// Cache of the `catch fails(expr)` record types (`{union{T,E}, bool}`),
   /// keyed by the canonicalized (T, E) pair.
   mutable llvm::DenseMap<std::pair<CanQualType, CanQualType>, RecordDecl *>
-      CatchFailsTypes;
+      CatchReturnFailureTypes;
 
   /// Cache of the synthetic `{value_type, error_type}` records produced by the
-  /// __invoke_herbceptions_fails_result builtin, keyed by (V, E).
+  /// __invoke_herbceptions_return_failure_result builtin, keyed by (V, E).
   mutable llvm::DenseMap<std::pair<CanQualType, CanQualType>, RecordDecl *>
       InvokeHerbceptionsFailsResultTypes;
 
@@ -1715,12 +1715,12 @@ public:
   /// Return the `catch fails(expr)` result type, matching N2289:
   /// `struct { union { T value; E error; }; bool failed; }`. The discriminant
   /// is `.failed`; `.value`/`.error` share a union.
-  QualType getCatchFailsType(QualType T, QualType E) const;
+  QualType getCatchReturnFailureType(QualType T, QualType E) const;
 
   /// Return the synthetic result struct for invoking a `fails{E}` function:
   /// `struct { using value_type = V; using error_type = E; }` (or void for
   /// error_type when the callable does not use fails). Backs the
-  /// __invoke_herbceptions_fails_result builtin.
+  /// __invoke_herbceptions_return_failure_result builtin.
   QualType getInvokeHerbceptionsFailsResultType(QualType V, QualType E) const;
 
   /// Return a read_only pipe type for the specified type.

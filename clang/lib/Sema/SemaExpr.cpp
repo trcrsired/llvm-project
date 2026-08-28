@@ -6819,10 +6819,10 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
           // std::error. A bare call to a plain `fails{E2}` function would
           // store its raw E2 payload there; require an explicit `try()` (which
           // resolves std::error_domain<E2> and converts), C-style.
-          if (HerbceptionCatchDepth > 0 && CurFPT->hasFailsSpec()) {
+          if (HerbceptionCatchDepth > 0 && CurFPT->hasReturnFailureSpec()) {
             const FunctionProtoType *CalleeFPT =
                 getHerbceptionCalleeProto(Call.get());
-            if (CalleeFPT && CalleeFPT->hasFailsSpec() &&
+            if (CalleeFPT && CalleeFPT->hasReturnFailureSpec() &&
                 !CalleeFPT->hasBasicThrowsSpec()) {
               Diag(CallLoc, diag::err_fails_call_in_catch_throws);
               return ExprError();

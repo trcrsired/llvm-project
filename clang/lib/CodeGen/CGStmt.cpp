@@ -2148,7 +2148,7 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   }
 }
 
-RValue CodeGenFunction::EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E) {
+RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E) {
   const Expr *Sub = E->getSubExpr()->IgnoreParenImpCasts();
   const CallExpr *Call = cast<CallExpr>(Sub);
 

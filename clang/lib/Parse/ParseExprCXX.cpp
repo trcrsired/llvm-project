@@ -1808,9 +1808,9 @@ ExprResult Parser::ParseHerbceptionTryExpression() {
   return Actions.ActOnHerbceptionTry(TryLoc, Expr.get());
 }
 
-ExprResult Parser::ParseHerbceptionFailureExpression() {
-  assert(Tok.is(tok::kw_failure) && "Not failure!");
-  SourceLocation FailureLoc = ConsumeToken();  // Eat the failure token.
+ExprResult Parser::ParseHerbceptionReturnFailureExpression() {
+  assert(Tok.is(tok::kw_return_failure) && "Not return_failure!");
+  SourceLocation FailureLoc = ConsumeToken();  // Eat the return_failure token.
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
   if (T.consumeOpen()) {
@@ -1821,15 +1821,15 @@ ExprResult Parser::ParseHerbceptionFailureExpression() {
   if (Expr.isInvalid())
     return Expr;
   T.consumeClose();
-  return Actions.ActOnHerbceptionFailure(FailureLoc, Expr.get());
+  return Actions.ActOnHerbceptionReturnFailure(FailureLoc, Expr.get());
 }
 
-ExprResult Parser::ParseHerbceptionCatchFailsExpression() {
+ExprResult Parser::ParseHerbceptionCatchReturnFailureExpression() {
   assert(Tok.is(tok::kw_catch) && "Not catch!");
   SourceLocation CatchLoc = ConsumeToken();  // Eat the catch token.
-  assert(Tok.is(tok::kw_fails) && "Expected 'fails' after catch");
-  SourceLocation FailsLoc = ConsumeToken();  // Eat the fails token.
-  assert(Tok.is(tok::l_paren) && "Expected '(' after fails");
+  assert(Tok.is(tok::kw_return_failure) && "Expected 'return_failure' after catch");
+  SourceLocation FailsLoc = ConsumeToken();  // Eat the return_failure token.
+  assert(Tok.is(tok::l_paren) && "Expected '(' after return_failure");
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
   if (T.consumeOpen()) {
@@ -1842,7 +1842,7 @@ ExprResult Parser::ParseHerbceptionCatchFailsExpression() {
   if (Expr.isInvalid())
     return Expr;
   T.consumeClose();
-  return Actions.ActOnHerbceptionCatchFails(CatchLoc, FailsLoc, Expr.get());
+  return Actions.ActOnHerbceptionCatchReturnFailure(CatchLoc, FailsLoc, Expr.get());
 }
 
 ExprResult Parser::ParseCoyieldExpression() {

@@ -5765,7 +5765,7 @@ public:
 
   /// Return whether this function has a herbception 'fails{E}' spec (explicit
   /// error type).
-  bool hasFailsSpec() const {
+  bool hasReturnFailureSpec() const {
     return getExceptionSpecType() == EST_ThrowsTyped ||
            getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse;
   }

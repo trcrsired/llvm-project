@@ -624,7 +624,7 @@ public:
 
   /// Whether we are currently emitting the operand of a `try(expr)` /
   /// `catch fails(expr)` expression. While set, calls inside are already being
-  /// handled by EmitHerbceptionTry/EmitHerbceptionCatchFails and must not be
+  /// handled by EmitHerbceptionTry/EmitHerbceptionCatchReturnFailure and must not be
   /// routed to an enclosing herbception catch scope.
   bool InHerbceptionOperand = false;
 
@@ -5350,7 +5350,7 @@ public:
 
   /// Emit a herbception `catch fails(expr)`: evaluate the throws/fails call
   /// and produce an `either{T, E}` value (positive, left, right).
-  RValue EmitHerbceptionCatchFails(const CXXCatchFailsExpr *E);
+  RValue EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E);
 
   RValue EmitAtomicExpr(AtomicExpr *E);
 

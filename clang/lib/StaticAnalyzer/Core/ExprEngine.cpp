@@ -1690,7 +1690,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::CXXTryStmtClass:
     case Stmt::CXXCatchThrowsStmtClass:
     case Stmt::CXXTryExprClass:
-    case Stmt::CXXCatchFailsExprClass:
+    case Stmt::CXXCatchReturnFailureExprClass:
     case Stmt::CXXErrorValueExprClass:
     case Stmt::CXXCxaExceptionExprClass:
     case Stmt::CXXTypeidExprClass:

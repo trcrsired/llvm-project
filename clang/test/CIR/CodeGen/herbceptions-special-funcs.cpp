@@ -9,7 +9,7 @@
 // overloading, and destructors with throws.
 
 namespace std {
-struct error { void *d; unsigned long long c; };
+struct error { void *d; __SIZE_TYPE__ c; };
 }
 
 // Constructor with throws

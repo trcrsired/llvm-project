@@ -184,7 +184,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::CXXErrorValueExprClass:
   case Expr::CXXCxaExceptionExprClass:
   case Expr::CXXTryExprClass:
-  case Expr::CXXCatchFailsExprClass:
+  case Expr::CXXCatchReturnFailureExprClass:
   case Expr::ShuffleVectorExprClass:
   case Expr::ConvertVectorExprClass:
   case Expr::IntegerLiteralClass:

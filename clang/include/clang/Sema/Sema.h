@@ -8565,12 +8565,16 @@ public:
                                                SourceLocation Loc);
   /// ActOnHerbceptionTry - Parse `try(expr)` (herbception auto-propagate).
   ExprResult ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex);
-  /// ActOnHerbceptionCatchFails - Parse `catch fails(expr)`.
-  ExprResult ActOnHerbceptionCatchFails(SourceLocation CatchLoc,
+  /// ActOnHerbceptionCatchReturnFailure - Parse `catch fails(expr)`.
+  ExprResult ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
                                         SourceLocation FailsLoc, Expr *Ex);
-  /// ActOnHerbceptionFailure - Parse `failure(expr)`, which returns \p Ex via
+  /// ActOnHerbceptionReturnFailure - Parse `failure(expr)`, which returns \p Ex via
   /// the failure channel of the enclosing `fails{E}` function.
-  ExprResult ActOnHerbceptionFailure(SourceLocation FailureLoc, Expr *Ex);
+  ExprResult ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *Ex);
+
+  /// ActOnHerbceptionReturnFailureStmt - Handle `return_failure expr;` statement.
+  StmtResult ActOnHerbceptionReturnFailureStmt(SourceLocation ReturnFailureLoc,
+                                              Expr *E, Scope *CurScope);
 
   /// Whether the currently parsed expression is the operand of a herbception
   /// `try(expr)` or `catch fails(expr)` expression. When nonzero, bare calls

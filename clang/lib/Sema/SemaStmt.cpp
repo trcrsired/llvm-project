@@ -3992,6 +3992,17 @@ Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
   if (RetVal.isInvalid())
     return StmtError();
 
+  // `return return_failure(x)` is not allowed: return_failure is a statement,
+  // not an expression. Use `return_failure x;` instead.
+  if (RetVal.get()) {
+    if (auto *TE = dyn_cast<CXXThrowExpr>(RetVal.get())) {
+      if (TE->isHerbception()) {
+        Diag(ReturnLoc, diag::err_return_return_failure);
+        return StmtError();
+      }
+    }
+  }
+
   if (getCurScope()->isInOpenACCComputeConstructScope())
     return StmtError(
         Diag(ReturnLoc, diag::err_acc_branch_in_out_compute_construct)
@@ -4404,7 +4415,7 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
   // requires a visible std::error_domain<E> specialization.
   if (const FunctionDecl *CurFD = getCurFunctionDecl())
     if (const auto *FPT = CurFD->getType()->getAs<FunctionProtoType>();
-        FPT && FPT->hasFailsSpec()) {
+        FPT && FPT->hasReturnFailureSpec()) {
       QualType ErrTy = FPT->getExceptionType(0);
       if (!lookupErrorDomain(SpecLoc, ErrTy)) {
         Diag(SpecLoc, diag::err_catch_throws_requires_error_domain) << ErrTy;

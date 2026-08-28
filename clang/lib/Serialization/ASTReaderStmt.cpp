@@ -2006,7 +2006,7 @@ void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
   E->ErrorDomain = readDeclAs<CXXRecordDecl>();
 }
 
-void ASTStmtReader::VisitCXXCatchFailsExpr(CXXCatchFailsExpr *E) {
+void ASTStmtReader::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E) {
   VisitExpr(E);
   E->CatchLoc = readSourceLocation();
   E->SubExpr = Record.readSubExpr();
@@ -4429,7 +4429,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
 
     case EXPR_CXX_CATCH_FAILS:
-      S = new (Context) CXXCatchFailsExpr(Empty);
+      S = new (Context) CXXCatchReturnFailureExpr(Empty);
       break;
 
     case EXPR_CXX_DEFAULT_ARG:

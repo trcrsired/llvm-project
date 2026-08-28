@@ -350,7 +350,7 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::OpenACCAsteriskSizeExprClass:
   case Stmt::CXXExpansionSelectExprClass:
   case Stmt::CXXTryExprClass:
-  case Stmt::CXXCatchFailsExprClass:
+  case Stmt::CXXCatchReturnFailureExprClass:
   case Stmt::CXXErrorValueExprClass:
   case Stmt::CXXCxaExceptionExprClass:
     K = CXCursor_UnexposedExpr;

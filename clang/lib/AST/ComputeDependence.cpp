@@ -351,7 +351,7 @@ ExprDependence clang::computeDependence(CXXTryExpr *E) {
   return E->getSubExpr()->getDependence();
 }
 
-ExprDependence clang::computeDependence(CXXCatchFailsExpr *E) {
+ExprDependence clang::computeDependence(CXXCatchReturnFailureExpr *E) {
   // The catch fails expression's result type is either{T, E}, built from the
   // operand's value and error types, so it is type-dependent whenever the
   // operand is (keeping `auto` deduction deferred until instantiation).

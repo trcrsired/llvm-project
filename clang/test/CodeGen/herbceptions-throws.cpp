@@ -13,14 +13,14 @@ namespace std {
 struct error_domain_singleton {};
 struct error {
   void *d;
-  unsigned long long c;
+  __SIZE_TYPE__ c;
 };
 struct my_errc { int v; };
 template <class T> class error_domain;
 template <> class error_domain<my_errc> {
 public:
   static inline constexpr error_domain_singleton const *domain() noexcept;
-  static inline unsigned long long code(my_errc) noexcept { return 0; }
+  static inline __SIZE_TYPE__ code(my_errc) noexcept { return 0; }
 };
 }
 

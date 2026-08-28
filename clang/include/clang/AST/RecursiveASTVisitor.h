@@ -2992,7 +2992,7 @@ DEF_TRAVERSE_STMT(CXXErrorValueExpr, {
 })
 DEF_TRAVERSE_STMT(CXXCxaExceptionExpr, {})
 DEF_TRAVERSE_STMT(CXXTryExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
-DEF_TRAVERSE_STMT(CXXCatchFailsExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
+DEF_TRAVERSE_STMT(CXXCatchReturnFailureExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
 DEF_TRAVERSE_STMT(UserDefinedLiteral, {})
 DEF_TRAVERSE_STMT(DesignatedInitExpr, {})
 DEF_TRAVERSE_STMT(DesignatedInitUpdateExpr, {})

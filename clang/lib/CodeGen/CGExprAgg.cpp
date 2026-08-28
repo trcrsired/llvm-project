@@ -241,8 +241,8 @@ public:
     RValue Res = CGF.EmitHerbceptionTry(E);
     EmitFinalDestCopy(E->getType(), Res);
   }
-  void VisitCXXCatchFailsExpr(const CXXCatchFailsExpr *E) {
-    RValue Res = CGF.EmitHerbceptionCatchFails(E);
+  void VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
+    RValue Res = CGF.EmitHerbceptionCatchReturnFailure(E);
     EmitFinalDestCopy(E->getType(), Res);
   }
   void VisitAtomicExpr(AtomicExpr *E) {

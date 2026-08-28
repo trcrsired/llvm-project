@@ -1,20 +1,20 @@
 // RUN: %clang -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
 
-// Herbception `catch fails(expr)`: the throws call returns {T, i1}, and the
+// Herbception `catch return_failure(expr)`: the throws call returns {T, i1}, and the
 // expression builds the N2289 aggregate
 //   struct { union { T value; E error; }; bool failed; }
 // with .failed = discriminant and .value/.error sourced from the payload slot.
 
 // CHECK: %struct.__herb_catch_fails = type { %union.anon, i8 }
 
-// A fails{int} function returns {i32, i1} with the 'throws' attribute.
+// A return_failure{int} function returns {i32, i1} with the 'throws' attribute.
 // CHECK: define dso_local { i32, i1 } @_Z3bari(i32 noundef %x) #[[ATTR:[0-9]+]]
-int bar(int x) fails{int} {
-  if (x < 0) return failure(x);
+int bar(int x) return_failure{int} {
+  if (x < 0) return_failure x;
   return x + 1;
 }
 
-// catch fails(bar(x)) extracts the discriminant and builds the aggregate.
+// catch return_failure(bar(x)) extracts the discriminant and builds the aggregate.
 // CHECK-LABEL: define dso_local noundef i32 @_Z3fooi(i32 noundef %x)
 // CHECK:         %call = call { i32, i1 } @_Z3bari
 // CHECK:         %[[VAL:.*]] = extractvalue { i32, i1 } %call, 0
@@ -25,7 +25,7 @@ int bar(int x) fails{int} {
 // CHECK:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 0
 // CHECK:         store i32 %[[VAL]], ptr %{{.*}}, align 4
 int foo(int x) {
-  auto e = catch fails(bar(x));
+  auto e = catch return_failure(bar(x));
   return !e.failed ? e.value * 2 : e.error;
 }
 

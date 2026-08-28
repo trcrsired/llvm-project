@@ -3878,7 +3878,7 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case AsTypeExprClass:
   case CXXParenListInitExprClass:
   case CXXTryExprClass:
-  case CXXCatchFailsExprClass:
+  case CXXCatchReturnFailureExprClass:
   case CXXErrorValueExprClass:
     // These have a side-effect if any subexpression does.
     break;

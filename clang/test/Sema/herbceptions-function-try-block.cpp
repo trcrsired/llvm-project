@@ -21,12 +21,12 @@ public:
   error(error const &) = delete;
   error &operator=(error const &) = delete;
   constexpr ~error() noexcept {}
-  unsigned long code() const noexcept { return code_opaque; }
+  __SIZE_TYPE__ code() const noexcept { return code_opaque; }
 
 private:
   void const *domain_opaque{};
-  unsigned long code_opaque{};
-  explicit constexpr error(void const *domain, unsigned long code) noexcept
+  __SIZE_TYPE__ code_opaque{};
+  explicit constexpr error(void const *domain, __SIZE_TYPE__ code) noexcept
       : domain_opaque(domain), code_opaque(code) {}
 };
 
@@ -44,7 +44,7 @@ template <> struct error_domain<errc> {
   static constexpr error_domain_singleton const *domain() noexcept {
     return &dummy_domain;
   }
-  static constexpr unsigned long code(errc e) noexcept {
+  static constexpr __SIZE_TYPE__ code(errc e) noexcept {
     return static_cast<unsigned long>(e);
   }
 };
@@ -97,7 +97,7 @@ void bare_in_try_body() {
 
 int plain_function() {
   throw throws ::std::errc::invalid_argument;
-  // expected-error@-1 {{'throw throws' is only allowed inside a function declared 'throws' or 'fails{...}'}}
+  // expected-error@-1 {{'throw throws' is only allowed inside a function declared 'throws' or 'return_failure{...}'}}
   return 0;
 }
 
@@ -206,17 +206,17 @@ void mixed_with_typed_ok() {
   }
 }
 
-// A 'catch throws(std::error)' handler inside a fails{E} function requires a
+// A 'catch throws(std::error)' handler inside a return_failure{E} function requires a
 // visible std::error_domain<E> specialization.
 enum class no_domain_errc : int { boom = 1 };
 
-int fails_dom(int x) fails{::std::errc} { return x; }
+int fails_dom(int x) return_failure{::std::errc} { return x; }
 
 void throws_io() throws { throw throws ::std::errc::io_error; }
 
-// A 'catch throws(std::error)' handler inside a fails{E} function requires a
+// A 'catch throws(std::error)' handler inside a return_failure{E} function requires a
 // visible std::error_domain<E> specialization.
-void gate_ok() fails{::std::errc} {
+void gate_ok() return_failure{::std::errc} {
   try {
     throws_io();
   } catch throws(::std::error e) {
@@ -224,20 +224,20 @@ void gate_ok() fails{::std::errc} {
   }
 }
 
-void gate_missing_domain_bad() fails{no_domain_errc} {
+void gate_missing_domain_bad() return_failure{no_domain_errc} {
   try {
   } catch throws(::std::error e) {
-    // expected-error@-1 {{'catch throws' inside a 'fails{...}' function requires a visible std::error_domain specialization for 'no_domain_errc'}}
+    // expected-error@-1 {{'catch throws' inside a 'return_failure{...}' function requires a visible std::error_domain specialization for 'no_domain_errc'}}
   }
 }
 
-// Inside such a handler, calls to plain fails{...} functions must be wrapped
+// Inside such a handler, calls to plain return_failure{...} functions must be wrapped
 // in an explicit try() so their error is converted to std::error.
-void needs_try_in_handler_bad() fails{::std::errc} {
+void needs_try_in_handler_bad() return_failure{::std::errc} {
   try {
   } catch throws(::std::error e) {
     fails_dom(1);
-    // expected-error@-1 {{'catch throws(std::error)' handles std::error values; wrap this 'fails{...}' call in 'try()' to convert its error}}
+    // expected-error@-1 {{'catch throws(std::error)' handles std::error values; wrap this 'return_failure{...}' call in 'try()' to convert its error}}
     auto r = try(fails_dom(2)); // ok: explicit conversion marker
     (void)r;
   }

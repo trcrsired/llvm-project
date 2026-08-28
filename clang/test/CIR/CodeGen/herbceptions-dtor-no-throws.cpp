@@ -3,7 +3,7 @@
 // Destructors must NOT have throws - this should be a compile error.
 
 namespace std {
-struct error { void *d; unsigned long long c; };
+struct error { void *d; __SIZE_TYPE__ c; };
 }
 
 struct Bad {

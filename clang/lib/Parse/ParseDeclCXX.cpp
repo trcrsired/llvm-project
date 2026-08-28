@@ -3955,7 +3955,7 @@ Parser::tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType) {
   // error channel (EST_ThrowsTypedNoexceptFalse). `noexcept(true)` or a bare
   // `noexcept` keeps the plain fails spec. 'throws' and 'fails{...}' are
   // mutually exclusive.
-  if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_fails)) {
+  if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_return_failure)) {
     Diag(Tok, diag::err_throws_fails_combined);
     ConsumeToken();
     if (Tok.is(tok::l_paren))
@@ -3993,7 +3993,7 @@ ExceptionSpecificationType Parser::tryParseNoexceptAfterThrows(
   // that and is rejected (later work will handle legacy C++ EH inside throws
   // functions); `noexcept(true)` or a bare `noexcept` is consistent and the
   // function stays `throws`. 'throws' and 'fails{...}' are mutually exclusive.
-  if (Tok.is(tok::kw_fails) || Tok.is(tok::kw_throws)) {
+  if (Tok.is(tok::kw_return_failure) || Tok.is(tok::kw_throws)) {
     Diag(Tok, diag::err_throws_fails_combined);
     ConsumeToken();
     if (Tok.is(tok::l_brace))
@@ -4037,7 +4037,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
   // Handle delayed parsing of exception-specifications.
   if (Delayed) {
     if (Tok.isNot(tok::kw_throw) && Tok.isNot(tok::kw_noexcept) &&
-        Tok.isNot(tok::kw_throws) && Tok.isNot(tok::kw_fails))
+        Tok.isNot(tok::kw_throws) && Tok.isNot(tok::kw_return_failure))
       return EST_None;
 
     // Consume and cache the starting token.
@@ -4047,7 +4047,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
 
     // Herbception: 'throws' or 'fails{E}' in a member function declaration.
     // These are cached for delayed parsing just like noexcept.
-    if (StartTok.is(tok::kw_throws) || StartTok.is(tok::kw_fails)) {
+    if (StartTok.is(tok::kw_throws) || StartTok.is(tok::kw_return_failure)) {
       bool IsThrows = StartTok.is(tok::kw_throws);
       if (IsThrows) {
         // `throws(expr)` needs the whole parenthesized expression cached.
@@ -4119,10 +4119,10 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
                                  /*ConsumeFinalToken=*/true);
           return EST_Unparsed;
         }
-        if (Tok.is(tok::kw_fails)) {
+        if (Tok.is(tok::kw_return_failure)) {
           ExceptionSpecTokens = new CachedTokens;
           ExceptionSpecTokens->push_back(StartTok); // 'noexcept'
-          ExceptionSpecTokens->push_back(Tok);      // 'fails'
+          ExceptionSpecTokens->push_back(Tok);      // 'return_failure'
           ConsumeToken();
           if (Tok.is(tok::l_brace))
             ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
@@ -4160,8 +4160,8 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
                                /*StopAtSemi=*/true,
                                /*ConsumeFinalToken=*/true);
         }
-      } else if (Tok.is(tok::kw_fails)) {
-        ExceptionSpecTokens->push_back(Tok); // 'fails'
+      } else if (Tok.is(tok::kw_return_failure)) {
+        ExceptionSpecTokens->push_back(Tok); // 'return_failure'
         ConsumeToken();
         if (Tok.is(tok::l_brace)) {
           ConsumeAndStoreUntil(tok::r_brace, *ExceptionSpecTokens,
@@ -4184,7 +4184,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
 
   // Herbception: 'throws' (C++ only, implicit std::error) or 'fails{E}'
   // (C++ and C, explicit error type).
-  if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_fails)) {
+  if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_return_failure)) {
     bool IsThrows = Tok.is(tok::kw_throws);
     SourceLocation KwLoc = ConsumeToken();
     if (IsThrows) {
@@ -4313,7 +4313,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     // `noexcept(...) fails{E}`: a noexcept(false) fails{E} adds the
     // traditional C++ exception channel alongside the herbception error
     // channel; noexcept(true) keeps the plain fails spec.
-    if (Tok.is(tok::kw_fails)) {
+    if (Tok.is(tok::kw_return_failure)) {
       SourceLocation FailsLoc = ConsumeToken();
       BalancedDelimiterTracker TBrace(*this, tok::l_brace);
       if (TBrace.consumeOpen()) {
