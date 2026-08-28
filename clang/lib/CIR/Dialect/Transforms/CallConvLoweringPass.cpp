@@ -862,12 +862,6 @@ void CallConvLoweringPass::runOnOperation() {
   llvm::MapVector<cir::FuncOp, FunctionClassification> classifications;
   bool anyFailed = false;
   moduleOp.walk([&](cir::FuncOp f) {
-    // Herbception: a 'cir.throws' function returns the shaped {T, i1} record
-    // through the backend's out-of-band discriminant mechanism, so its wire
-    // form is exactly as written regardless of size; leave it and its direct
-    // call sites alone.
-    if (f->hasAttr("cir.throws"))
-      return;
     // A complete type is required at any call or definition, so only a
     // declaration can carry an incomplete-by-value parameter or return type,
     // and no translation unit can ever call or define it with real argument
@@ -876,6 +870,12 @@ void CallConvLoweringPass::runOnOperation() {
     if (f.isDeclaration() &&
         (hasIncompleteRecordByValue(fnTy.getReturnType()) ||
          llvm::any_of(fnTy.getInputs(), hasIncompleteRecordByValue)))
+      return;
+    // Herbception: a 'cir.throws' function returns the shaped {T, i1} record
+    // through the backend's out-of-band discriminant mechanism, so its wire
+    // form is exactly as written regardless of size; leave it and its direct
+    // call sites alone.
+    if (f->hasAttr("cir.throws"))
       return;
     std::optional<FunctionClassification> fc;
     if (isX86)
