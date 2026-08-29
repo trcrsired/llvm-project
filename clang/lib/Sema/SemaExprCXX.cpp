@@ -960,12 +960,17 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     // The operand is the error value. For a basic `throws` function the error
     // type is the implicit `std::error`, which users cannot construct: only the
     // compiler can, by going through `error_domain<T>` to call its `domain()`
-    // and `code()` functions. Fabricate that value here.
+    // and `code()` functions. Fabricate that value here. Defer fabrication when:
+    //  - the operand type is dependent (template), or
+    //  - we are inside an `if constexpr` branch that may be discarded.
+    // In both cases BuildErrorValueExpr is re-run at instantiation time.
     if (!CurFPT || !CurFPT->hasReturnFailureSpec()) {
-      ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
-      if (Fabricated.isInvalid())
-        return ExprError();
-      Ex = Fabricated.get();
+      if (!Ex->getType()->isDependentType() && !MaybeDiscarded) {
+        ExprResult Fabricated = BuildErrorValueExpr(ThrowsLoc, Ex);
+        if (Fabricated.isInvalid())
+          return ExprError();
+        Ex = Fabricated.get();
+      }
     }
 
     return BuildCXXThrow(OpLoc, Ex, /*IsThrownVarInScope=*/false,

@@ -15161,6 +15161,30 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
   if (!E->isHerbception())
     getSema().DiagnoseExceptionUse(E->getThrowLoc(), /* IsTry= */ false);
 
+  // If fabrication of the error value was deferred (operand had a dependent
+  // type at template definition time), fabricate it now that the type is
+  // concrete. The subexpr is not a CXXErrorValueExpr in that case.
+  if (E->isHerbception() && SubExpr.get() &&
+      !isa<CXXErrorValueExpr>(SubExpr.get()) &&
+      !SubExpr.get()->getType()->isDependentType()) {
+    // Only fabricate for basic `throws` functions, not `return_failure{E}`.
+    if (const FunctionProtoType *FPT =
+            getSema().getCurFunctionDecl()
+                ? getSema()
+                      .getCurFunctionDecl()
+                      ->getType()
+                      ->template getAs<FunctionProtoType>()
+                : nullptr) {
+      if (!FPT->hasReturnFailureSpec()) {
+        ExprResult Fabricated = getSema().BuildErrorValueExpr(
+            E->getThrowLoc(), SubExpr.get());
+        if (Fabricated.isInvalid())
+          return ExprError();
+        SubExpr = Fabricated;
+      }
+    }
+  }
+
   if (!getDerived().AlwaysRebuild() &&
       SubExpr.get() == E->getSubExpr())
     return E;
