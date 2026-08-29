@@ -4358,7 +4358,7 @@ def CIR_FuncOp : CIR_Op<"func", [
     static mlir::StringRef getLinkageAttrNameString() { return "linkage"; }
 
     void lowerFuncAttributes(
-        cir::FuncOp func, bool filterArgAndResAttrs,
+        cir::FuncOp func, bool includeFunctionOnlyAttrs,
         mlir::SmallVectorImpl<mlir::NamedAttribute> &result) const;
 
     mlir::LogicalResult
