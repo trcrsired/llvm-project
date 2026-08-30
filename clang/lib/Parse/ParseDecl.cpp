@@ -6868,7 +6868,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
     // Example: 'char (*X)'   or 'int (*XX)(void)'
     ParseParenDeclarator(D);
 
-    // As above, a structured binding declarator cannot be followed by any
+    // As noted above, a structured binding declarator cannot be followed by any
     // declarator chunks.
     if (D.isDecompositionDeclarator())
       return;
