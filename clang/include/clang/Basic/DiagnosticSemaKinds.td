@@ -8819,9 +8819,10 @@ def err_herbception_legacy_convert_no_domain : Error<
 def err_throw_throws_no_catch_handler : Error<
   "'throw throws' in a plain (non-'throws') function must be inside a "
   "'try { } catch throws' block">;
-def err_herbception_noexcept_calls_throws : Error<
-  "call to 'throws' function in a noexcept (non-'throws') function must be "
-  "handled by an enclosing 'try { } catch throws' block">;
+def err_herbceptions_non_throws_call_throws : Error<
+  "call to 'throws' function in a non-'throws' function must be "
+  "handled by an enclosing 'try { } catch throws' block, or mark the "
+  "calling function as 'throws' so herbceptions can propagate">;
 def err_failure_outside_fails_function : Error<
   "'return_failure(expr)' is only allowed inside a function declared 'return_failure{...}'">;
 def err_return_return_failure : Error<
