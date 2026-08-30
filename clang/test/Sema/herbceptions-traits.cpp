@@ -145,4 +145,95 @@ static_assert(__is_herbceptions_throws_invocable_r(int, ThrowsIntFp),
 static_assert(__is_herbceptions_throws_invocable_r(void, ThrowsIntFp),
               "throws int fnptr is throws invocable_r void");
 static_assert(!__is_herbceptions_throws_invocable_r(int, ThrowsFp),
-              "throws void fnptr is not throws invocable_r int");
+               "throws void fnptr is not throws invocable_r int");
+
+// Function pointers with arguments
+using ThrowsArgFp = void (*)(int, char *, char *) throws;
+using NoexceptArgFp = void (*)(int, char *, char *) noexcept;
+using PlainArgFp = void (*)(int, char *, char *);
+
+static_assert(__is_herbceptions_throws_invocable(ThrowsArgFp, int, char *, char *),
+              "throws fnptr with args is throws invocable");
+static_assert(!__is_herbceptions_throws_invocable(NoexceptArgFp, int, char *, char *),
+              "noexcept fnptr with args is not throws invocable");
+static_assert(!__is_herbceptions_throws_invocable(PlainArgFp, int, char *, char *),
+              "plain fnptr with args is not throws invocable");
+
+// Pointer to function with arguments
+using ThrowsArgFn = void(int, char *, char *) throws;
+using NoexceptArgFn = void(int, char *, char *) noexcept;
+
+static_assert(__is_herbceptions_throws_invocable(ThrowsArgFn *, int, char *, char *),
+              "pointer to throws fn is throws invocable");
+static_assert(!__is_herbceptions_throws_invocable(NoexceptArgFn *, int, char *, char *),
+              "pointer to noexcept fn is not throws invocable");
+
+// Herbceptions throws invocable with pointer return type
+using ThrowsDataFp = void *(*)() throws;
+using NoexceptDataFp = void *(*)() noexcept;
+
+static_assert(__is_herbceptions_throws_invocable(ThrowsDataFp),
+              "throws fnptr returning void* is throws invocable");
+static_assert(!__is_herbceptions_throws_invocable(NoexceptDataFp),
+              "noexcept fnptr returning void* is not throws invocable");
+
+// Herbceptions throws invocable_r with pointer return type
+static_assert(__is_herbceptions_throws_invocable_r(void *, ThrowsDataFp),
+              "throws fnptr returning void* is throws invocable_r void*");
+static_assert(!__is_herbceptions_throws_invocable_r(void *, NoexceptDataFp),
+              "noexcept fnptr returning void* is not throws invocable_r void*");
+
+// Herbceptions throws constructible with pointer return type
+struct foo_throws {
+  foo_throws(foo_throws &&) throws;
+};
+struct foo_noexcept {
+  foo_noexcept(foo_noexcept &&) noexcept;
+};
+
+static_assert(__is_herbceptions_throws_constructible(foo_throws, foo_throws &&),
+              "foo_throws is throws constructible from rvalue");
+static_assert(!__is_herbceptions_throws_constructible(foo_noexcept, foo_noexcept &&),
+              "foo_noexcept is not throws constructible from rvalue");
+
+// Decay function pointer detection with custom stream types
+namespace foo {
+
+struct stream_observer {};
+struct null_sink {};
+
+// Decay function pointer types
+using decay_fn = void *(stream_observer, char *, char *) throws;
+using decay_noexcept_fn = void *(stream_observer, char *, char *) noexcept;
+
+// Test direct usage (non-template)
+static_assert(__is_herbceptions_throws_invocable(decay_fn, stream_observer, char *, char *),
+              "decay_fn with stream_observer can throw");
+static_assert(!__is_herbceptions_throws_invocable(decay_noexcept_fn, stream_observer, char *, char *),
+              "decay_noexcept_fn cannot throw");
+
+// Test with noexcept null_sink
+using null_read_fn = void *(null_sink, char *, char *) noexcept;
+static_assert(!__is_herbceptions_throws_invocable(null_read_fn, null_sink, char *, char *),
+              "null_sink read cannot throw");
+
+} // namespace foo
+
+// Template variable with herbceptions trait (conditional throws pattern)
+// Note: the trait checks if the function pointer type is declared throws AND
+// if the arguments are convertible. Since decay_fn is throws, any
+// convertible argument type will return true.
+namespace bar {
+
+using decay_fn = void *(int, char *, char *) throws;
+
+template <typename Stream>
+inline constexpr bool has_any_of_read_operations_herbceptions_throws =
+    __is_herbceptions_throws_invocable(decay_fn, Stream, char *, char *);
+
+static_assert(has_any_of_read_operations_herbceptions_throws<int>,
+              "int read can throw");
+static_assert(has_any_of_read_operations_herbceptions_throws<char>,
+              "char read can throw (char converts to int)");
+
+} // namespace bar
