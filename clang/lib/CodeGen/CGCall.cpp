@@ -7009,7 +7009,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         EmitBlock(OkBB);
       } else {
         CGM.getDiags().Report(
-            Loc, diag::err_herbception_noexcept_calls_throws);
+             Loc, diag::err_herbceptions_non_throws_call_throws);
       }
     }
   }

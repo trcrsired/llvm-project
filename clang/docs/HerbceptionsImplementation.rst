@@ -188,7 +188,7 @@ unconverted; an explicit ``try()`` performs the conversion.
 
 A call whose result would escape a non-throws/non-return_failure enclosing function
 is diagnosed at call-lowering time with
-``err_herbception_noexcept_calls_throws`` (``CodeGen::EmitCall``,
+``err_herbceptions_non_throws_call_throws`` (``CodeGen::EmitCall``,
 ``clang/lib/CodeGen/CGCall.cpp``). ``main()`` is a special case: its error
 path branches to a ``herb.main.trap`` block that executes ``llvm.trap``
 (the success path continues in ``herb.main.ok``).
@@ -367,7 +367,7 @@ struct return is never misclassified: only a second struct element of type
   innermost handler) and coerces the payload between ``T`` / ``E`` /
   ``std::error`` representations;
 * ``main()``: trap on error (blocks ``herb.main.ok`` / ``herb.main.trap``);
-* otherwise: diagnose with ``err_herbception_noexcept_calls_throws``.
+* otherwise: diagnose with ``err_herbceptions_non_throws_call_throws``.
 
 Every ``-fherbceptions`` function gets a ``herbception.disc`` alloca in
 ``StartFunction`` tagged with ``!coro.outside.frame`` metadata so the

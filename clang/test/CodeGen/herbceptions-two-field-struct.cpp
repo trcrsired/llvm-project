@@ -4,7 +4,7 @@
 // {size_t, size_t}) must not be mistaken for a throws call returning {T, i1}.
 // Only a {T, i1} return carries the herbception discriminant; routing a plain
 // struct through the discriminant logic would miscompile the call (and wrongly
-// fire err_herbception_noexcept_calls_throws in a noexcept caller).
+  // fire err_herbceptions_non_throws_call_throws in a noexcept caller).
 
 using size_t = __SIZE_TYPE__;
 
