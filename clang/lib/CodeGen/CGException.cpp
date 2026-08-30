@@ -1997,11 +1997,9 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
 
   // A legacy C++ exception can escape this `throws` function (the catch-all
-  // had EH branches), but no error_domain<std::exception_ptr> specialization
-  // is available to fabricate the converted std::error. This is a hard error:
-  // the user must provide the domain (include the exception_ptr error_domain
-  // header) or disable C++ exceptions with -fno-exceptions. Emit a noreturn
-  // terminator so the funclet / landing-pad IR stays well-formed.
+  // had EH branches), but the conversion is unavailable (std::exception_ptr
+  // or std::error not visible at the definition). Hard error; emit noreturn
+  // so the funclet / landing-pad IR stays well-formed.
   if (!Conv) {
     CGM.getDiags().Report(FD->getLocation(),
                           diag::err_herbception_legacy_convert_no_domain)
