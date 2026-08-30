@@ -5050,7 +5050,8 @@ static bool isCanonicalExceptionSpecification(
 
   // Herbception (throws/fails) is always part of the canonical type because it
   // changes the function ABI (the return type is lowered to {T, i1}).
-  if (ESI.Type == EST_BasicThrows)
+  if (ESI.Type == EST_BasicThrows || ESI.Type == EST_BasicThrowsTrue ||
+      ESI.Type == EST_BasicThrowsFalse)
     return true;
   if (ESI.Type == EST_ThrowsTyped || ESI.Type == EST_ThrowsTypedNoexceptFalse) {
     for (QualType ET : ESI.Exceptions)
@@ -5190,7 +5191,9 @@ QualType ASTContext::getFunctionTypeInternal(
         break;
 
       case EST_BasicThrows:
-        CanonicalEPI.ExceptionSpec.Type = EST_BasicThrows;
+      case EST_BasicThrowsTrue:
+      case EST_BasicThrowsFalse:
+        CanonicalEPI.ExceptionSpec.Type = EPI.ExceptionSpec.Type;
         break;
 
       case EST_ThrowsTyped:
@@ -14531,6 +14534,8 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
   // Herbception specs are part of the canonical type: they can only merge
   // with an identical spec (a mismatched combination is rejected by Sema).
   case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+  case EST_BasicThrowsFalse:
   case EST_ThrowsTyped:
   case EST_ThrowsTypedNoexceptFalse:
     assert(EST2 == EST1 && "mismatched herbception exception specifications");
