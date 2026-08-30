@@ -678,6 +678,8 @@ void JSONNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
     JOS.attribute("exceptionSpec", "nothrow");
     break;
   case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+  case EST_BasicThrowsFalse:
     JOS.attribute("exceptionSpec", "throws");
     break;
   case EST_ThrowsTyped:

@@ -5648,6 +5648,8 @@ private:
     case EST_Unparsed:
     case EST_NoThrow:
     case EST_BasicThrows:
+    case EST_BasicThrowsTrue:
+    case EST_BasicThrowsFalse:
       return {0, 0, 0};
 
     case EST_Dynamic:
@@ -5753,6 +5755,8 @@ public:
   /// Return whether this function has a herbception (throws/fails) spec.
   bool hasThrowsSpec() const {
     return getExceptionSpecType() == EST_BasicThrows ||
+           getExceptionSpecType() == EST_BasicThrowsTrue ||
+           getExceptionSpecType() == EST_BasicThrowsFalse ||
            getExceptionSpecType() == EST_ThrowsTyped ||
            getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse;
   }
@@ -5760,7 +5764,9 @@ public:
   /// Return whether this function has a herbception 'throws' spec (implicit
   /// std::error).
   bool hasBasicThrowsSpec() const {
-    return getExceptionSpecType() == EST_BasicThrows;
+    return getExceptionSpecType() == EST_BasicThrows ||
+           getExceptionSpecType() == EST_BasicThrowsTrue ||
+           getExceptionSpecType() == EST_BasicThrowsFalse;
   }
 
   /// Return whether this function has a herbception 'fails{E}' spec (explicit

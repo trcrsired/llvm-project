@@ -6672,7 +6672,11 @@ public:
   /// `fails{E}` channel (EST_ThrowsTyped with exception type E). Returns true
   /// if some potentially-evaluated callee in \p S is declared with a matching
   /// herbception spec.
-  bool canHerbceptionThrow(const Stmt *S, QualType E);
+   bool canHerbceptionThrow(const Stmt *S, QualType E);
+   /// Check whether any callee in \p S has a herbception `throws`/`fails{E}`
+   /// specification (regardless of condition). Used by requires-expr noexcept
+   /// checking: any throws spec means the expression is not noexcept.
+   bool hasHerbceptionSpec(const Stmt *S);
   const FunctionProtoType *ResolveExceptionSpec(SourceLocation Loc,
                                                 const FunctionProtoType *FPT);
   void UpdateExceptionSpec(FunctionDecl *FD,

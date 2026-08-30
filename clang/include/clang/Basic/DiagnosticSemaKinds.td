@@ -3235,6 +3235,8 @@ def note_expr_requirement_expr_unknown_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid">;
 def note_expr_requirement_noexcept_not_met
     : Note<"%select{and|because}0 %1 may throw an exception">;
+def note_expr_requirement_noexcept_herbception_not_met
+    : Note<"%select{and|because}0 %1 is a herbception 'throws' function and is not noexcept">;
 def note_expr_requirement_throws_not_met
     : Note<"%select{and|because}0 %1 does not use herbception throws">;
 def note_expr_requirement_type_requirement_substitution_error : Note<
