@@ -721,6 +721,9 @@ bool Parser::isRevertibleTypeTrait(const IdentifierInfo *II,
     REVERTIBLE_TYPE_TRAIT(__is_void);
     REVERTIBLE_TYPE_TRAIT(__is_volatile);
     REVERTIBLE_TYPE_TRAIT(__reference_binds_to_temporary);
+    REVERTIBLE_TYPE_TRAIT(__is_herbceptions_throws_constructible);
+    REVERTIBLE_TYPE_TRAIT(__is_herbceptions_throws_invocable);
+    REVERTIBLE_TYPE_TRAIT(__is_herbceptions_throws_invocable_r);
 #define TRANSFORM_TYPE_TRAIT_DEF(_, Trait)                                     \
   REVERTIBLE_TYPE_TRAIT(RTT_JOIN(__, Trait));
 #include "clang/Basic/BuiltinTraits.inc"
