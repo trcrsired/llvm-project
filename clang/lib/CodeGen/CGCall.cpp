@@ -2826,7 +2826,8 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
         CalleeInfo.getCalleeFunctionProtoType();
     if (proto) {
       ExceptionSpecificationType EST = proto->getExceptionSpecType();
-      if (EST == EST_BasicThrows || EST == EST_ThrowsTyped)
+      if (EST == EST_BasicThrows || EST == EST_BasicThrowsTrue ||
+          EST == EST_BasicThrowsFalse || EST == EST_ThrowsTyped)
         FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     }
   }

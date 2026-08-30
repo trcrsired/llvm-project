@@ -31,6 +31,8 @@ enum ExceptionSpecificationType {
   EST_Uninstantiated,    ///< not instantiated yet
   EST_Unparsed,          ///< not parsed yet
   EST_BasicThrows,       ///< throws (herbception): implicit std::error
+  EST_BasicThrowsTrue,   ///< throws(true): can fail, implicit std::error
+  EST_BasicThrowsFalse,  ///< throws(false): cannot fail, implicit std::error
   EST_ThrowsTyped,       ///< throws(T) / fails{T}: explicit error type
   EST_ThrowsTypedNoexceptFalse ///< fails{E} noexcept(false): herbception + C++
                                ///< EH
@@ -64,7 +66,10 @@ inline bool isExplicitThrowExceptionSpec(ExceptionSpecificationType ESpecType) {
 /// spec. Such specs are part of the canonical function type (they change the
 /// calling convention), so they are only compatible with an identical spec.
 inline bool hasHerbceptionExceptionSpec(ExceptionSpecificationType ESpecType) {
-  return ESpecType == EST_BasicThrows || ESpecType == EST_ThrowsTyped ||
+  return ESpecType == EST_BasicThrows ||
+         ESpecType == EST_BasicThrowsTrue ||
+         ESpecType == EST_BasicThrowsFalse ||
+         ESpecType == EST_ThrowsTyped ||
          ESpecType == EST_ThrowsTypedNoexceptFalse;
 }
 

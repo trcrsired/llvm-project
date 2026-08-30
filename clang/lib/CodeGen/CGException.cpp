@@ -562,7 +562,8 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
     // noexcept functions are simple terminate scopes.
     if (!getLangOpts().EHAsynch) // -EHa: HW exception still can occur
       EHStack.pushTerminate();
-  } else if (Proto->getExceptionSpecType() == EST_BasicThrows) {
+  } else if (Proto->getExceptionSpecType() == EST_BasicThrows ||
+             Proto->getExceptionSpecType() == EST_BasicThrowsTrue) {
     // A bare `throws` function implicitly converts any legacy C++ exception
     // that escapes it (thrown by a `noexcept(false)` callee) into a
     // fabricated std::error, returned on the herbception channel. Wrap the
@@ -668,7 +669,8 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
              /* possible empty when under async exceptions */
              !EHStack.empty()) {
     EHStack.popTerminate();
-  } else if (Proto->getExceptionSpecType() == EST_BasicThrows) {
+  } else if (Proto->getExceptionSpecType() == EST_BasicThrows ||
+             Proto->getExceptionSpecType() == EST_BasicThrowsTrue) {
     // The whole-function catch-all pushed in EmitStartEHSpec is normally
     // popped by FinishFunction (which emits the conversion body first); this
     // is a safety net for paths that did not run FinishFunction's handler.
