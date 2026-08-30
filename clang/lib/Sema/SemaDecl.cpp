@@ -16898,32 +16898,15 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
     if (auto *FPT = FD->getType()->getAs<FunctionProtoType>();
         FPT && FPT->hasBasicThrowsSpec() && !FD->isDependentContext() &&
         canThrow(Body) == CT_Can) {
-      // Locate std::exception_ptr and check for its domain specialization.
-      QualType ExPtrTy;
-      bool DomainVisible = false;
-      if (NamespaceDecl *Std = getStdNamespace()) {
-        LookupResult R(*this, &PP.getIdentifierTable().get("exception_ptr"),
-                       FD->getLocation(), LookupTagName);
-        if (LookupQualifiedName(R, Std))
-          if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
-            ExPtrTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
-      }
-      if (!ExPtrTy.isNull())
-        DomainVisible = lookupErrorDomain(FD->getLocation(), ExPtrTy) != nullptr;
-
-      if (!ExPtrTy.isNull() && !DomainVisible) {
-        // A legacy exception can escape and the conversion is unavailable:
-        // hard error (include the exception_ptr domain header or use
-        // -fno-exceptions).
-        Diag(FD->getLocation(),
-             diag::err_herbception_legacy_convert_no_domain)
-            << /*'throws' function=*/0;
-        FD->setInvalidDecl();
-      } else if (DomainVisible) {
-        if (ExprResult Conv = BuildCxaExceptionErrorValue(FD->getLocation());
-            !Conv.isInvalid())
-          FD->setHerbceptionLegacyErrorValue(Conv.get());
-      }
+      // A legacy C++ exception can escape this `throws` function. Fabricate
+      // the conversion to herbception using the built-in ABI calls
+      // (__cxa_error_domain_*_exception_ptr / __cxa_error_code_*_exception_ptr)
+      // baked into the compiler — no user types or headers needed. The linker
+      // hard-errors if libherbceptions is not linked; with -fno-exceptions
+      // none of this is emitted.
+      if (ExprResult Conv = BuildCxaExceptionErrorValue(FD->getLocation());
+          !Conv.isInvalid())
+        FD->setHerbceptionLegacyErrorValue(Conv.get());
     }
   }
 

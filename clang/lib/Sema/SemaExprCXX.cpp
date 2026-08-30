@@ -1275,22 +1275,11 @@ static ExprResult buildImplicitExternCCall(FunctionDecl *Fn, MultiExprArg Args,
 /// channel: inside a `try { } catch throws(std::error e)` block, or escaping
 /// a `throws` function.
 ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
-  // Best-effort conversion: requires std::exception_ptr and std::error to be
-  // visible (any standard <exception> inclusion suffices). When either is
-  // missing, return ExprError silently so the catch-throws handler still
-  // catches herbception throws -- the legacy-EH conversion is simply
-  // unavailable.
-  QualType ExPtrTy;
-  if (NamespaceDecl *Std = getStdNamespace()) {
-    LookupResult R(*this, &PP.getIdentifierTable().get("exception_ptr"), Loc,
-                   LookupTagName);
-    if (LookupQualifiedName(R, Std)) {
-      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
-        ExPtrTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
-    }
-  }
-  if (ExPtrTy.isNull())
-    return ExprError();
+  // Always fabricate the legacy-exception-to-herbception conversion. The
+  // compiler emits calls to the built-in ABI symbols
+  // (__cxa_error_domain_*_exception_ptr / __cxa_error_code_*_exception_ptr);
+  // the linker hard-errors if libherbceptions is not linked. With
+  // -fno-exceptions none of this is emitted.
 
   bool IsMSVC{Context.getTargetInfo().getCXXABI().isMicrosoft()};
 
@@ -1326,7 +1315,8 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   if (CodeCall.isInvalid())
     return ExprError();
 
-  // The fabricated std::error type, looked up by name.
+  // The fabricated value's type: std::error if visible, otherwise a
+  // fallback {void const*, __SIZE_TYPE__} struct matching the ABI layout.
   QualType ErrorTy;
   if (NamespaceDecl *Std = getStdNamespace()) {
     LookupResult R(*this, &PP.getIdentifierTable().get("error"), Loc,
@@ -1336,8 +1326,30 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
         ErrorTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
     }
   }
-  if (ErrorTy.isNull())
-    return ExprError();
+  if (ErrorTy.isNull()) {
+    // std::error not visible: build an anonymous {void const*, __SIZE_TYPE__}
+    // struct matching the cxx_std_error ABI layout.
+    DeclContext *TU = Context.getTranslationUnitDecl();
+    auto *RD = RecordDecl::Create(Context, TagTypeKind::Struct, TU, Loc, Loc,
+                                  /*Id=*/nullptr, /*PrevDecl=*/nullptr);
+    RD->setImplicit();
+    RD->startDefinition();
+    QualType VoidPtr = Context.getPointerType(Context.VoidTy.withConst());
+    auto *F1 = FieldDecl::Create(Context, RD, Loc, Loc,
+                                 /*Id=*/nullptr, VoidPtr,
+                                 /*TInfo=*/nullptr, /*BW=*/nullptr,
+                                 /*Mutable=*/false, /*ICIS=*/ICIS_NoInit);
+    F1->setImplicit();
+    RD->addDecl(F1);
+    auto *F2 = FieldDecl::Create(Context, RD, Loc, Loc,
+                                 /*Id=*/nullptr, Context.getSizeType(),
+                                 /*TInfo=*/nullptr, /*BW=*/nullptr,
+                                 /*Mutable=*/false, /*ICIS=*/ICIS_NoInit);
+    F2->setImplicit();
+    RD->addDecl(F2);
+    RD->completeDefinition();
+    ErrorTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+  }
 
   return new (Context) CXXErrorValueExpr(CxaOperand, DomainCall.get(),
                                          /*CodeCall=*/CodeCall.get(), ErrorTy,
