@@ -791,8 +791,7 @@ mlir::Type
 CIRGenTypes::getHerbceptionErrorType(const clang::FunctionProtoType *ftp) {
   if (!ftp || !ftp->hasThrowsSpec())
     return {};
-  if (ftp->getExceptionSpecType() == EST_ThrowsTyped ||
-      ftp->getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse)
+  if (ftp->getExceptionSpecType() == EST_ThrowsTyped)
     return convertType(ftp->getExceptionType(0));
   // Bare `throws`: implicit std::error = {void *, size_t}, fabricated here
   // because std::error is not wired into the AST.

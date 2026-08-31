@@ -247,8 +247,7 @@ static llvm::Type *getHerbceptionErrorType(CodeGenTypes &CGT,
                                            const FunctionProtoType *FTP) {
   if (!FTP || !FTP->hasThrowsSpec())
     return nullptr;
-  if (FTP->getExceptionSpecType() == EST_ThrowsTyped ||
-      FTP->getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse)
+  if (FTP->getExceptionSpecType() == EST_ThrowsTyped)
     return CGT.ConvertType(FTP->getExceptionType(0));
   // throws: implicit std::error = {void*, size_t}.
   llvm::Type *VoidPtrTy = CGT.getCGM().VoidPtrTy;

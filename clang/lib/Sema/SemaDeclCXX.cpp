@@ -246,17 +246,7 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
   case EST_BasicThrowsFalse:
   case EST_ThrowsTyped:
     return;
-  // `throws(false) noexcept(false)`: cannot fail via herbception, but can
-  // throw C++ exceptions.
-  case EST_BasicThrowsFalseNoexceptFalse:
-    ClearExceptions();
-    ComputedEST = EST_None;
-    return;
-  // An explicit 'noexcept(false) return_failure{E}' can throw anything.
-  case EST_ThrowsTypedNoexceptFalse:
-    ClearExceptions();
-    ComputedEST = EST_None;
-    return;
+
   // FIXME: If the call to this decl is using any of its default arguments, we
   // need to search them for potentially-throwing calls.
   // If this function has a basic noexcept, it doesn't affect the outcome.
@@ -19805,9 +19795,7 @@ bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
   case EST_BasicThrowsFalse:
-  case EST_BasicThrowsFalseNoexceptFalse:
   case EST_ThrowsTyped:
-  case EST_ThrowsTypedNoexceptFalse:
     break;
 
   case EST_DependentNoexcept:
@@ -19878,8 +19866,7 @@ void Sema::checkExceptionSpecification(
     FunctionProtoType::ExceptionSpecInfo &ESI) {
   Exceptions.clear();
   ESI.Type = EST;
-  if (EST == EST_Dynamic || EST == EST_ThrowsTyped ||
-      EST == EST_ThrowsTypedNoexceptFalse) {
+  if (EST == EST_Dynamic || EST == EST_ThrowsTyped) {
     Exceptions.reserve(DynamicExceptions.size());
     for (unsigned ei = 0, ee = DynamicExceptions.size(); ei != ee; ++ei) {
       // FIXME: Preserve type source info.
@@ -19904,7 +19891,7 @@ void Sema::checkExceptionSpecification(
       // `fails{std::error}` is invalid: std::error is a compiler-fabricated
       // value that may only be carried by the implicit `throws` channel, never
       // returned as an explicit fails error type.
-      if (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) {
+      if (EST == EST_ThrowsTyped) {
         if (NamespaceDecl *Std = getStdNamespace()) {
           LookupResult R(*this, &PP.getIdentifierTable().get("error"),
                          DynamicExceptionRanges[ei].getBegin(),
@@ -19988,7 +19975,7 @@ void Sema::actOnDelayedExceptionSpecification(
   // functions. Member functions (including static members) and lambda call
   // operators reach this delayed path, so diagnose them here.
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
-      (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) &&
+      EST == EST_ThrowsTyped &&
       FD->isCXXClassMember()) {
     Diag(SpecificationRange.getBegin(), diag::err_fails_only_free_function)
         << SpecificationRange;

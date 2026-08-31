@@ -1524,9 +1524,10 @@ static bool EvaluateBooleanTypeTrait(Sema &S, TypeTrait Kind,
     }
 
     if (Kind == clang::TT_IsNothrowConstructible)
-      // Herbception `throws` implies noexcept(true) for C++ exceptions:
-      // CT_Deterministic means the function cannot throw C++ exceptions.
-      return S.canThrow(Result.get()) != CT_Can;
+      // is_nothrow is true only when the function cannot fail at all
+      // (CT_Cannot). CT_Deterministic means the function may fail via the
+      // herbception error channel, so is_nothrow is false.
+      return S.canThrow(Result.get()) == CT_Cannot;
 
     if (Kind == clang::TT_IsHerbceptionsThrowsConstructible)
       // Herbception `throws` channel (implicit std::error).
@@ -1920,9 +1921,10 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
       return true;
 
     if (BTT == BTT_IsNothrowConvertible)
-      // Herbception `throws` implies noexcept(true) for C++ exceptions:
-      // CT_Deterministic means the function cannot throw C++ exceptions.
-      return Self.canThrow(Result.get()) != CT_Can;
+      // is_nothrow is true only when the function cannot fail at all
+      // (CT_Cannot). CT_Deterministic means the function may fail via the
+      // herbception error channel, so is_nothrow is false.
+      return Self.canThrow(Result.get()) == CT_Cannot;
     // Herbception `throws` channel (implicit std::error).
     return Self.canHerbceptionThrow(Result.get(), QualType());
   }
@@ -1990,9 +1992,10 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
       return true;
 
     if (BTT == BTT_IsNothrowAssignable)
-      // Herbception `throws` implies noexcept(true) for C++ exceptions:
-      // CT_Deterministic means the function cannot throw C++ exceptions.
-      return Self.canThrow(Result.get()) != CT_Can;
+      // is_nothrow is true only when the function cannot fail at all
+      // (CT_Cannot). CT_Deterministic means the function may fail via the
+      // herbception error channel, so is_nothrow is false.
+      return Self.canThrow(Result.get()) == CT_Cannot;
 
     if (BTT == BTT_IsHerbceptionsThrowsAssignable)
       // Herbception `throws` channel (implicit std::error).

@@ -583,9 +583,7 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
   } else if (Proto->getExceptionSpecType() == EST_ThrowsTyped) {
     // A default `fails{E}` function implies noexcept(true): any legacy C++
     // exception that escapes it calls std::terminate (exactly like a noexcept
-    // function). A `fails{E} noexcept(false)` (EST_ThrowsTypedNoexceptFalse)
-    // instead allows traditional C++ exceptions to propagate, so it gets no
-    // terminate scope.
+    // function).
     if (!getLangOpts().EHAsynch)
       EHStack.pushTerminate();
   }

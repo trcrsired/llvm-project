@@ -3871,8 +3871,7 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
 
   // Fill in the exception type array if present.
   if (getExceptionSpecType() == EST_Dynamic ||
-      getExceptionSpecType() == EST_ThrowsTyped ||
-      getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse) {
+      getExceptionSpecType() == EST_ThrowsTyped) {
     auto &ExtraBits = *getTrailingObjects<FunctionTypeExtraBitfields>();
     size_t NumExceptions = epi.ExceptionSpec.Exceptions.size();
     assert(NumExceptions <= 1023 && "Not enough bits to encode exceptions");
@@ -4029,12 +4028,6 @@ CanThrowResult FunctionProtoType::canThrow() const {
     // exceptions — equivalent to noexcept(true).
     return CT_Cannot;
 
-  case EST_ThrowsTypedNoexceptFalse:
-  case EST_BasicThrowsFalseNoexceptFalse:
-    // `throws(false) noexcept(false)`: cannot fail via herbception, but
-    // traditional C++ exceptions are allowed.
-    return CT_Can;
-
   case EST_None:
   case EST_MSAny:
   case EST_NoexceptFalse:
@@ -4103,8 +4096,7 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
                 (epi.ExceptionSpec.Type << 3));
   ID.Add(epi.TypeQuals);
   if (epi.ExceptionSpec.Type == EST_Dynamic ||
-      epi.ExceptionSpec.Type == EST_ThrowsTyped ||
-      epi.ExceptionSpec.Type == EST_ThrowsTypedNoexceptFalse) {
+      epi.ExceptionSpec.Type == EST_ThrowsTyped) {
     for (QualType Ex : epi.ExceptionSpec.Exceptions)
       ID.AddPointer(Ex.getAsOpaquePtr());
   } else if (isComputedNoexcept(epi.ExceptionSpec.Type)) {

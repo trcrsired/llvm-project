@@ -222,8 +222,7 @@ public:
   readExceptionSpecInfo(llvm::SmallVectorImpl<QualType> &buffer) {
     FunctionProtoType::ExceptionSpecInfo esi;
     esi.Type = ExceptionSpecificationType(asImpl().readUInt32());
-    if (esi.Type == EST_Dynamic || esi.Type == EST_ThrowsTyped ||
-        esi.Type == EST_ThrowsTypedNoexceptFalse) {
+    if (esi.Type == EST_Dynamic || esi.Type == EST_ThrowsTyped) {
       esi.Exceptions = asImpl().template readArray<QualType>(buffer);
     } else if (isComputedNoexcept(esi.Type)) {
       esi.NoexceptExpr = asImpl().readExprRef();

@@ -283,9 +283,8 @@ def err_throws_requires_cxx : Error<"'throws' is only available in C++">;
 def err_catch_fails_expression_only : Error<
     "'catch return_failure' is only valid as an expression; use 'catch return_failure(expr)' "
     "to inspect the error of a return_failure call">;
-def err_throws_noexcept_false : Error<
-  "'throws' and 'noexcept(false)' cannot be combined: a 'throws' function "
-  "implies noexcept(true)">;
+def err_throws_noexcept_combined : Error<
+  "'throws'/'return_failure' and 'noexcept' cannot be combined">;
 def err_throws_fails_combined : Error<
   "'throws' and 'fails{...}' cannot be combined: they are mutually exclusive "
   "herbception specifiers">;
