@@ -1248,8 +1248,7 @@ SDValue X86TargetLowering::LowerCallResult(
   CCInfo.AnalyzeCallResult(Ins, RetCC_X86);
 
   // Copy all of the result registers out of their specified physreg.
-  for (unsigned I = 0, InsIndex = 0, E = RVLocs.size(); I != E;
-       ++I, ++InsIndex) {
+  for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
     CCValAssign &VA = RVLocs[I];
     EVT CopyVT = VA.getLocVT();
 
@@ -1257,7 +1256,7 @@ SDValue X86TargetLowering::LowerCallResult(
     // flag into a virtual register right after the call (before CALLSEQ_END
     // could clobber EFLAGS); read it back into a value of the register type
     // (i8) expected by the middle-end.
-    if (Ins[InsIndex].Flags.isThrows()) {
+    if (Ins[I].Flags.isThrows()) {
       assert(ThrowsDiscriminantReg && "missing throws discriminant register");
       SDValue Disc =
           DAG.getCopyFromReg(Chain, dl, ThrowsDiscriminantReg, MVT::i8, InGlue);
