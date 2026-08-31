@@ -19965,7 +19965,7 @@ void Sema::actOnDelayedExceptionSpecification(
   if (isa<CXXDestructorDecl>(FD) &&
       hasHerbceptionExceptionSpec(EST)) {
     Diag(SpecificationRange.getBegin(),
-         diag::err_herbception_destructor_spec)
+         diag::err_herbceptions_destructor_spec)
         << SpecificationRange;
     // Keep the (diagnosed) spec so the function type stays well-formed; the
     // declaration is already erroneous and never used for code generation.

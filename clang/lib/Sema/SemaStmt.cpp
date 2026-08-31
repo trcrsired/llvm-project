@@ -4382,7 +4382,7 @@ StmtResult
 Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
                                Decl *ExDecl, Stmt *HandlerBlock) {
   if (!getLangOpts().HerbExceptions) {
-    Diag(CatchLoc, diag::err_herbception_disabled);
+    Diag(CatchLoc, diag::err_herbceptions_disabled);
     return StmtError();
   }
 

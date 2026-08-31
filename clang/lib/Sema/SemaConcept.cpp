@@ -1843,7 +1843,7 @@ static void diagnoseUnsatisfiedRequirement(Sema &S,
   case concepts::ExprRequirement::SS_NoexceptNotMet:
     if (S.hasHerbceptionSpec(Req->getExpr())) {
       S.Diag(Req->getNoexceptLoc(),
-             diag::note_expr_requirement_noexcept_herbception_not_met)
+             diag::note_expr_requirement_noexcept_herbceptions_not_met)
           << (int)First << Req->getExpr();
     } else {
       S.Diag(Req->getNoexceptLoc(), diag::note_expr_requirement_noexcept_not_met)

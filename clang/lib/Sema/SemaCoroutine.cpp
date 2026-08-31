@@ -1886,7 +1886,7 @@ bool CoroutineStmtBuilder::makeOnHerbception() {
          "cannot make statement while the promise type is dependent");
 
   if (!lookupMember(S, "unhandled_herbception", PromiseRecordDecl, Loc)) {
-    S.Diag(Loc, diag::err_coroutine_promise_unhandled_herbception_required)
+    S.Diag(Loc, diag::err_coroutine_promise_unhandled_herbceptions_required)
         << PromiseRecordDecl;
     S.Diag(PromiseRecordDecl->getLocation(), diag::note_defined_here)
         << PromiseRecordDecl;

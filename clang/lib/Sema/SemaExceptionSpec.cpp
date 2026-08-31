@@ -895,9 +895,9 @@ bool Sema::CheckExceptionSpecSubset(
     // mismatch rather than an exception-spec subset issue.
     if (DiagID.getDiagID() == diag::err_override_exception_spec ||
         DiagID.getDiagID() == diag::ext_override_exception_spec)
-      Diag(SubLoc, diag::err_herbception_override_spec_mismatch);
+      Diag(SubLoc, diag::err_herbceptions_override_spec_mismatch);
     else
-      Diag(SubLoc, diag::err_herbception_spec_mismatch);
+      Diag(SubLoc, diag::err_herbceptions_spec_mismatch);
     if (NoteID.getDiagID() != 0)
       Diag(SuperLoc, NoteID);
     return true;

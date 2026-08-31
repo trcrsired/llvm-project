@@ -878,7 +878,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   // Herbception `throw throws` is only valid inside a function declared
   // with 'throws' or 'fails{E}', or inside a `catch throws` handler.
   if (!getLangOpts().HerbExceptions) {
-    Diag(OpLoc, diag::err_herbception_disabled);
+    Diag(OpLoc, diag::err_herbceptions_disabled);
     return ExprError();
   }
 
@@ -1358,7 +1358,7 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
 
 ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
-    Diag(TryLoc, diag::err_herbception_disabled);
+    Diag(TryLoc, diag::err_herbceptions_disabled);
     return ExprError();
   }
 
@@ -1371,7 +1371,7 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   }
 
   if (!Ex) {
-    Diag(TryLoc, diag::err_herbception_try_requires_operand);
+    Diag(TryLoc, diag::err_herbceptions_try_requires_operand);
     return ExprError();
   }
 
@@ -1414,12 +1414,12 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
 ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
                                             SourceLocation FailsLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
-    Diag(CatchLoc, diag::err_herbception_disabled);
+    Diag(CatchLoc, diag::err_herbceptions_disabled);
     return ExprError();
   }
 
   if (!Ex) {
-    Diag(FailsLoc, diag::err_herbception_try_requires_operand);
+    Diag(FailsLoc, diag::err_herbceptions_try_requires_operand);
     return ExprError();
   }
 
@@ -1470,12 +1470,12 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
 
 ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
-    Diag(FailureLoc, diag::err_herbception_disabled);
+    Diag(FailureLoc, diag::err_herbceptions_disabled);
     return ExprError();
   }
 
   if (!Ex) {
-    Diag(FailureLoc, diag::err_herbception_try_requires_operand);
+    Diag(FailureLoc, diag::err_herbceptions_try_requires_operand);
     return ExprError();
   }
 
@@ -1499,14 +1499,14 @@ ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *
 StmtResult Sema::ActOnHerbceptionReturnFailureStmt(
     SourceLocation ReturnFailureLoc, Expr *E, Scope *CurScope) {
   if (!getLangOpts().HerbExceptions) {
-    Diag(ReturnFailureLoc, diag::err_herbception_disabled);
+    Diag(ReturnFailureLoc, diag::err_herbceptions_disabled);
     return StmtError();
   }
 
   // `return_failure expr;` is the statement form: build the expression
   // `return_failure(expr)` and wrap it as an expression statement.
   if (!E) {
-    Diag(ReturnFailureLoc, diag::err_herbception_try_requires_operand);
+    Diag(ReturnFailureLoc, diag::err_herbceptions_try_requires_operand);
     return StmtError();
   }
 
@@ -8261,7 +8261,7 @@ ExprResult Sema::ActOnNoexceptExpr(SourceLocation KeyLoc, SourceLocation,
 ExprResult Sema::ActOnThrowsExpr(SourceLocation KeyLoc, SourceLocation,
                                  Expr *Operand, SourceLocation RParen) {
   if (!getLangOpts().HerbExceptions)
-    return ExprError(Diag(KeyLoc, diag::err_herbception_disabled));
+    return ExprError(Diag(KeyLoc, diag::err_herbceptions_disabled));
 
   ExprResult R = CheckPlaceholderExpr(Operand);
   if (R.isInvalid())

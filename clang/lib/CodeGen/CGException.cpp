@@ -2002,7 +2002,7 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // so the funclet / landing-pad IR stays well-formed.
   if (!Conv) {
     CGM.getDiags().Report(FD->getLocation(),
-                          diag::err_herbception_legacy_convert_no_domain)
+                          diag::err_herbceptions_legacy_convert_no_domain)
         << 0;
     Builder.CreateUnreachable();
     Builder.restoreIP(SavedIP);
