@@ -1,4 +1,4 @@
-#if (defined(_WIN32) || defined(__CYGWIN__)) && !defined(__WINE__)
+#if (defined(_WIN32) && !defined(__WINE__)) || defined(__CYGWIN__)
 #if defined(__GNUC__) || defined(__clang__)
 #if defined(_HERBCEPTIONS_BUILDING_RUNTIME)
 #if 0
