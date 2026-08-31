@@ -337,11 +337,13 @@ msvc_exception_name_message_range(::std::error_reporter_encoding encoding,
   //   startpos 18 len 1 -> ")"
   constexpr ::std::size_t totalsize{19u};
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xBA\x94\xA2\xA5\x83\x6D\x85\xA7\x83\x85\x97\xA3\x89"
                       "\x96\x95\x5A\x4D\x6F\x5D"],
             n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[msvc_exception](?)"], n * sizeof(char16_t)};
   }
@@ -413,7 +415,10 @@ inline constexpr msvc_exception_writestr_return msvc_exception_writestr(
     ::std::error_domains::__herbceptions_detail::
         __malloc_or_heapalloc_temp_buffer &buffer) noexcept {
   static_assert('A' == u8'A', "EBCDIC Execution Charset not supported");
-  if (encoding == ::std::error_reporter_encoding::utfebcdic ||
+  if (
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
+    encoding == ::std::error_reporter_encoding::utfebcdic ||
+#endif
       encoding == ::std::error_reporter_encoding::utf16 ||
       encoding == ::std::error_reporter_encoding::utf32) {
     ::std::size_t to_allocate_bytes{};
@@ -524,15 +529,15 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
                 }
               }
             }
-            switch (query) {
-            case ::std::error_query_information::name: {
+            switch (static_cast<::std::uint_least32_t>(query)) {
+            case static_cast<::std::uint_least32_t>(::std::error_query_information::name): {
               *scatters = msvc_exception_name(encoding);
               scatterlen = 1u;
               break;
             }
-            case ::std::error_query_information::message:
+            case static_cast<::std::uint_least32_t>(::std::error_query_information::message):
               [[fallthrough]];
-            case ::std::error_query_information::name_message: {
+            case static_cast<::std::uint_least32_t>(::std::error_query_information::name_message): {
               if (::std::error_query_information::name_message == query) {
                 if (printable_encoding && ehname_len) {
                   *scatters =
@@ -596,13 +601,13 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
             }
             auto [name, message] = msvc_exception_writestr(
                 ehname, ehname_len, ehmessage, ehmessage_len, encoding, buffer);
-            switch (query) {
-            case ::std::error_query_information::name: {
+            switch (static_cast<::std::uint_least32_t>(query)) {
+            case static_cast<::std::uint_least32_t>(::std::error_query_information::name): {
               *scatters = msvc_exception_name(encoding);
               scatterlen = 1u;
               break;
             }
-            case ::std::error_query_information::message: {
+            case static_cast<::std::uint_least32_t>(::std::error_query_information::message): {
               if (name.len) {
                 *scatters = left_parenthese(encoding);
                 scatters[1] = name;
@@ -618,7 +623,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
               }
               break;
             }
-            case ::std::error_query_information::name_message: {
+            case static_cast<::std::uint_least32_t>(::std::error_query_information::name_message): {
               if (name.len) {
                 *scatters = known_msvc_exception_name_message_partial(encoding);
                 scatters[1] = name;

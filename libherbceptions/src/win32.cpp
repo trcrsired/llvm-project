@@ -25,9 +25,11 @@ inline constexpr ::std::io_scatter_t
 win32_name_message_range(::std::error_reporter_encoding encoding,
                          ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xAD\x97\x96\xA2\x89\xA7\xBD"], n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[win32]"], n * sizeof(char16_t)};
   }
@@ -61,12 +63,14 @@ win32_code_scatter(::std::error_reporter_encoding encoding,
                    ::std::uint_least32_t win32err,
                    char unsigned *__numbuf) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     auto *__dest{::std::error_domains::__herbceptions_detail::
                      __format_hex_value_full_with_bracket<true, char unsigned>(
                          __numbuf, win32err)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     using __char16_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
