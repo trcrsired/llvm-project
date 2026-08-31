@@ -2014,7 +2014,7 @@ protected:
 
     /// The type of exception specification this function has.
     LLVM_PREFERRED_TYPE(ExceptionSpecificationType)
-    unsigned ExceptionSpecType : 4;
+    unsigned ExceptionSpecType : 5;
 
     /// Whether this function has extended parameter information.
     LLVM_PREFERRED_TYPE(bool)
@@ -5650,6 +5650,7 @@ private:
     case EST_BasicThrows:
     case EST_BasicThrowsTrue:
     case EST_BasicThrowsFalse:
+    case EST_BasicThrowsFalseNoexceptFalse:
       return {0, 0, 0};
 
     case EST_Dynamic:

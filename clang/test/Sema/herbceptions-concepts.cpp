@@ -1,9 +1,11 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fsyntax-only %s
 //
 // Concepts with throws(false) and throws(true):
-// - {foo(t)} noexcept should be false for any throws function (throws is not noexcept)
-// - {foo(t)} throws should be false for throws(false) (cannot fail)
-// - {foo(t)} throws should be true for throws(true) or bare throws
+// - `throws`, `throws(true)`, `throws(false)` all imply noexcept(true).
+// - In requires-expr, `noexcept` matches only throws(false) (the only one
+//   that is actually noexcept). `throws(true)` and bare `throws` have
+//   CT_Deterministic and are NOT noexcept.
+// - `{foo(t)} throws` is false for throws(false) (cannot fail), true otherwise.
 
 struct bar {};
 
@@ -57,8 +59,8 @@ static_assert(is_throws_true<bar>);
 // bare throws can fail: {foo(t)} throws should be true
 static_assert(is_throws<bar>);
 
-// throws(false) is not noexcept: {foo(t)} noexcept should be false
-static_assert(!is_noexcept_false<bar>);
+// throws(false) implies noexcept(true): {foo(t)} noexcept should be true
+static_assert(is_noexcept_false<bar>);
 
 // throws(true) is not noexcept: {foo(t)} noexcept should be false
 static_assert(!is_noexcept_true<bar>);

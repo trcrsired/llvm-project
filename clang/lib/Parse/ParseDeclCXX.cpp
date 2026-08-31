@@ -3989,10 +3989,12 @@ Parser::tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType) {
 
 ExceptionSpecificationType Parser::tryParseNoexceptAfterThrows(
     ExceptionSpecificationType ThrowsType) {
-  // `throws` implies noexcept(true). A following `noexcept(false)` contradicts
-  // that and is rejected (later work will handle legacy C++ EH inside throws
-  // functions); `noexcept(true)` or a bare `noexcept` is consistent and the
-  // function stays `throws`. 'throws' and 'fails{...}' are mutually exclusive.
+  // `throws`, `throws(true)`, and `throws(false)` all imply noexcept(true).
+  // A following `noexcept(false)` contradicts that and is rejected, EXCEPT for
+  // `throws(false) noexcept(false)` which means "cannot fail via herbception,
+  // but can throw C++ exceptions". `noexcept(true)` or a bare `noexcept` is
+  // consistent and the function stays `throws`. 'throws' and 'return_failure{...}'
+  // are mutually exclusive.
   if (Tok.is(tok::kw_return_failure) || Tok.is(tok::kw_throws)) {
     Diag(Tok, diag::err_throws_fails_combined);
     ConsumeToken();
@@ -4016,8 +4018,12 @@ ExceptionSpecificationType Parser::tryParseNoexceptAfterThrows(
     if (!NoexceptExpr.isInvalid()) {
       ExceptionSpecificationType NoexceptType = EST_None;
       NoexceptExpr = Actions.ActOnNoexceptSpec(NoexceptExpr.get(), NoexceptType);
-      if (NoexceptType == EST_NoexceptFalse)
+      if (NoexceptType == EST_NoexceptFalse) {
+        if (ThrowsType == EST_BasicThrowsFalse) {
+          return EST_BasicThrowsFalseNoexceptFalse;
+        }
         Diag(KeywordLoc, diag::err_throws_noexcept_false);
+      }
     }
     return ThrowsType;
   }
@@ -4284,14 +4290,11 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
     SpecificationRange = NoexceptRange;
     Result = NoexceptType;
 
-    // A 'throws' function implies noexcept(true); 'noexcept(false) throws' is
-    // rejected (later work will handle legacy C++ EH inside throws functions).
+    // `throws`, `throws(true)`, and `throws(false)` all imply noexcept(true).
+    // 'noexcept(false) throws' is rejected, EXCEPT for `noexcept(false) throws(false)`
+    // which means "cannot fail via herbception, but can throw C++ exceptions".
+    // "cannot fail via herbception, but can throw C++ exceptions".
     if (Tok.is(tok::kw_throws)) {
-      if (NoexceptType == EST_NoexceptFalse)
-        Diag(Tok, diag::err_throws_noexcept_false);
-      // `throws` or `throws(expr)` follows the noexcept. Evaluate the throws
-      // expression (throws(true) = throws, throws(false) = cannot fail) and
-      // combine with the noexcept.
       SourceLocation ThrowsLoc = ConsumeToken();
       ExceptionSpecificationType ThrowsType = EST_BasicThrows;
       if (Tok.is(tok::l_paren)) {
@@ -4303,6 +4306,13 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         T.consumeClose();
         if (!ThrowsExpr.isInvalid())
           Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+      }
+      // noexcept(false) throws(false): cannot fail via herbception, but can
+      // throw C++ exceptions.
+      if (NoexceptType == EST_NoexceptFalse) {
+        if (ThrowsType == EST_BasicThrowsFalse)
+          return EST_BasicThrowsFalseNoexceptFalse;
+        Diag(ThrowsLoc, diag::err_throws_noexcept_false);
       }
       // noexcept(true) throws is just `throws`. noexcept(false) throws was
       // rejected above; recover as `throws`.

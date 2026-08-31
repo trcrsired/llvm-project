@@ -4021,15 +4021,20 @@ CanThrowResult FunctionProtoType::canThrow() const {
 
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
-  case EST_BasicThrowsFalse:
   case EST_ThrowsTyped:
     // Herbception: the function cannot throw C++ exceptions, but it can
     // return a failure via the deterministic error channel.
     return CT_Deterministic;
 
+  case EST_BasicThrowsFalse:
+    // `throws(false)`: cannot fail via herbception and cannot throw C++
+    // exceptions — equivalent to noexcept(true).
+    return CT_Cannot;
+
   case EST_ThrowsTypedNoexceptFalse:
-    // `fails{E} noexcept(false)`: the herbception error channel AND traditional
-    // C++ exceptions are both allowed.
+  case EST_BasicThrowsFalseNoexceptFalse:
+    // `throws(false) noexcept(false)`: cannot fail via herbception, but
+    // traditional C++ exceptions are allowed.
     return CT_Can;
 
   case EST_None:

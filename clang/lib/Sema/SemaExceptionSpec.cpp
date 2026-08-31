@@ -495,6 +495,9 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   case EST_BasicThrowsFalse:
     OS << "throws(false)";
     break;
+  case EST_BasicThrowsFalseNoexceptFalse:
+    OS << "throws(false) noexcept(false)";
+    break;
   case EST_ThrowsTypedNoexceptFalse:
     OS << "noexcept(false) ";
     [[fallthrough]];
@@ -669,9 +672,9 @@ static bool CheckEquivalentExceptionSpecImpl(
   // ABI (return type is lowered to {T, i1}), so they cannot be freely
   // mixed with other specification kinds.
   if ((OldEST == EST_BasicThrows || OldEST == EST_BasicThrowsTrue ||
-       OldEST == EST_BasicThrowsFalse) &&
+        OldEST == EST_BasicThrowsFalse || OldEST == EST_BasicThrowsFalseNoexceptFalse) &&
       (NewEST == EST_BasicThrows || NewEST == EST_BasicThrowsTrue ||
-       NewEST == EST_BasicThrowsFalse))
+        NewEST == EST_BasicThrowsFalse || NewEST == EST_BasicThrowsFalseNoexceptFalse))
     return false;
   if ((OldEST == EST_ThrowsTyped || OldEST == EST_ThrowsTypedNoexceptFalse) &&
       (NewEST == EST_ThrowsTyped || NewEST == EST_ThrowsTypedNoexceptFalse)) {
@@ -878,11 +881,13 @@ bool Sema::CheckExceptionSpecSubset(
   if (SuperHerb || SubHerb) {
     if (SuperHerb && SubHerb) {
       if ((SuperEST == EST_BasicThrows ||
-           SuperEST == EST_BasicThrowsTrue ||
-           SuperEST == EST_BasicThrowsFalse) &&
-          (SubEST == EST_BasicThrows ||
-           SubEST == EST_BasicThrowsTrue ||
-           SubEST == EST_BasicThrowsFalse))
+            SuperEST == EST_BasicThrowsTrue ||
+            SuperEST == EST_BasicThrowsFalse ||
+            SuperEST == EST_BasicThrowsFalseNoexceptFalse) &&
+           (SubEST == EST_BasicThrows ||
+            SubEST == EST_BasicThrowsTrue ||
+            SubEST == EST_BasicThrowsFalse ||
+            SubEST == EST_BasicThrowsFalseNoexceptFalse))
         return false;
       if ((SuperEST == EST_ThrowsTyped ||
            SuperEST == EST_ThrowsTypedNoexceptFalse) &&
@@ -1127,7 +1132,7 @@ static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
   ExceptionSpecificationType EST = FT->getExceptionSpecType();
   if (EST == EST_BasicThrows || EST == EST_BasicThrowsTrue)
     return E.isNull();
-  if (EST == EST_BasicThrowsFalse)
+  if (EST == EST_BasicThrowsFalse || EST == EST_BasicThrowsFalseNoexceptFalse)
     return false;
   if (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) {
     if (E.isNull())

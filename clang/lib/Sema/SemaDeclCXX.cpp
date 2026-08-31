@@ -246,7 +246,13 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
   case EST_BasicThrowsFalse:
   case EST_ThrowsTyped:
     return;
-  // An explicit 'noexcept(false) fails{E}' can throw anything.
+  // `throws(false) noexcept(false)`: cannot fail via herbception, but can
+  // throw C++ exceptions.
+  case EST_BasicThrowsFalseNoexceptFalse:
+    ClearExceptions();
+    ComputedEST = EST_None;
+    return;
+  // An explicit 'noexcept(false) return_failure{E}' can throw anything.
   case EST_ThrowsTypedNoexceptFalse:
     ClearExceptions();
     ComputedEST = EST_None;
@@ -19799,6 +19805,7 @@ bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
   case EST_BasicThrowsFalse:
+  case EST_BasicThrowsFalseNoexceptFalse:
   case EST_ThrowsTyped:
   case EST_ThrowsTypedNoexceptFalse:
     break;

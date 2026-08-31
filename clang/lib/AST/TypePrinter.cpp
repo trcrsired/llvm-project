@@ -971,6 +971,8 @@ FunctionProtoType::printExceptionSpecification(raw_ostream &OS,
       OS << " throws(true)";
     else if (getExceptionSpecType() == EST_BasicThrowsFalse)
       OS << " throws(false)";
+    else if (getExceptionSpecType() == EST_BasicThrowsFalseNoexceptFalse)
+      OS << " throws(false) noexcept(false)";
     else
       OS << " throws";
   } else if (hasReturnFailureSpec()) {
