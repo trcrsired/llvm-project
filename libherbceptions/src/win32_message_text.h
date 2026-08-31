@@ -62,6 +62,7 @@ inline void __report_win32_message_text(
   __heapalloc_temp_buffer destbuffer;
   ::std::io_scatter_t scatter{};
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     auto buffer{reinterpret_cast<char unsigned *>(frombuffer.__bufferptr)};
     auto dest{__write_ebcdic_with_ascii_only_range(__from_first, __from_last,
@@ -70,6 +71,7 @@ inline void __report_win32_message_text(
                            reinterpret_cast<char unsigned *>(dest) - buffer)};
     break;
   }
+#endif
   case ::std::error_reporter_encoding::utf32: {
     using __char32_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
@@ -93,22 +95,7 @@ inline void __report_win32_message_text(
                            reinterpret_cast<char unsigned *>(dest) - buffer)};
     break;
   }
-  case ::std::error_reporter_encoding::utf8:
-  case ::std::error_reporter_encoding::gb18030: {
-    if constexpr (__win32_use_9xa_apis) {
-      scatter = {__from_first,
-                 static_cast<::std::size_t>(
-                     reinterpret_cast<char unsigned *>(__from_last) -
-                     reinterpret_cast<char unsigned *>(__from_first))};
-    } else {
-      auto buffer{reinterpret_cast<char unsigned *>(frombuffer.__bufferptr)};
-      auto dest{
-          __write_with_ascii_only_range(__from_first, __from_last, buffer)};
-      scatter = {buffer, static_cast<::std::size_t>(
-                             reinterpret_cast<char unsigned *>(dest) - buffer)};
-    }
-    break;
-  }
+
   case ::std::error_reporter_encoding::utf16: {
     if constexpr (__win32_use_9xa_apis) {
       using __char16_may_alias_ptr
@@ -138,6 +125,21 @@ inline void __report_win32_message_text(
                static_cast<::std::size_t>(
                    reinterpret_cast<char unsigned *>(__from_last) -
                    reinterpret_cast<char unsigned *>(__from_first))};
+    break;
+  }
+  default: {
+    if constexpr (__win32_use_9xa_apis) {
+      scatter = {__from_first,
+                 static_cast<::std::size_t>(
+                     reinterpret_cast<char unsigned *>(__from_last) -
+                     reinterpret_cast<char unsigned *>(__from_first))};
+    } else {
+      auto buffer{reinterpret_cast<char unsigned *>(frombuffer.__bufferptr)};
+      auto dest{
+          __write_with_ascii_only_range(__from_first, __from_last, buffer)};
+      scatter = {buffer, static_cast<::std::size_t>(
+                             reinterpret_cast<char unsigned *>(dest) - buffer)};
+    }
     break;
   }
   }

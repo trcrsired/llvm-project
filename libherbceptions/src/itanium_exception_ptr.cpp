@@ -90,12 +90,14 @@ itanium_exception_name_message_range(::std::error_reporter_encoding encoding,
                                      ::std::size_t startpos,
                                      ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     // EBCDIC bytes per __ascii_to_ebcdic.
     return {&startpos["\xBA\x89\xA3\x81\x95\x89\xA4\x94\x6D\x85\xA7\x83\x85"
                       "\x97\xA3\x89\x96\x95\x5A\x4D\x6F\x5D"],
             n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[itanium_exception](?)"], n * sizeof(char16_t)};
   }
@@ -168,7 +170,10 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
     ::std::error_domains::__herbceptions_detail::
         __malloc_or_heapalloc_temp_buffer &buffer) noexcept {
   static_assert('A' == u8'A', "EBCDIC Execution Charset not supported");
-  if (encoding == ::std::error_reporter_encoding::utfebcdic ||
+  if (
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
+      encoding == ::std::error_reporter_encoding::utfebcdic ||
+#endif
       encoding == ::std::error_reporter_encoding::utf16 ||
       encoding == ::std::error_reporter_encoding::utf32) {
     ::std::size_t to_allocate_bytes{};
@@ -410,13 +415,15 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
               auto [name, message] =
                   itanium_exception_writestr(ehname, ehname_len, ehmessage,
                                              ehmessage_len, encoding, buffer);
-              switch (query) {
-              case ::std::error_query_information::name: {
+              switch (static_cast<::std::uint_least32_t>(query)) {
+              case static_cast<::std::uint_least32_t>(
+                  ::std::error_query_information::name): {
                 *scatters = itanium_exception_name(encoding);
                 scatterlen = 1u;
                 break;
               }
-              case ::std::error_query_information::message: {
+              case static_cast<::std::uint_least32_t>(
+                  ::std::error_query_information::message): {
                 if (name.len) {
                   *scatters = left_parenthese(encoding);
                   scatters[1] = name;
@@ -433,7 +440,8 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                 }
                 break;
               }
-              case ::std::error_query_information::name_message: {
+              case static_cast<::std::uint_least32_t>(
+                  ::std::error_query_information::name_message): {
                 if (name.len) {
                   *scatters =
                       known_itanium_exception_name_message_partial(encoding);
@@ -450,13 +458,21 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                 }
                 break;
               }
+              default:
+                return;
               }
             } else {
-              switch (query) {
-              case ::std::error_query_information::name:
+              switch (static_cast<::std::uint_least32_t>(query)) {
+              case static_cast<::std::uint_least32_t>(
+                  ::std::error_query_information::name):
                 *scatters = itanium_exception_name(encoding);
                 break;
-              case ::std::error_query_information::name_message:
+              case static_cast<::std::uint_least32_t>(
+                  ::std::error_query_information::message):
+                *scatters = unknown_itanium_exception_message_partial(encoding);
+                break;
+              case static_cast<::std::uint_least32_t>(
+                  ::std::error_query_information::name_message):
                 *scatters = unknown_itanium_exception_name_message(encoding);
                 break;
               default:
@@ -555,11 +571,12 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
 };
 } // namespace
 
+} // namespace std::error_domains
+
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_itanium_exception_ptr() noexcept {
   return __builtin_addressof(
       ::std::error_domains::itanium_exception_ptr_domain);
 }
 
-} // namespace std::error_domains
 #endif
