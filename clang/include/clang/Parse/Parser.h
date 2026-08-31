@@ -2977,8 +2977,9 @@ private:
   ExceptionSpecificationType
   tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType);
 
-  /// Cache a `noexcept(...)` that follows `throws` so the delayed re-parse of
-  /// a member function exception spec sees both specifiers.
+  /// Cache a `noexcept(...)` that follows `throws`/`return_failure` so the
+  /// delayed re-parse of a member function exception spec sees both and
+  /// emits the mutual-exclusion diagnostic.
   void cacheNoexceptAfterThrows(CachedTokens *&ExceptionSpecTokens);
 
   /// ParseDynamicExceptionSpecification - Parse a C++

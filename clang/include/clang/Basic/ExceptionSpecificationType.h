@@ -33,11 +33,7 @@ enum ExceptionSpecificationType {
   EST_BasicThrows,       ///< throws (herbception): implicit std::error
   EST_BasicThrowsTrue,   ///< throws(true): can fail, implicit std::error
   EST_BasicThrowsFalse,  ///< throws(false): cannot fail, implicit std::error
-  EST_ThrowsTyped,       ///< return_failure{E}: explicit error type
-  EST_ThrowsTypedNoexceptFalse, ///< return_failure{E} noexcept(false): herbception
-                                ///< + C++ EH
-  EST_BasicThrowsFalseNoexceptFalse ///< throws(false) noexcept(false): cannot
-                                    ///< fail via herbception, but can throw C++
+  EST_ThrowsTyped        ///< return_failure{E}: explicit error type
 };
 
 inline bool isDynamicExceptionSpec(ExceptionSpecificationType ESpecType) {
@@ -60,19 +56,17 @@ inline bool isUnresolvedExceptionSpec(ExceptionSpecificationType ESpecType) {
 
 inline bool isExplicitThrowExceptionSpec(ExceptionSpecificationType ESpecType) {
   return ESpecType == EST_Dynamic || ESpecType == EST_MSAny ||
-         ESpecType == EST_NoexceptFalse ||
-         ESpecType == EST_ThrowsTypedNoexceptFalse;
+         ESpecType == EST_NoexceptFalse;
 }
 
-/// Whether this exception specification is a herbception `throws`/`fails{E}`
+/// Whether this exception specification is a herbception `throws`/`return_failure{E}`
 /// spec. Such specs are part of the canonical function type (they change the
 /// calling convention), so they are only compatible with an identical spec.
 inline bool hasHerbceptionExceptionSpec(ExceptionSpecificationType ESpecType) {
   return ESpecType == EST_BasicThrows ||
          ESpecType == EST_BasicThrowsTrue ||
          ESpecType == EST_BasicThrowsFalse ||
-         ESpecType == EST_ThrowsTyped ||
-         ESpecType == EST_ThrowsTypedNoexceptFalse;
+         ESpecType == EST_ThrowsTyped;
 }
 
 /// Possible results from evaluation of a noexcept expression.

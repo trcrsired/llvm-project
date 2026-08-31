@@ -132,6 +132,7 @@ unsigned CodeGenTypes::ClangCallConvToLLVMCallConv(CallingConv CC) {
     CC_VLS_CASE(65536)
 #undef CC_VLS_CASE
   }
+  llvm_unreachable("unexpected calling convention");
 }
 
 /// Derives the 'this' type for codegen purposes, i.e. ignoring method CVR
@@ -249,8 +250,7 @@ static llvm::Type *getHerbceptionErrorType(CodeGenTypes &CGT,
                                            const FunctionProtoType *FTP) {
   if (!FTP || !FTP->hasThrowsSpec())
     return nullptr;
-  if (FTP->getExceptionSpecType() == EST_ThrowsTyped ||
-      FTP->getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse)
+  if (FTP->getExceptionSpecType() == EST_ThrowsTyped)
     return CGT.ConvertType(FTP->getExceptionType(0));
   // throws: implicit std::error = {void*, size_t}.
   llvm::Type *VoidPtrTy = CGT.getCGM().VoidPtrTy;

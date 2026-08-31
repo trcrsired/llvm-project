@@ -1,10 +1,10 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -emit-llvm -o - %s | FileCheck %s
 
-// A default 'return_failure{E}' function implies noexcept(true): any legacy C++
-// exception escaping it calls std::terminate (a terminate landing pad is
-// pushed, exactly like a noexcept function). A 'return_failure{E} noexcept(false)'
-// function instead allows traditional C++ exceptions to propagate, so it has
-// no terminate scope.
+// A 'return_failure{E}' function is NOT noexcept (it may fail via the
+// herbceptions channel), but it is 'nounwind' in LLVM IR (no unwinding).
+// Any legacy C++ exception escaping it calls std::terminate (a terminate
+// landing pad is pushed). 'return_failure{E}' and 'noexcept' cannot be
+// combined: throws supersedes noexcept.
 
 using size_t = __SIZE_TYPE__;
 struct E { int code; };
@@ -22,12 +22,8 @@ int defaultf() return_failure{E} {
   return 1;
 }
 
-// CHECK: define dso_local { i32, i1 } @_Z8nofalsefv() #[[NF:[0-9]+]] {
-// CHECK: call void @_Z6legacyv()
-int nofalsef() return_failure{E} noexcept(false) {
-  legacy();
-  return 1;
-}
-
 // CHECK: attributes #[[DEF]] = { {{.*}} nounwind {{.*}} throws {{.*}} }
-// CHECK: attributes #[[NF]] = { {{.*}} throws {{.*}} }
+
+static_assert(!noexcept(defaultf()));
+static_assert(!throws(defaultf()));
+

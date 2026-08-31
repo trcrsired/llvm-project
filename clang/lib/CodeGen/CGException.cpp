@@ -583,9 +583,7 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
   } else if (Proto->getExceptionSpecType() == EST_ThrowsTyped) {
     // A default `fails{E}` function implies noexcept(true): any legacy C++
     // exception that escapes it calls std::terminate (exactly like a noexcept
-    // function). A `fails{E} noexcept(false)` (EST_ThrowsTypedNoexceptFalse)
-    // instead allows traditional C++ exceptions to propagate, so it gets no
-    // terminate scope.
+    // function).
     if (!getLangOpts().EHAsynch)
       EHStack.pushTerminate();
   }
@@ -1997,19 +1995,7 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // the throws return path (discriminant set, error stored in the payload).
   const FunctionDecl *FD = cast<FunctionDecl>(CurCodeDecl);
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
-
-  // A legacy C++ exception can escape this `throws` function (the catch-all
-  // had EH branches), but the conversion is unavailable (std::exception_ptr
-  // or std::error not visible at the definition). Hard error; emit noreturn
-  // so the funclet / landing-pad IR stays well-formed.
-  if (!Conv) {
-    CGM.getDiags().Report(FD->getLocation(),
-                          diag::err_herbception_legacy_convert_no_domain)
-        << 0;
-    Builder.CreateUnreachable();
-    Builder.restoreIP(SavedIP);
-    return;
-  }
+  assert(Conv && "herbceptions legacy conversion must be set by Sema");
 
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
