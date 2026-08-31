@@ -624,6 +624,6 @@ Known limitations
   and visible ``std::exception_ptr`` / ``std::error`` declarations; when a
   legacy escape is possible without them, compilation return_failure rather than
   silently skipping the conversion.
-* ``RetCC_X86_Win64_C_Throws`` / ``CC_X86_Win64_C_Throws`` are currently
-  documentation-grade definitions: actual register assignment flows through
-  the standard Win64 convention decomposition described above.
+* ``RetCC_X86_Win64_C_Throws`` / ``CC_X86_Win64_C_Throws`` are selected
+  automatically when a function carries the ``Throws`` attribute on Win64
+  targets, via a ``CCIfThrows`` predicate in ``X86CallingConv.td``.
