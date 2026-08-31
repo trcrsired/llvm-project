@@ -87,9 +87,11 @@ inline constexpr ::std::io_scatter_t
 __posix_name_message_range(::std::error_reporter_encoding encoding,
                            ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xAD\x97\x96\xA2\x89\xA7\xBD"], n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[posix]"], n * sizeof(char16_t)};
   }
@@ -106,9 +108,11 @@ inline constexpr ::std::io_scatter_t
 __parse_name_message_range(::std::error_reporter_encoding encoding,
                            ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xD1\x97\x99\xA2\x85\xA7\xBD"], n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[parse]"], n * sizeof(char16_t)};
   }
@@ -125,9 +129,11 @@ inline constexpr ::std::io_scatter_t
 __cmath_name_message_range(::std::error_reporter_encoding encoding,
                            ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xC3\x89\x96\xA3\x89\xA7\xBD"], n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[cmath]"], n * sizeof(char16_t)};
   }
@@ -144,9 +150,11 @@ inline constexpr ::std::io_scatter_t
 __wine_name_message_range(::std::error_reporter_encoding encoding,
                           ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xE2\x97\xA2\xA2\x85\xA7\xBD"], n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[wine]"], n * sizeof(char16_t)};
   }
@@ -233,6 +241,7 @@ __simple_query_information_common_code(::std::error_reporter_encoding encoding,
                                        ::std::uint_least32_t __code,
                                        char unsigned *__numbuf) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     auto *__dest{
         ::std::error_domains::__herbceptions_detail::
@@ -240,6 +249,7 @@ __simple_query_information_common_code(::std::error_reporter_encoding encoding,
                 __numbuf, __code)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     using __char16_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
@@ -361,6 +371,7 @@ inline constexpr void __simple_query_information_common(
           reinterpret_cast<char unsigned const *>(__scatter.base)};
       char unsigned const *__from_last{__from_first + __scatter.len};
       switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
       case ::std::error_reporter_encoding::utfebcdic: {
         auto __dest = ::std::error_domains::__herbceptions_detail::
             __write_ebcdic_with_ascii_only_range(__from_first, __from_last,
@@ -371,6 +382,7 @@ inline constexpr void __simple_query_information_common(
                 reinterpret_cast<char unsigned *>(__dest) - __buffer)};
         break;
       }
+#endif
       case ::std::error_reporter_encoding::utf16: {
         using __char16_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)

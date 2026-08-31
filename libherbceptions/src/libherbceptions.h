@@ -5,28 +5,10 @@ Shared helpers for the herbception error-domain runtime.
 These are internal to the runtime implementation (used by the per-domain
 translation units) and are not part of the public herbception/error surface.
 */
+#include <herbceptions/__details/macros_guard.h>
 #include <herbceptions/error>
 #include <limits>
 #include <type_traits>
-
-// Export macro for the domain ABI entry points. On Windows the shared library
-// exports them (dllexport while building, dllimport elsewhere); on ELF they
-// get default visibility so a shared libherbceptions exposes them. Weak lets
-// the static archive drop them / runtime-resolve on ELF.
-#if defined(_MSC_VER)
-#if defined(_HERBCEPTIONS_BUILDING_RUNTIME) && defined(herbceptions_EXPORTS)
-#define __HERBCEPTIONS_API __declspec(dllexport)
-#elif defined(_HERBCEPTIONS_BUILDING_RUNTIME)
-#define __HERBCEPTIONS_API
-#else
-#define __HERBCEPTIONS_API __declspec(dllimport)
-#endif
-#elif defined(_WIN32) || defined(_WIN64)
-// MinGW auto-imports DLL symbols and links static libraries directly.
-#define __HERBCEPTIONS_API
-#else
-#define __HERBCEPTIONS_API [[__gnu__::__weak__]]
-#endif
 
 namespace std::error_domains::__herbceptions_detail {
 
@@ -62,6 +44,7 @@ inline constexpr __DestTy *__write_with_ascii_only_badcode_range(
   return __dest;
 }
 
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
 #include "ascii_to_ebcdic.cpp"
 
 template <typename __SrcTy>
@@ -76,6 +59,7 @@ __write_ebcdic_with_ascii_only_range(__SrcTy const *__fromfirst,
   }
   return __dest;
 }
+#endif
 
 inline char unsigned *__codecvt_write_with_encoding(
     char unsigned const *__fromfirst, char unsigned const *__fromlast,
@@ -84,10 +68,17 @@ inline char unsigned *__codecvt_write_with_encoding(
     return __dest;
   }
   switch (__encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
-    return ::std::error_domains::__herbceptions_detail::
-        __write_ebcdic_with_ascii_only_range(__fromfirst, __fromlast, __dest);
+    if constexpr (::std::error_domains::__herbceptions_detail::
+                      __libherbceptions_enable_ebcdic) {
+      return ::std::error_domains::__herbceptions_detail::
+          __write_ebcdic_with_ascii_only_range(__fromfirst, __fromlast, __dest);
+    } else {
+      [[unreachable]];
+    }
   }
+#endif
   case ::std::error_reporter_encoding::utf32:
     using __char32_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)

@@ -31,9 +31,11 @@ inline constexpr ::std::io_scatter_t
 __nt_name_message_range(::std::error_reporter_encoding encoding,
                         ::std::size_t startpos, ::std::size_t n) noexcept {
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     return {&startpos["\xAD\x95\xA3\xBD"], n};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     return {&startpos[u"[nt]"], n * sizeof(char16_t)};
   }
@@ -69,11 +71,13 @@ __nt_code_scatter(::std::error_reporter_encoding encoding,
                   char unsigned *__numbuf) noexcept {
   using namespace ::std::error_domains::__herbceptions_detail;
   switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
     auto *__dest{__format_hex_value_full_with_bracket<true, char unsigned>(
         __numbuf, ntstatus)};
     return {__numbuf, static_cast<::std::size_t>(__dest - __numbuf)};
   }
+#endif
   case ::std::error_reporter_encoding::utf16: {
     using __char16_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
@@ -225,6 +229,7 @@ constinit ::std::error_domain_singleton nt_error_domain{
                              __nt_max_message_size *
                          sizeof(char32_t)];
               switch (encoding) {
+#ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
               case ::std::error_reporter_encoding::utfebcdic: {
                 auto dest{::std::error_domains::__herbceptions_detail::
                               __write_ebcdic_with_ascii_only_range(
@@ -233,6 +238,7 @@ constinit ::std::error_domain_singleton nt_error_domain{
                     buffer, static_cast<::std::size_t>(dest - buffer)};
                 break;
               }
+#endif
               case ::std::error_reporter_encoding::utf16: {
                 using __char16_may_alias_ptr
 #if __has_cpp_attribute(__gnu__::__may_alias__)
