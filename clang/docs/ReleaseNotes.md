@@ -136,6 +136,13 @@ features cannot lower the translation-unit ABI level;
   following new Unicode recommendations), applied as a DR to all C++ language
   modes.
 
+- Clang now supports [P3670R4](https://wg21.link/p3670r4) (Pack indexing for
+  template names), which allows a pack of templates to be indexed, as in
+  `TT...[0]<int>`. Like pack indexing of types and expressions, this is
+  available in all C++ language modes as an extension, controlled by
+  `-Wc++2d-extensions` and `-Wpre-c++2d-compat`, and `__cpp_pack_indexing` is
+  bumped to `202606L`.
+
 #### C++2c Feature Support
 
 - Added `__builtin_type_order` for compatibility with GCC as part of the
@@ -235,6 +242,10 @@ features cannot lower the translation-unit ABI level;
 - Clang now properly propagates attributes on class and variable templates to their redeclarations, which will result in redeclarations not interfering with diagnostics. (#GH209812)
 
 ### Improvements to Clang's diagnostics
+
+- The `cannot overload a member function` diagnostic now describes the previous
+  declaration first, matching the order in which the declarations appear in the
+  source. (#GH219803)
 
 - More consistent rendering of Unicode characters in diagnostic messages.
 
@@ -496,6 +507,10 @@ features cannot lower the translation-unit ABI level;
   parsed where a nested-name-specifier could appear (e.g. ``int decltype = 0;``).
   Clang now diagnoses the error instead of asserting. (#GH211207)
 
+- Fixed an assertion failure when a parenthesized structured binding declarator
+  was followed by a function declarator and body (e.g. ``([a, b])() {}``).
+  (#GH218144, #GH193687)
+
 - Fixed a crash when computing the implicit deletion of a defaulted comparison
   operator required an access check that ran while an enclosing declaration
   was still being parsed. (#GH210692)
@@ -539,6 +554,11 @@ features cannot lower the translation-unit ABI level;
 - Fixed an assertion when an ill-formed qualified member function definition
   inside a union caused the union to be treated as a polymorphic class.
   (#GH213854)
+
+- Fixed an assertion when a type-trait keyword that had already been made
+  available as an identifier (e.g. `struct __make_unsigned`) was seen again
+  in a token that was lexed and cached before the first occurrence was parsed.
+  (#GH214128)
 
 #### Bug Fixes to AST Handling
 
