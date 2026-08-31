@@ -16873,13 +16873,13 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
         Val = Val->IgnoreParenImpCasts();
         if (auto *Lit = dyn_cast<CXXNullPtrLiteralExpr>(Val)) {
           Diag(Lit->getExprLoc(),
-               diag::err_herbception_domain_nullptr)
+               diag::err_herbceptions_domain_nullptr)
               << FD->getReturnType();
           FD->setInvalidDecl();
         } else if (auto *IL = dyn_cast<IntegerLiteral>(Val)) {
           if (IL->getValue() == 0) {
             Diag(IL->getExprLoc(),
-                 diag::err_herbception_domain_nullptr)
+                 diag::err_herbceptions_domain_nullptr)
                 << FD->getReturnType();
             FD->setInvalidDecl();
           }

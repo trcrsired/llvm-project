@@ -108,28 +108,24 @@ Semantically:
 
 .. code-block:: cpp
 
-   T foo() throws;                    // noexcept(true) + throws channel
-   T foo() return_failure{E};                  // noexcept(true) + return_failure{E} channel
-   T foo() noexcept(false) return_failure{E};  // explicit override: allows both
+   T foo() throws;                    // may fail via herbceptions channel; nounwind
+   T foo() return_failure{E};         // may fail via herbceptions channel; nounwind
 
-* ``throws`` and ``return_failure{
-  E}`` are part of the *canonical function type* and
-  change the function ABI (the return type is lowered to ``{
-  T, i1}``). This
+* ``throws`` and ``return_failure{E}`` are part of the *canonical function type* and
+  change the function ABI (the return type is lowered to ``{T, i1}``). This
   is unlike ``noexcept`` since C++17, which is not part of the canonical
   type.
-* ``throws(false)`` means the function cannot fail: it degrades to plain
-  ``noexcept``.
-* A ``throws`` function implies ``noexcept(true)``; combining ``throws``
-  with ``noexcept(false)`` is a compile-time error. ``return_failure{
-  E}`` also
-  implies ``noexcept(true)`` by default; only an explicit
-  ``noexcept(false) return_failure{
-  E}`` lets traditional C++ exceptions propagate
-  through the function instead of hitting its terminate landing pad.
+* ``throws(false)`` means the function cannot fail: it is equivalent to
+  ``noexcept(true)``.
+* ``throws``/``return_failure{E}`` and ``noexcept`` are mutually exclusive: a
+  function picks one or the other, never both. ``throws`` supersedes ``noexcept``.
+* In trait queries (``noexcept(expr)``, ``is_nothrow``), ``throws(true)`` / bare
+  ``throws`` / ``return_failure{E}`` behave as ``noexcept(false)`` because the
+  function may fail via the herbceptions channel. However, they are not
+  semantically ``noexcept(false)`` — they use a different ABI and a different
+  exception mechanism. In LLVM IR they are ``nounwind`` (no unwinding).
 * ``return_failure(E)`` (parentheses) is rejected; the braces form is mandatory.
-  Combining ``throws`` and ``return_failure{
-  ...}`` on one declaration is rejected.
+  Combining ``throws`` and ``return_failure{...}`` on one declaration is rejected.
 
 Restrictions
 ------------
@@ -397,10 +393,12 @@ points ``__cxa_error_domain_{itanium,msvc}_exception_ptr()`` /
 run normally (during unwinding, since ``throws`` calls are plain
 calls/invokes).
 
-The conversion is available when ``std::exception_ptr``, ``std::error`` and
-their ``error_domain<std::exception_ptr>`` specialization (provided by
-``libherbceptions``) are visible. If a legacy escape is possible and they
-are not, compilation return_failure; compile with ``-fno-exceptions`` to disable C++
+The conversion uses the built-in ``libherbceptions`` ABI entry points
+``__cxa_error_domain_{itanium,msvc}_exception_ptr()`` /
+``__cxa_error_code_{itanium,msvc}_exception_ptr(ptr)``, baked into the
+compiler. The linker hard-errors if ``libherbceptions`` is not linked.
+Destructors still run normally (during unwinding, since ``throws`` calls are
+plain calls/invokes).
 exceptions entirely.
 
 Templates and concepts
@@ -590,13 +588,11 @@ functions inside it become ``invoke``\ s into a landing pad whose handler
 fabricates the ``std::error`` (via the ``libherbceptions`` exception-ptr ABI
 symbols and ``__cxa_get_exception_ptr`` / ``llvm.eh.exceptionpointer`` /
 ``wasm.get.exception``) and routes it to the throws return path. The same
-conversion is applied inside a `try { } catch throws(std::error)` block.
+conversion is applied inside a ``try { } catch throws(std::error)`` block.
 
-A default ``return_failure{
-  E}`` function instead pushes a terminate landing pad
-(``noexcept`` semantics); an explicit ``return_failure{
-  E} noexcept(false)`` pushes
-nothing and lets traditional exceptions propagate.
+A default ``return_failure{E}`` function pushes a terminate landing pad
+(``noexcept``-like semantics for legacy C++ exceptions): any legacy
+exception escaping it calls ``std::terminate``.
 
 Target-specific discriminant
 ============================
@@ -718,9 +714,8 @@ Known limitations
 * ``FastISel`` falls back to SelectionDAG for ``throws`` calls, so some
   ``-O0`` paths are slightly slower than they would otherwise be.
 * Legacy C++ exception conversion depends on the ``libherbceptions``
-  runtime ABI symbols and on the ``error_domain<std::exception_ptr>``
-  specialization being visible; if a legacy exception can escape and they
-  are not, compilation return_failure rather than silently skipping the conversion.
+  runtime ABI symbols baked into the compiler; the linker hard-errors if
+  ``libherbceptions`` is not linked.
 
 Related work
 ============

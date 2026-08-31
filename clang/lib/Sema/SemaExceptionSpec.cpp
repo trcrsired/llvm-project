@@ -495,12 +495,6 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   case EST_BasicThrowsFalse:
     OS << "throws(false)";
     break;
-  case EST_BasicThrowsFalseNoexceptFalse:
-    OS << "throws(false) noexcept(false)";
-    break;
-  case EST_ThrowsTypedNoexceptFalse:
-    OS << "noexcept(false) ";
-    [[fallthrough]];
   case EST_ThrowsTyped:
     OS << "fails{";
     assert(OldProto->getNumExceptions() == 1 && "Expected fails error type");
@@ -672,12 +666,11 @@ static bool CheckEquivalentExceptionSpecImpl(
   // ABI (return type is lowered to {T, i1}), so they cannot be freely
   // mixed with other specification kinds.
   if ((OldEST == EST_BasicThrows || OldEST == EST_BasicThrowsTrue ||
-        OldEST == EST_BasicThrowsFalse || OldEST == EST_BasicThrowsFalseNoexceptFalse) &&
+        OldEST == EST_BasicThrowsFalse) &&
       (NewEST == EST_BasicThrows || NewEST == EST_BasicThrowsTrue ||
-        NewEST == EST_BasicThrowsFalse || NewEST == EST_BasicThrowsFalseNoexceptFalse))
+        NewEST == EST_BasicThrowsFalse))
     return false;
-  if ((OldEST == EST_ThrowsTyped || OldEST == EST_ThrowsTypedNoexceptFalse) &&
-      (NewEST == EST_ThrowsTyped || NewEST == EST_ThrowsTypedNoexceptFalse)) {
+  if (OldEST == EST_ThrowsTyped && NewEST == EST_ThrowsTyped) {
     bool Success = true;
     llvm::SmallPtrSet<CanQualType, 8> OldTypes, NewTypes;
     for (const auto &I : Old->exceptions())
@@ -882,17 +875,12 @@ bool Sema::CheckExceptionSpecSubset(
     if (SuperHerb && SubHerb) {
       if ((SuperEST == EST_BasicThrows ||
             SuperEST == EST_BasicThrowsTrue ||
-            SuperEST == EST_BasicThrowsFalse ||
-            SuperEST == EST_BasicThrowsFalseNoexceptFalse) &&
+            SuperEST == EST_BasicThrowsFalse) &&
            (SubEST == EST_BasicThrows ||
             SubEST == EST_BasicThrowsTrue ||
-            SubEST == EST_BasicThrowsFalse ||
-            SubEST == EST_BasicThrowsFalseNoexceptFalse))
+            SubEST == EST_BasicThrowsFalse))
         return false;
-      if ((SuperEST == EST_ThrowsTyped ||
-           SuperEST == EST_ThrowsTypedNoexceptFalse) &&
-          (SubEST == EST_ThrowsTyped ||
-           SubEST == EST_ThrowsTypedNoexceptFalse)) {
+      if (SuperEST == EST_ThrowsTyped && SubEST == EST_ThrowsTyped) {
         // fails{E}: error types must be equivalent.
         ArrayRef<QualType> SuperExc = Superset->exceptions();
         ArrayRef<QualType> SubExc = Subset->exceptions();
@@ -907,9 +895,9 @@ bool Sema::CheckExceptionSpecSubset(
     // mismatch rather than an exception-spec subset issue.
     if (DiagID.getDiagID() == diag::err_override_exception_spec ||
         DiagID.getDiagID() == diag::ext_override_exception_spec)
-      Diag(SubLoc, diag::err_herbception_override_spec_mismatch);
+      Diag(SubLoc, diag::err_herbceptions_override_spec_mismatch);
     else
-      Diag(SubLoc, diag::err_herbception_spec_mismatch);
+      Diag(SubLoc, diag::err_herbceptions_spec_mismatch);
     if (NoteID.getDiagID() != 0)
       Diag(SuperLoc, NoteID);
     return true;
@@ -1132,9 +1120,9 @@ static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
   ExceptionSpecificationType EST = FT->getExceptionSpecType();
   if (EST == EST_BasicThrows || EST == EST_BasicThrowsTrue)
     return E.isNull();
-  if (EST == EST_BasicThrowsFalse || EST == EST_BasicThrowsFalseNoexceptFalse)
+  if (EST == EST_BasicThrowsFalse)
     return false;
-  if (EST == EST_ThrowsTyped || EST == EST_ThrowsTypedNoexceptFalse) {
+  if (EST == EST_ThrowsTyped) {
     if (E.isNull())
       return false;
     return S.getASTContext().hasSameUnqualifiedType(FT->getExceptionType(0),

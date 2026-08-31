@@ -4568,9 +4568,10 @@ public:
                   SourceLocation Keyword, SourceLocation RParen)
       : Expr(CXXNoexceptExprClass, Ty, VK_PRValue, OK_Ordinary),
         Operand(Operand), Range(Keyword, RParen) {
-    // Herbception `throws` implies noexcept(true) for C++ exceptions:
-    // CT_Deterministic means the function cannot throw C++ exceptions.
-    CXXNoexceptExprBits.Value = Val != CT_Can;
+    // noexcept(expr) is true only when the expression cannot fail at all
+    // (CT_Cannot). CT_Deterministic means the function may fail via the
+    // herbception error channel, so noexcept returns false.
+    CXXNoexceptExprBits.Value = Val == CT_Cannot;
     setDependence(computeDependence(this, Val));
   }
 

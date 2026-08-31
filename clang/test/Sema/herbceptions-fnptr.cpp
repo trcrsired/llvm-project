@@ -30,7 +30,7 @@ struct BaseThrows {
   virtual void f() throws;
 };
 struct DerivedMissingThrows : BaseThrows {
-  // CHECK: error: overriding function has a different herbception ('throws'/'return_failure{...}') specifier than the base version
+  // CHECK: error: overriding function has a different herbceptions ('throws'/'return_failure{...}') specifier than the base version
   void f() override;
 };
 
@@ -38,7 +38,7 @@ struct BasePlain {
   virtual void f();
 };
 struct DerivedAddsThrows : BasePlain {
-  // CHECK: error: overriding function has a different herbception ('throws'/'return_failure{...}') specifier than the base version
+  // CHECK: error: overriding function has a different herbceptions ('throws'/'return_failure{...}') specifier than the base version
   void f() throws override;
 };
 

@@ -5374,8 +5374,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         Expr *NoexceptExpr = nullptr;
 
         if (FTI.getExceptionSpecType() == EST_Dynamic ||
-            FTI.getExceptionSpecType() == EST_ThrowsTyped ||
-            FTI.getExceptionSpecType() == EST_ThrowsTypedNoexceptFalse) {
+            FTI.getExceptionSpecType() == EST_ThrowsTyped) {
           // FIXME: It's rather inefficient to have to split into two vectors
           // here.
           unsigned N = FTI.getNumExceptions();
@@ -8335,7 +8334,6 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
       case EST_BasicThrows:
       case EST_BasicThrowsTrue:
       case EST_BasicThrowsFalse:
-      case EST_BasicThrowsFalseNoexceptFalse:
       case EST_ThrowsTyped:
         // Exception spec doesn't conflict with nothrow, so don't warn.
         [[fallthrough]];
@@ -8346,7 +8344,6 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
         // We don't have enough information to properly determine if there is a
         // conflict, so suppress the warning.
         break;
-      case EST_ThrowsTypedNoexceptFalse:
       case EST_Dynamic:
       case EST_MSAny:
       case EST_NoexceptFalse:

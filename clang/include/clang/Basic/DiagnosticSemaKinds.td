@@ -2049,11 +2049,11 @@ def err_override_exception_spec : Error<
   "base version">;
 def ext_override_exception_spec : ExtWarn<err_override_exception_spec.Summary>,
   InGroup<MicrosoftExceptionSpec>;
-def err_herbception_spec_mismatch : Error<
-  "function pointer or reference types with different herbception "
+def err_herbceptions_spec_mismatch : Error<
+  "function pointer or reference types with different herbceptions "
   "('throws'/'return_failure{...}') specs are incompatible">;
-def err_herbception_override_spec_mismatch : Error<
-  "overriding function has a different herbception ('throws'/'return_failure{...}') "
+def err_herbceptions_override_spec_mismatch : Error<
+  "overriding function has a different herbceptions ('throws'/'return_failure{...}') "
   "specifier than the base version, which changes the calling convention">;
 def err_incompatible_exception_specs : Error<
   "target exception specification is not superset of source">;
@@ -3232,10 +3232,10 @@ def note_expr_requirement_expr_unknown_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid">;
 def note_expr_requirement_noexcept_not_met
     : Note<"%select{and|because}0 %1 may throw an exception">;
-def note_expr_requirement_noexcept_herbception_not_met
-    : Note<"%select{and|because}0 %1 is a herbception 'throws' function and is not noexcept">;
+def note_expr_requirement_noexcept_herbceptions_not_met
+    : Note<"%select{and|because}0 %1 is a herbceptions 'throws' function and is not noexcept">;
 def note_expr_requirement_throws_not_met
-    : Note<"%select{and|because}0 %1 does not use herbception throws">;
+    : Note<"%select{and|because}0 %1 does not use herbceptions throws">;
 def note_expr_requirement_type_requirement_substitution_error : Note<
   "%select{and|because}0 '%1' would be invalid: %2">;
 def note_expr_requirement_type_requirement_unknown_substitution_error : Note<
@@ -8798,8 +8798,8 @@ def err_catch_incomplete : Error<"cannot catch incomplete type %0">;
 def err_throw_throws_outside_throws_function : Error<
   "'throw throws' is only allowed inside a function declared 'throws' or "
   "'return_failure{...}'">;
-def err_herbception_disabled : Error<
-    "herbception is disabled; use -fherbceptions to enable it">;
+def err_herbceptions_disabled : Error<
+    "herbceptions is disabled; use -fherbceptions to enable it">;
 def err_throw_throws_requires_operand : Error<
   "'throw throws' rethrow is only allowed inside a 'catch throws' block">;
 def err_throw_throws_rethrow_disallow_operand : Error<
@@ -8809,12 +8809,7 @@ def err_throw_throws_rethrow_outside_catch : Error<
   "bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block">;
 def err_throw_throws_no_error_domain : Error<
   "'throw throws' operand type %0 has no std::error_domain specialization">;
-def err_herbception_legacy_convert_no_domain : Error<
-  "a %select{'throws' function|'catch throws' block}0 can convert an escaping "
-  "legacy C++ exception into a herbception only through "
-  "std::error_domain<std::exception_ptr>, which is not defined; include the "
-  "exception_ptr error_domain header or compile with -fno-exceptions to "
-  "disable C++ exceptions">;
+
 def err_throw_throws_no_catch_handler : Error<
   "'throw throws' in a plain (non-'throws') function must be inside a "
   "'try { } catch throws' block">;
@@ -8826,8 +8821,8 @@ def err_failure_outside_fails_function : Error<
   "'return_failure(expr)' is only allowed inside a function declared 'return_failure{...}'">;
 def err_return_return_failure : Error<
   "'return' cannot be used with 'return_failure': use 'return_failure expr;' directly">;
-def err_herbception_destructor_spec : Error<
-  "destructor cannot be declared with a herbception "
+def err_herbceptions_destructor_spec : Error<
+  "destructor cannot be declared with a herbceptions "
   "('throws'/'return_failure{...}') exception specification; destructors cannot "
   "propagate errors">;
 def err_fails_only_free_function : Error<
@@ -8837,7 +8832,7 @@ def err_fails_only_free_function : Error<
 def err_throws_not_allowed_in_coroutine : Error<
   "'throws' is not allowed on coroutine functions; all herbceptions must be "
   "caught within the coroutine body">;
-def err_herbception_domain_nullptr : Error<
+def err_herbceptions_domain_nullptr : Error<
   "std::error_domain<T>::domain() must not return nullptr; the fabricated "
   "std::error dereferences the domain pointer">;
 def err_fails_std_error_type : Error<
@@ -8849,7 +8844,7 @@ def err_fails_type_not_trivially_copyable : Error<
   "behavior): the error value flows through the {T, i1} ABI slot by value">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'return_failure{...}'">;
-def err_herbception_try_requires_operand : Error<
+def err_herbceptions_try_requires_operand : Error<
   "'try' requires an expression operand">;
 def err_try_expr_requires_throws_call : Error<
   "'try' expression operand must be a call to a function declared 'throws' or "
@@ -13154,9 +13149,7 @@ def note_coroutine_promise_suspend_implicitly_required : Note<
   "required by the %select{initial suspend point|final suspend point}0">;
 def err_coroutine_promise_unhandled_exception_required : Error<
   "%0 is required to declare the member 'unhandled_exception()'">;
-def err_coroutine_promise_unhandled_herbception_required : Error<
-  "%0 is required to declare the member 'unhandled_herbception()' for a "
-  "'throws' coroutine">;
+
 def warn_coroutine_promise_unhandled_exception_required_with_exceptions : Warning<
   "%0 is required to declare the member 'unhandled_exception()' when exceptions are enabled">,
   InGroup<CoroutineMissingUnhandledException>;

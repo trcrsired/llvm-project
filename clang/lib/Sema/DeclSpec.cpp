@@ -228,7 +228,6 @@ DeclaratorChunk DeclaratorChunk::getFunction(bool hasProto,
   default: break; // By default, save nothing.
   case EST_Dynamic:
   case EST_ThrowsTyped:
-  case EST_ThrowsTypedNoexceptFalse:
     // new[] an exception array if needed
     if (NumExceptions) {
       I.Fun.NumExceptionsOrDecls = NumExceptions;

@@ -58,7 +58,6 @@ private:
   bool makeNewAndDeleteExpr();
   bool makeOnFallthrough();
   bool makeOnException();
-  bool makeOnHerbception();
   bool makeReturnObject();
   bool makeGroDeclAndReturnStmt();
   bool makeReturnOnAllocFailure();
