@@ -19902,7 +19902,7 @@ void Sema::checkExceptionSpecification(
                   Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
               if (Context.hasSameUnqualifiedType(ET, StdErrorTy)) {
                 Diag(DynamicExceptionRanges[ei].getBegin(),
-                     diag::err_fails_std_error_type)
+                     diag::err_return_failure_std_error_type)
                     << DynamicExceptionRanges[ei];
                 continue;
               }
@@ -19919,7 +19919,7 @@ void Sema::checkExceptionSpecification(
         }
         if (!ET.isTriviallyCopyableType(Context)) {
           Diag(DynamicExceptionRanges[ei].getBegin(),
-               diag::err_fails_type_not_trivially_copyable)
+               diag::err_return_failure_type_not_trivially_copyable)
               << ET << DynamicExceptionRanges[ei];
           continue;
         }
@@ -19977,7 +19977,7 @@ void Sema::actOnDelayedExceptionSpecification(
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
       EST == EST_ThrowsTyped &&
       FD->isCXXClassMember()) {
-    Diag(SpecificationRange.getBegin(), diag::err_fails_only_free_function)
+    Diag(SpecificationRange.getBegin(), diag::err_return_failure_only_free_function)
         << SpecificationRange;
     FD->setInvalidDecl();
   }

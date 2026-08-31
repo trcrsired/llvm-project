@@ -4173,7 +4173,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
       BalancedDelimiterTracker TParen(*this, tok::l_paren);
       TParen.consumeOpen();
       TParen.skipToEnd();
-      Diag(Tok, diag::err_fails_paren_not_allowed);
+      Diag(Tok, diag::err_return_failure_paren_not_allowed);
       return EST_None;
     }
     BalancedDelimiterTracker T(*this, tok::l_brace);
