@@ -4408,7 +4408,7 @@ CIRGenModule::getOrCreateAnnotationArgs(const AnnotateAttr *attr) {
   for (Expr *e : exprs)
     id.Add(cast<clang::ConstantExpr>(e)->getAPValueResult());
 
-  mlir::ArrayAttr &lookup = annotationArgs[id.ComputeHash()];
+  mlir::ArrayAttr &lookup = annotationArgs[id.computeHash()];
   if (lookup)
     return lookup;
 

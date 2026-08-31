@@ -765,8 +765,8 @@ const CIRGenFunctionInfo &CIRGenTypes::arrangeCIRFunctionInfo(
                               herbceptionErrorTy, info, required, returnType,
                               argTypes);
 
-  void *insertPos = nullptr;
-  CIRGenFunctionInfo *fi = functionInfos.FindNodeOrInsertPos(id, insertPos);
+  llvm::FoldingSetInsertToken insertToken;
+  CIRGenFunctionInfo *fi = functionInfos.lookup(id, insertToken);
   if (fi) {
     // We found a matching function info based on id. These asserts verify that
     // it really is a match.
@@ -782,7 +782,7 @@ const CIRGenFunctionInfo &CIRGenTypes::arrangeCIRFunctionInfo(
   // Construction the function info. We co-allocate the ArgInfos.
   fi = CIRGenFunctionInfo::create(info, isInstanceMethod, returnType, argTypes,
                                   required, throwsReturn, herbceptionErrorTy);
-  functionInfos.InsertNode(fi, insertPos);
+  functionInfos.insert(fi, insertToken);
 
   return *fi;
 }
