@@ -1256,7 +1256,7 @@ SDValue X86TargetLowering::LowerCallResult(
     // flag into a virtual register right after the call (before CALLSEQ_END
     // could clobber EFLAGS); read it back into a value of the register type
     // (i8) expected by the middle-end.
-    if (Ins[InsIndex].Flags.isThrows()) {
+    if (Ins[I].Flags.isThrows()) {
       assert(ThrowsDiscriminantReg && "missing throws discriminant register");
       SDValue Disc =
           DAG.getCopyFromReg(Chain, dl, ThrowsDiscriminantReg, MVT::i8, InGlue);
