@@ -33,9 +33,11 @@ enum ExceptionSpecificationType {
   EST_BasicThrows,       ///< throws (herbception): implicit std::error
   EST_BasicThrowsTrue,   ///< throws(true): can fail, implicit std::error
   EST_BasicThrowsFalse,  ///< throws(false): cannot fail, implicit std::error
-  EST_ThrowsTyped,       ///< throws(T) / fails{T}: explicit error type
-  EST_ThrowsTypedNoexceptFalse ///< fails{E} noexcept(false): herbception + C++
-                               ///< EH
+  EST_ThrowsTyped,       ///< return_failure{E}: explicit error type
+  EST_ThrowsTypedNoexceptFalse, ///< return_failure{E} noexcept(false): herbception
+                                ///< + C++ EH
+  EST_BasicThrowsFalseNoexceptFalse ///< throws(false) noexcept(false): cannot
+                                    ///< fail via herbception, but can throw C++
 };
 
 inline bool isDynamicExceptionSpec(ExceptionSpecificationType ESpecType) {

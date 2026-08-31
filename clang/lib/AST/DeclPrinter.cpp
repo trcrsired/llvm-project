@@ -813,6 +813,8 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
         Proto += " throws(true)";
       else if (FT->getExceptionSpecType() == EST_BasicThrowsFalse)
         Proto += " throws(false)";
+      else if (FT->getExceptionSpecType() == EST_BasicThrowsFalseNoexceptFalse)
+        Proto += " throws(false) noexcept(false)";
       else
         Proto += " throws";
     } else if (FT && FT->hasReturnFailureSpec()) {

@@ -8784,7 +8784,7 @@ Sema::BuildExprRequirement(
     Status = concepts::ExprRequirement::SS_Dependent;
   else if (NoexceptLoc.isValid() && canThrow(E) == CanThrowResult::CT_Can)
     Status = concepts::ExprRequirement::SS_NoexceptNotMet;
-  else if (NoexceptLoc.isValid() && hasHerbceptionSpec(E))
+  else if (NoexceptLoc.isValid() && canHerbceptionThrow(E, QualType()))
     Status = concepts::ExprRequirement::SS_NoexceptNotMet;
   else if (ThrowsLoc.isValid() && !canHerbceptionThrow(E, QualType()))
     Status = concepts::ExprRequirement::SS_ThrowsNotMet;
