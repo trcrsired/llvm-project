@@ -903,7 +903,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   // A 'fails{E}' function returns errors exclusively through
   // 'return failure(expr);'.
   if (CurFPT && CurFPT->hasReturnFailureSpec() && !CurFPT->hasBasicThrowsSpec()) {
-    Diag(ThrowsLoc, diag::err_throw_throws_in_fails_function);
+    Diag(ThrowsLoc, diag::err_throw_throws_in_return_failure_function);
     return ExprError();
   }
 
@@ -1427,7 +1427,7 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
   // call is dependent (e.g. inside a template), defer the check to
   // instantiation time.
   if (!Ex->isTypeDependent() && !isHerbceptionThrowsCall(Ex)) {
-    Diag(Ex->getBeginLoc(), diag::err_catch_fails_expr_requires_throws_call);
+    Diag(Ex->getBeginLoc(), diag::err_catch_return_failure_expr_requires_throws_call);
     return ExprError();
   }
 
@@ -1442,7 +1442,7 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
     if (const auto *FPT = FD ? FD->getType()->getAs<FunctionProtoType>()
                              : nullptr;
         FPT && FPT->hasBasicThrowsSpec() && !FPT->hasReturnFailureSpec()) {
-      Diag(Ex->getBeginLoc(), diag::err_catch_fails_expr_throws_function);
+      Diag(Ex->getBeginLoc(), diag::err_catch_return_failure_expr_throws_function);
       return ExprError();
     }
   }
@@ -1485,7 +1485,7 @@ ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *
   const FunctionProtoType *CurFPT =
       CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
   if (!CurFPT || !CurFPT->hasReturnFailureSpec()) {
-    Diag(FailureLoc, diag::err_failure_outside_fails_function);
+    Diag(FailureLoc, diag::err_failure_outside_return_failure_function);
     return ExprError();
   }
 

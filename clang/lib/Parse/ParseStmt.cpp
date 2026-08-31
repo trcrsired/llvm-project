@@ -2805,7 +2805,7 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
   // `catch fails(expr)`.
   if (getLangOpts().HerbExceptions && Tok.is(tok::kw_return_failure)) {
     SourceLocation SpecLoc = ConsumeToken();
-    Diag(SpecLoc, diag::err_catch_fails_expression_only);
+    Diag(SpecLoc, diag::err_catch_return_failure_expression_only);
     SkipUntil(tok::l_brace, StopBeforeMatch);
     if (Tok.is(tok::l_brace))
       ConsumeBrace();

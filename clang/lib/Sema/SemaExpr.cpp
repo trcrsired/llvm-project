@@ -6824,7 +6824,7 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                 getHerbceptionCalleeProto(Call.get());
             if (CalleeFPT && CalleeFPT->hasReturnFailureSpec() &&
                 !CalleeFPT->hasBasicThrowsSpec()) {
-              Diag(CallLoc, diag::err_fails_call_in_catch_throws);
+              Diag(CallLoc, diag::err_return_failure_call_in_catch_throws);
               return ExprError();
             }
           }
@@ -6845,10 +6845,10 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     // Herbception (C): calling a fails{E} function without an explicit
     // try(expr) or catch fails(expr) wrapper is a compile error.
     if (isHerbceptionThrowsCall(Call.get())) {
-      Diag(Call.get()->getBeginLoc(), diag::err_fails_call_without_wrapper);
+      Diag(Call.get()->getBeginLoc(), diag::err_return_failure_call_without_wrapper);
       if (const auto *CE = dyn_cast<CallExpr>(Call.get()))
         if (const auto *FD = dyn_cast_or_null<FunctionDecl>(CE->getCalleeDecl()))
-          Diag(FD->getLocation(), diag::note_fails_function_declared_here);
+          Diag(FD->getLocation(), diag::note_return_failure_function_declared_here);
       return ExprError();
     }
   }

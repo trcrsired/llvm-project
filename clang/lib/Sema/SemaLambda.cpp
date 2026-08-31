@@ -1115,7 +1115,7 @@ void Sema::CompleteLambdaCallOperator(
   // functions; a lambda's call operator is a member of its closure type.
   if (getLangOpts().HerbExceptions &&
       Method->getType()->getAs<FunctionProtoType>()->hasReturnFailureSpec()) {
-    Diag(LambdaLoc, diag::err_fails_only_free_function);
+    Diag(LambdaLoc, diag::err_return_failure_only_free_function);
     Method->setInvalidDecl();
   }
   if (!Params.empty()) {

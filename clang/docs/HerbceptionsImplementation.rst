@@ -59,17 +59,17 @@ The keywords carry the ``KEYHERB`` token key
   (``ParseDeclCXX.cpp``) accepts ``throws`` (C++ only, else
   ``err_throws_requires_cxx``) producing ``EST_BasicThrows``, evaluates
   ``throws(expr)`` like ``noexcept(expr)`` via ``Sema::ActOnThrowsSpec``
-  (``throws(false)`` degrades to ``EST_BasicNoexcept``), parses ``return_failure{E}``
-  by storing ``E`` in the exception-type slot (``fails(E)`` is rejected with
-  ``err_fails_paren_not_allowed``), and combines ``noexcept(false)`` with
-  ``return_failure{E}`` into ``EST_ThrowsTypedNoexceptFalse``. A delayed-parsing
-  path handles the same forms after a trailing return type.
+  (``throws(false)`` is ``EST_BasicThrowsFalse``), parses ``return_failure{E}``
+  by storing ``E`` in the exception-type slot (``return_failure(E)`` is rejected with
+  ``err_return_failure_paren_not_allowed``). ``return_failure{E}`` and ``noexcept``
+  cannot be combined: throws supersedes noexcept. A delayed-parsing path handles
+  the same forms after a trailing return type.
   ``tryParseNoexceptAfterThrows`` / ``tryParseNoexceptAfterFails`` reject
   ``throws`` + ``noexcept(false)`` (``err_throws_noexcept_false``) and the
   ``throws`` + ``fails`` combination (``err_throws_fails_combined``).
 * Expressions: ``Parser::ParseAssignmentExpression`` dispatches
-  ``try(expr)`` -> ``ParseHerbceptionTryExpression``, ``catch return_return_return_failure(expr)``
-  -> ``ParseHerbceptionCatchFailsExpression`` and ``return_return_failure(expr)`` ->
+  ``try(expr)`` -> ``ParseHerbceptionTryExpression``, ``catch return_failure(expr)``
+  -> ``ParseHerbceptionCatchFailsExpression`` and ``return_failure(expr)`` ->
   ``ParseHerbceptionFailureExpression`` (``ParseExpr.cpp``); all three are
   implemented in ``ParseExprCXX.cpp``. The try/catch-return_failure parsers bracket
   their operand with ``Actions.HerbceptionOperandDepth`` so auto-propagation
@@ -78,10 +78,10 @@ The keywords carry the ``KEYHERB`` token key
 * Block handlers: ``Parser::ParseCXXCatchBlock`` recognizes
   ``catch throws(std::error e)`` and calls
   ``Actions.ActOnExceptionDeclarator(..., /*IsHerbception=*/true)`` followed
-  by ``Actions.ActOnCXXCatchThrowsBlock``. A ``catch return_return_failure(...)`` token
+  by ``Actions.ActOnCXXCatchThrowsBlock``. A ``catch return_failure(...)`` token
   sequence is rejected at parse time
-  (``err_catch_fails_expression_only``): ``catch fails`` exists only as an
-  expression.
+  (``err_catch_return_failure_expression_only``): ``catch return_failure`` exists
+  only as an expression.
 
 Function specifiers
 -------------------
@@ -102,11 +102,11 @@ specification:
 the parser rejects any combination. Semantic checks live in
 ``Sema::checkExceptionSpecification`` /
 ``actOnDelayedExceptionSpecification`` (``SemaDeclCXX.cpp``):
-``return_failure{std::error}`` is rejected (``err_fails_std_error_type``), ``E`` must
-be trivially copyable (``err_fails_type_not_trivially_copyable``),
+``return_failure{std::error}`` is rejected (``err_return_failure_std_error_type``), ``E`` must
+be trivially copyable (``err_return_failure_type_not_trivially_copyable``),
 destructors cannot carry a herbceptions spec
 (``err_herbceptions_destructor_spec``) and ``return_failure{E}`` is restricted to free
-functions (``err_fails_only_free_function`` -- enforced for members via the
+functions (``err_return_failure_only_free_function`` -- enforced for members via the
 delayed-spec path and for coroutines in ``ActOnCoroutineBodyStart``).
 
 The specifiers are part of the canonical function type because they change
@@ -124,7 +124,7 @@ Expressions and statements
 * ``throw throws expr`` -- ``Sema::ActOnCXXThrowThrows``
   (``clang/lib/Sema/SemaExprCXX.cpp``). Only valid inside a function with a
   plain ``throws`` spec (a ``return_failure{E}`` function must use
-  ``return_return_failure(...)`` instead; ``err_throw_throws_in_fails_function``)
+  ``return_failure(...)`` instead; ``err_throw_throws_in_fails_function``)
   or inside a ``try`` block / catch clause
   (``err_throw_throws_outside_throws_function``). With an explicit operand
   it creates a *new* error: unless the enclosing function is ``return_failure{E}``,
@@ -147,14 +147,14 @@ Expressions and statements
   deferred while type-dependent). When a ``throws`` caller invokes a
   ``return_failure{E}`` callee, the resolved ``error_domain<E>`` record is attached
   to the node for the E->std::error conversion on the error path.
-* ``catch return_return_return_failure(expr)`` -- ``Sema::ActOnHerbceptionCatchFails`` builds
-  ``CXXCatchFailsExpr`` holding the N2289 aggregate type produced by
-  ``ASTContext::getCatchFailsType(T, E)``:
+* ``catch return_failure(expr)`` -- ``Sema::ActOnHerbceptionCatchReturnFailure`` builds
+  ``CXXCatchReturnFailureExpr`` holding the N2289 aggregate type produced by
+  ``ASTContext::getCatchReturnType(T, E)``:
   ``struct { union { T value; E error; }; bool failed; }`` (an implicit
-  record named ``__herb_catch_fails``). A plain ``throws`` callee is
-  rejected (``err_catch_fails_expr_throws_function``).
-* ``return_return_failure(expr)`` -- ``Sema::ActOnHerbceptionFailure``; only valid inside
-  a ``return_failure{E}`` function (``err_failure_outside_fails_function``) with an
+  record named ``__herb_catch_return_failure``). A plain ``throws`` callee is
+  rejected (``err_catch_return_failure_expr_throws_function``).
+* ``return_failure(expr)`` -- ``Sema::ActOnHerbceptionReturnFailure``; only valid inside
+  a ``return_failure{E}`` function (``err_failure_outside_return_failure_function``) with an
   operand of type ``E``; lowers to the same path as ``throw throws``
   (``BuildCXXThrow(..., /*IsHerbception=*/true)``).
 * ``try { ... } catch throws(std::error e) { }`` -- checked by
@@ -164,8 +164,8 @@ Expressions and statements
   bind exactly ``std::error``, by value: references, cv-qualifiers, other
   types and the ellipsis form are rejected
   (``err_catch_throws_std_error`` / ``err_catch_throws_ellipsis``), and a
-  block-form ``catch fails`` is rejected at parse time
-  (``err_catch_fails_expression_only``). ``Sema::ActOnCXXTryBlock`` detects
+  block-form ``catch return_failure`` is rejected at parse time
+  (``err_catch_return_failure_expression_only``). ``Sema::ActOnCXXTryBlock`` detects
   try blocks with herbception handlers and skips them from EH type-matching
   and the "exception used but not catchable" diagnosis.
 
@@ -174,12 +174,12 @@ Auto-propagation
 
 In ``Sema::ActOnCallExpr`` (``clang/lib/Sema/SemaExpr.cpp``): in C++, when
 the current function has a throws/return_failure spec and
-``Sema::HerbceptionOperandDepth == 0``, a bare call to a throws/fails
+``Sema::HerbceptionOperandDepth == 0``, a bare call to a throws/return_failure
 function is wrapped in ``ActOnHerbceptionTry`` (auto-propagation). In C,
-any unwrapped call is rejected with ``err_fails_call_without_wrapper`` plus
-``note_fails_function_declared_here``. Inside a ``catch throws(std::error)``
+any unwrapped call is rejected with ``err_return_failure_call_without_wrapper`` plus
+``note_return_failure_function_declared_here``. Inside a ``catch throws(std::error)``
 handler of a ``return_failure{E}`` function, a bare call to a plain ``return_failure{E2}``
-function is rejected outright (``err_fails_call_in_catch_throws``): the
+function is rejected outright (``err_return_failure_call_in_catch_throws``): the
 handler slot holds std::error, so the raw E2 payload would be stored
 unconverted; an explicit ``try()`` performs the conversion.
 
@@ -228,10 +228,10 @@ All registered in ``clang/include/clang/Basic/StmtNodes.td``:
   the statement-level ``CXXTryStmt``. Carries the optional
   ``CXXRecordDecl *ErrorDomain`` used for the fails-to-std::error
   conversion.
-* ``CXXCatchFailsExpr`` (``ExprCXX.h``) -- ``catch return_return_return_failure(expr)``; wraps the
+* ``CXXCatchReturnFailureExpr`` (``ExprCXX.h``) -- ``catch return_failure(expr)``; wraps the
   call and the N2289 aggregate type.
 * ``CXXCatchThrowsStmt`` (``StmtCXX.h``) -- a ``catch throws(E e)`` /
-  ``catch return_return_failure(E e)`` handler. Stores the specifier location and the
+  ``catch return_failure(E e)`` handler. Stores the specifier location and the
   optional *legacy conversion expression*
   (``getLegacyExceptionErrorValue()``): the fabricated ``std::error`` for a
   caught traditional C++ exception, built by
@@ -354,7 +354,7 @@ Call-site routing
 struct return is never misclassified: only a second struct element of type
 ``i1`` is treated as a throws discriminant. Depending on the context:
 
-* an enclosing ``catch throws`` / ``catch fails`` scope
+* an enclosing ``catch throws`` / ``catch return_failure`` scope
   (``CodeGenFunction::HerbceptionCatchScopes``): coerce the error value into
   the handler's slot (through memory where needed) and branch to the
   handler;
@@ -371,7 +371,7 @@ Every ``-fherbceptions`` function gets a ``herbception.disc`` alloca in
 ``StartFunction`` tagged with ``!coro.outside.frame`` metadata so the
 discriminant never lives in a coroutine frame.
 
-``try(expr)`` / ``catch return_return_return_failure(expr)``
+``try(expr)`` / ``catch return_failure(expr)``
 -------------------------------------
 
 ``CodeGenFunction::EmitHerbceptionTry`` (``CGStmt.cpp``) emits the call into
@@ -597,7 +597,7 @@ Compiler behavior is covered by ``clang/test/`` files run with
   ``herbception-fails-trivially-copyable.cpp``, ``herbception-fnptr.cpp``,
   ``herbception-legacy-convert-no-domain.cpp``,
   ``herbception-throws-noexcept.cpp``, ``herbception-traits.cpp``.
-* CodeGen: ``herbception-autoprop.cpp`` (auto-propagation, ``catch fails``),
+* CodeGen: ``herbception-autoprop.cpp`` (auto-propagation, ``catch return_failure``),
   ``herbception-catch-throws.cpp`` and
   ``herbception-catch-throws-autoprop.cpp`` (block handlers),
   ``herbception-catch-fails.cpp``, ``herbception-coroutine.cpp`` (a
