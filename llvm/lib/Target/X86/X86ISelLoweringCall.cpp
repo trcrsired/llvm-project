@@ -1262,8 +1262,7 @@ SDValue X86TargetLowering::LowerCallResult(
           DAG.getCopyFromReg(Chain, dl, ThrowsDiscriminantReg, MVT::i8, InGlue);
       Chain = Disc.getValue(1);
       InGlue = Disc.getValue(2);
-      InVals.push_back(
-          DAG.getNode(ISD::ZERO_EXTEND, dl, Ins[InsIndex].VT, Disc));
+      InVals.push_back(DAG.getNode(ISD::ZERO_EXTEND, dl, Ins[I].VT, Disc));
       continue;
     }
 
