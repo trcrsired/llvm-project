@@ -138,7 +138,7 @@
 	case 0x40000007u:
 		return __tsc(u8"{Invalid Current Directory} The process cannot switch to the startup current directory %hs. Select OK to set the current directory to %hs, or select CANCEL to exit.");
 	case 0x40000008u:
-		return __tsc(u8"{Serial IOCTL Complete} A serial I/O operation was completed by another write to a serial port. (The IOCTL\_SERIAL\_XOFF\_COUNTER reached zero.)");
+		return __tsc(u8"{Serial IOCTL Complete} A serial I/O operation was completed by another write to a serial port. (The IOCTL\\_SERIAL\\_XOFF\\_COUNTER reached zero.)");
 	case 0x40000009u:
 		return __tsc(u8"{Registry Recovery} One of the files that contains the system registry data had to be recovered by using a log or alternate copy. The recovery was successful.");
 	case 0x4000000au:
@@ -146,7 +146,7 @@
 	case 0x4000000bu:
 		return __tsc(u8"{Redundant Write} To satisfy a write request, the Windows NT fault-tolerant file system successfully wrote a redundant copy of the information. This was done because the file system encountered a failure on a member of the fault-tolerant volume but was unable to reassign the failing area of the device.");
 	case 0x4000000cu:
-		return __tsc(u8"{Serial IOCTL Timeout} A serial I/O operation completed because the time-out period expired. (The IOCTL\_SERIAL\_XOFF\_COUNTER had not reached zero.)");
+		return __tsc(u8"{Serial IOCTL Timeout} A serial I/O operation completed because the time-out period expired. (The IOCTL\\_SERIAL\\_XOFF\\_COUNTER had not reached zero.)");
 	case 0x4000000du:
 		return __tsc(u8"{Password Too Complex} The Windows password is too complex to be converted to a LAN Manager password. The LAN Manager password that returned is a NULL string.");
 	case 0x4000000eu:
@@ -275,8 +275,7 @@
 	case 0x401b00ecu:
 		return __tsc(u8"{Display Driver Recovered From Failure} The %hs display driver has detected a failure and recovered from it. Some graphical operations might have failed. The next time you restart the machine, a dialog box appears, giving you an opportunity to upload data about this failure to Microsoft.");
 	case 0x401e000au:
-		return __tsc(u8"The specified buffer is not big enough to contain the entire requested dataset. Partial data is populated up to the size of the buffer.
-The caller needs to provide a buffer of the size as specified in the partially populated buffer's content (interface specific).");
+		return __tsc(u8"The specified buffer is not big enough to contain the entire requested dataset. Partial data is populated up to the size of the buffer.\nThe caller needs to provide a buffer of the size as specified in the partially populated buffer's content (interface specific).");
 	case 0x401e0201u:
 		return __tsc(u8"");
 	case 0x401e0307u:
@@ -304,95 +303,63 @@ The caller needs to provide a buffer of the size as specified in the partially p
 	case 0x40292023u:
 		return __tsc(u8"");
 	case 0x80000001u:
-		return __tsc(u8"{EXCEPTION}
-Guard Page Exception
-A page of memory that marks the end of a data structure, such as a stack or an array, has been accessed.");
+		return __tsc(u8"{EXCEPTION}\nGuard Page Exception\nA page of memory that marks the end of a data structure, such as a stack or an array, has been accessed.");
 	case 0x80000002u:
-		return __tsc(u8"{EXCEPTION}
-Alignment Fault
-A datatype misalignment was detected in a load or store instruction.");
+		return __tsc(u8"{EXCEPTION}\nAlignment Fault\nA datatype misalignment was detected in a load or store instruction.");
 	case 0x80000003u:
-		return __tsc(u8"{EXCEPTION}
-Breakpoint
-A breakpoint has been reached.");
+		return __tsc(u8"{EXCEPTION}\nBreakpoint\nA breakpoint has been reached.");
 	case 0x80000004u:
-		return __tsc(u8"{EXCEPTION}
-Single Step
-A single step or trace operation has just been completed.");
+		return __tsc(u8"{EXCEPTION}\nSingle Step\nA single step or trace operation has just been completed.");
 	case 0x80000005u:
-		return __tsc(u8"{Buffer Overflow}
-The data was too large to fit into the specified buffer.");
+		return __tsc(u8"{Buffer Overflow}\nThe data was too large to fit into the specified buffer.");
 	case 0x80000006u:
-		return __tsc(u8"{No More Files}
-No more files were found which match the file specification.");
+		return __tsc(u8"{No More Files}\nNo more files were found which match the file specification.");
 	case 0x80000007u:
-		return __tsc(u8"{Kernel Debugger Awakened}
-the system debugger was awakened by an interrupt.");
+		return __tsc(u8"{Kernel Debugger Awakened}\nthe system debugger was awakened by an interrupt.");
 	case 0x8000000au:
-		return __tsc(u8"{Handles Closed}
-Handles to objects have been automatically closed as a result of the requested operation.");
+		return __tsc(u8"{Handles Closed}\nHandles to objects have been automatically closed as a result of the requested operation.");
 	case 0x8000000bu:
-		return __tsc(u8"{Non-Inheritable ACL}
-An access control list (ACL) contains no components that can be inherited.");
+		return __tsc(u8"{Non-Inheritable ACL}\nAn access control list (ACL) contains no components that can be inherited.");
 	case 0x8000000cu:
-		return __tsc(u8"{GUID Substitution}
-During the translation of a global identifier (GUID) to a Windows security ID (SID), no administratively-defined GUID prefix was found. A substitute prefix was used, which will not compromise system security. However, this may provide a more restrictive access than intended.");
+		return __tsc(u8"{GUID Substitution}\nDuring the translation of a global identifier (GUID) to a Windows security ID (SID), no administratively-defined GUID prefix was found. A substitute prefix was used, which will not compromise system security. However, this may provide a more restrictive access than intended.");
 	case 0x8000000du:
-		return __tsc(u8"{Partial Copy}
-Due to protection conflicts not all the requested bytes could be copied.");
+		return __tsc(u8"{Partial Copy}\nDue to protection conflicts not all the requested bytes could be copied.");
 	case 0x8000000eu:
-		return __tsc(u8"{Out of Paper}
-The printer is out of paper.");
+		return __tsc(u8"{Out of Paper}\nThe printer is out of paper.");
 	case 0x8000000fu:
-		return __tsc(u8"{Device Power Is Off}
-The printer power has been turned off.");
+		return __tsc(u8"{Device Power Is Off}\nThe printer power has been turned off.");
 	case 0x80000010u:
-		return __tsc(u8"{Device Offline}
-The printer has been taken offline.");
+		return __tsc(u8"{Device Offline}\nThe printer has been taken offline.");
 	case 0x80000011u:
-		return __tsc(u8"{Device Busy}
-The device is currently busy.");
+		return __tsc(u8"{Device Busy}\nThe device is currently busy.");
 	case 0x80000012u:
-		return __tsc(u8"{No More EAs}
-No more extended attributes (EAs) were found for the file.");
+		return __tsc(u8"{No More EAs}\nNo more extended attributes (EAs) were found for the file.");
 	case 0x80000013u:
-		return __tsc(u8"{Illegal EA}
-The specified extended attribute (EA) name contains at least one illegal character.");
+		return __tsc(u8"{Illegal EA}\nThe specified extended attribute (EA) name contains at least one illegal character.");
 	case 0x80000014u:
-		return __tsc(u8"{Inconsistent EA List}
-The extended attribute (EA) list is inconsistent.");
+		return __tsc(u8"{Inconsistent EA List}\nThe extended attribute (EA) list is inconsistent.");
 	case 0x80000015u:
-		return __tsc(u8"{Invalid EA Flag}
-An invalid extended attribute (EA) flag was set.");
+		return __tsc(u8"{Invalid EA Flag}\nAn invalid extended attribute (EA) flag was set.");
 	case 0x80000016u:
-		return __tsc(u8"{Verifying Disk}
-The media has changed and a verify operation is in progress so no reads or writes may be performed to the device, except those used in the verify operation.");
+		return __tsc(u8"{Verifying Disk}\nThe media has changed and a verify operation is in progress so no reads or writes may be performed to the device, except those used in the verify operation.");
 	case 0x80000017u:
-		return __tsc(u8"{Too Much Information}
-The specified access control list (ACL) contained more information than was expected.");
+		return __tsc(u8"{Too Much Information}\nThe specified access control list (ACL) contained more information than was expected.");
 	case 0x80000018u:
-		return __tsc(u8"This warning level status indicates that the transaction state already exists for the registry sub-tree, but that a transaction commit was previously aborted.
-The commit has NOT been completed, but has not been rolled back either (so it may still be committed if desired).");
+		return __tsc(u8"This warning level status indicates that the transaction state already exists for the registry sub-tree, but that a transaction commit was previously aborted.\nThe commit has NOT been completed, but has not been rolled back either (so it may still be committed if desired).");
 	case 0x8000001au:
-		return __tsc(u8"{No More Entries}
-No more entries are available from an enumeration operation.");
+		return __tsc(u8"{No More Entries}\nNo more entries are available from an enumeration operation.");
 	case 0x8000001bu:
-		return __tsc(u8"{Filemark Found}
-A filemark was detected.");
+		return __tsc(u8"{Filemark Found}\nA filemark was detected.");
 	case 0x8000001cu:
-		return __tsc(u8"{Media Changed}
-The media may have changed.");
+		return __tsc(u8"{Media Changed}\nThe media may have changed.");
 	case 0x8000001du:
-		return __tsc(u8"{I/O Bus Reset}
-An I/O bus reset was detected.");
+		return __tsc(u8"{I/O Bus Reset}\nAn I/O bus reset was detected.");
 	case 0x8000001eu:
-		return __tsc(u8"{End of Media}
-The end of the media was encountered.");
+		return __tsc(u8"{End of Media}\nThe end of the media was encountered.");
 	case 0x8000001fu:
 		return __tsc(u8"Beginning of tape or partition has been detected.");
 	case 0x80000020u:
-		return __tsc(u8"{Media Changed}
-The media may have changed.");
+		return __tsc(u8"{Media Changed}\nThe media may have changed.");
 	case 0x80000021u:
 		return __tsc(u8"A tape access reached a setmark.");
 	case 0x80000022u:
@@ -412,10 +379,7 @@ The media may have changed.");
 	case 0x80000029u:
 		return __tsc(u8"A frame consolidation has been executed.");
 	case 0x8000002au:
-		return __tsc(u8"{Registry Hive Recovered}
-Registry hive (file):
-%hs
-was corrupted and it has been recovered. Some data might have been lost.");
+		return __tsc(u8"{Registry Hive Recovered}\nRegistry hive (file):\n%hs\nwas corrupted and it has been recovered. Some data might have been lost.");
 	case 0x8000002bu:
 		return __tsc(u8"The application is attempting to run executable code from the module %hs. This may be insecure. An alternative, %hs, is available. Should the application use the secure module %hs?");
 	case 0x8000002cu:
@@ -425,11 +389,9 @@ was corrupted and it has been recovered. Some data might have been lost.");
 	case 0x8000002eu:
 		return __tsc(u8"An oplock of the requested level cannot be granted.  An oplock of a lower level may be available.");
 	case 0x8000002fu:
-		return __tsc(u8"{No ACE Condition}
-The specified access control entry (ACE) does not contain a condition.");
+		return __tsc(u8"{No ACE Condition}\nThe specified access control entry (ACE) does not contain a condition.");
 	case 0x80000030u:
-		return __tsc(u8"{Support Being Determined}
-Device's command support detection is in progress.");
+		return __tsc(u8"{Support Being Determined}\nDevice's command support detection is in progress.");
 	case 0x80000031u:
 		return __tsc(u8"The device needs to be power cycled.");
 	case 0x80000032u:
@@ -443,9 +405,7 @@ Device's command support detection is in progress.");
 	case 0x80000289u:
 		return __tsc(u8"The device has indicated that its door is open. Further operations require it closed and secured.");
 	case 0x80000803u:
-		return __tsc(u8"Windows discovered a corruption in the file "%hs".
-This file has now been repaired.
-Please check if any data in the file was lost because of the corruption.");
+		return __tsc(u8"Windows discovered a corruption in the file \"%hs\".\nThis file has now been repaired.\nPlease check if any data in the file was lost because of the corruption.");
 	case 0x8000a127u:
 		return __tsc(u8"The interrupt requested to be unmasked is not masked.");
 	case 0x8000cf00u:
@@ -496,14 +456,11 @@ Please check if any data in the file was lost because of the corruption.");
 	case 0x80430006u:
 		return __tsc(u8"");
 	case 0xc0000001u:
-		return __tsc(u8"{Operation Failed}
-The requested operation was unsuccessful.");
+		return __tsc(u8"{Operation Failed}\nThe requested operation was unsuccessful.");
 	case 0xc0000002u:
-		return __tsc(u8"{Not Implemented}
-The requested operation is not implemented.");
+		return __tsc(u8"{Not Implemented}\nThe requested operation is not implemented.");
 	case 0xc0000003u:
-		return __tsc(u8"{Invalid Parameter}
-The specified information class is not a valid information class for the specified object.");
+		return __tsc(u8"{Invalid Parameter}\nThe specified information class is not a valid information class for the specified object.");
 	case 0xc0000004u:
 		return __tsc(u8"The specified information record length does not match the length required for the specified information class.");
 	case 0xc0000005u:
@@ -527,36 +484,25 @@ The specified information class is not a valid information class for the specifi
 	case 0xc000000eu:
 		return __tsc(u8"A device which does not exist was specified.");
 	case 0xc000000fu:
-		return __tsc(u8"{File Not Found}
-The file %hs does not exist.");
+		return __tsc(u8"{File Not Found}\nThe file %hs does not exist.");
 	case 0xc0000010u:
 		return __tsc(u8"The specified request is not a valid operation for the target device.");
 	case 0xc0000011u:
 		return __tsc(u8"The end-of-file marker has been reached. There is no valid data in the file beyond this marker.");
 	case 0xc0000012u:
-		return __tsc(u8"{Wrong Volume}
-The wrong volume is in the drive.
-Please insert volume %hs into drive %hs.");
+		return __tsc(u8"{Wrong Volume}\nThe wrong volume is in the drive.\nPlease insert volume %hs into drive %hs.");
 	case 0xc0000013u:
-		return __tsc(u8"{No Disk}
-There is no disk in the drive.
-Please insert a disk into drive %hs.");
+		return __tsc(u8"{No Disk}\nThere is no disk in the drive.\nPlease insert a disk into drive %hs.");
 	case 0xc0000014u:
-		return __tsc(u8"{Unknown Disk Format}
-The disk in drive %hs is not formatted properly.
-Please check the disk, and reformat if necessary.");
+		return __tsc(u8"{Unknown Disk Format}\nThe disk in drive %hs is not formatted properly.\nPlease check the disk, and reformat if necessary.");
 	case 0xc0000015u:
-		return __tsc(u8"{Sector Not Found}
-The specified sector does not exist.");
+		return __tsc(u8"{Sector Not Found}\nThe specified sector does not exist.");
 	case 0xc0000016u:
-		return __tsc(u8"{Still Busy}
-The specified I/O request packet (IRP) cannot be disposed of because the I/O operation is not complete.");
+		return __tsc(u8"{Still Busy}\nThe specified I/O request packet (IRP) cannot be disposed of because the I/O operation is not complete.");
 	case 0xc0000017u:
-		return __tsc(u8"{Not Enough Quota}
-Not enough virtual memory or paging file quota is available to complete the specified operation.");
+		return __tsc(u8"{Not Enough Quota}\nNot enough virtual memory or paging file quota is available to complete the specified operation.");
 	case 0xc0000018u:
-		return __tsc(u8"{Conflicting Address Range}
-The specified address range conflicts with the address space.");
+		return __tsc(u8"{Conflicting Address Range}\nThe specified address range conflicts with the address space.");
 	case 0xc0000019u:
 		return __tsc(u8"Address range to unmap is not a mapped view.");
 	case 0xc000001au:
@@ -566,34 +512,23 @@ The specified address range conflicts with the address space.");
 	case 0xc000001cu:
 		return __tsc(u8"An invalid system service was specified in a system service call.");
 	case 0xc000001du:
-		return __tsc(u8"{EXCEPTION}
-Illegal Instruction
-An attempt was made to execute an illegal instruction.");
+		return __tsc(u8"{EXCEPTION}\nIllegal Instruction\nAn attempt was made to execute an illegal instruction.");
 	case 0xc000001eu:
-		return __tsc(u8"{Invalid Lock Sequence}
-An attempt was made to execute an invalid lock sequence.");
+		return __tsc(u8"{Invalid Lock Sequence}\nAn attempt was made to execute an invalid lock sequence.");
 	case 0xc000001fu:
-		return __tsc(u8"{Invalid Mapping}
-An attempt was made to create a view for a section which is bigger than the section.");
+		return __tsc(u8"{Invalid Mapping}\nAn attempt was made to create a view for a section which is bigger than the section.");
 	case 0xc0000020u:
-		return __tsc(u8"{Bad File}
-The attributes of the specified mapping file for a section of memory cannot be read.");
+		return __tsc(u8"{Bad File}\nThe attributes of the specified mapping file for a section of memory cannot be read.");
 	case 0xc0000021u:
-		return __tsc(u8"{Already Committed}
-The specified address range is already committed.");
+		return __tsc(u8"{Already Committed}\nThe specified address range is already committed.");
 	case 0xc0000022u:
-		return __tsc(u8"{Access Denied}
-A process has requested access to an object, but has not been granted those access rights.");
+		return __tsc(u8"{Access Denied}\nA process has requested access to an object, but has not been granted those access rights.");
 	case 0xc0000023u:
-		return __tsc(u8"{Buffer Too Small}
-The buffer is too small to contain the entry. No information has been written to the buffer.");
+		return __tsc(u8"{Buffer Too Small}\nThe buffer is too small to contain the entry. No information has been written to the buffer.");
 	case 0xc0000024u:
-		return __tsc(u8"{Wrong Type}
-There is a mismatch between the type of object required by the requested operation and the type of object that is specified in the request.");
+		return __tsc(u8"{Wrong Type}\nThere is a mismatch between the type of object required by the requested operation and the type of object that is specified in the request.");
 	case 0xc0000025u:
-		return __tsc(u8"{EXCEPTION}
-Cannot Continue
-Windows cannot continue from this exception.");
+		return __tsc(u8"{EXCEPTION}\nCannot Continue\nWindows cannot continue from this exception.");
 	case 0xc0000026u:
 		return __tsc(u8"An invalid exception disposition was returned by an exception handler.");
 	case 0xc0000027u:
@@ -619,9 +554,7 @@ Windows cannot continue from this exception.");
 	case 0xc0000031u:
 		return __tsc(u8"An attempt was made to lower a quota limit below the current usage.");
 	case 0xc0000032u:
-		return __tsc(u8"{Corrupt Disk}
-The file system structure on the disk is corrupt and unusable.
-Please run the Chkdsk utility on the volume %hs.");
+		return __tsc(u8"{Corrupt Disk}\nThe file system structure on the disk is corrupt and unusable.\nPlease run the Chkdsk utility on the volume %hs.");
 	case 0xc0000033u:
 		return __tsc(u8"Object Name invalid.");
 	case 0xc0000034u:
@@ -629,8 +562,7 @@ Please run the Chkdsk utility on the volume %hs.");
 	case 0xc0000035u:
 		return __tsc(u8"Object Name already exists.");
 	case 0xc0000036u:
-		return __tsc(u8"A port with the 'do not disturb' flag set attempted to send a message to a port in a suspended process.
-The process was not woken, and the message was not delivered.");
+		return __tsc(u8"A port with the 'do not disturb' flag set attempted to send a message to a port in a suspended process.\nThe process was not woken, and the message was not delivered.");
 	case 0xc0000037u:
 		return __tsc(u8"Attempt to send a message to a disconnected communication port.");
 	case 0xc0000038u:
@@ -638,25 +570,19 @@ The process was not woken, and the message was not delivered.");
 	case 0xc0000039u:
 		return __tsc(u8"Object Path Component was not a directory object.");
 	case 0xc000003au:
-		return __tsc(u8"{Path Not Found}
-The path %hs does not exist.");
+		return __tsc(u8"{Path Not Found}\nThe path %hs does not exist.");
 	case 0xc000003bu:
 		return __tsc(u8"Object Path Component was not a directory object.");
 	case 0xc000003cu:
-		return __tsc(u8"{Data Overrun}
-A data overrun error occurred.");
+		return __tsc(u8"{Data Overrun}\nA data overrun error occurred.");
 	case 0xc000003du:
-		return __tsc(u8"{Data Late}
-A data late error occurred.");
+		return __tsc(u8"{Data Late}\nA data late error occurred.");
 	case 0xc000003eu:
-		return __tsc(u8"{Data Error}
-An error in reading or writing data occurred.");
+		return __tsc(u8"{Data Error}\nAn error in reading or writing data occurred.");
 	case 0xc000003fu:
-		return __tsc(u8"{Bad CRC}
-A cyclic redundancy check (CRC) checksum error occurred.");
+		return __tsc(u8"{Bad CRC}\nA cyclic redundancy check (CRC) checksum error occurred.");
 	case 0xc0000040u:
-		return __tsc(u8"{Section Too Large}
-The specified section is too big to map the file.");
+		return __tsc(u8"{Section Too Large}\nThe specified section is too big to map the file.");
 	case 0xc0000041u:
 		return __tsc(u8"The NtConnectPort request is refused.");
 	case 0xc0000042u:
@@ -738,8 +664,7 @@ The specified section is too big to map the file.");
 	case 0xc0000068u:
 		return __tsc(u8"The specified user account is not a member of the specified group account.");
 	case 0xc0000069u:
-		return __tsc(u8"Indicates the requested operation would disable, delete or could prevent logon for an administration account.
-This is not allowed to prevent creating a situation in which the system cannot be administrated.");
+		return __tsc(u8"Indicates the requested operation would disable, delete or could prevent logon for an administration account.\nThis is not allowed to prevent creating a situation in which the system cannot be administrated.");
 	case 0xc000006au:
 		return __tsc(u8"When trying to update a password, this return status indicates that the value provided as the current password is not correct.");
 	case 0xc000006bu:
@@ -775,19 +700,15 @@ This is not allowed to prevent creating a situation in which the system cannot b
 	case 0xc000007au:
 		return __tsc(u8"Indicates the specified procedure address cannot be found in the DLL.");
 	case 0xc000007bu:
-		return __tsc(u8"{Bad Image}
-%hs is either not designed to run on Windows or it contains an error. Try installing the program again using the original installation media or contact your system administrator or the software vendor for support. Error status 0x");
+		return __tsc(u8"{Bad Image}\n%hs is either not designed to run on Windows or it contains an error. Try installing the program again using the original installation media or contact your system administrator or the software vendor for support. Error status 0x");
 	case 0xc000007cu:
-		return __tsc(u8"An attempt was made to reference a token that doesn't exist.
-This is typically done by referencing the token associated with a thread when the thread is not impersonating a client.");
+		return __tsc(u8"An attempt was made to reference a token that doesn't exist.\nThis is typically done by referencing the token associated with a thread when the thread is not impersonating a client.");
 	case 0xc000007du:
-		return __tsc(u8"Indicates that an attempt to build either an inherited ACL or ACE was not successful.
-This can be caused by a number of things. One of the more probable causes is the replacement of a CreatorId with an SID that didn't fit into the ACE or ACL.");
+		return __tsc(u8"Indicates that an attempt to build either an inherited ACL or ACE was not successful.\nThis can be caused by a number of things. One of the more probable causes is the replacement of a CreatorId with an SID that didn't fit into the ACE or ACL.");
 	case 0xc000007eu:
 		return __tsc(u8"The range specified in NtUnlockFile was not locked.");
 	case 0xc000007fu:
-		return __tsc(u8"An operation failed because the disk was full.
-If this is a thinly provisioned volume the physical storage backing this volume has been exhausted.");
+		return __tsc(u8"An operation failed because the disk was full.\nIf this is a thinly provisioned volume the physical storage backing this volume has been exhausted.");
 	case 0xc0000080u:
 		return __tsc(u8"The GUID allocation server is [already] disabled at the moment.");
 	case 0xc0000081u:
@@ -813,46 +734,33 @@ If this is a thinly provisioned volume the physical storage backing this volume 
 	case 0xc000008bu:
 		return __tsc(u8"Indicates the specified resource name cannot be found in the image file.");
 	case 0xc000008cu:
-		return __tsc(u8"{EXCEPTION}
-Array bounds exceeded.");
+		return __tsc(u8"{EXCEPTION}\nArray bounds exceeded.");
 	case 0xc000008du:
-		return __tsc(u8"{EXCEPTION}
-Floating-point denormal operand.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point denormal operand.");
 	case 0xc000008eu:
-		return __tsc(u8"{EXCEPTION}
-Floating-point division by zero.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point division by zero.");
 	case 0xc000008fu:
-		return __tsc(u8"{EXCEPTION}
-Floating-point inexact result.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point inexact result.");
 	case 0xc0000090u:
-		return __tsc(u8"{EXCEPTION}
-Floating-point invalid operation.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point invalid operation.");
 	case 0xc0000091u:
-		return __tsc(u8"{EXCEPTION}
-Floating-point overflow.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point overflow.");
 	case 0xc0000092u:
-		return __tsc(u8"{EXCEPTION}
-Floating-point stack check.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point stack check.");
 	case 0xc0000093u:
-		return __tsc(u8"{EXCEPTION}
-Floating-point underflow.");
+		return __tsc(u8"{EXCEPTION}\nFloating-point underflow.");
 	case 0xc0000094u:
-		return __tsc(u8"{EXCEPTION}
-Integer division by zero.");
+		return __tsc(u8"{EXCEPTION}\nInteger division by zero.");
 	case 0xc0000095u:
-		return __tsc(u8"{EXCEPTION}
-Integer overflow.");
+		return __tsc(u8"{EXCEPTION}\nInteger overflow.");
 	case 0xc0000096u:
-		return __tsc(u8"{EXCEPTION}
-Privileged instruction.");
+		return __tsc(u8"{EXCEPTION}\nPrivileged instruction.");
 	case 0xc0000097u:
 		return __tsc(u8"An attempt was made to install more paging files than the system supports.");
 	case 0xc0000098u:
 		return __tsc(u8"The volume for a file has been externally altered such that the opened file is no longer valid.");
 	case 0xc0000099u:
-		return __tsc(u8"When a block of memory is allotted for future updates, such as the memory allocated to hold discretionary access control and primary group information, successive updates may exceed the amount of memory originally allotted.
-Since quota may already have been charged to several processes which have handles to the object, it is not reasonable to alter the size of the allocated memory.
-Instead, a request that requires more memory than has been allotted must fail and the STATUS_ALLOTED_SPACE_EXCEEDED error returned.");
+		return __tsc(u8"When a block of memory is allotted for future updates, such as the memory allocated to hold discretionary access control and primary group information, successive updates may exceed the amount of memory originally allotted.\nSince quota may already have been charged to several processes which have handles to the object, it is not reasonable to alter the size of the allocated memory.\nInstead, a request that requires more memory than has been allotted must fail and the STATUS_ALLOTED_SPACE_EXCEEDED error returned.");
 	case 0xc000009au:
 		return __tsc(u8"Insufficient system resources exist to complete the API.");
 	case 0xc000009bu:
@@ -870,19 +778,15 @@ Instead, a request that requires more memory than has been allotted must fail an
 	case 0xc00000a1u:
 		return __tsc(u8"The working set is not big enough to allow the requested pages to be locked.");
 	case 0xc00000a2u:
-		return __tsc(u8"{Write Protect Error}
-The disk cannot be written to because it is write protected. Please remove the write protection from the volume %hs in drive %hs.");
+		return __tsc(u8"{Write Protect Error}\nThe disk cannot be written to because it is write protected. Please remove the write protection from the volume %hs in drive %hs.");
 	case 0xc00000a3u:
-		return __tsc(u8"{Drive Not Ready}
-The drive is not ready for use; its door may be open. Please check drive %hs and make sure that a disk is inserted and that the drive door is closed.");
+		return __tsc(u8"{Drive Not Ready}\nThe drive is not ready for use; its door may be open. Please check drive %hs and make sure that a disk is inserted and that the drive door is closed.");
 	case 0xc00000a4u:
 		return __tsc(u8"The specified attributes are invalid, or incompatible with the attributes for the group as a whole.");
 	case 0xc00000a5u:
-		return __tsc(u8"A specified impersonation level is invalid.
-Also used to indicate a required impersonation level was not provided.");
+		return __tsc(u8"A specified impersonation level is invalid.\nAlso used to indicate a required impersonation level was not provided.");
 	case 0xc00000a6u:
-		return __tsc(u8"An attempt was made to open an Anonymous level token.
-Anonymous tokens may not be opened.");
+		return __tsc(u8"An attempt was made to open an Anonymous level token.\nAnonymous tokens may not be opened.");
 	case 0xc00000a7u:
 		return __tsc(u8"The validation information class requested was invalid.");
 	case 0xc00000a8u:
@@ -911,8 +815,7 @@ Anonymous tokens may not be opened.");
 	case 0xc00000b4u:
 		return __tsc(u8"The specified named pipe is not in message mode.");
 	case 0xc00000b5u:
-		return __tsc(u8"{Device Timeout}
-The specified I/O operation on %hs was not completed before the time-out period expired.");
+		return __tsc(u8"{Device Timeout}\nThe specified I/O operation on %hs was not completed before the time-out period expired.");
 	case 0xc00000b6u:
 		return __tsc(u8"The specified file has been closed by another process.");
 	case 0xc00000b7u:
@@ -956,11 +859,9 @@ The specified I/O operation on %hs was not completed before the time-out period 
 	case 0xc00000cau:
 		return __tsc(u8"Network access is denied.");
 	case 0xc00000cbu:
-		return __tsc(u8"{Incorrect Network Resource Type}
-The specified device type (LPT, for example) conflicts with the actual device type on the remote resource.");
+		return __tsc(u8"{Incorrect Network Resource Type}\nThe specified device type (LPT, for example) conflicts with the actual device type on the remote resource.");
 	case 0xc00000ccu:
-		return __tsc(u8"{Network Name Not Found}
-The specified share name cannot be found on the remote server.");
+		return __tsc(u8"{Network Name Not Found}\nThe specified share name cannot be found on the remote server.");
 	case 0xc00000cdu:
 		return __tsc(u8"The name limit for the local computer network adapter card was exceeded.");
 	case 0xc00000ceu:
@@ -976,13 +877,11 @@ The specified share name cannot be found on the remote server.");
 	case 0xc00000d3u:
 		return __tsc(u8"The number of active profiling objects is at the maximum and no more may be started.");
 	case 0xc00000d4u:
-		return __tsc(u8"{Incorrect Volume}
-The target file of a rename request is located on a different device than the source of the rename request.");
+		return __tsc(u8"{Incorrect Volume}\nThe target file of a rename request is located on a different device than the source of the rename request.");
 	case 0xc00000d5u:
 		return __tsc(u8"The file specified has been renamed and thus cannot be modified.");
 	case 0xc00000d6u:
-		return __tsc(u8"{Network Request Timeout}
-The session with a remote server has been disconnected because the time-out interval for a request has expired.");
+		return __tsc(u8"{Network Request Timeout}\nThe session with a remote server has been disconnected because the time-out interval for a request has expired.");
 	case 0xc00000d7u:
 		return __tsc(u8"Indicates an attempt was made to operate on the security of an object that does not have security associated with it.");
 	case 0xc00000d8u:
@@ -1018,7 +917,7 @@ The session with a remote server has been disconnected because the time-out inte
 	case 0xc00000e7u:
 		return __tsc(u8"Indicates a security descriptor is not in the necessary format (absolute or self-relative).");
 	case 0xc00000e8u:
-		return __tsc(u8"An access to a user buffer failed at an "expected" point in time. This code is defined since the caller does not want to accept STATUS_ACCESS_VIOLATION in its filter.");
+		return __tsc(u8"An access to a user buffer failed at an \"expected\" point in time. This code is defined since the caller does not want to accept STATUS_ACCESS_VIOLATION in its filter.");
 	case 0xc00000e9u:
 		return __tsc(u8"If an I/O error is returned which is not defined in the standard FsRtl filter, it is converted to the following error which is guaranteed to be in the filter. In this case information is lost, however, the filter correctly handles the exception.");
 	case 0xc00000eau:
@@ -1068,9 +967,7 @@ The session with a remote server has been disconnected because the time-out inte
 	case 0xc0000101u:
 		return __tsc(u8"Indicates that the directory trying to be deleted is not empty.");
 	case 0xc0000102u:
-		return __tsc(u8"{Corrupt File}
-The file or directory %hs is corrupt and unreadable.
-Please run the Chkdsk utility.");
+		return __tsc(u8"{Corrupt File}\nThe file or directory %hs is corrupt and unreadable.\nPlease run the Chkdsk utility.");
 	case 0xc0000103u:
 		return __tsc(u8"A requested opened file is not a directory.");
 	case 0xc0000104u:
@@ -1090,8 +987,7 @@ Please run the Chkdsk utility.");
 	case 0xc000010bu:
 		return __tsc(u8"Indicates an invalid value has been provided for the LogonType requested.");
 	case 0xc000010cu:
-		return __tsc(u8"Indicates that an attempt was made to assign protection to a file system file or directory and one of the SIDs in the security descriptor could not be translated into a GUID that could be stored by the file system.
-This causes the protection attempt to fail, which may cause a file creation attempt to fail.");
+		return __tsc(u8"Indicates that an attempt was made to assign protection to a file system file or directory and one of the SIDs in the security descriptor could not be translated into a GUID that could be stored by the file system.\nThis causes the protection attempt to fail, which may cause a file creation attempt to fail.");
 	case 0xc000010du:
 		return __tsc(u8"Indicates that an attempt has been made to impersonate via a named pipe that has not yet been read from.");
 	case 0xc000010eu:
@@ -1129,8 +1025,7 @@ This causes the protection attempt to fail, which may cause a file creation atte
 	case 0xc000011eu:
 		return __tsc(u8"An attempt was made to map a file of size zero with the maximum size specified as zero.");
 	case 0xc000011fu:
-		return __tsc(u8"Too many files are opened on a remote server.
-This error should only be returned by the Windows redirector on a remote drive.");
+		return __tsc(u8"Too many files are opened on a remote server.\nThis error should only be returned by the Windows redirector on a remote drive.");
 	case 0xc0000120u:
 		return __tsc(u8"The I/O request was canceled.");
 	case 0xc0000121u:
@@ -1158,8 +1053,7 @@ This error should only be returned by the Windows redirector on a remote drive."
 	case 0xc000012cu:
 		return __tsc(u8"Page file quota was exceeded.");
 	case 0xc000012du:
-		return __tsc(u8"{Out of Virtual Memory}
-Your system is low on virtual memory. To ensure that Windows runs properly, increase the size of your virtual memory paging file. For more information, see Help.");
+		return __tsc(u8"{Out of Virtual Memory}\nYour system is low on virtual memory. To ensure that Windows runs properly, increase the size of your virtual memory paging file. For more information, see Help.");
 	case 0xc000012eu:
 		return __tsc(u8"The specified image file did not have the correct format, it appears to be LE format.");
 	case 0xc000012fu:
@@ -1179,68 +1073,49 @@ Your system is low on virtual memory. To ensure that Windows runs properly, incr
 	case 0xc0000136u:
 		return __tsc(u8"The NtCreateFile API failed. This error should never be returned to an application, it is a place holder for the Windows Lan Manager Redirector to use in its internal error mapping routines.");
 	case 0xc0000137u:
-		return __tsc(u8"{Privilege Failed}
-The I/O permissions for the process could not be changed.");
+		return __tsc(u8"{Privilege Failed}\nThe I/O permissions for the process could not be changed.");
 	case 0xc0000138u:
-		return __tsc(u8"{Ordinal Not Found}
-The ordinal %ld could not be located in the dynamic link library %hs.");
+		return __tsc(u8"{Ordinal Not Found}\nThe ordinal %ld could not be located in the dynamic link library %hs.");
 	case 0xc0000139u:
-		return __tsc(u8"{Entry Point Not Found}
-The procedure entry point %hs could not be located in the dynamic link library %hs.");
+		return __tsc(u8"{Entry Point Not Found}\nThe procedure entry point %hs could not be located in the dynamic link library %hs.");
 	case 0xc000013au:
-		return __tsc(u8"{Application Exit by CTRL+C}
-The application terminated as a result of a CTRL+C.");
+		return __tsc(u8"{Application Exit by CTRL+C}\nThe application terminated as a result of a CTRL+C.");
 	case 0xc000013bu:
-		return __tsc(u8"{Virtual Circuit Closed}
-The network transport on your computer has closed a network connection. There may or may not be I/O requests outstanding.");
+		return __tsc(u8"{Virtual Circuit Closed}\nThe network transport on your computer has closed a network connection. There may or may not be I/O requests outstanding.");
 	case 0xc000013cu:
-		return __tsc(u8"{Virtual Circuit Closed}
-The network transport on a remote computer has closed a network connection. There may or may not be I/O requests outstanding.");
+		return __tsc(u8"{Virtual Circuit Closed}\nThe network transport on a remote computer has closed a network connection. There may or may not be I/O requests outstanding.");
 	case 0xc000013du:
-		return __tsc(u8"{Insufficient Resources on Remote Computer}
-The remote computer has insufficient resources to complete the network request. For instance, there may not be enough memory available on the remote computer to carry out the request at this time.");
+		return __tsc(u8"{Insufficient Resources on Remote Computer}\nThe remote computer has insufficient resources to complete the network request. For instance, there may not be enough memory available on the remote computer to carry out the request at this time.");
 	case 0xc000013eu:
-		return __tsc(u8"{Virtual Circuit Closed}
-An existing connection (virtual circuit) has been broken at the remote computer. There is probably something wrong with the network software protocol or the network hardware on the remote computer.");
+		return __tsc(u8"{Virtual Circuit Closed}\nAn existing connection (virtual circuit) has been broken at the remote computer. There is probably something wrong with the network software protocol or the network hardware on the remote computer.");
 	case 0xc000013fu:
-		return __tsc(u8"{Virtual Circuit Closed}
-The network transport on your computer has closed a network connection because it had to wait too long for a response from the remote computer.");
+		return __tsc(u8"{Virtual Circuit Closed}\nThe network transport on your computer has closed a network connection because it had to wait too long for a response from the remote computer.");
 	case 0xc0000140u:
 		return __tsc(u8"The connection handle given to the transport was invalid.");
 	case 0xc0000141u:
 		return __tsc(u8"The address handle given to the transport was invalid.");
 	case 0xc0000142u:
-		return __tsc(u8"{DLL Initialization Failed}
-Initialization of the dynamic link library %hs failed. The process is terminating abnormally.");
+		return __tsc(u8"{DLL Initialization Failed}\nInitialization of the dynamic link library %hs failed. The process is terminating abnormally.");
 	case 0xc0000143u:
-		return __tsc(u8"{Missing System File}
-The required system file %hs is bad or missing.");
+		return __tsc(u8"{Missing System File}\nThe required system file %hs is bad or missing.");
 	case 0xc0000144u:
-		return __tsc(u8"{Application Error}
-The exception %s (0x");
+		return __tsc(u8"{Application Error}\nThe exception %s (0x");
 	case 0xc0000145u:
-		return __tsc(u8"{Application Error}
-The application was unable to start correctly (0x%lx). Click OK to close the application.");
+		return __tsc(u8"{Application Error}\nThe application was unable to start correctly (0x%lx). Click OK to close the application.");
 	case 0xc0000146u:
-		return __tsc(u8"{Unable to Create Paging File}
-The creation of the paging file %hs failed (%lx). The requested size was %ld.");
+		return __tsc(u8"{Unable to Create Paging File}\nThe creation of the paging file %hs failed (%lx). The requested size was %ld.");
 	case 0xc0000147u:
-		return __tsc(u8"{No Paging File Specified}
-No paging file was specified in the system configuration.");
+		return __tsc(u8"{No Paging File Specified}\nNo paging file was specified in the system configuration.");
 	case 0xc0000148u:
-		return __tsc(u8"{Incorrect System Call Level}
-An invalid level was passed into the specified system call.");
+		return __tsc(u8"{Incorrect System Call Level}\nAn invalid level was passed into the specified system call.");
 	case 0xc0000149u:
-		return __tsc(u8"{Incorrect Password to LAN Manager Server}
-You specified an incorrect password to a LAN Manager 2.x or MS-NET server.");
+		return __tsc(u8"{Incorrect Password to LAN Manager Server}\nYou specified an incorrect password to a LAN Manager 2.x or MS-NET server.");
 	case 0xc000014au:
-		return __tsc(u8"{EXCEPTION}
-A real-mode application issued a floating-point instruction and floating-point hardware is not present.");
+		return __tsc(u8"{EXCEPTION}\nA real-mode application issued a floating-point instruction and floating-point hardware is not present.");
 	case 0xc000014bu:
 		return __tsc(u8"The pipe operation has failed because the other end of the pipe has been closed.");
 	case 0xc000014cu:
-		return __tsc(u8"{The Registry Is Corrupt}
-The structure of one of the files that contains Registry data is corrupt, or the image of the file in memory is corrupt, or the file could not be recovered because the alternate copy or log was absent or corrupt.");
+		return __tsc(u8"{The Registry Is Corrupt}\nThe structure of one of the files that contains Registry data is corrupt, or the image of the file in memory is corrupt, or the file could not be recovered because the alternate copy or log was absent or corrupt.");
 	case 0xc000014du:
 		return __tsc(u8"An I/O operation initiated by the Registry failed unrecoverably. The Registry could not read in, or write out, or flush, one of the files that contain the system's image of the Registry.");
 	case 0xc000014eu:
@@ -1258,8 +1133,7 @@ The structure of one of the files that contains Registry data is corrupt, or the
 	case 0xc0000154u:
 		return __tsc(u8"The specified local group already exists.");
 	case 0xc0000155u:
-		return __tsc(u8"A requested type of logon (e.g., Interactive, Network, Service) is not granted by the target system's local security policy.
-Please ask the system administrator to grant the necessary form of logon.");
+		return __tsc(u8"A requested type of logon (e.g., Interactive, Network, Service) is not granted by the target system's local security policy.\nPlease ask the system administrator to grant the necessary form of logon.");
 	case 0xc0000156u:
 		return __tsc(u8"The maximum number of secrets that may be stored in a single system has been exceeded. The length and number of secrets is limited to satisfy United States State Department export restrictions.");
 	case 0xc0000157u:
@@ -1291,33 +1165,23 @@ Please ask the system administrator to grant the necessary form of logon.");
 	case 0xc0000164u:
 		return __tsc(u8"The paging file cannot be created on a floppy diskette.");
 	case 0xc0000165u:
-		return __tsc(u8"{Floppy Disk Error}
-While accessing a floppy disk, an ID address mark was not found.");
+		return __tsc(u8"{Floppy Disk Error}\nWhile accessing a floppy disk, an ID address mark was not found.");
 	case 0xc0000166u:
-		return __tsc(u8"{Floppy Disk Error}
-While accessing a floppy disk, the track address from the sector ID field was found to be different than the track address maintained by the controller.");
+		return __tsc(u8"{Floppy Disk Error}\nWhile accessing a floppy disk, the track address from the sector ID field was found to be different than the track address maintained by the controller.");
 	case 0xc0000167u:
-		return __tsc(u8"{Floppy Disk Error}
-The floppy disk controller reported an error that is not recognized by the floppy disk driver.");
+		return __tsc(u8"{Floppy Disk Error}\nThe floppy disk controller reported an error that is not recognized by the floppy disk driver.");
 	case 0xc0000168u:
-		return __tsc(u8"{Floppy Disk Error}
-While accessing a floppy-disk, the controller returned inconsistent results via its registers.");
+		return __tsc(u8"{Floppy Disk Error}\nWhile accessing a floppy-disk, the controller returned inconsistent results via its registers.");
 	case 0xc0000169u:
-		return __tsc(u8"{Hard Disk Error}
-While accessing the hard disk, a recalibrate operation failed, even after retries.");
+		return __tsc(u8"{Hard Disk Error}\nWhile accessing the hard disk, a recalibrate operation failed, even after retries.");
 	case 0xc000016au:
-		return __tsc(u8"{Hard Disk Error}
-While accessing the hard disk, a disk operation failed even after retries.");
+		return __tsc(u8"{Hard Disk Error}\nWhile accessing the hard disk, a disk operation failed even after retries.");
 	case 0xc000016bu:
-		return __tsc(u8"{Hard Disk Error}
-While accessing the hard disk, a disk controller reset was needed, but even that failed.");
+		return __tsc(u8"{Hard Disk Error}\nWhile accessing the hard disk, a disk controller reset was needed, but even that failed.");
 	case 0xc000016cu:
-		return __tsc(u8"An attempt was made to open a device that was sharing an IRQ with other devices.
-At least one other device that uses that IRQ was already opened.
-Two concurrent opens of devices that share an IRQ and only work via interrupts is not supported for the particular bus type that the devices use.");
+		return __tsc(u8"An attempt was made to open a device that was sharing an IRQ with other devices.\nAt least one other device that uses that IRQ was already opened.\nTwo concurrent opens of devices that share an IRQ and only work via interrupts is not supported for the particular bus type that the devices use.");
 	case 0xc000016du:
-		return __tsc(u8"{FT Orphaning}
-A disk that is part of a fault-tolerant volume can no longer be accessed.");
+		return __tsc(u8"{FT Orphaning}\nA disk that is part of a fault-tolerant volume can no longer be accessed.");
 	case 0xc000016eu:
 		return __tsc(u8"The system bios failed to connect a system interrupt to the device or bus for which the device is connected.");
 	case 0xc0000172u:
@@ -1333,8 +1197,7 @@ A disk that is part of a fault-tolerant volume can no longer be accessed.");
 	case 0xc0000177u:
 		return __tsc(u8"Physical end of tape was detected.");
 	case 0xc0000178u:
-		return __tsc(u8"{No Media}
-There is no media in the drive. Please insert media into drive %hs.");
+		return __tsc(u8"{No Media}\nThere is no media in the drive. Please insert media into drive %hs.");
 	case 0xc000017au:
 		return __tsc(u8"A member could not be added to or removed from the local group because the member does not exist.");
 	case 0xc000017bu:
@@ -1388,8 +1251,7 @@ There is no media in the drive. Please insert media into drive %hs.");
 	case 0xc0000193u:
 		return __tsc(u8"The user's account has expired.");
 	case 0xc0000194u:
-		return __tsc(u8"{EXCEPTION}
-Possible deadlock condition.");
+		return __tsc(u8"{EXCEPTION}\nPossible deadlock condition.");
 	case 0xc0000195u:
 		return __tsc(u8"Multiple connections to a server or shared resource by the same user, using more than one user name, are not allowed. Disconnect all previous connections to the server or shared resource and try again.");
 	case 0xc0000196u:
@@ -1413,18 +1275,15 @@ Possible deadlock condition.");
 	case 0xc000019fu:
 		return __tsc(u8"Short names are not enabled on this volume.");
 	case 0xc00001a0u:
-		return __tsc(u8"The security stream for the given volume is in an inconsistent state.
-Please run CHKDSK on the volume.");
+		return __tsc(u8"The security stream for the given volume is in an inconsistent state.\nPlease run CHKDSK on the volume.");
 	case 0xc00001a1u:
 		return __tsc(u8"A requested file lock operation cannot be processed due to an invalid byte range.");
 	case 0xc00001a2u:
-		return __tsc(u8"{Invalid ACE Condition}
-The specified access control entry (ACE) contains an invalid condition.");
+		return __tsc(u8"{Invalid ACE Condition}\nThe specified access control entry (ACE) contains an invalid condition.");
 	case 0xc00001a3u:
 		return __tsc(u8"The subsystem needed to support the image type is not present.");
 	case 0xc00001a4u:
-		return __tsc(u8"{Invalid ACE Condition}
-The specified file already has a notification GUID associated with it.");
+		return __tsc(u8"{Invalid ACE Condition}\nThe specified file already has a notification GUID associated with it.");
 	case 0xc00001a5u:
 		return __tsc(u8"An invalid exception handler routine has been detected.");
 	case 0xc00001a6u:
@@ -1461,8 +1320,7 @@ The specified file already has a notification GUID associated with it.");
 	case 0xc0000203u:
 		return __tsc(u8"The remote user session has been deleted.");
 	case 0xc0000204u:
-		return __tsc(u8"Indicates the specified resource language ID cannot be found in the
-image file.");
+		return __tsc(u8"Indicates the specified resource language ID cannot be found in the\nimage file.");
 	case 0xc0000205u:
 		return __tsc(u8"Insufficient server resources exist to complete the request.");
 	case 0xc0000206u:
@@ -1502,40 +1360,27 @@ image file.");
 	case 0xc0000217u:
 		return __tsc(u8"The transport can only process the specified request on the client side of a session.");
 	case 0xc0000218u:
-		return __tsc(u8"{Registry File Failure}
-The registry cannot load the hive (file):
-%hs
-or its log or alternate.
-It is corrupt, absent, or not writable.");
+		return __tsc(u8"{Registry File Failure}\nThe registry cannot load the hive (file):\n%hs\nor its log or alternate.\nIt is corrupt, absent, or not writable.");
 	case 0xc0000219u:
-		return __tsc(u8"{Unexpected Failure in DebugActiveProcess}
-An unexpected failure occurred while processing a DebugActiveProcess API request. You may choose OK to terminate the process, or Cancel to ignore the error.");
+		return __tsc(u8"{Unexpected Failure in DebugActiveProcess}\nAn unexpected failure occurred while processing a DebugActiveProcess API request. You may choose OK to terminate the process, or Cancel to ignore the error.");
 	case 0xc000021au:
-		return __tsc(u8"{Fatal System Error}
-The %hs system process terminated unexpectedly with a status of 0x");
+		return __tsc(u8"{Fatal System Error}\nThe %hs system process terminated unexpectedly with a status of 0x");
 	case 0xc000021bu:
-		return __tsc(u8"{Data Not Accepted}
-The TDI client could not handle the data received during an indication.");
+		return __tsc(u8"{Data Not Accepted}\nThe TDI client could not handle the data received during an indication.");
 	case 0xc000021cu:
-		return __tsc(u8"{Unable to Retrieve Browser Server List}
-The list of servers for this workgroup is not currently available.");
+		return __tsc(u8"{Unable to Retrieve Browser Server List}\nThe list of servers for this workgroup is not currently available.");
 	case 0xc000021du:
 		return __tsc(u8"NTVDM encountered a hard error.");
 	case 0xc000021eu:
-		return __tsc(u8"{Cancel Timeout}
-The driver %hs failed to complete a cancelled I/O request in the allotted time.");
+		return __tsc(u8"{Cancel Timeout}\nThe driver %hs failed to complete a cancelled I/O request in the allotted time.");
 	case 0xc000021fu:
-		return __tsc(u8"{Reply Message Mismatch}
-An attempt was made to reply to an LPC message, but the thread specified by the client ID in the message was not waiting on that message.");
+		return __tsc(u8"{Reply Message Mismatch}\nAn attempt was made to reply to an LPC message, but the thread specified by the client ID in the message was not waiting on that message.");
 	case 0xc0000220u:
-		return __tsc(u8"{Mapped View Alignment Incorrect}
-An attempt was made to map a view of a file, but either the specified base address or the offset into the file were not aligned on the proper allocation granularity.");
+		return __tsc(u8"{Mapped View Alignment Incorrect}\nAn attempt was made to map a view of a file, but either the specified base address or the offset into the file were not aligned on the proper allocation granularity.");
 	case 0xc0000221u:
-		return __tsc(u8"{Bad Image Checksum}
-The image %hs is possibly corrupt. The header checksum does not match the computed checksum.");
+		return __tsc(u8"{Bad Image Checksum}\nThe image %hs is possibly corrupt. The header checksum does not match the computed checksum.");
 	case 0xc0000222u:
-		return __tsc(u8"{Delayed Write Failed}
-Windows was unable to save all the data for the file %hs. The data has been lost. This error may be caused by a failure of your computer hardware or network connection. Please try to save this file elsewhere.");
+		return __tsc(u8"{Delayed Write Failed}\nWindows was unable to save all the data for the file %hs. The data has been lost. This error may be caused by a failure of your computer hardware or network connection. Please try to save this file elsewhere.");
 	case 0xc0000223u:
 		return __tsc(u8"The parameter(s) passed to the server in the client/server shared memory window were invalid. Too much data may have been put in the shared memory window.");
 	case 0xc0000224u:
@@ -1603,8 +1448,7 @@ Windows was unable to save all the data for the file %hs. The data has been lost
 	case 0xc0000243u:
 		return __tsc(u8"The requested operation cannot be performed on a file with a user mapped section open.");
 	case 0xc0000244u:
-		return __tsc(u8"{Audit Failed}
-An attempt to generate a security audit failed.");
+		return __tsc(u8"{Audit Failed}\nAn attempt to generate a security audit failed.");
 	case 0xc0000245u:
 		return __tsc(u8"The timer resolution was not previously set by the current process.");
 	case 0xc0000246u:
@@ -1614,25 +1458,20 @@ An attempt to generate a security audit failed.");
 	case 0xc0000248u:
 		return __tsc(u8"The account is not authorized to login from this station.");
 	case 0xc0000249u:
-		return __tsc(u8"{UP/MP Image Mismatch}
-The image %hs has been modified for use on a uniprocessor system, but you are running it on a multiprocessor machine.
-Please reinstall the image file.");
+		return __tsc(u8"{UP/MP Image Mismatch}\nThe image %hs has been modified for use on a uniprocessor system, but you are running it on a multiprocessor machine.\nPlease reinstall the image file.");
 	case 0xc0000250u:
 		return __tsc(u8"There is insufficient account information to log you on.");
 	case 0xc0000251u:
-		return __tsc(u8"{Invalid DLL Entrypoint}
-The dynamic link library %hs is not written correctly. The stack pointer has been left in an inconsistent state. The entrypoint should be declared as WINAPI or STDCALL. Select YES to fail the DLL load. Select NO to continue execution. Selecting NO may cause the application to operate incorrectly.");
+		return __tsc(u8"{Invalid DLL Entrypoint}\nThe dynamic link library %hs is not written correctly. The stack pointer has been left in an inconsistent state. The entrypoint should be declared as WINAPI or STDCALL. Select YES to fail the DLL load. Select NO to continue execution. Selecting NO may cause the application to operate incorrectly.");
 	case 0xc0000252u:
-		return __tsc(u8"{Invalid Service Callback Entrypoint}
-The %hs service is not written correctly. The stack pointer has been left in an inconsistent state. The callback entrypoint should be declared as WINAPI or STDCALL. Selecting OK will cause the service to continue operation. However, the service process may operate incorrectly.");
+		return __tsc(u8"{Invalid Service Callback Entrypoint}\nThe %hs service is not written correctly. The stack pointer has been left in an inconsistent state. The callback entrypoint should be declared as WINAPI or STDCALL. Selecting OK will cause the service to continue operation. However, the service process may operate incorrectly.");
 	case 0xc0000253u:
 		return __tsc(u8"The server received the messages but did not send a reply.");
 	case 0xc0000254u:
 	case 0xc0000255u:
 		return __tsc(u8"There is an IP address conflict with another system on the network");
 	case 0xc0000256u:
-		return __tsc(u8"{Low On Registry Space}
-The system has reached the maximum size allowed for the system part of the registry. Additional storage requests will be ignored.");
+		return __tsc(u8"{Low On Registry Space}\nThe system has reached the maximum size allowed for the system part of the registry. Additional storage requests will be ignored.");
 	case 0xc0000257u:
 		return __tsc(u8"The contacted server does not support the indicated part of the DFS namespace.");
 	case 0xc0000258u:
@@ -1654,14 +1493,11 @@ The system has reached the maximum size allowed for the system part of the regis
 	case 0xc0000261u:
 		return __tsc(u8"The specified Plug and Play registry device path is invalid.");
 	case 0xc0000262u:
-		return __tsc(u8"{Driver Entry Point Not Found}
-The %hs device driver could not locate the ordinal %ld in driver %hs.");
+		return __tsc(u8"{Driver Entry Point Not Found}\nThe %hs device driver could not locate the ordinal %ld in driver %hs.");
 	case 0xc0000263u:
-		return __tsc(u8"{Driver Entry Point Not Found}
-The %hs device driver could not locate the entry point %hs in driver %hs.");
+		return __tsc(u8"{Driver Entry Point Not Found}\nThe %hs device driver could not locate the entry point %hs in driver %hs.");
 	case 0xc0000264u:
-		return __tsc(u8"{Application Error}
-The application attempted to release a resource it did not own. Click OK to terminate the application.");
+		return __tsc(u8"{Application Error}\nThe application attempted to release a resource it did not own. Click OK to terminate the application.");
 	case 0xc0000265u:
 		return __tsc(u8"An attempt was made to create more links on a file than the file system supports.");
 	case 0xc0000266u:
@@ -1669,21 +1505,15 @@ The application attempted to release a resource it did not own. Click OK to term
 	case 0xc0000267u:
 		return __tsc(u8"The specified file has been relocated to offline storage.");
 	case 0xc0000268u:
-		return __tsc(u8"{Windows Evaluation Notification}
-The evaluation period for this installation of Windows has expired. This system will shutdown in 1 hour. To restore access to this installation of Windows, please upgrade this installation using a licensed distribution of this product.");
+		return __tsc(u8"{Windows Evaluation Notification}\nThe evaluation period for this installation of Windows has expired. This system will shutdown in 1 hour. To restore access to this installation of Windows, please upgrade this installation using a licensed distribution of this product.");
 	case 0xc0000269u:
-		return __tsc(u8"{Illegal System DLL Relocation}
-The system DLL %hs was relocated in memory. The application will not run properly. The relocation occurred because the DLL %hs occupied an address range reserved for Windows system DLLs. The vendor supplying the DLL should be contacted for a new DLL.");
+		return __tsc(u8"{Illegal System DLL Relocation}\nThe system DLL %hs was relocated in memory. The application will not run properly. The relocation occurred because the DLL %hs occupied an address range reserved for Windows system DLLs. The vendor supplying the DLL should be contacted for a new DLL.");
 	case 0xc000026au:
-		return __tsc(u8"{License Violation}
-The system has detected tampering with your registered product type. This is a violation of your software license. Tampering with product type is not permitted.");
+		return __tsc(u8"{License Violation}\nThe system has detected tampering with your registered product type. This is a violation of your software license. Tampering with product type is not permitted.");
 	case 0xc000026bu:
-		return __tsc(u8"{DLL Initialization Failed}
-The application failed to initialize because the window station is shutting down.");
+		return __tsc(u8"{DLL Initialization Failed}\nThe application failed to initialize because the window station is shutting down.");
 	case 0xc000026cu:
-		return __tsc(u8"{Unable to Load Device Driver}
-%hs device driver could not be loaded.
-Error Status was 0x%x");
+		return __tsc(u8"{Unable to Load Device Driver}\n%hs device driver could not be loaded.\nError Status was 0x%x");
 	case 0xc000026du:
 		return __tsc(u8"DFS is unavailable on the contacted server.");
 	case 0xc000026eu:
@@ -1813,11 +1643,9 @@ Error Status was 0x%x");
 	case 0xc00002b3u:
 		return __tsc(u8"A group marked use for deny only cannot be enabled.");
 	case 0xc00002b4u:
-		return __tsc(u8"{EXCEPTION}
-Multiple floating point faults.");
+		return __tsc(u8"{EXCEPTION}\nMultiple floating point faults.");
 	case 0xc00002b5u:
-		return __tsc(u8"{EXCEPTION}
-Multiple floating point traps.");
+		return __tsc(u8"{EXCEPTION}\nMultiple floating point traps.");
 	case 0xc00002b6u:
 		return __tsc(u8"The device has been removed.");
 	case 0xc00002b7u:
@@ -1831,34 +1659,25 @@ Multiple floating point traps.");
 	case 0xc00002c1u:
 		return __tsc(u8"A directory service resource limit has been exceeded.");
 	case 0xc00002c2u:
-		return __tsc(u8"{System Standby Failed}
-The driver %hs does not support standby mode. Updating this driver may allow the system to go to standby mode.");
+		return __tsc(u8"{System Standby Failed}\nThe driver %hs does not support standby mode. Updating this driver may allow the system to go to standby mode.");
 	case 0xc00002c3u:
 		return __tsc(u8"Mutual Authentication failed. The server's password is out of date at the domain controller.");
 	case 0xc00002c4u:
 		return __tsc(u8"The system file %1 has become corrupt and has been replaced.");
 	case 0xc00002c5u:
-		return __tsc(u8"{EXCEPTION}
-Alignment Error
-A datatype misalignment error was detected in a load or store instruction.");
+		return __tsc(u8"{EXCEPTION}\nAlignment Error\nA datatype misalignment error was detected in a load or store instruction.");
 	case 0xc00002c6u:
 		return __tsc(u8"The WMI data item or data block is read only.");
 	case 0xc00002c7u:
 		return __tsc(u8"The WMI data item or data block could not be changed.");
 	case 0xc00002c8u:
-		return __tsc(u8"{Virtual Memory Minimum Too Low}
-Your system is low on virtual memory. Windows is increasing the size of your virtual memory paging file. During this process, memory requests for some applications may be denied. For more information, see Help.");
+		return __tsc(u8"{Virtual Memory Minimum Too Low}\nYour system is low on virtual memory. Windows is increasing the size of your virtual memory paging file. During this process, memory requests for some applications may be denied. For more information, see Help.");
 	case 0xc00002c9u:
-		return __tsc(u8"{EXCEPTION}
-Register NaT consumption faults.
-A NaT value is consumed on a non speculative instruction.");
+		return __tsc(u8"{EXCEPTION}\nRegister NaT consumption faults.\nA NaT value is consumed on a non speculative instruction.");
 	case 0xc00002cau:
 		return __tsc(u8"The medium changer's transport element contains media, which is causing the operation to fail.");
 	case 0xc00002cbu:
-		return __tsc(u8"Security Accounts Manager initialization failed because of the following error:
-%hs
-Error Status: 0x%x.
-Please shutdown this system and reboot into Directory Services Restore Mode, check the event log for more detailed information.");
+		return __tsc(u8"Security Accounts Manager initialization failed because of the following error:\n%hs\nError Status: 0x%x.\nPlease shutdown this system and reboot into Directory Services Restore Mode, check the event log for more detailed information.");
 	case 0xc00002ccu:
 		return __tsc(u8"This operation is supported only when you are connected to the server.");
 	case 0xc00002cdu:
@@ -1870,8 +1689,7 @@ Please shutdown this system and reboot into Directory Services Restore Mode, che
 	case 0xc00002d0u:
 		return __tsc(u8"Cannot change the primary group ID of a domain controller account.");
 	case 0xc00002d1u:
-		return __tsc(u8"{Fatal System Error}
-The system image %s is not properly signed. The file has been replaced with the signed file. The system has been shut down.");
+		return __tsc(u8"{Fatal System Error}\nThe system image %s is not properly signed. The file has been replaced with the signed file. The system has been shut down.");
 	case 0xc00002d2u:
 		return __tsc(u8"Device will not start without a reboot.");
 	case 0xc00002d3u:
@@ -1905,15 +1723,9 @@ The system image %s is not properly signed. The file has been replaced with the 
 	case 0xc00002e1u:
 		return __tsc(u8"Directory Service cannot start.");
 	case 0xc00002e2u:
-		return __tsc(u8"Directory Services could not start because of the following error:
-%hs
-Error Status: 0x%x.
-Please shutdown this system and reboot into Directory Services Restore Mode, check the event log for more detailed information.");
+		return __tsc(u8"Directory Services could not start because of the following error:\n%hs\nError Status: 0x%x.\nPlease shutdown this system and reboot into Directory Services Restore Mode, check the event log for more detailed information.");
 	case 0xc00002e3u:
-		return __tsc(u8"Security Accounts Manager initialization failed because of the following error:
-%hs
-Error Status: 0x%x.
-Please click OK to shutdown this system and reboot into Safe Mode, check the event log for more detailed information.");
+		return __tsc(u8"Security Accounts Manager initialization failed because of the following error:\n%hs\nError Status: 0x%x.\nPlease click OK to shutdown this system and reboot into Safe Mode, check the event log for more detailed information.");
 	case 0xc00002e4u:
 		return __tsc(u8"The requested operation can be performed only on a global catalog server.");
 	case 0xc00002e5u:
@@ -1931,15 +1743,9 @@ Please click OK to shutdown this system and reboot into Safe Mode, check the eve
 	case 0xc00002ebu:
 		return __tsc(u8"The system is in the process of shutting down.");
 	case 0xc00002ecu:
-		return __tsc(u8"Directory Services could not start because of the following error:
-%hs
-Error Status: 0x%x.
-Please click OK to shutdown the system. You can use the recovery console to diagnose the system further.");
+		return __tsc(u8"Directory Services could not start because of the following error:\n%hs\nError Status: 0x%x.\nPlease click OK to shutdown the system. You can use the recovery console to diagnose the system further.");
 	case 0xc00002edu:
-		return __tsc(u8"Security Accounts Manager initialization failed because of the following error:
-%hs
-Error Status: 0x%x.
-Please click OK to shutdown the system. You can use the recovery console to diagnose the system further.");
+		return __tsc(u8"Security Accounts Manager initialization failed because of the following error:\n%hs\nError Status: 0x%x.\nPlease click OK to shutdown the system. You can use the recovery console to diagnose the system further.");
 	case 0xc00002eeu:
 		return __tsc(u8"A security context was deleted before the context was completed. This is considered a logon failure.");
 	case 0xc00002efu:
@@ -1997,8 +1803,7 @@ Please click OK to shutdown the system. You can use the recovery console to diag
 	case 0xc0000309u:
 		return __tsc(u8"Copy protection error - The read failed because the sector is encrypted.");
 	case 0xc000030au:
-		return __tsc(u8"Copy protection error - The given DVD's region does not correspond to the
-region setting of the drive.");
+		return __tsc(u8"Copy protection error - The given DVD's region does not correspond to the\nregion setting of the drive.");
 	case 0xc000030bu:
 		return __tsc(u8"Copy protection error - The drive's region setting may be permanent.");
 	case 0xc000030cu:
@@ -2054,7 +1859,7 @@ region setting of the drive.");
 	case 0xc0000365u:
 		return __tsc(u8"The driver was not loaded because it failed its initialization call.");
 	case 0xc0000366u:
-		return __tsc(u8"The "%hs" encountered an error while applying power or reading the device configuration. This may be caused by a failure of your hardware or by a poor connection.");
+		return __tsc(u8"The \"%hs\" encountered an error while applying power or reading the device configuration. This may be caused by a failure of your hardware or by a poor connection.");
 	case 0xc0000368u:
 		return __tsc(u8"The create operation failed because the name contained at least one mount point which resolves to a volume to which the specified device object is not attached.");
 	case 0xc0000369u:
@@ -2105,8 +1910,7 @@ region setting of the drive.");
 	case 0xc000038cu:
 		return __tsc(u8"The client certificate used for authentication was not trusted.");
 	case 0xc000038du:
-		return __tsc(u8"The smartcard certificate used for authentication has expired. Please
-contact your system administrator.");
+		return __tsc(u8"The smartcard certificate used for authentication has expired. Please\ncontact your system administrator.");
 	case 0xc000038eu:
 		return __tsc(u8"The driver could not be loaded because a previous version of the driver is still in memory.");
 	case 0xc000038fu:
@@ -2124,8 +1928,7 @@ contact your system administrator.");
 	case 0xc0000406u:
 		return __tsc(u8"The group cannot be converted due to attribute restrictions on the requested group type.");
 	case 0xc0000407u:
-		return __tsc(u8"{Volume Shadow Copy Service}
-Please wait while the Volume Shadow Copy Service prepares volume %hs for hibernation.");
+		return __tsc(u8"{Volume Shadow Copy Service}\nPlease wait while the Volume Shadow Copy Service prepares volume %hs for hibernation.");
 	case 0xc0000408u:
 		return __tsc(u8"Kerberos sub-protocol User2User is required.");
 	case 0xc0000409u:
@@ -2153,8 +1956,7 @@ Please wait while the Volume Shadow Copy Service prepares volume %hs for hiberna
 	case 0xc0000414u:
 		return __tsc(u8"%hs is a 16-bit application. You do not have permissions to execute 16-bit applications. Check your permissions with your system administrator.");
 	case 0xc0000415u:
-		return __tsc(u8"{Display Driver Stopped Responding}
-The %hs display driver has stopped working normally. Save your work and reboot the system to restore full display functionality. The next time you reboot the machine a dialog will be displayed giving you a chance to report this failure to Microsoft.");
+		return __tsc(u8"{Display Driver Stopped Responding}\nThe %hs display driver has stopped working normally. Save your work and reboot the system to restore full display functionality. The next time you reboot the machine a dialog will be displayed giving you a chance to report this failure to Microsoft.");
 	case 0xc0000416u:
 		return __tsc(u8"The Desktop heap encountered an error while allocating session memory. There is more information in the system event log.");
 	case 0xc0000417u:
@@ -2248,21 +2050,17 @@ The %hs display driver has stopped working normally. Save your work and reboot t
 	case 0xc0000462u:
 		return __tsc(u8"The application cannot be started. Try reinstalling the application to fix the problem.");
 	case 0xc0000463u:
-		return __tsc(u8"{Device Feature Not Supported}
-The device does not support the command feature.");
+		return __tsc(u8"{Device Feature Not Supported}\nThe device does not support the command feature.");
 	case 0xc0000464u:
-		return __tsc(u8"{Source/Destination device unreachable}
-The device is unreachable.");
+		return __tsc(u8"{Source/Destination device unreachable}\nThe device is unreachable.");
 	case 0xc0000465u:
-		return __tsc(u8"{Invalid Proxy Data Token}
-The token representing the data is invalid.");
+		return __tsc(u8"{Invalid Proxy Data Token}\nThe token representing the data is invalid.");
 	case 0xc0000466u:
 		return __tsc(u8"The file server is temporarily unavailable.");
 	case 0xc0000467u:
 		return __tsc(u8"The file is temporarily unavailable.");
 	case 0xc0000468u:
-		return __tsc(u8"{Device Insufficient Resources}
-The target device has insufficient resources to complete the operation.");
+		return __tsc(u8"{Device Insufficient Resources}\nThe target device has insufficient resources to complete the operation.");
 	case 0xc0000469u:
 		return __tsc(u8"The application cannot be started because it is currently updating.");
 	case 0xc000046au:
@@ -2282,23 +2080,17 @@ The target device has insufficient resources to complete the operation.");
 	case 0xc0000471u:
 		return __tsc(u8"An attempt was made to modify both a KERNEL and normal Extended Attribute (EA) in the same operation.");
 	case 0xc0000472u:
-		return __tsc(u8"{LogicalBlockProvisioningReadZero Not Supported}
-The target device does not support read returning zeros from trimmed/unmapped blocks.");
+		return __tsc(u8"{LogicalBlockProvisioningReadZero Not Supported}\nThe target device does not support read returning zeros from trimmed/unmapped blocks.");
 	case 0xc0000473u:
-		return __tsc(u8"{Maximum Segment Descriptors Exceeded}
-The command specified a number of descriptors that exceeded the maximum supported by the device.");
+		return __tsc(u8"{Maximum Segment Descriptors Exceeded}\nThe command specified a number of descriptors that exceeded the maximum supported by the device.");
 	case 0xc0000474u:
-		return __tsc(u8"{Alignment Violation}
-The command specified a data offset that does not align to the device's granularity/alignment.");
+		return __tsc(u8"{Alignment Violation}\nThe command specified a data offset that does not align to the device's granularity/alignment.");
 	case 0xc0000475u:
-		return __tsc(u8"{Invalid Field In Parameter List}
-The command specified an invalid field in its parameter list.");
+		return __tsc(u8"{Invalid Field In Parameter List}\nThe command specified an invalid field in its parameter list.");
 	case 0xc0000476u:
-		return __tsc(u8"{Operation In Progress}
-An operation is currently in progress with the device.");
+		return __tsc(u8"{Operation In Progress}\nAn operation is currently in progress with the device.");
 	case 0xc0000477u:
-		return __tsc(u8"{Invalid I_T Nexus}
-An attempt was made to send down the command via an invalid path to the target device.");
+		return __tsc(u8"{Invalid I_T Nexus}\nAn attempt was made to send down the command via an invalid path to the target device.");
 	case 0xc0000478u:
 		return __tsc(u8"Scrub is disabled on the specified file.");
 	case 0xc0000479u:
@@ -2310,8 +2102,7 @@ An attempt was made to send down the command via an invalid path to the target d
 	case 0xc000047cu:
 		return __tsc(u8"An operation is not supported on a directory.");
 	case 0xc000047du:
-		return __tsc(u8"{IO Operation Timeout}
-The specified I/O operation failed to complete within the expected time period.");
+		return __tsc(u8"{IO Operation Timeout}\nThe specified I/O operation failed to complete within the expected time period.");
 	case 0xc000047eu:
 		return __tsc(u8"An error in a system binary was detected. Try refreshing the PC to fix the problem.");
 	case 0xc000047fu:
@@ -2477,8 +2268,7 @@ The specified I/O operation failed to complete within the expected time period."
 	case 0xc0000518u:
 		return __tsc(u8"");
 	case 0xc0000602u:
-		return __tsc(u8"{Fail Fast Exception}
-A fail fast exception occurred. Exception handlers will not be invoked and the process will be terminated immediately.");
+		return __tsc(u8"{Fail Fast Exception}\nA fail fast exception occurred. Exception handlers will not be invoked and the process will be terminated immediately.");
 	case 0xc0000603u:
 		return __tsc(u8"Windows cannot verify the digital signature for this file. The signing certificate for this file has been revoked.");
 	case 0xc0000604u:
@@ -2524,11 +2314,9 @@ A fail fast exception occurred. Exception handlers will not be invoked and the p
 	case 0xc000070fu:
 		return __tsc(u8"The threadpool 0x%p was released while a thread was posting a callback to 0x%p(0x%p) to it.");
 	case 0xc0000710u:
-		return __tsc(u8"A threadpool worker thread is impersonating a client, after a callback to 0x%p(0x%p).
-This is unexpected, indicating that the callback is missing a call to revert the impersonation.");
+		return __tsc(u8"A threadpool worker thread is impersonating a client, after a callback to 0x%p(0x%p).\nThis is unexpected, indicating that the callback is missing a call to revert the impersonation.");
 	case 0xc0000711u:
-		return __tsc(u8"A threadpool worker thread is impersonating a client, after executing an APC.
-This is unexpected, indicating that the APC is missing a call to revert the impersonation.");
+		return __tsc(u8"A threadpool worker thread is impersonating a client, after executing an APC.\nThis is unexpected, indicating that the APC is missing a call to revert the impersonation.");
 	case 0xc0000712u:
 		return __tsc(u8"Either the target process, or the target thread's containing process, is a protected process.");
 	case 0xc0000713u:
@@ -2548,28 +2336,21 @@ This is unexpected, indicating that the APC is missing a call to revert the impe
 	case 0xc000071au:
 		return __tsc(u8"The specified port already has a completion list.");
 	case 0xc000071bu:
-		return __tsc(u8"A threadpool worker thread enter a callback at thread base priority 0x%x and exited at priority 0x%x.
-This is unexpected, indicating that the callback missed restoring the priority.");
+		return __tsc(u8"A threadpool worker thread enter a callback at thread base priority 0x%x and exited at priority 0x%x.\nThis is unexpected, indicating that the callback missed restoring the priority.");
 	case 0xc000071cu:
 		return __tsc(u8"An invalid thread, handle %p, is specified for this operation. Possibly, a threadpool worker thread was specified.");
 	case 0xc000071du:
-		return __tsc(u8"A threadpool worker thread enter a callback, which left transaction state.
-This is unexpected, indicating that the callback missed clearing the transaction.");
+		return __tsc(u8"A threadpool worker thread enter a callback, which left transaction state.\nThis is unexpected, indicating that the callback missed clearing the transaction.");
 	case 0xc000071eu:
-		return __tsc(u8"A threadpool worker thread enter a callback, which left the loader lock held.
-This is unexpected, indicating that the callback missed releasing the lock.");
+		return __tsc(u8"A threadpool worker thread enter a callback, which left the loader lock held.\nThis is unexpected, indicating that the callback missed releasing the lock.");
 	case 0xc000071fu:
-		return __tsc(u8"A threadpool worker thread enter a callback, which left with preferred languages set.
-This is unexpected, indicating that the callback missed clearing them.");
+		return __tsc(u8"A threadpool worker thread enter a callback, which left with preferred languages set.\nThis is unexpected, indicating that the callback missed clearing them.");
 	case 0xc0000720u:
-		return __tsc(u8"A threadpool worker thread enter a callback, which left with background priorities set.
-This is unexpected, indicating that the callback missed restoring the original priorities.");
+		return __tsc(u8"A threadpool worker thread enter a callback, which left with background priorities set.\nThis is unexpected, indicating that the callback missed restoring the original priorities.");
 	case 0xc0000721u:
-		return __tsc(u8"A threadpool worker thread enter a callback at thread affinity %p and exited at affinity %p.
-This is unexpected, indicating that the callback missed restoring the priority.");
+		return __tsc(u8"A threadpool worker thread enter a callback at thread affinity %p and exited at affinity %p.\nThis is unexpected, indicating that the callback missed restoring the priority.");
 	case 0xc0000722u:
-		return __tsc(u8"The caller has exceeded the maximum number of handles that may be transmitted in
-a single local procedure call.");
+		return __tsc(u8"The caller has exceeded the maximum number of handles that may be transmitted in\na single local procedure call.");
 	case 0xc0000723u:
 	case 0xc0000724u:
 	case 0xc0000725u:
@@ -2580,8 +2361,7 @@ a single local procedure call.");
 	case 0xc0000801u:
 		return __tsc(u8"The Directory Service cannot perform the requested operation because a domain rename operation is in progress.");
 	case 0xc0000802u:
-		return __tsc(u8"The requested file operation failed because the storage quota was exceeded.
-To free up disk space, move files to a different location or delete unnecessary files. For more information, contact your system administrator.");
+		return __tsc(u8"The requested file operation failed because the storage quota was exceeded.\nTo free up disk space, move files to a different location or delete unnecessary files. For more information, contact your system administrator.");
 	case 0xc0000804u:
 		return __tsc(u8"The requested file operation failed because the storage policy blocks that type of file. For more information, contact your system administrator.");
 	case 0xc0000805u:
@@ -2689,17 +2469,11 @@ To free up disk space, move files to a different location or delete unnecessary 
 	case 0xc000a014u:
 		return __tsc(u8"An operation or data has been rejected while on the network fast path.");
 	case 0xc000a080u:
-		return __tsc(u8"{Delayed Write Failed}
-Windows was unable to save all the data for the file %hs; the data has been lost.
-This error may be caused by network connectivity issues. Please try to save this file elsewhere.");
+		return __tsc(u8"{Delayed Write Failed}\nWindows was unable to save all the data for the file %hs; the data has been lost.\nThis error may be caused by network connectivity issues. Please try to save this file elsewhere.");
 	case 0xc000a081u:
-		return __tsc(u8"{Delayed Write Failed}
-Windows was unable to save all the data for the file %hs; the data has been lost.
-This error was returned by the server on which the file exists. Please try to save this file elsewhere.");
+		return __tsc(u8"{Delayed Write Failed}\nWindows was unable to save all the data for the file %hs; the data has been lost.\nThis error was returned by the server on which the file exists. Please try to save this file elsewhere.");
 	case 0xc000a082u:
-		return __tsc(u8"{Delayed Write Failed}
-Windows was unable to save all the data for the file %hs; the data has been lost.
-This error may be caused if the device has been removed or the media is write-protected.");
+		return __tsc(u8"{Delayed Write Failed}\nWindows was unable to save all the data for the file %hs; the data has been lost.\nThis error may be caused if the device has been removed or the media is write-protected.");
 	case 0xc000a083u:
 		return __tsc(u8"Windows was unable to parse the requested XML data.");
 	case 0xc000a084u:
@@ -2737,14 +2511,11 @@ This error may be caused if the device has been removed or the media is write-pr
 	case 0xc000a126u:
 		return __tsc(u8"The requested connect mode conflicts with an existing mode on one or more of the specified pins.");
 	case 0xc000a141u:
-		return __tsc(u8"The requested run level switch cannot be completed successfully since
-one or more services refused to stop or restart.");
+		return __tsc(u8"The requested run level switch cannot be completed successfully since\none or more services refused to stop or restart.");
 	case 0xc000a142u:
-		return __tsc(u8"The service has an invalid run level setting. The run level for a service
-must not be higher than the run level of its dependent services.");
+		return __tsc(u8"The service has an invalid run level setting. The run level for a service\nmust not be higher than the run level of its dependent services.");
 	case 0xc000a143u:
-		return __tsc(u8"The requested run level switch cannot be completed successfully since
-one or more services will not stop or restart within the specified timeout.");
+		return __tsc(u8"The requested run level switch cannot be completed successfully since\none or more services will not stop or restart within the specified timeout.");
 	case 0xc000a145u:
 		return __tsc(u8"A run level switch agent did not respond within the specified timeout.");
 	case 0xc000a146u:
@@ -3977,21 +3748,15 @@ one or more services will not stop or restart within the specified timeout.");
 	case 0xc01e051au:
 		return __tsc(u8"The operating system asynchronously destroyed this OPM-protected output because the operating system state changed. This error typically occurs because the monitor PDO associated with this protected output was removed or stopped, the protected output's session became a nonconsole session, or the protected output's desktop became inactive.");
 	case 0xc01e051cu:
-		return __tsc(u8"The DxgkDdiOPMGetCOPPCompatibleInformation, DxgkDdiOPMGetInformation, or DxgkDdiOPMConfigureProtectedOutput function failed. This error is returned only if a protected output has OPM semantics.
-DxgkDdiOPMGetCOPPCompatibleInformation always returns this error if a protected output has OPM semantics.
-DxgkDdiOPMGetInformation returns this error code if the caller requested COPP-specific information.
-DxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to use a COPP-specific command.");
+		return __tsc(u8"The DxgkDdiOPMGetCOPPCompatibleInformation, DxgkDdiOPMGetInformation, or DxgkDdiOPMConfigureProtectedOutput function failed. This error is returned only if a protected output has OPM semantics.\nDxgkDdiOPMGetCOPPCompatibleInformation always returns this error if a protected output has OPM semantics.\nDxgkDdiOPMGetInformation returns this error code if the caller requested COPP-specific information.\nDxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to use a COPP-specific command.");
 	case 0xc01e051du:
 		return __tsc(u8"The DxgkDdiOPMGetInformation and DxgkDdiOPMGetCOPPCompatibleInformation functions return this error code if the passed-in sequence number is not the expected sequence number or the passed-in OMAC value is invalid.");
 	case 0xc01e051eu:
 		return __tsc(u8"The function failed because an unexpected error occurred inside a display driver.");
 	case 0xc01e051fu:
-		return __tsc(u8"The DxgkDdiOPMGetCOPPCompatibleInformation, DxgkDdiOPMGetInformation, or DxgkDdiOPMConfigureProtectedOutput function failed. This error is returned only if a protected output has COPP semantics.
-DxgkDdiOPMGetCOPPCompatibleInformation returns this error code if the caller requested OPM-specific information.
-DxgkDdiOPMGetInformation always returns this error if a protected output has COPP semantics.
-DxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to use an OPM-specific command.");
+		return __tsc(u8"The DxgkDdiOPMGetCOPPCompatibleInformation, DxgkDdiOPMGetInformation, or DxgkDdiOPMConfigureProtectedOutput function failed. This error is returned only if a protected output has COPP semantics.\nDxgkDdiOPMGetCOPPCompatibleInformation returns this error code if the caller requested OPM-specific information.\nDxgkDdiOPMGetInformation always returns this error if a protected output has COPP semantics.\nDxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to use an OPM-specific command.");
 	case 0xc01e0520u:
-		return __tsc(u8"The DxgkDdiOPMGetCOPPCompatibleInformation and DxgkDdiOPMConfigureProtectedOutput functions return this error if the display driver does not support the DXGKMDT\_OPM\_GET\_ACP\_AND\_CGMSA\_SIGNALING and DXGKMDT\_OPM\_SET\_ACP\_AND\_CGMSA\_SIGNALING GUIDs.");
+		return __tsc(u8"The DxgkDdiOPMGetCOPPCompatibleInformation and DxgkDdiOPMConfigureProtectedOutput functions return this error if the display driver does not support the DXGKMDT\\_OPM\\_GET\\_ACP\\_AND\\_CGMSA\\_SIGNALING and DXGKMDT\\_OPM\\_SET\\_ACP\\_AND\\_CGMSA\\_SIGNALING GUIDs.");
 	case 0xc01e0521u:
 		return __tsc(u8"The DxgkDdiOPMConfigureProtectedOutput function returns this error code if the passed-in sequence number is not the expected sequence number or the passed-in OMAC value is invalid.");
 	case 0xc01e0580u:
@@ -4021,7 +3786,7 @@ DxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to u
 	case 0xc01e058cu:
 		return __tsc(u8"This function failed because an invalid monitor handle was passed to it.");
 	case 0xc01e058du:
-		return __tsc(u8"The operating system asynchronously destroyed the monitor that corresponds to this handle because the operating system's state changed. This error typically occurs because the monitor PDO associated with this handle was removed or stopped, or a display mode change occurred. A display mode change occurs when Windows sends a WM\_DISPLAYCHANGE message to applications.");
+		return __tsc(u8"The operating system asynchronously destroyed the monitor that corresponds to this handle because the operating system's state changed. This error typically occurs because the monitor PDO associated with this handle was removed or stopped, or a display mode change occurred. A display mode change occurs when Windows sends a WM\\_DISPLAYCHANGE message to applications.");
 	case 0xc01e05e0u:
 		return __tsc(u8"This function can be used only if a program is running in the local console session. It cannot be used if a program is running on a remote desktop session or on a terminal server session.");
 	case 0xc01e05e1u:
@@ -4211,7 +3976,7 @@ DxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to u
 	case 0xc022001fu:
 		return __tsc(u8"A network mask is not valid.");
 	case 0xc0220020u:
-		return __tsc(u8"An FWP\_RANGE is not valid.");
+		return __tsc(u8"An FWP\\_RANGE is not valid.");
 	case 0xc0220021u:
 		return __tsc(u8"The time interval is not valid.");
 	case 0xc0220022u:
@@ -4225,7 +3990,7 @@ DxgkDdiOPMConfigureProtectedOutput returns this error when the caller tries to u
 	case 0xc0220026u:
 		return __tsc(u8"A filter condition contains a match type that is not compatible with the operands.");
 	case 0xc0220027u:
-		return __tsc(u8"An FWP\_VALUE or FWPM\_CONDITION\_VALUE is of the wrong type.");
+		return __tsc(u8"An FWP\\_VALUE or FWPM\\_CONDITION\\_VALUE is of the wrong type.");
 	case 0xc0220028u:
 		return __tsc(u8"An integer value is outside the allowed range.");
 	case 0xc0220029u:

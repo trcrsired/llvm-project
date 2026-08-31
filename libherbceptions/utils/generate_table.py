@@ -564,7 +564,8 @@ def emit_nt_message_table(path, data):
     for group in groups:
         for code in group["codes"]:
             lines.append(f"\tcase {hex(code)}u:")
-        lines.append(f"\t\treturn __tsc(u8\"{group['msg']}\");")
+        escaped = group["msg"].replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        lines.append(f'\t\treturn __tsc(u8"{escaped}");')
     lines.append("// clang-format on")
     with open(path, "w", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
