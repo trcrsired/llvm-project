@@ -35,12 +35,6 @@ class CCIfIsVarArgOnWin<CCAction A>
            "isWindowsMSVCEnvironment()",
            A>;
 
-/// CCIfThrows - Match if the function has the Throws attribute (herbceptions).
-class CCIfThrows<CCAction A>
-    : CCIf<"State.getMachineFunction().getFunction().hasFnAttribute("
-           "llvm::Attribute::Throws)",
-           A>;
-
 // Register classes for RegCall
 class RC_X86_RegCall {
   list<Register> GPR_8 = [];
@@ -583,8 +577,9 @@ def RetCC_X86_64 : CallingConv<[
   // Herbception throws functions use a modified Win64 return CC that splits
   // trivially-copyable types ≤16 bytes across two integer registers.
   CCIfSubtarget<"isTargetWin64()",
-    CCIfThrows<CCDelegateTo<RetCC_X86_Win64_C_Throws>,
-    CCDelegateTo<RetCC_X86_Win64_C>>>,
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+      CCDelegateTo<RetCC_X86_Win64_C_Throws>>>,
+  CCIfSubtarget<"isTargetWin64()", CCDelegateTo<RetCC_X86_Win64_C>>,
 
   // UEFI64 uses Win64 CC
   CCIfSubtarget<"isTargetUEFI64()", CCDelegateTo<RetCC_X86_Win64_C>>,
@@ -1200,8 +1195,9 @@ def CC_Intel_OCL_BI : CallingConv<[
   CCIfType<[v16i1, v8i1], CCAssignToReg<[K1]>>,
 
   CCIfSubtarget<"isTargetWin64()",
-    CCIfThrows<CCDelegateTo<CC_X86_Win64_C_Throws>,
-    CCDelegateTo<CC_X86_Win64_C>>>,
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+      CCDelegateTo<CC_X86_Win64_C_Throws>>>,
+  CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfSubtarget<"is64Bit()",       CCDelegateTo<CC_X86_64_C>>,
   CCDelegateTo<CC_X86_32_C>
 ]>;
@@ -1348,8 +1344,9 @@ def CC_X86_64 : CallingConv<[
   // Herbception throws functions use a modified Win64 CC that splits
   // trivially-copyable types ≤16 bytes across two integer registers.
   CCIfSubtarget<"isTargetWin64()",
-    CCIfThrows<CCDelegateTo<CC_X86_Win64_C_Throws>,
-    CCDelegateTo<CC_X86_Win64_C>>>,
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+      CCDelegateTo<CC_X86_Win64_C_Throws>>>,
+  CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,
 
   // UEFI uses Win64 CC
   CCIfSubtarget<"isTargetUEFI64()", CCDelegateTo<CC_X86_Win64_C>>,
