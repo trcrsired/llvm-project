@@ -1422,7 +1422,7 @@ struct DeclaratorChunk {
 
     /// ExceptionSpecType - An ExceptionSpecificationType value.
     LLVM_PREFERRED_TYPE(ExceptionSpecificationType)
-    unsigned ExceptionSpecType : 4;
+    unsigned ExceptionSpecType : 5;
 
     /// DeleteParams - If this is true, we need to delete[] Params.
     LLVM_PREFERRED_TYPE(bool)
