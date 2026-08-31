@@ -10774,7 +10774,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
         FPT->hasReturnFailureSpec() &&
         (NewFD->isCXXClassMember() || NewFD->getDescribedFunctionTemplate())) {
-      Diag(D.getIdentifierLoc(), diag::err_fails_only_free_function);
+      Diag(D.getIdentifierLoc(), diag::err_return_failure_only_free_function);
       NewFD->setInvalidDecl();
     }
   }
