@@ -94,26 +94,26 @@ specification:
 * ``EST_BasicThrows`` -- bare ``throws`` (and ``throws(true)``);
   ``FunctionProtoType::hasBasicThrowsSpec()``.
 * ``EST_ThrowsTyped`` -- ``return_failure{E}``; ``E`` is stored in the exception-type
-  slot (``hasFailsSpec()``).
-* ``EST_ThrowsTypedNoexceptFalse`` -- ``noexcept(false) return_failure{E}``.
-* ``throws(false)`` degrades to ``EST_BasicNoexcept`` (plain ``noexcept``),
-  built by ``Sema::ActOnThrowsSpec`` (``SemaExceptionSpec.cpp``).
+  slot (``hasReturnFailureSpec()``).
+* ``throws(false)`` is ``EST_BasicThrowsFalse``: cannot fail via herbceptions,
+  equivalent to ``noexcept(true)``.
 
-``throws`` combined with ``noexcept(false)`` is rejected during parsing;
-semantic checks live in ``Sema::checkExceptionSpecification`` /
+``throws``/``return_failure{E}`` and ``noexcept`` are mutually exclusive;
+the parser rejects any combination. Semantic checks live in
+``Sema::checkExceptionSpecification`` /
 ``actOnDelayedExceptionSpecification`` (``SemaDeclCXX.cpp``):
 ``return_failure{std::error}`` is rejected (``err_fails_std_error_type``), ``E`` must
 be trivially copyable (``err_fails_type_not_trivially_copyable``),
-destructors cannot carry a herbception spec
-(``err_herbception_destructor_spec``) and ``return_failure{E}`` is restricted to free
+destructors cannot carry a herbceptions spec
+(``err_herbceptions_destructor_spec``) and ``return_failure{E}`` is restricted to free
 functions (``err_fails_only_free_function`` -- enforced for members via the
 delayed-spec path and for coroutines in ``ActOnCoroutineBodyStart``).
 
 The specifiers are part of the canonical function type because they change
 the calling convention (``{T, i1}`` return). Function pointers, overload
 resolution and virtual overrides therefore treat them as distinct
-(``err_herbception_spec_mismatch`` /
-``err_herbception_override_spec_mismatch``). ``FunctionProtoType::canThrow()``
+(``err_herbceptions_spec_mismatch`` /
+``err_herbceptions_override_spec_mismatch``). ``FunctionProtoType::canThrow()``
 returns a dedicated ``CT_Deterministic`` for ``EST_BasicThrows`` /
 ``EST_ThrowsTyped``. The type printer renders the specifiers as
 ``" throws"`` / ``" return_failure{E}"`` (``TypePrinter.cpp``).
@@ -309,16 +309,14 @@ A bare ``throws`` function implicitly converts any legacy C++ exception that
 escapes it. ``Sema::ActOnFinishFunctionBody`` (``SemaDecl.cpp``):
 
 * diagnoses a ``domain()`` returning ``nullptr`` inside a record named
-  ``error_domain`` (``err_herbception_domain_nullptr``; the fabricated
+  ``error_domain`` (``err_herbceptions_domain_nullptr``; the fabricated
   ``std::error`` dereferences it in ``~error()``);
 * if the function is ``EST_BasicThrows`` and can call ``noexcept(false)``
   callees, builds ``BuildCxaExceptionErrorValue`` and stores it on the
-  ``FunctionDecl`` via ``setHerbceptionLegacyErrorValue()``. When the
-  conversion inputs are unavailable this is a hard error
-  (``err_herbception_legacy_convert_no_domain``); a ``throws`` function that
-  cannot let a legacy exception escape compiles silently without the
-  domain. The member is serialized by ``ASTWriterDecl.cpp`` /
-  ``ASTReaderDecl.cpp``.
+  ``FunctionDecl`` via ``setHerbceptionLegacyErrorValue()``. The conversion
+  uses built-in ABI symbols baked into the compiler; the linker hard-errors
+  if libherbceptions is not linked. The member is serialized by
+  ``ASTWriterDecl.cpp`` / ``ASTReaderDecl.cpp``.
 
 Constexpr
 ---------
@@ -434,11 +432,9 @@ EH scope whose handler is ``getHerbceptionLegacyConvert()``;
 ``EmitHerbceptionThrow``, routing it to the throws return path (a missing
 conversion expression is a hard error there, mirroring the Sema check).
 ``FinishFunction`` emits the block if it was used. ``EmitStartEHSpec`` /
-``EmitEndEHSpec`` also handle the ``return_failure{E}`` terminate scope:
-
-* default ``return_failure{E}`` (implies ``noexcept(true)``) -> terminate landing pad;
-* ``EST_ThrowsTypedNoexceptFalse`` -> nothing (traditional exceptions
-  propagate).
+``EmitEndEHSpec`` handle the ``return_failure{E}`` terminate scope:
+a default ``return_failure{E}`` (implies ``noexcept``-like semantics for legacy
+exceptions) pushes a terminate landing pad.
 
 Backend
 =======

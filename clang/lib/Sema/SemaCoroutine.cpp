@@ -1301,15 +1301,7 @@ bool CoroutineStmtBuilder::buildDependentStatements() {
   assert(this->IsValid && "coroutine already invalid");
   assert(!this->IsPromiseDependentType &&
          "coroutine cannot have a dependent promise type");
-  // A `throws` coroutine implies noexcept(true) by default: the body cannot
-  // throw C++ exceptions, only herbception failures, so only
-  // `unhandled_herbception` is required (see makeOnHerbception).
-  const auto *FPT = FD.getType()->getAs<FunctionProtoType>();
-  bool IsHerbceptionThrows = FPT && FPT->hasBasicThrowsSpec();
-
-  this->IsValid = !IsHerbceptionThrows && makeOnException();
-  if (this->IsValid && IsHerbceptionThrows)
-    this->IsValid = makeOnHerbception();
+  this->IsValid = makeOnException();
   this->IsValid =
       this->IsValid && makeOnFallthrough() &&
       makeGroDeclAndReturnStmt() && makeReturnOnAllocFailure() &&
@@ -1873,35 +1865,6 @@ bool CoroutineStmtBuilder::makeOnException() {
   }
 
   this->OnException = UnhandledException.get();
-  return true;
-}
-
-bool CoroutineStmtBuilder::makeOnHerbception() {
-  // Herbception `throws` coroutine: try to form
-  //   p.unhandled_herbception(std::coroutine_error{domain, code});
-  // The promise stores the error in the frame; the awaiter later rethrows it
-  // via await_resume(). `throws` implies noexcept(true), so a `throws`
-  // coroutine uses unhandled_herbception in place of unhandled_exception.
-  assert(!IsPromiseDependentType &&
-         "cannot make statement while the promise type is dependent");
-
-  if (!lookupMember(S, "unhandled_herbception", PromiseRecordDecl, Loc)) {
-    S.Diag(Loc, diag::err_coroutine_promise_unhandled_herbceptions_required)
-        << PromiseRecordDecl;
-    S.Diag(PromiseRecordDecl->getLocation(), diag::note_defined_here)
-        << PromiseRecordDecl;
-    return false;
-  }
-
-  ExprResult UnhandledHerbception = buildPromiseCall(
-      S, Fn.CoroutinePromise, Loc, "unhandled_herbception", {});
-  UnhandledHerbception =
-      S.ActOnFinishFullExpr(UnhandledHerbception.get(), Loc,
-                            /*DiscardedValue*/ false);
-  if (UnhandledHerbception.isInvalid())
-    return false;
-
-  this->OnHerbception = UnhandledHerbception.get();
   return true;
 }
 

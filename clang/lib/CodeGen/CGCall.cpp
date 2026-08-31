@@ -130,6 +130,7 @@ unsigned CodeGenTypes::ClangCallConvToLLVMCallConv(CallingConv CC) {
     CC_VLS_CASE(65536)
 #undef CC_VLS_CASE
   }
+  llvm_unreachable("unexpected calling convention");
 }
 
 /// Derives the 'this' type for codegen purposes, i.e. ignoring method CVR

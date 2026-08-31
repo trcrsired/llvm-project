@@ -1995,19 +1995,7 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // the throws return path (discriminant set, error stored in the payload).
   const FunctionDecl *FD = cast<FunctionDecl>(CurCodeDecl);
   const Expr *Conv = FD->getHerbceptionLegacyErrorValue();
-
-  // A legacy C++ exception can escape this `throws` function (the catch-all
-  // had EH branches), but the conversion is unavailable (std::exception_ptr
-  // or std::error not visible at the definition). Hard error; emit noreturn
-  // so the funclet / landing-pad IR stays well-formed.
-  if (!Conv) {
-    CGM.getDiags().Report(FD->getLocation(),
-                          diag::err_herbceptions_legacy_convert_no_domain)
-        << 0;
-    Builder.CreateUnreachable();
-    Builder.restoreIP(SavedIP);
-    return;
-  }
+  assert(Conv && "herbceptions legacy conversion must be set by Sema");
 
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
