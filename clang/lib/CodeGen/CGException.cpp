@@ -568,15 +568,13 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
     // that escapes it (thrown by a `noexcept(false)` callee) into a
     // fabricated std::error, returned on the herbception channel. Wrap the
     // whole function body in a catch-all EH scope whose handler performs the
-    // conversion. The scope is always pushed so that legacy-throwing calls
-    // become invokes (landing here); the handler body is only emitted if a
-    // legacy escape is actually reachable (FinishFunction checks
-    // hasEHBranches). If a legacy escape is reachable but no conversion
-    // expression is available (error_domain<std::exception_ptr> undefined),
-    // emitHerbceptionLegacyConvertBody reports a hard error: the user must
-    // provide the domain or compile with -fno-exceptions. When no legacy
-    // escape is possible (only throws/noexcept callees) the block is dropped.
-    if (FD) {
+    // conversion. The scope is only pushed when Sema has determined that a
+    // legacy C++ exception can actually escape this function (canThrow(Body)
+    // == CT_Can) and has built the conversion expression. Without the
+    // conversion expression, emitHerbceptionLegacyConvertBody would crash.
+    // When no legacy escape is possible (only throws/noexcept callees) the
+    // block is dropped.
+    if (FD && FD->getHerbceptionLegacyErrorValue()) {
       EHCatchScope *CatchScope = EHStack.pushCatch(1);
       CatchScope->setCatchAllHandler(0, getHerbceptionLegacyConvert());
     }
