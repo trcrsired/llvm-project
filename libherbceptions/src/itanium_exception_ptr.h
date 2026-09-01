@@ -209,22 +209,13 @@ classify_itanium_cxa_eh(_Unwind_Exception const *uh) noexcept {
 
 #ifdef _LIBCPPABI_VERSION
 
-extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
-  if (eh) {
-    auto *hdr{static_cast<itanium_cxa_exception *>(eh) - 1};
-    if (itanium_cxa_eh_flavor::foreign ==
-        classify_itanium_cxa_eh(&hdr->unwindHeader)) {
-      // Refuse to mint a code for foreign EH so no foreign exception can
-      // ever enter this domain.
-      ::std::abort();
-    }
-  }
-  ::__cxxabiv1::__cxa_increment_exception_refcount(eh);
-  return reinterpret_cast<::std::size_t>(eh);
+namespace {
+
+inline void
+__itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
+  ::__cxxabiv1::__cxa_increment_exception_refcount(thrown_object);
 }
 
-namespace {
 inline void
 __itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   ::__cxxabiv1::__cxa_decrement_exception_refcount(thrown_object);
@@ -321,20 +312,33 @@ void __itanium_cxa_rethrow_primary_exception(void* thrown_object)
 }
 #endif
 } // namespace
+#endif
+
+namespace {
+
+inline void fail_fast_for_none_cxx_eh(void *eh) noexcept {
+  if (eh == nullptr)
+    ::std::abort();
+  auto *hdr{itanium_cxa_exception_from_thrown_object(eh)};
+  if (itanium_cxa_eh_flavor::foreign ==
+      classify_itanium_cxa_eh(&hdr->unwindHeader)) {
+    // Refuse to mint a code for foreign EH so no foreign exception can
+    // ever enter this domain.
+    ::std::abort();
+  }
+}
+
+} // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
-  if (eh) {
-    auto *hdr{itanium_cxa_exception_from_thrown_object(eh)};
-    if (itanium_cxa_eh_flavor::foreign ==
-        classify_itanium_cxa_eh(&hdr->unwindHeader)) {
-      // Refuse to mint a code for foreign EH so no foreign exception can
-      // ever enter this domain.
-      ::std::abort();
-    }
-  }
-  __itanium_cxa_increment_exception_refcount(eh);
+  fail_fast_for_none_cxx_eh(eh);
   return reinterpret_cast<::std::size_t>(eh);
 }
 
-#endif
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__cxa_error_code_itanium_exception_ptr_clone(void *eh) noexcept {
+  fail_fast_for_none_cxx_eh(eh);
+  __itanium_cxa_increment_exception_refcount(eh);
+  return reinterpret_cast<::std::size_t>(eh);
+}
