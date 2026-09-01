@@ -1282,6 +1282,10 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   // -fno-exceptions none of this is emitted.
 
   bool IsMSVC{Context.getTargetInfo().getCXXABI().isMicrosoft()};
+  // On Windows targets (MSVC, MinGW, Cygwin), the ABI symbols live in the
+  // libherbceptions DLL and must be dllimported to avoid direct calls to
+  // symbols that only exist in the import library.
+  bool IsWindows = Context.getTargetInfo().getTriple().isOSWindows();
 
   // __cxa_error_domain_{itanium,msvc}_exception_ptr() -> domain singleton
   // pointer. Declared void const * here; EmitErrorValueExpr coerces to the
@@ -1291,6 +1295,8 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
       IsMSVC ? "__cxa_error_domain_msvc_exception_ptr"
              : "__cxa_error_domain_itanium_exception_ptr",
       Context.getPointerType(Context.VoidTy.withConst()), {}, Loc);
+  if (IsWindows)
+    DomainFn->addAttr(DLLImportAttr::CreateImplicit(Context));
   ExprResult DomainCall = buildImplicitExternCCall(DomainFn, {}, Loc, *this);
   if (DomainCall.isInvalid())
     return ExprError();
@@ -1311,6 +1317,8 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
       IsMSVC ? "__cxa_error_code_msvc_exception_ptr"
              : "__cxa_error_code_itanium_exception_ptr",
       Context.getSizeType(), CodeParamTys, Loc);
+  if (IsWindows)
+    CodeFn->addAttr(DLLImportAttr::CreateImplicit(Context));
   ExprResult CodeCall = buildImplicitExternCCall(CodeFn, CodeArgs, Loc, *this);
   if (CodeCall.isInvalid())
     return ExprError();
