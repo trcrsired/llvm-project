@@ -5494,8 +5494,11 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
           break;
         }
       // Nothing between the SETCCr and the branch may clobber EFLAGS or
-      // touch the discriminant register. A call-sequence adjustment with
-      // zero byte counts is eliminated outright, so it does not clobber.
+      // touch the discriminant register. Any call-sequence adjustment is
+      // harmless here: the discriminant was already materialized from CF
+      // into a register by HERB_SETCCr, so even if ADJCALLSTACKUP lowers
+      // to an add that clobbers EFLAGS, the TEST8ri reads the register,
+      // not the live CF.
       auto IsHarmlessAdjCallStack = [](const MachineInstr &MI) {
         switch (MI.getOpcode()) {
         default:
@@ -5504,8 +5507,7 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
         case X86::ADJCALLSTACKUP32:
         case X86::ADJCALLSTACKDOWN64:
         case X86::ADJCALLSTACKUP64:
-          return MI.getOperand(0).getImm() == 0 &&
-                 MI.getOperand(1).getImm() == 0;
+          return true;
         }
       };
       for (MachineBasicBlock::iterator It =

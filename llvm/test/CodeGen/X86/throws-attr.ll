@@ -46,9 +46,9 @@ define i64 @call_and_select(i64 %x) #1 {
 ; CHECK32-LABEL: call_and_select:
 ; CHECK32:       # %bb.0:
 ; CHECK32:         calll ret_error@PLT
-; CHECK32-NEXT:    setb %cl
-; CHECK32-NEXT:    testb $1, %cl
-; CHECK32-NEXT:    je .LBB2_2
+; CHECK32-NOT:     setb
+; CHECK32-NOT:     testb
+; CHECK32:         jae .LBB2_2
 ; CHECK32-NEXT:  # %bb.1:
 ; CHECK32-NEXT:    xorl %edx, %edx
 ; CHECK32-NEXT:    movl $100, %eax

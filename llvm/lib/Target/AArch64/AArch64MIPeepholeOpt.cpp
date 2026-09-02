@@ -376,12 +376,11 @@ bool AArch64MIPeepholeOptImpl::visitCSEL(MachineInstr &MI) {
 }
 
 bool AArch64MIPeepholeOptImpl::visitHERB_CSET(MachineInstr &MI) {
-  // Herbception (throws): fold HERB_CSET + CBZ/CBNZ into B.cc/B.cs.
+  // Herbception (throws): fold HERB_CSET + CBZ/CBNZ/TBZ/TBNZ into B.cc/B.cs.
   // HERB_CSET produces 1 if NZCV.C is set, else 0.
-  // CBZ branches if the value is zero -> branch if C is clear -> B.cc.
-  // CBNZ branches if the value is non-zero -> branch if C is set -> B.cs.
+  // CBZ/TBZ bit 0 branch if the value is zero -> branch if C is clear -> B.cc.
+  // CBNZ/TBNZ bit 0 branch if non-zero -> branch if C is set   -> B.cs.
   Register DstReg = MI.getOperand(0).getReg();
-  MachineBasicBlock *MBB = MI.getParent();
 
   // The HERB_CSET result must have exactly one use (the branch).
   MachineInstr *Branch = nullptr;
@@ -399,23 +398,36 @@ bool AArch64MIPeepholeOptImpl::visitHERB_CSET(MachineInstr &MI) {
     IsCBZ = true;
   else if (BrOpc == AArch64::CBNZW || BrOpc == AArch64::CBNZX)
     IsCBZ = false;
+  else if (BrOpc == AArch64::TBZW || BrOpc == AArch64::TBZX)
+    IsCBZ = true;
+  else if (BrOpc == AArch64::TBNZW || BrOpc == AArch64::TBNZX)
+    IsCBZ = false;
   else
     return false;
 
-  // CBZ branches on zero -> C is clear -> B.cc (AArch64CC::LO).
-  // CBNZ branches on non-zero -> C is set -> B.cs (AArch64CC::HS).
+  // For TBZ/TBNZ, only bit index 0 is equivalent to CBZ/CBNZ.
+  if (BrOpc == AArch64::TBZW || BrOpc == AArch64::TBZX ||
+      BrOpc == AArch64::TBNZW || BrOpc == AArch64::TBNZX) {
+    if (!Branch->getOperand(1).isImm() ||
+        Branch->getOperand(1).getImm() != 0)
+      return false;
+  }
+
+  // CBZ/TBZ branch on zero     -> C is clear -> B.cc (AArch64CC::LO).
+  // CBNZ/TBNZ branch on non-zero -> C is set   -> B.cs (AArch64CC::HS).
   AArch64CC::CondCode CC = IsCBZ ? AArch64CC::LO : AArch64CC::HS;
 
-  // Build the conditional branch.
-  BuildMI(*MBB, Branch, Branch->getDebugLoc(), TII->get(AArch64::Bcc))
-      .addImm(CC)
-      .addMBB(Branch->getOperand(Branch->getNumOperands() - 1).getMBB());
+  // Replace Branch with a Bcc in-place to avoid invalidating the run loop
+  // iterator (which may be pointing to Branch if it follows MI).
+  MachineBasicBlock *TargetMBB =
+      Branch->getOperand(Branch->getNumOperands() - 1).getMBB();
+  while (Branch->getNumOperands() > 0)
+    Branch->removeOperand(0);
+  Branch->setDesc(TII->get(AArch64::Bcc));
+  Branch->addOperand(MachineOperand::CreateImm(CC));
+  Branch->addOperand(MachineOperand::CreateMBB(TargetMBB));
 
-  LLVM_DEBUG(dbgs() << "Herbception: folded HERB_CSET + "
-                    << (IsCBZ ? "CBZ" : "CBNZ") << " into B."
-                    << (IsCBZ ? "cc" : "cs") << '\n');
-
-  Branch->eraseFromParent();
+  // Erase MI (the HERB_CSET). The run loop iterator is already past MI.
   MI.eraseFromParent();
   return true;
 }
