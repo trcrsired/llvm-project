@@ -37,10 +37,8 @@ define i64 @call_and_select(i64 %x) #1 {
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rax
 ; CHECK-NEXT:    callq ret_error@PLT
-; CHECK-NEXT:    setb %cl
-; CHECK-NEXT:    testb $1, %cl
 ; CHECK-NEXT:    movl $100, %ecx
-; CHECK-NEXT:    cmovneq %rcx, %rax
+; CHECK-NEXT:    cmovbq %rcx, %rax
 ; CHECK-NEXT:    popq %rcx
 ; CHECK-NEXT:    retq
 ; CHECK32-LABEL: call_and_select:

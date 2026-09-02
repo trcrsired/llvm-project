@@ -5515,42 +5515,75 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
            Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It)
         if (IsHarmlessAdjCallStack(*It))
           continue;
-        else if (It->modifiesRegister(X86::EFLAGS, TRI) ||
-                 It->readsRegister(DiscReg, TRI))
+        else if (It->readsRegister(DiscReg, TRI))
           Clean = false;
-      // Exactly one EFLAGS consumer before the next EFLAGS redefinition: a
-      // je/jne that can become jc/jae. Any other EFLAGS reader would observe
-      // the deleted TEST's flags.
-      MachineInstr *Br = nullptr;
-      X86::CondCode BrCC = X86::COND_INVALID;
+        else if (It->modifiesRegister(X86::EFLAGS, TRI)) {
+          if (!It->readsRegister(X86::EFLAGS, TRI))
+            continue;
+          Clean = false;
+        }
+      // Look for a single EFLAGS consumer (JCC or CMOV with E/NE condition)
+      // that reads the TEST's flags.  After the consumer, an EFLAGS modifier
+      // resets flag state, so subsequent EFLAGS readers observe the new flags
+      // and are harmless.
+      MachineInstr *Consumer = nullptr;
+      X86::CondCode ConsumerCC = X86::COND_INVALID;
+      bool IsCMOV = false;
+      bool FlagsRedefinedAfterConsumer = false;
       for (MachineBasicBlock::iterator It =
                std::next(MachineBasicBlock::iterator(CmpInstr));
            Clean && It != MBB->end();) {
-        if (It->readsRegister(X86::EFLAGS, TRI)) {
-          X86::CondCode OldCC = X86::getCondFromMI(*It);
-          if (!Br && OldCC != X86::COND_INVALID &&
-              (OldCC == X86::COND_E || OldCC == X86::COND_NE) &&
-              It->getOpcode() == X86::JCC_1) {
-            Br = &*It;
-            BrCC = OldCC;
+        bool ReadsEFLAGS = It->readsRegister(X86::EFLAGS, TRI);
+        bool ModifiesEFLAGS = It->modifiesRegister(X86::EFLAGS, TRI);
+        if (ReadsEFLAGS) {
+          if (!Consumer && !ModifiesEFLAGS) {
+            X86::CondCode OldCC = X86::getCondFromMI(*It);
+            if (OldCC != X86::COND_INVALID &&
+                (OldCC == X86::COND_E || OldCC == X86::COND_NE) &&
+                (It->getOpcode() == X86::JCC_1 ||
+                 X86::isCMOVCC(It->getOpcode()))) {
+              Consumer = &*It;
+              ConsumerCC = OldCC;
+              IsCMOV = X86::isCMOVCC(It->getOpcode());
+              ++It;
+              continue;
+            }
+          }
+          if (Consumer && !FlagsRedefinedAfterConsumer)
+            Clean = false;
+          break;
+        }
+        if (ModifiesEFLAGS) {
+          if (Consumer)
+            FlagsRedefinedAfterConsumer = true;
+          else if (!It->readsRegister(DiscReg, TRI)) {
+            // Harmless flag clobber before consumer (e.g. MOV32r0).
             ++It;
             continue;
+          } else {
+            Clean = false;
+            break;
           }
+        }
+        if (It->readsRegister(DiscReg, TRI)) {
           Clean = false;
           break;
         }
-        if (It->modifiesRegister(X86::EFLAGS, TRI))
-          break;
         ++It;
       }
-      if (Clean && Br) {
+      if (Clean && Consumer) {
         // testb $1, %disc sets ZF iff the discriminant bit is zero, i.e. iff
-        // CF was clear. je therefore corresponds to jae (CF clear) and jne to
-        // jb (CF set).
-        Br->getOperand(1).setImm(BrCC == X86::COND_E ? X86::COND_AE
-                                                     : X86::COND_B);
-        LLVM_DEBUG(dbgs() << "Herbception: folded setb/test/jcc into j"
-                          << (BrCC == X86::COND_E ? "ae" : "b") << '\n');
+        // CF was clear. je/cmove therefore corresponds to jae/cmovae (CF clear)
+        // and jne/cmovne to jb/cmovb (CF set).
+        X86::CondCode NewCC = (ConsumerCC == X86::COND_E) ? X86::COND_AE
+                                                          : X86::COND_B;
+        const MCInstrDesc &Desc = Consumer->getDesc();
+        int CondOpIdx = X86::getCondSrcNoFromDesc(Desc);
+        if (CondOpIdx >= 0)
+          Consumer->getOperand(CondOpIdx + Desc.getNumDefs()).setImm(NewCC);
+        LLVM_DEBUG(dbgs() << "Herbception: folded setb/test into "
+                          << (IsCMOV ? "cmov" : "j")
+                          << (ConsumerCC == X86::COND_E ? "ae" : "b") << '\n');
         CmpInstr.eraseFromParent();
         SetB->eraseFromParent();
         return true;
