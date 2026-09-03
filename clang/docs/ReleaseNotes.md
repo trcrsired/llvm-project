@@ -166,6 +166,8 @@ features cannot lower the translation-unit ABI level;
   and deprecate `memory_order::consume`) by removing support for the
   `[[carries_dependency]]` attribute.
 
+- Clang now supports iterating expansion statements.
+
 #### C++23 Feature Support
 
 #### C++20 Feature Support

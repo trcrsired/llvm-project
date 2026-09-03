@@ -9681,14 +9681,14 @@ StmtResult TreeTransform<Derived>::TransformCXXExpansionStmtPattern(
           getDerived().TransformExpr(S->getExpansionInitializer());
       if (ExpansionInitializer.isInvalid())
         return StmtError();
+
+      ExpansionInitializer =
+          SemaRef.MaybeCreateExprWithCleanups(ExpansionInitializer);
     } else if (S->isIterating()) {
       Range = TransformStmtInParentContext(S->getRangeVarStmt());
       if (Range.isInvalid())
         return StmtError();
     }
-
-    ExpansionInitializer =
-        SemaRef.MaybeCreateExprWithCleanups(ExpansionInitializer);
 
     LifetimeExtendTemps =
         SemaRef.currentEvaluationContext().ForRangeLifetimeExtendTemps;
