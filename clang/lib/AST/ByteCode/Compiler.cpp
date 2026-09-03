@@ -5911,7 +5911,7 @@ bool Compiler<Emitter>::visitAPValue(const APValue &Val, PrimType ValType,
                 return false;
             } else {
               // Must be a virtual base.
-              assert(EntryRecord->getVirtualBase(Base));
+              assert(EntryRecord->findVirtualBase(Base));
               if (!this->emitGetPtrVirtBasePop(Base, Info))
                 return false;
             }
@@ -7464,7 +7464,7 @@ bool Compiler<Emitter>::compileConstructor(const CXXConstructorDecl *Ctor) {
           Base && Init->isBaseVirtual()) {
         const auto *BaseDecl = Base->getAsCXXRecordDecl();
         assert(BaseDecl);
-        assert(R->getVirtualBase(BaseDecl));
+        assert(R->findVirtualBase(BaseDecl));
         if (!this->emitGetPtrThisVirtBase(BaseDecl, Ctor))
           return false;
         if (!this->visitInitializerPop(Init->getInit()))
