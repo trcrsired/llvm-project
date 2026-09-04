@@ -183,7 +183,6 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::CXXThrowExprClass:
   case Expr::CXXErrorValueExprClass:
   case Expr::CXXCxaExceptionExprClass:
-  case Expr::CXXTryExprClass:
   case Expr::CXXCatchReturnFailureExprClass:
   case Expr::ShuffleVectorExprClass:
   case Expr::ConvertVectorExprClass:
@@ -235,6 +234,16 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   // Make HLSL this reference-like
   case Expr::CXXThisExprClass:
     return Lang.HLSL ? Cl::CL_LValue : Cl::CL_PRValue;
+
+  // herbceptions: the success value of a CXXTryExpr preserves the value
+  // kind of its underlying call (lvalue for T& returns, xvalue for T&&
+  // returns, prvalue otherwise).
+  case Expr::CXXTryExprClass:
+    if (E->isLValue())
+      return Cl::CL_LValue;
+    if (E->isXValue())
+      return Cl::CL_XValue;
+    return Cl::CL_PRValue;
 
   case Expr::ConstantExprClass:
     return ClassifyInternal(Ctx, cast<ConstantExpr>(E)->getSubExpr());

@@ -1180,13 +1180,30 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
   // The payload slot must be able to hold either the success value T or the
   // error value E, so it is sized for the larger of the two. For a void
   // return type the payload is just the error type.
+  //
+  // Reference return types (T& / T&&) cannot be materialized: a reference is
+  // an alias, not a value, so wrapping it in {T, i1} and copying it into a
+  // temporary would break reference identity and reject the caller's
+  // reference binding ("non-const lvalue reference cannot bind to a
+  // temporary"). Preserve the pointer directly and carry the discriminant
+  // alongside it as {ptr, i1}.
   if (HasThrowsReturn) {
     llvm::Type *RetTy = ConvertType(FI->getReturnType());
-    if (RetTy->isVoidTy())
+    if (FI->getReturnType()->getAs<ReferenceType>()) {
+      // Reference: the success value is already a pointer; preserve it
+      // directly (avoiding materialization that would break reference
+      // identity and reject the caller's reference binding).
+      RetTy = llvm::PointerType::getUnqual(getLLVMContext());
+    } else if (RetTy->isVoidTy()) {
       RetTy = ErrorType;
-    else if (ErrorType &&
-             CGM.getDataLayout().getTypeAllocSize(ErrorType) >
-                 CGM.getDataLayout().getTypeAllocSize(RetTy))
+    }
+    // The slot must be wide enough to carry either the success payload
+    // or the error payload in-place. Size the first element to
+    // max(sizeof(success), sizeof(error)) so the error survives a
+    // throwing reference-returning callee.
+    if (ErrorType &&
+        CGM.getDataLayout().getTypeAllocSize(ErrorType) >
+            CGM.getDataLayout().getTypeAllocSize(RetTy))
       RetTy = ErrorType;
     llvm::StructType *StructTy = llvm::StructType::get(
         getLLVMContext(),
@@ -3142,17 +3159,29 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   if (!IsThunk) {
     // FIXME: fix this properly, https://reviews.llvm.org/D100388
     if (const auto *RefTy = RetTy->getAs<ReferenceType>()) {
-      QualType PTy = RefTy->getPointeeType();
-      if (!PTy->isIncompleteType() && PTy->isConstantSizeType())
-        RetAttrs.addDereferenceableAttr(
-            getMinimumObjectSize(PTy).getQuantity());
-      if (getTypes().getTargetAddressSpace(PTy) == 0 &&
-          !CodeGenOpts.NullPointerIsValid)
-        RetAttrs.addAttribute(llvm::Attribute::NonNull);
-      if (PTy->isObjectType()) {
-        llvm::Align Alignment =
-            getNaturalPointeeTypeAlignment(RetTy).getAsAlign();
-        RetAttrs.addAlignmentAttr(Alignment);
+      // herbceptions: when the function returns through a throws slot, the
+      // actual LLVM return type is the slot aggregate ({ptr, i1}) which
+      // does not carry reference semantics. The C++ reference attributes
+      // (nonnull, dereferenceable, align) do not apply to the slot itself
+      // and are wrong when stamped onto the aggregate.
+      if (FI.hasThrowsReturn()) {
+        // The first slot element still holds a non-null pointer to the
+        // caller's referent, so carry the attributes with the slot's
+        // first member in lieu of the aggregate.
+        // (Skipped: callers downstream decode the slot anyway.)
+      } else {
+        QualType PTy = RefTy->getPointeeType();
+        if (!PTy->isIncompleteType() && PTy->isConstantSizeType())
+          RetAttrs.addDereferenceableAttr(
+              getMinimumObjectSize(PTy).getQuantity());
+        if (getTypes().getTargetAddressSpace(PTy) == 0 &&
+            !CodeGenOpts.NullPointerIsValid)
+          RetAttrs.addAttribute(llvm::Attribute::NonNull);
+        if (PTy->isObjectType()) {
+          llvm::Align Alignment =
+              getNaturalPointeeTypeAlignment(RetTy).getAsAlign();
+          RetAttrs.addAlignmentAttr(Alignment);
+        }
       }
     }
   }

@@ -1415,8 +1415,14 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
     }
   }
 
-  return new (Context) CXXTryExpr(Ex, Ty, TryLoc, /*IsLValue=*/false,
-                                  ErrorDomain);
+  // Preserve reference identity: a `T&` / `T&&` return through `throws` is
+  // still a reference to the caller's referent, not a temporary. Without this
+  // the auto-propagation wrapper would materialize the reference as a
+  // prvalue and the caller's `return inner_call();` would later fail with
+  // "non-const lvalue reference cannot bind to a temporary".
+  ExprValueKind VK = Ex->getValueKind();
+
+  return new (Context) CXXTryExpr(Ex, Ty, TryLoc, VK, ErrorDomain);
 }
 
 ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,

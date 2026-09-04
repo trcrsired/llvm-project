@@ -2035,14 +2035,45 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   // struct and the other uses opaque ptr). A value bitcast between such
   // types is invalid IR under opaque pointers, so coerce through memory
   // instead.
+  //
+  // The slot's first element may be wider than the success value (e.g.
+  // for reference returns the success is a single pointer but the slot
+  // is sized to hold the full error). In that case we store the success
+  // value at the slot's address and zero the trailing bytes.
   auto CoerceToSlot = [this](llvm::Value *V, Address Slot) -> llvm::Value * {
-    if (V->getType() == Slot.getElementType())
+    llvm::Type *SlotElTy = Slot.getElementType();
+    if (V->getType() == SlotElTy)
       return V;
-    Address Tmp =
-        CreateDefaultAlignTempAlloca(V->getType(), "herb.coerce");
-    auto *SI = Builder.CreateStore(V, Tmp);
-    addInstToCurrentSourceAtom(SI, SI->getValueOperand());
-    return Builder.CreateLoad(Tmp.withElementType(Slot.getElementType()));
+    unsigned SrcSize =
+        CGM.getDataLayout().getTypeAllocSize(V->getType());
+    unsigned DstSize = CGM.getDataLayout().getTypeAllocSize(SlotElTy);
+    if (SrcSize == DstSize) {
+      // Same size, different types (e.g. named vs opaque struct):
+      // round-trip through a temp of the source type.
+      Address Tmp =
+          CreateDefaultAlignTempAlloca(V->getType(), "herb.coerce");
+      auto *SI = Builder.CreateStore(V, Tmp);
+      addInstToCurrentSourceAtom(SI, SI->getValueOperand());
+      return Builder.CreateLoad(Tmp.withElementType(SlotElTy));
+    }
+    // Different sizes: store the source value at the slot's address and
+    // zero the trailing bytes so the wider slot carries a well-defined
+    // payload (callers may inspect the unused bytes through a different
+    // type when the discriminant changes meaning).
+    Builder.CreateStore(V, Slot.withElementType(V->getType()));
+    if (DstSize > SrcSize) {
+      // Zero the trailing bytes with memset.
+      llvm::Type *I8 = llvm::Type::getInt8Ty(CGM.getLLVMContext());
+      Address SlotAsI8 = Slot.withElementType(I8);
+      Address Tail =
+          Builder.CreateConstInBoundsGEP(SlotAsI8, SrcSize, "herb.coerce.tail");
+      Builder.CreateMemSet(
+          Tail, llvm::ConstantInt::get(I8, 0),
+          llvm::ConstantInt::get(llvm::Type::getInt64Ty(CGM.getLLVMContext()),
+                                 DstSize - SrcSize),
+          false);
+    }
+    return Builder.CreateLoad(Slot);
   };
 
   EmitBlock(ErrBB);
