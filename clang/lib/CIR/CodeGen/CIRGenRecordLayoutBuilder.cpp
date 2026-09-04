@@ -22,6 +22,7 @@
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDataLayout.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/CodeGenUtils/CodeGenUtils.h"
 #include "llvm/Support/Casting.h"
 
 #include <memory>
@@ -111,10 +112,6 @@ struct CIRRecordLowering final {
                       RecordDecl::field_iterator fieldEnd);
 
   mlir::Type getVFPtrType();
-
-  bool isAAPCS() const {
-    return astContext.getTargetInfo().getABI().starts_with("aapcs");
-  }
 
   /// Helper function to check if the target machine is BigEndian.
   bool isBigEndian() const { return astContext.getTargetInfo().isBigEndian(); }
@@ -693,16 +690,14 @@ void CIRRecordLowering::accumulateFields(bool nonVirtualBaseType) {
       // not a horrifyingly problematic issue.
       assert(!cir::MissingFeatures::noUniqueAddressLayout());
       // Dropping the field leaves no member to mark, so its bytes read as
-      // padding.  That is only sound when the field carries no ABI data
-      // either, which isEmptyFieldForLayout does not guarantee.  Report the
-      // gap rather than claim an emptiness the record does not have.  The base
-      // subobject lowering sees the same field, so only the complete object
-      // reports it.
-      if (!nonVirtualBaseType && !isEmptyFieldForABI(astContext, *field))
-        cirGenTypes.getCGModule().errorNYI(
-            field->getSourceRange(),
-            "[[no_unique_address]] field that is empty for layout but holds "
-            "data for the ABI");
+      // padding.  That is only sound when the field carries no ABI data, so
+      // make sure we add a member for it. if it does.
+      if (!isEmptyFieldForABI(astContext, *field))
+        members.push_back(
+            MemberInfo(bitsToCharUnits(getFieldBitOffset(*field)),
+                       MemberInfo::InfoKind::Field,
+                       getStorageType(field->getType()->getAsCXXRecordDecl()),
+                       getFieldMemberKind(*field), *field));
       ++field;
     } else {
       // Use base subobject layout for potentially-overlapping fields,
@@ -1093,7 +1088,7 @@ bool CIRRecordLowering::hasOwnStorage(const CXXRecordDecl *decl,
 /// Enforcing the width restriction can be disabled using
 /// -fno-aapcs-bitfield-width.
 void CIRRecordLowering::computeVolatileBitfields() {
-  if (!isAAPCS() ||
+  if (!CodeGenUtils::isAAPCS(astContext.getTargetInfo()) ||
       !cirGenTypes.getCGModule().getCodeGenOpts().AAPCSBitfieldWidth)
     return;
 
