@@ -17,6 +17,7 @@
 
 #include "clang/AST/CanonicalType.h"
 #include "clang/CIR/ABIArgInfo.h"
+#include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/Support/TrailingObjects.h"
@@ -84,6 +85,12 @@ public:
 class CIRGenFunctionInfo final
     : public llvm::FoldingSetNode,
       private llvm::TrailingObjects<CIRGenFunctionInfo, CanQualType> {
+  /// The CIR-level calling convention to use for this function.
+  unsigned callingConvention : 8;
+
+  /// The AST-level calling convention this function was declared with.
+  unsigned astCallingConvention : 8;
+
   // Whether this function has noreturn.
   LLVM_PREFERRED_TYPE(bool)
   unsigned noReturn : 1;
@@ -115,13 +122,14 @@ class CIRGenFunctionInfo final
     // here instead of explicit false/0.
     return FunctionType::ExtInfo(
         isNoReturn(), /*getHasRegParm=*/false, /*getRegParm=*/false,
-        /*getASTCallingConvention=*/CallingConv(0), /*isReturnsRetained=*/false,
+        getASTCallingConvention(), /*isReturnsRetained=*/false,
         /*isNoCallerSavedRegs=*/false, /*isNoCfCheck=*/false,
         /*isCmseNSCall=*/false);
   }
 
 public:
-  static CIRGenFunctionInfo *create(FunctionType::ExtInfo info,
+  static CIRGenFunctionInfo *create(cir::CallingConv cirCC,
+                                    FunctionType::ExtInfo info,
                                     bool instanceMethod, CanQualType resultType,
                                     llvm::ArrayRef<CanQualType> argTypes,
                                     RequiredArgs required,
@@ -144,6 +152,7 @@ public:
                       FunctionType::ExtInfo info, RequiredArgs required,
                       CanQualType resultType,
                       llvm::ArrayRef<CanQualType> argTypes) {
+    id.AddInteger(info.getCC());
     id.AddBoolean(instanceMethod);
     id.AddBoolean(info.getNoReturn());
     id.AddBoolean(throwsReturn);
@@ -208,6 +217,14 @@ public:
   bool isInstanceMethod() const { return instanceMethod; }
   bool hasThrowsReturn() const { return throwsReturn; }
   mlir::Type getHerbceptionErrorType() const { return herbceptionErrorTy; }
+
+  cir::CallingConv getCallingConvention() const {
+    return static_cast<cir::CallingConv>(callingConvention);
+  }
+
+  CallingConv getASTCallingConvention() const {
+    return static_cast<CallingConv>(astCallingConvention);
+  }
 };
 
 } // namespace clang::CIRGen
