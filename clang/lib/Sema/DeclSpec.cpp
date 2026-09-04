@@ -240,6 +240,7 @@ DeclaratorChunk DeclaratorChunk::getFunction(bool hasProto,
     break;
 
   case EST_DependentNoexcept:
+  case EST_DependentThrows:
   case EST_NoexceptFalse:
   case EST_NoexceptTrue:
     I.Fun.NoexceptExpr = NoexceptExpr;

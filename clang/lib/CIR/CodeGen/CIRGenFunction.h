@@ -2018,6 +2018,16 @@ public:
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
 
+  /// Coerce the active low bytes of a herbception payload to another shaped
+  /// payload representation without reading beyond either object.  The
+  /// Address overload is used while routing an already-materialized callee
+  /// result; the value overload is used while constructing a shaped return.
+  mlir::Value coerceHerbceptionPayload(mlir::Location loc, Address source,
+                                       mlir::Type destinationType);
+  mlir::Value coerceHerbceptionPayload(mlir::Location loc,
+                                       mlir::Value source,
+                                       mlir::Type destinationType);
+
   /// Herbception (throws): wrap the plain return payload into the function's
   /// shaped {T, i1} result record, with the discriminant set to false.
   mlir::Value wrapHerbceptionReturnValue(mlir::Location loc,

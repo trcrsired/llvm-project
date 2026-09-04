@@ -192,6 +192,24 @@ public:
   }
   ComplexPairTy VisitCallExpr(const CallExpr *E);
   ComplexPairTy VisitStmtExpr(const StmtExpr *E);
+  ComplexPairTy VisitCXXTryExpr(const CXXTryExpr *E) {
+    // A complex reference is decoded as one pointer, not a complex pair.
+    // Match ordinary reference-returning CallExpr consumption: dispatch the
+    // fallible call once through EmitLValue, then load the real and imaginary
+    // components from its referent only on the successful edge.
+    if (E->isGLValue())
+      return EmitLoadOfLValue(E);
+
+    // A Herbception try-expression is a control-flow expression, but its
+    // successful arm remains an ordinary complex value.  Route it through
+    // the common shaped-call decoder so the real and imaginary components
+    // come from the first call's success payload rather than asking the
+    // generic complex visitor to re-emit the operand.
+    RValue RV = CGF.EmitHerbceptionTry(E);
+    assert(RV.isComplex() &&
+           "complex try-expression produced a non-complex value");
+    return RV.getComplexVal();
+  }
 
   // Operators.
   ComplexPairTy VisitPrePostIncDec(const UnaryOperator *E, bool isInc,

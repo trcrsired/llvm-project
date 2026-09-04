@@ -2,6 +2,7 @@
 #include "clang/AST/ASTStructuralEquivalence.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Testing/CommandLineArgs.h"
@@ -24,10 +25,12 @@ struct StructuralEquivalenceTest : ::testing::Test {
   // Parses the source code in the specified language and sets the ASTs of
   // the current test instance to the parse result.
   void makeASTUnits(const std::string &SrcCode0, const std::string &SrcCode1,
-                    TestLanguage Lang) {
+                    TestLanguage Lang, ArrayRef<const char *> ExtraArgs = {}) {
     this->Code0 = SrcCode0;
     this->Code1 = SrcCode1;
     std::vector<std::string> Args = getCommandLineArgsForTesting(Lang);
+    for (const char *Arg : ExtraArgs)
+      Args.push_back(Arg);
 
     const char *const InputFileName = "input.cc";
 
@@ -80,6 +83,38 @@ struct StructuralEquivalenceTest : ::testing::Test {
                  TestLanguage Lang, const char *const Identifier = "foo") {
     auto Matcher = namedDecl(hasName(Identifier));
     return makeDecls<NamedDecl>(SrcCode0, SrcCode1, Lang, Matcher);
+  }
+
+  std::tuple<NamedDecl *, NamedDecl *>
+  makeHerbceptionNamedDecls(const std::string &SrcCode0,
+                            const std::string &SrcCode1,
+                            const char *const Identifier = "foo") {
+    makeASTUnits(SrcCode0, SrcCode1, Lang_CXX20, {"-fherbceptions"});
+    auto Matcher = namedDecl(hasName(Identifier));
+    NamedDecl *D0 = FirstDeclMatcher<NamedDecl>().match(
+        AST0->getASTContext().getTranslationUnitDecl(), Matcher);
+    NamedDecl *D1 = FirstDeclMatcher<NamedDecl>().match(
+        AST1->getASTContext().getTranslationUnitDecl(), Matcher);
+    return std::make_tuple(D0, D1);
+  }
+
+  std::tuple<FunctionDecl *, FunctionDecl *>
+  makeHerbceptionFunctionDecls(const std::string &SrcCode0,
+                               const std::string &SrcCode1,
+                               const char *const Identifier = "foo") {
+    makeASTUnits(SrcCode0, SrcCode1, Lang_CXX20, {"-fherbceptions"});
+    auto Matcher = functionDecl(hasName(Identifier));
+    FunctionDecl *D0 = FirstDeclMatcher<FunctionDecl>().match(
+        AST0->getASTContext().getTranslationUnitDecl(), Matcher);
+    FunctionDecl *D1 = FirstDeclMatcher<FunctionDecl>().match(
+        AST1->getASTContext().getTranslationUnitDecl(), Matcher);
+    return std::make_tuple(D0, D1);
+  }
+
+  static unsigned calculateFunctionODRHash(const FunctionDecl *FD) {
+    ODRHash Hash;
+    Hash.AddFunctionDecl(FD);
+    return Hash.CalculateHash();
   }
 
   // Wraps a Stmt and the ASTContext that contains it.
@@ -359,21 +394,21 @@ TEST_F(StructuralEquivalenceFunctionTest, Noexcept) {
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, ThrowVsNoexcept) {
-  auto t = makeNamedDecls("void foo() throw();",
-                          "void foo() noexcept;", Lang_CXX11);
-  EXPECT_FALSE(testStructuralMatch(t));
+  auto t =
+      makeNamedDecls("void foo() throw();", "void foo() noexcept;", Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, ThrowVsNoexceptFalse) {
-  auto t = makeNamedDecls("void foo() throw();",
-                          "void foo() noexcept(false);", Lang_CXX11);
+  auto t = makeNamedDecls("void foo() throw();", "void foo() noexcept(false);",
+                          Lang_CXX11);
   EXPECT_FALSE(testStructuralMatch(t));
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, ThrowVsNoexceptTrue) {
-  auto t = makeNamedDecls("void foo() throw();",
-                          "void foo() noexcept(true);", Lang_CXX11);
-  EXPECT_FALSE(testStructuralMatch(t));
+  auto t = makeNamedDecls("void foo() throw();", "void foo() noexcept(true);",
+                          Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, NoexceptNonMatch) {
@@ -389,15 +424,132 @@ TEST_F(StructuralEquivalenceFunctionTest, NoexceptMatch) {
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, NoexceptVsNoexceptFalse) {
-  auto t = makeNamedDecls("void foo() noexcept;",
-                          "void foo() noexcept(false);", Lang_CXX11);
+  auto t = makeNamedDecls("void foo() noexcept;", "void foo() noexcept(false);",
+                          Lang_CXX11);
   EXPECT_FALSE(testStructuralMatch(t));
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, NoexceptVsNoexceptTrue) {
-  auto t = makeNamedDecls("void foo() noexcept;",
-                          "void foo() noexcept(true);", Lang_CXX11);
-  EXPECT_FALSE(testStructuralMatch(t));
+  auto t = makeNamedDecls("void foo() noexcept;", "void foo() noexcept(true);",
+                          Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, NoneVsNoexceptFalse) {
+  auto t =
+      makeNamedDecls("void foo();", "void foo() noexcept(false);", Lang_CXX11);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest,
+       HerbceptionResolvedExceptionSpecsUseSemanticIdentity) {
+  auto Decls = makeHerbceptionFunctionDecls("int foo() throws;",
+                                            "int foo() throws(true);");
+  EXPECT_TRUE(testStructuralMatch(Decls));
+  EXPECT_EQ(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls = makeHerbceptionFunctionDecls("int foo() throws(false);",
+                                       "int foo() noexcept;");
+  EXPECT_TRUE(testStructuralMatch(Decls));
+  EXPECT_EQ(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls =
+      makeHerbceptionFunctionDecls("int foo() throws(false);", "int foo();");
+  EXPECT_FALSE(testStructuralMatch(Decls));
+  EXPECT_NE(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls =
+      makeHerbceptionFunctionDecls("int foo();", "int foo() noexcept(false);");
+  EXPECT_TRUE(testStructuralMatch(Decls));
+  EXPECT_EQ(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest,
+       HerbceptionTypedPayloadUsesCanonicalOrderedTypes) {
+  auto Decls =
+      makeHerbceptionFunctionDecls("using error_alias = int; "
+                                   "int foo() return_failure{error_alias};",
+                                   "int foo() return_failure{int};");
+  EXPECT_TRUE(testStructuralMatch(Decls));
+  EXPECT_EQ(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls = makeHerbceptionFunctionDecls("int foo() return_failure{int};",
+                                       "int foo() return_failure{const int};");
+  EXPECT_TRUE(testStructuralMatch(Decls));
+  EXPECT_EQ(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls =
+      makeHerbceptionFunctionDecls("int foo() return_failure{int *};",
+                                   "int foo() return_failure{const int *};");
+  EXPECT_FALSE(testStructuralMatch(Decls));
+  EXPECT_NE(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls = makeHerbceptionFunctionDecls("int foo() return_failure{int};",
+                                       "int foo() return_failure{long};");
+  EXPECT_FALSE(testStructuralMatch(Decls));
+  EXPECT_NE(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest,
+       HerbceptionDependentThrowsHashesItsCondition) {
+  auto Decls = makeHerbceptionFunctionDecls(
+      "template <bool Enabled> int foo() throws(Enabled);",
+      "template <bool Enabled> int foo() throws(Enabled);");
+  EXPECT_TRUE(testStructuralMatch(Decls));
+  EXPECT_EQ(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+
+  Decls = makeHerbceptionFunctionDecls(
+      "template <bool Enabled> int foo() throws(Enabled);",
+      "template <bool Enabled> int foo() throws(!Enabled);");
+  EXPECT_FALSE(testStructuralMatch(Decls));
+  EXPECT_NE(calculateFunctionODRHash(std::get<0>(Decls)),
+            calculateFunctionODRHash(std::get<1>(Decls)));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest,
+       HerbceptionTypedPayloadIsStructurallySignificant) {
+  auto Decls = makeHerbceptionNamedDecls("int foo() return_failure{int};",
+                                         "int foo() return_failure{long};");
+  EXPECT_FALSE(testStructuralMatch(Decls));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest,
+       HerbceptionFunctionTypeChangesODRHash) {
+  // The only source difference is a function type embedded in the body. This
+  // exercises ODRTypeVisitor rather than declaration type comparison.
+  auto Decls = makeHerbceptionNamedDecls(
+      "inline int foo() { "
+      "return sizeof(int (*)() return_failure{int}); }",
+      "inline int foo() { "
+      "return sizeof(int (*)() return_failure{long}); }");
+
+  ODRHash Hash0;
+  Hash0.AddFunctionDecl(cast<FunctionDecl>(std::get<0>(Decls)));
+  const unsigned Value0 = Hash0.CalculateHash();
+  ODRHash Hash1;
+  Hash1.AddFunctionDecl(cast<FunctionDecl>(std::get<1>(Decls)));
+  const unsigned Value1 = Hash1.CalculateHash();
+  EXPECT_NE(Value0, Value1);
+
+  // Direct function specifications must also perturb the declaration hash;
+  // their payload controls the callee's physical shaped return type.
+  Decls = makeHerbceptionNamedDecls(
+      "inline int foo() return_failure{int} { return 0; }",
+      "inline int foo() return_failure{long} { return 0; }");
+  Hash0.clear();
+  Hash0.AddFunctionDecl(cast<FunctionDecl>(std::get<0>(Decls)));
+  Hash1.clear();
+  Hash1.AddFunctionDecl(cast<FunctionDecl>(std::get<1>(Decls)));
+  EXPECT_NE(Hash0.CalculateHash(), Hash1.CalculateHash());
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, ReturnType) {

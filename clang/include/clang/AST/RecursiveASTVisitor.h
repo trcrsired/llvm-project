@@ -1111,8 +1111,8 @@ DEF_TRAVERSE_TYPE(FunctionProtoType, {
     TRY_TO(TraverseType(E));
   }
 
-  if (Expr *NE = T->getNoexceptExpr())
-    TRY_TO(TraverseStmt(NE));
+  if (Expr *E = T->getExceptionSpecExpr())
+    TRY_TO(TraverseStmt(E));
 })
 
 DEF_TRAVERSE_TYPE(UsingType, {
@@ -1436,8 +1436,8 @@ DEF_TRAVERSE_TYPELOC(FunctionProtoType, {
     TRY_TO(TraverseType(E));
   }
 
-  if (Expr *NE = T->getNoexceptExpr())
-    TRY_TO(TraverseStmt(NE));
+  if (Expr *E = T->getExceptionSpecExpr())
+    TRY_TO(TraverseStmt(E));
 })
 
 DEF_TRAVERSE_TYPELOC(UsingType, {
@@ -2918,8 +2918,8 @@ DEF_TRAVERSE_STMT(LambdaExpr, {
     for (const auto &E : T->exceptions())
       TRY_TO(TraverseType(E));
 
-    if (Expr *NE = T->getNoexceptExpr())
-      TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(NE);
+    if (Expr *E = T->getExceptionSpecExpr())
+      TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(E);
 
     if (S->hasExplicitResultType())
       TRY_TO(TraverseTypeLoc(Proto.getReturnLoc()));
@@ -2992,14 +2992,13 @@ DEF_TRAVERSE_STMT(CXXPseudoDestructorExpr, {
 
 DEF_TRAVERSE_STMT(CXXThisExpr, {})
 DEF_TRAVERSE_STMT(CXXThrowExpr, {})
-DEF_TRAVERSE_STMT(CXXErrorValueExpr, {
-  TRY_TO(TraverseStmt(S->getOperand()));
-  TRY_TO(TraverseStmt(S->getDomainCall()));
-  TRY_TO(TraverseStmt(S->getCodeCall()));
-})
+// Herbception expression nodes expose every evaluated subexpression through
+// children(); adding explicit traversal here would visit the same AST edges
+// twice and violate RecursiveASTVisitor's ordinary exactly-once contract.
+DEF_TRAVERSE_STMT(CXXErrorValueExpr, {})
 DEF_TRAVERSE_STMT(CXXCxaExceptionExpr, {})
-DEF_TRAVERSE_STMT(CXXTryExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
-DEF_TRAVERSE_STMT(CXXCatchReturnFailureExpr, { TRY_TO(TraverseStmt(S->getSubExpr())); })
+DEF_TRAVERSE_STMT(CXXTryExpr, {})
+DEF_TRAVERSE_STMT(CXXCatchReturnFailureExpr, {})
 DEF_TRAVERSE_STMT(UserDefinedLiteral, {})
 DEF_TRAVERSE_STMT(DesignatedInitExpr, {})
 DEF_TRAVERSE_STMT(DesignatedInitUpdateExpr, {})

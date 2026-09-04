@@ -864,6 +864,34 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
 }
 
 /// Check the equivalence of exception specifications.
+static ExceptionSpecificationType
+normalizeExceptionSpecForODR(ExceptionSpecificationType EST) {
+  // Structural equivalence models semantic function-type identity, not the
+  // spelling that produced an already-resolved exception specification.
+  // Dependent conditions deliberately remain unnormalized so their expression
+  // continues to participate in the comparison below.
+  switch (EST) {
+  case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+    return EST_BasicThrows;
+
+  case EST_BasicThrowsFalse:
+  case EST_DynamicNone:
+  case EST_BasicNoexcept:
+  case EST_NoexceptTrue:
+  case EST_NoThrow:
+    return EST_DynamicNone;
+
+  case EST_None:
+  case EST_NoexceptFalse:
+  case EST_MSAny:
+    return EST_None;
+
+  default:
+    return EST;
+  }
+}
+
 static bool IsEquivalentExceptionSpec(StructuralEquivalenceContext &Context,
                                       const FunctionProtoType *Proto1,
                                       const FunctionProtoType *Proto2) {
@@ -874,6 +902,8 @@ static bool IsEquivalentExceptionSpec(StructuralEquivalenceContext &Context,
   if (isUnresolvedExceptionSpec(Spec1) || isUnresolvedExceptionSpec(Spec2))
     return true;
 
+  Spec1 = normalizeExceptionSpecForODR(Spec1);
+  Spec2 = normalizeExceptionSpecForODR(Spec2);
   if (Spec1 != Spec2)
     return false;
   if (Spec1 == EST_Dynamic) {
@@ -884,9 +914,27 @@ static bool IsEquivalentExceptionSpec(StructuralEquivalenceContext &Context,
                                     Proto2->getExceptionType(I)))
         return false;
     }
-  } else if (isComputedNoexcept(Spec1)) {
-    if (!IsStructurallyEquivalent(Context, Proto1->getNoexceptExpr(),
-                                  Proto2->getNoexceptExpr()))
+  } else if (Spec1 == EST_ThrowsTyped) {
+    // EST_ThrowsTyped stores its error payload in the exception-type array.
+    // Compare its ordered, canonical, top-level-unqualified type list so
+    // aliases and exception-type cv-adjustment denote the same ABI. Qualifiers
+    // below the top level remain significant, including when strict source
+    // spelling comparison was requested for the surrounding import operation.
+    if (Proto1->getNumExceptions() != Proto2->getNumExceptions())
+      return false;
+    for (unsigned I = 0, N = Proto1->getNumExceptions(); I != N; ++I) {
+      QualType Type1 =
+          Context.FromCtx.getCanonicalType(Proto1->getExceptionType(I))
+              .getUnqualifiedType();
+      QualType Type2 =
+          Context.ToCtx.getCanonicalType(Proto2->getExceptionType(I))
+              .getUnqualifiedType();
+      if (!IsStructurallyEquivalent(Context, Type1, Type2))
+        return false;
+    }
+  } else if (hasExceptionSpecificationExpr(Spec1)) {
+    if (!IsStructurallyEquivalent(Context, Proto1->getExceptionSpecExpr(),
+                                  Proto2->getExceptionSpecExpr()))
       return false;
   }
 

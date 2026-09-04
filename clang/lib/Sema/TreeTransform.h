@@ -6938,8 +6938,9 @@ bool TreeTransform<Derived>::TransformExceptionSpec(
     SmallVectorImpl<QualType> &Exceptions, bool &Changed) {
   assert(ESI.Type != EST_Uninstantiated && ESI.Type != EST_Unevaluated);
 
-  // Instantiate a dynamic noexcept expression, if any.
-  if (isComputedNoexcept(ESI.Type)) {
+  // Instantiate a conditional noexcept or throws expression, if any.
+  if (hasExceptionSpecificationExpr(ESI.Type)) {
+    const bool IsThrowsCondition = isComputedThrows(ESI.Type);
     // Update this scrope because ContextDecl in Sema will be used in
     // TransformExpr.
     auto *Method = dyn_cast_if_present<CXXMethodDecl>(ESI.SourceTemplate);
@@ -6949,20 +6950,78 @@ bool TreeTransform<Derived>::TransformExceptionSpec(
         Method != nullptr);
     EnterExpressionEvaluationContext Unevaluated(
         getSema(), Sema::ExpressionEvaluationContext::ConstantEvaluated);
-    ExprResult NoexceptExpr = getDerived().TransformExpr(ESI.NoexceptExpr);
-    if (NoexceptExpr.isInvalid())
+    ExprResult ConditionExpr = getDerived().TransformExpr(ESI.NoexceptExpr);
+    if (ConditionExpr.isInvalid())
       return true;
 
     ExceptionSpecificationType EST = ESI.Type;
-    NoexceptExpr =
-        getSema().ActOnNoexceptSpec(NoexceptExpr.get(), EST);
-    if (NoexceptExpr.isInvalid())
+    ConditionExpr = IsThrowsCondition
+                        ? getSema().ActOnThrowsSpec(ConditionExpr.get(), EST)
+                        : getSema().ActOnNoexceptSpec(ConditionExpr.get(), EST);
+    if (ConditionExpr.isInvalid())
       return true;
 
-    if (ESI.NoexceptExpr != NoexceptExpr.get() || EST != ESI.Type)
+    if (ESI.NoexceptExpr != ConditionExpr.get() || EST != ESI.Type)
       Changed = true;
-    ESI.NoexceptExpr = NoexceptExpr.get();
+    ESI.NoexceptExpr = ConditionExpr.get();
     ESI.Type = EST;
+  }
+
+  if (ESI.Type == EST_ThrowsTyped) {
+    // A typed failure specification is a single ABI payload, not a dynamic
+    // exception list. Substitute that one type without expanding packs: a
+    // pack could change the carrier's arity between specializations and would
+    // make the active alternative ambiguous.
+    if (ESI.Exceptions.size() != 1) {
+      SemaRef.Diag(Loc, diag::err_return_failure_requires_single_error_type);
+      return true;
+    }
+
+    QualType T = ESI.Exceptions.front();
+    SmallVector<UnexpandedParameterPack, 2> Unexpanded;
+    SemaRef.collectUnexpandedParameterPacks(T, Unexpanded);
+    if (T->getAs<PackExpansionType>() || !Unexpanded.empty()) {
+      if (!Unexpanded.empty())
+        SemaRef.DiagnoseUnexpandedParameterPacks(Loc, Sema::UPPC_ExceptionType,
+                                                 Unexpanded);
+      else
+        SemaRef.Diag(Loc, diag::err_return_failure_requires_single_error_type);
+      return true;
+    }
+
+    QualType U = getDerived().TransformType(T);
+    if (U.isNull())
+      return true;
+
+    Unexpanded.clear();
+    SemaRef.collectUnexpandedParameterPacks(U, Unexpanded);
+    if (U->getAs<PackExpansionType>() || !Unexpanded.empty()) {
+      if (!Unexpanded.empty())
+        SemaRef.DiagnoseUnexpandedParameterPacks(Loc, Sema::UPPC_ExceptionType,
+                                                 Unexpanded);
+      else
+        SemaRef.Diag(Loc, diag::err_return_failure_requires_single_error_type);
+      return true;
+    }
+
+    // Re-run every semantic check on the substituted type. In particular,
+    // completeness and trivial-copyability are unknowable for a template type
+    // parameter at its declaration, and no invalid E may reach ABI lowering.
+    SourceRange Range(Loc);
+    if (SemaRef.CheckSpecifiedExceptionType(U, Range))
+      return true;
+    // Normalize a substituted payload exactly as the original declarator did.
+    // Canonicalize first so an alias cannot hide top-level cv; pointee and
+    // member qualifiers remain part of the ABI identity.
+    U = SemaRef.Context.getCanonicalType(U).getUnqualifiedType();
+    if (SemaRef.CheckReturnFailureErrorType(U, Range))
+      return true;
+
+    if (T != U)
+      Changed = true;
+    Exceptions.push_back(U);
+    ESI.Exceptions = Exceptions;
+    return false;
   }
 
   if (ESI.Type != EST_Dynamic)
@@ -9448,7 +9507,8 @@ StmtResult TreeTransform<Derived>::TransformCXXCatchStmt(CXXCatchStmt *S) {
       return StmtError();
   }
 
-  // Transform the actual exception handler.
+  // Transform the actual exception handler. The enclosing try transform owns
+  // the callable-scoped catch-clause context for this traditional handler.
   StmtResult Handler = getDerived().TransformStmt(S->getHandlerBlock());
   if (Handler.isInvalid())
     return StmtError();
@@ -9479,8 +9539,13 @@ TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
       return StmtError();
   }
 
-  // Transform the actual exception handler.
+  // The enclosing try transform owns the generic catch-clause context. Add
+  // the stronger herbception-handler context only while rebuilding this body,
+  // matching the parser and preventing nested callables from inheriting bare
+  // rethrow permission.
+  getSema().EnterHerbceptionHandler();
   StmtResult Handler = getDerived().TransformStmt(S->getHandlerBlock());
+  getSema().ExitHerbceptionHandler();
   if (Handler.isInvalid())
     return StmtError();
 
@@ -9494,8 +9559,13 @@ TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
 
 template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
-  // Transform the try block itself.
+  // Rebuild the try body under the same callable-owned routing context used
+  // by the parser. A dependent fallible call discovered only after
+  // substitution must gain its propagation wrapper, while a nested lambda or
+  // block must not inherit this try statement's handler.
+  getSema().EnterHerbceptionTryBody();
   StmtResult TryBlock = getDerived().TransformCompoundStmt(S->getTryBlock());
+  getSema().ExitHerbceptionTryBody();
   if (TryBlock.isInvalid())
     return StmtError();
 
@@ -9503,11 +9573,17 @@ StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
   bool HandlerChanged = false;
   SmallVector<Stmt *, 8> Handlers;
   for (unsigned I = 0, N = S->getNumHandlers(); I != N; ++I) {
+    // Calls and explicit throws discovered only during substitution need the
+    // same callable-owned catch routing as source parsed directly. Apply this
+    // to both traditional and herbception clauses; the latter adds its rethrow
+    // context inside TransformCXXCatchThrowsStmt.
+    getSema().EnterHerbceptionCatchClause();
     StmtResult Handler;
     if (auto *CT = dyn_cast<CXXCatchThrowsStmt>(S->getHandler(I)))
       Handler = getDerived().TransformCXXCatchThrowsStmt(CT);
     else
       Handler = getDerived().TransformCXXCatchStmt(S->getCatchHandler(I));
+    getSema().ExitHerbceptionCatchClause();
     if (Handler.isInvalid())
       return StmtError();
 
@@ -15305,7 +15381,34 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
     }
   }
 
-  if (!getDerived().AlwaysRebuild() &&
+  bool MustRevalidateTypedFailure = false;
+  if (E->isHerbception() && SubExpr.get()) {
+    const FunctionProtoType *CurrentFPT =
+        getSema().getCurHerbceptionFunctionProto();
+    if (CurrentFPT && CurrentFPT->hasReturnFailureSpec()) {
+      // The CXXThrowExpr records its operand, but its required E comes from the
+      // enclosing function type. Consequently a template with dependent E and
+      // a non-dependent operand otherwise appears reusable after substitution.
+      // Force that specialization back through BuildCXXThrow; a dependent
+      // operand normally changes identity on transformation, while the pattern
+      // check below covers the complementary fixed-operand/dependent-E case.
+      MustRevalidateTypedFailure = E->getSubExpr()->isTypeDependent();
+      if (const FunctionDecl *CurrentFD = getSema().getCurFunctionDecl()) {
+        if (const FunctionDecl *Pattern =
+                CurrentFD->getTemplateInstantiationPattern()) {
+          if (const auto *PatternFPT =
+                  Pattern->getType()->getAs<FunctionProtoType>()) {
+            MustRevalidateTypedFailure |=
+                PatternFPT->hasReturnFailureSpec() &&
+                PatternFPT->getNumExceptions() == 1 &&
+                PatternFPT->getExceptionType(0)->isDependentType();
+          }
+        }
+      }
+    }
+  }
+
+  if (!MustRevalidateTypedFailure && !getDerived().AlwaysRebuild() &&
       SubExpr.get() == E->getSubExpr())
     return E;
 
@@ -15316,17 +15419,33 @@ TreeTransform<Derived>::TransformCXXThrowExpr(CXXThrowExpr *E) {
 
 template <typename Derived>
 ExprResult TreeTransform<Derived>::TransformCXXTryExpr(CXXTryExpr *E) {
-  // Mirror the parser: while transforming the operand of an explicit
-  // try(expr)/catch fails(expr), suppress the automatic propagation that
-  // ActOnCallExpr applies to bare throws/fails calls. Otherwise a call inside
-  // try(expr) would be re-wrapped during instantiation.
-  ++getSema().HerbceptionOperandDepth;
+  // Rebuild nested calls with ordinary implicit propagation. RebuildCXXTryExpr
+  // treats an automatically produced top-level CXXTryExpr as idempotent, while
+  // calls used to form its callee and arguments retain their own typed failure
+  // conversion. Blanket suppression here would reintroduce the parser bug for
+  // dependent expressions after substitution.
   ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
-  --getSema().HerbceptionOperandDepth;
   if (SubExpr.isInvalid())
     return ExprError();
 
-  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
+  // The validity of CXXTryExpr depends on the enclosing function effect, not
+  // only on its operand. A non-dependent fallible call can be reused verbatim
+  // while instantiating a dependent throws function, so explicitly revalidate
+  // the wrapper when substitution selected the non-failing specialization.
+  // This prevents an implicit propagation node from reaching CodeGen without
+  // the shaped return slot that it requires.
+  const FunctionProtoType *FPT =
+      getSema().getCurHerbceptionFunctionProto();
+  const bool MustRevalidateEnclosingEffect =
+      (!FPT || !FPT->hasPotentialThrowsSpec()) &&
+      !getSema().isInCurrentCallableHerbceptionTryBody();
+  // Pending nodes carry explicit instantiation dependence. Always rebuild one
+  // rather than resolving and mutating a node shared with the template
+  // definition or with a different specialization.
+  const bool MustRebuildPending = E->isPropagationPending();
+
+  if (!MustRevalidateEnclosingEffect && !MustRebuildPending &&
+      !getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
     return E;
 
   return getDerived().RebuildCXXTryExpr(E->getTryLoc(), SubExpr.get());

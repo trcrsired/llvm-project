@@ -2219,7 +2219,12 @@ void TextNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
   case EST_BasicThrowsFalse:
     OS << " exceptionspec_basic_throws";
     break;
+  case EST_DependentThrows:
+    OS << " exceptionspec_dependent_throws";
+    break;
   case EST_ThrowsTyped:
+    OS << " exceptionspec_throws_typed";
+    break;
   case EST_BasicNoexcept:
     OS << " exceptionspec_basic_noexcept";
     break;
@@ -2255,7 +2260,8 @@ void TextNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
   }
   if (EPI.ExceptionSpec.NoexceptExpr) {
     AddChild([=] {
-      OS << "NoexceptExpr: ";
+      OS << (isComputedThrows(EPI.ExceptionSpec.Type) ? "ThrowsExpr: "
+                                                      : "NoexceptExpr: ");
       Visit(EPI.ExceptionSpec.NoexceptExpr);
     });
   }

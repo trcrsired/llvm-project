@@ -143,7 +143,54 @@ std::vector<VisitEvent> collectEvents(llvm::StringRef Code,
       Code, FileName);
   return std::move(Visitor).takeEvents();
 }
+
+class CountIntegerLiteralVisits
+    : public RecursiveASTVisitor<CountIntegerLiteralVisits> {
+public:
+  bool VisitIntegerLiteral(IntegerLiteral *) {
+    ++Count;
+    return true;
+  }
+
+  unsigned getCount() const { return Count; }
+
+private:
+  unsigned Count = 0;
+};
 } // namespace
+
+TEST(RecursiveASTVisitorTest, HerbceptionExpressionChildrenVisitedOnce) {
+  EXPECT_TRUE(clang::tooling::runToolOnCode(
+      std::make_unique<ProcessASTAction>([](ASTContext &Ctx) {
+        auto MakeLiteral = [&Ctx](unsigned Value) {
+          return IntegerLiteral::Create(Ctx, llvm::APInt(32, Value), Ctx.IntTy,
+                                        SourceLocation());
+        };
+
+        // Herbception expressions expose their ordinary evaluated operands
+        // through children(). RecursiveASTVisitor must therefore rely on that
+        // range instead of manually traversing the same edges a second time.
+        CXXErrorValueExpr ErrorValue(MakeLiteral(1), MakeLiteral(2),
+                                     MakeLiteral(3), Ctx.IntTy,
+                                     SourceLocation());
+        CountIntegerLiteralVisits ErrorVisitor;
+        EXPECT_TRUE(ErrorVisitor.TraverseStmt(&ErrorValue));
+        EXPECT_EQ(3u, ErrorVisitor.getCount());
+
+        CXXTryExpr Try(MakeLiteral(4), Ctx.IntTy, SourceLocation(), VK_PRValue,
+                       MakeLiteral(5), MakeLiteral(6));
+        CountIntegerLiteralVisits TryVisitor;
+        EXPECT_TRUE(TryVisitor.TraverseStmt(&Try));
+        EXPECT_EQ(3u, TryVisitor.getCount());
+
+        CXXCatchReturnFailureExpr Catch(MakeLiteral(7), Ctx.IntTy,
+                                        SourceLocation());
+        CountIntegerLiteralVisits CatchVisitor;
+        EXPECT_TRUE(CatchVisitor.TraverseStmt(&Catch));
+        EXPECT_EQ(1u, CatchVisitor.getCount());
+      }),
+      ""));
+}
 
 TEST(RecursiveASTVisitorTest, AttributesInsideDecls) {
   /// Check attributes are traversed inside TraverseFunctionDecl.

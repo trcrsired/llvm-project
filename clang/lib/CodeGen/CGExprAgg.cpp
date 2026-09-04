@@ -238,12 +238,23 @@ public:
     EmitFinalDestCopy(E->getType(), Res);
   }
   void VisitCXXTryExpr(const CXXTryExpr *E) {
-    RValue Res = CGF.EmitHerbceptionTry(E);
-    EmitFinalDestCopy(E->getType(), Res);
+    // The wrapper is the prvalue producer, so construct directly in its final
+    // destination even when that storage is potentially aliased. A staging
+    // copy would be ill-formed for a non-movable success type and would split
+    // one logical lifetime between two objects.
+    AggValueSlot Slot = EnsureSlot(E->getType());
+    CGF.EmitHerbceptionTry(
+        E, ReturnValueSlot(Slot.getAddress(), Slot.isVolatile(),
+                           IsResultUnused, Slot.isExternallyDestructed()));
   }
   void VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
-    RValue Res = CGF.EmitHerbceptionCatchReturnFailure(E);
-    EmitFinalDestCopy(E->getType(), Res);
+    // The synthetic discriminated union owns its selected alternative in the
+    // caller's final storage. This also preserves the language guarantee that
+    // a non-movable success object is never reconstructed from carrier bytes.
+    AggValueSlot Slot = EnsureSlot(E->getType());
+    CGF.EmitHerbceptionCatchReturnFailure(
+        E, ReturnValueSlot(Slot.getAddress(), Slot.isVolatile(),
+                           IsResultUnused, Slot.isExternallyDestructed()));
   }
   void VisitAtomicExpr(AtomicExpr *E) {
     RValue Res = CGF.EmitAtomicExpr(E);

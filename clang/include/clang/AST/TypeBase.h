@@ -5482,7 +5482,9 @@ public:
     /// Explicitly-specified list of exception types.
     ArrayRef<QualType> Exceptions;
 
-    /// Noexcept expression, if this is a computed noexcept specification.
+    /// Condition expression for a computed noexcept or dependent throws
+    /// specification. The historical field name is retained to avoid churn in
+    /// serialization and transformation clients.
     Expr *NoexceptExpr = nullptr;
 
     /// The function whose exception specification this is, for
@@ -5660,6 +5662,7 @@ private:
     case EST_DependentNoexcept:
     case EST_NoexceptFalse:
     case EST_NoexceptTrue:
+    case EST_DependentThrows:
       return {0, 1, 0};
 
     case EST_Uninstantiated:
@@ -5750,12 +5753,21 @@ public:
     return isNoexceptExceptionSpec(getExceptionSpecType());
   }
 
-  /// Return whether this function has a herbception (throws/fails) spec.
+  /// Return whether this function can fail through a herbception channel.
+  /// `throws(false)` is the spelling of a non-failing, noexcept function and
+  /// therefore deliberately does not select the shaped herbception ABI.
   bool hasThrowsSpec() const {
     return getExceptionSpecType() == EST_BasicThrows ||
            getExceptionSpecType() == EST_BasicThrowsTrue ||
-           getExceptionSpecType() == EST_BasicThrowsFalse ||
            getExceptionSpecType() == EST_ThrowsTyped;
+  }
+
+  /// Return whether semantic analysis is parsing a context that may become an
+  /// active herbception channel after template substitution. This must never
+  /// drive ABI lowering: only hasThrowsSpec() denotes an already-live channel.
+  bool hasPotentialThrowsSpec() const {
+    return hasThrowsSpec() ||
+           getExceptionSpecType() == EST_DependentThrows;
   }
 
   /// Return whether this function has a herbception 'throws' spec (implicit
@@ -5763,7 +5775,8 @@ public:
   bool hasBasicThrowsSpec() const {
     return getExceptionSpecType() == EST_BasicThrows ||
            getExceptionSpecType() == EST_BasicThrowsTrue ||
-           getExceptionSpecType() == EST_BasicThrowsFalse;
+           getExceptionSpecType() == EST_BasicThrowsFalse ||
+           getExceptionSpecType() == EST_DependentThrows;
   }
 
   /// Return whether this function has a herbception 'return_failure{E}' spec
@@ -5785,8 +5798,8 @@ public:
     Result.Type = getExceptionSpecType();
     if (Result.Type == EST_Dynamic || Result.Type == EST_ThrowsTyped) {
       Result.Exceptions = exceptions();
-    } else if (isComputedNoexcept(Result.Type)) {
-      Result.NoexceptExpr = getNoexceptExpr();
+    } else if (hasExceptionSpecificationExpr(Result.Type)) {
+      Result.NoexceptExpr = getExceptionSpecExpr();
     } else if (Result.Type == EST_Uninstantiated) {
       Result.SourceDecl = getExceptionSpecDecl();
       Result.SourceTemplate = getExceptionSpecTemplate();
@@ -5811,12 +5824,27 @@ public:
     return exception_begin()[i];
   }
 
+  /// Return the expression stored by a conditional exception specification.
+  Expr *getExceptionSpecExpr() const {
+    if (!hasExceptionSpecificationExpr(getExceptionSpecType()))
+      return nullptr;
+    return *getTrailingObjects<Expr *>();
+  }
+
   /// Return the expression inside noexcept(expression), or a null pointer
   /// if there is none (because the exception spec is not of this form).
   Expr *getNoexceptExpr() const {
     if (!isComputedNoexcept(getExceptionSpecType()))
       return nullptr;
-    return *getTrailingObjects<Expr *>();
+    return getExceptionSpecExpr();
+  }
+
+  /// Return the expression inside a value-dependent throws(expression), or a
+  /// null pointer once the condition has been resolved to true or false.
+  Expr *getThrowsExpr() const {
+    if (!isComputedThrows(getExceptionSpecType()))
+      return nullptr;
+    return getExceptionSpecExpr();
   }
 
   /// If this function type has an exception specification which hasn't

@@ -33,7 +33,8 @@ enum ExceptionSpecificationType {
   EST_BasicThrows,       ///< throws (herbception): implicit std::error
   EST_BasicThrowsTrue,   ///< throws(true): can fail, implicit std::error
   EST_BasicThrowsFalse,  ///< throws(false): cannot fail, implicit std::error
-  EST_ThrowsTyped        ///< return_failure{E}: explicit error type
+  EST_ThrowsTyped,       ///< return_failure{E}: explicit error type
+  EST_DependentThrows    ///< throws(expression), value-dependent
 };
 
 inline bool isDynamicExceptionSpec(ExceptionSpecificationType ESpecType) {
@@ -45,9 +46,20 @@ inline bool isComputedNoexcept(ExceptionSpecificationType ESpecType) {
          ESpecType <= EST_NoexceptTrue;
 }
 
+inline bool isComputedThrows(ExceptionSpecificationType ESpecType) {
+  return ESpecType == EST_DependentThrows;
+}
+
+/// Whether this exception specification stores a condition expression.
+inline bool hasExceptionSpecificationExpr(
+    ExceptionSpecificationType ESpecType) {
+  return isComputedNoexcept(ESpecType) || isComputedThrows(ESpecType);
+}
+
 inline bool isNoexceptExceptionSpec(ExceptionSpecificationType ESpecType) {
   return ESpecType == EST_BasicNoexcept || ESpecType == EST_NoThrow ||
-         isComputedNoexcept(ESpecType);
+         isComputedNoexcept(ESpecType) ||
+         ESpecType == EST_BasicThrowsFalse;
 }
 
 inline bool isUnresolvedExceptionSpec(ExceptionSpecificationType ESpecType) {
@@ -59,13 +71,15 @@ inline bool isExplicitThrowExceptionSpec(ExceptionSpecificationType ESpecType) {
          ESpecType == EST_NoexceptFalse;
 }
 
-/// Whether this exception specification is a herbception `throws`/`return_failure{E}`
-/// spec. Such specs are part of the canonical function type (they change the
-/// calling convention), so they are only compatible with an identical spec.
+/// Whether this exception specification was spelled as a herbception
+/// `throws`/`return_failure{E}` spec. This is intentionally a syntactic query:
+/// `throws(false)` is included even though it is semantically noexcept and
+/// does not use the herbception return ABI.
 inline bool hasHerbceptionExceptionSpec(ExceptionSpecificationType ESpecType) {
   return ESpecType == EST_BasicThrows ||
          ESpecType == EST_BasicThrowsTrue ||
          ESpecType == EST_BasicThrowsFalse ||
+         ESpecType == EST_DependentThrows ||
          ESpecType == EST_ThrowsTyped;
 }
 

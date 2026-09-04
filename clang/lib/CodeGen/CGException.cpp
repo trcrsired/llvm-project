@@ -706,14 +706,25 @@ static void emitCatchDispatchBlock(CodeGenFunction &CGF,
                                    EHCatchScope &catchScope);
 
 void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
+  EmitHerbceptionCatchTry(S, /*IsFnTryBlock=*/false,
+                          [&] { EmitStmt(S.getTryBlock()); });
+}
+
+void CodeGenFunction::EmitHerbceptionCatchTry(
+    const CXXTryStmt &S, bool IsFnTryBlock,
+    llvm::function_ref<void()> EmitProtectedBody) {
   // Continuation block, reached after the try block succeeds or a handler
   // completes.
   llvm::BasicBlock *ContBB = createBasicBlock("herb.try.cont");
 
-  // The scope depth at which the handlers live: the try statement's own scope.
-  // Branching to a handler from inside the try body runs the try block's
-  // cleanups.
-  EHScopeStack::stable_iterator TryDepth = EHStack.stable_begin();
+  // [except.handle] requires constructor/destructor function-try handlers to
+  // rethrow on normal fallthrough. Deterministic handlers obey the same
+  // object-lifetime rule: a constructor handler cannot turn a failed prologue
+  // into a successfully constructed object.
+  const bool DoImplicitRethrow =
+      IsFnTryBlock && (isa<CXXConstructorDecl>(CurCodeDecl) ||
+                       isa<CXXDestructorDecl>(CurCodeDecl));
+
   unsigned SavedScopes = HerbceptionCatchScopes.size();
 
   struct HandlerInfo {
@@ -757,8 +768,12 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
               ? ConvertType(CT->getExceptionDecl()->getType())
               : ConvertType(getContext().VoidPtrTy);
       Address ErrorSlot = CreateDefaultAlignTempAlloca(ErrorTy, "herb.error");
-      JumpDest HandlerDest(HandlerBB, TryDepth, 0);
-      HerbceptionCatchScopes.push_back({HandlerDest, ErrorSlot, ErrorTy});
+      // A handler is a potentially scope-crossing destination. Use the
+      // ordinary CodeGen allocator so each destination has a distinct cleanup
+      // switch index and records the current normal-cleanup depth. A literal
+      // zero collides with the cleanup fallthrough destination as soon as a
+      // call leaves a scope containing a non-trivial local.
+      JumpDest HandlerDest = getJumpDestInCurrentScope(HandlerBB);
       Handlers.push_back({CT, HandlerBB, ErrorSlot, ErrorTy, HandlerDest});
       if (CT->getLegacyExceptionErrorValue() && !LegacyHandlerStmt) {
         LegacyHandlerStmt = CT;
@@ -769,6 +784,19 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
       Trads.push_back({cast<CXXCatchStmt>(S.getHandler(I)), nullptr, nullptr,
                        false});
     }
+  }
+
+  // Every block handler catches the same std::error channel, so dispatch from
+  // the try body has source-order first-match semantics. Keep later handlers
+  // out of the active scope stack: they remain available in Handlers as the
+  // explicit `traditional handler -> next herbception handler` destinations
+  // resolved below. Pushing all handlers and selecting back() would instead
+  // make the last clause catch every error and render the first unreachable.
+  if (!Handlers.empty()) {
+    const HandlerInfo &First = Handlers.front();
+    HerbceptionCatchScopes.push_back(
+        {First.HandlerDest, First.ErrorSlot, First.ErrorType,
+         DoImplicitRethrow});
   }
 
   // Resolve each traditional clause's chained routing target: the next
@@ -825,9 +853,10 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     LegacyScope = EHStack.stable_begin();
   }
 
-  // Emit the try block. Bare throws/fails calls inside it route the
-  // discriminant to the handler (see EmitCall).
-  EmitStmt(S.getTryBlock());
+  // Emit the complete protected region. For a constructor function-try-block
+  // this callback includes base/member initializers before the compound body,
+  // matching the region covered by the legacy EHCatchScope above.
+  EmitProtectedBody();
   if (HaveInsertPoint())
     Builder.CreateBr(ContBB);
 
@@ -929,13 +958,22 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
       for (auto &H : Handlers)
         if (H.Stmt == T.NextHerb) {
           HerbceptionCatchScopes.push_back(
-              {H.HandlerDest, H.ErrorSlot, H.ErrorType});
+              {H.HandlerDest, H.ErrorSlot, H.ErrorType,
+               DoImplicitRethrow});
           break;
         }
 
       EmitStmt(T.Stmt->getHandlerBlock());
 
       HerbceptionCatchScopes.truncate(PushedAt);
+      // Preserve the ordinary C++ function-try rule for traditional clauses
+      // even when an interleaved catch-throws clause selected this combined
+      // emitter.
+      if (DoImplicitRethrow && HaveInsertPoint()) {
+        CGM.getCXXABI().emitRethrow(*this, /*isNoReturn=*/false);
+        Builder.CreateUnreachable();
+        Builder.ClearInsertionPoint();
+      }
       CatchScope.ForceCleanup();
       if (HaveInsertPoint())
         Builder.CreateBr(ContBB);
@@ -960,6 +998,7 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
   for (auto &H : Handlers) {
     EmitBlock(H.Block);
     RunCleanupsScope CatchScope(*this);
+    RawAddress OwnershipActive = RawAddress::invalid();
     if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
       // Herbception catch: bind the exception variable directly from the error
       // payload slot. The error value (std::error for `throws` or E for
@@ -984,9 +1023,32 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
       }
       auto *I = Builder.CreateStore(ErrVal, Addr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
-      EmitAutoVarCleanups(var);
+      if (VD->needsDestruction(getContext())) {
+        // This handler is selected by the Herbception CFG, not by a C++
+        // ConditionalEvaluation. Its cleanup therefore needs a local
+        // ownership bit initialized at the handler entry; the generic
+        // createCleanupActiveFlag helper would incorrectly try to insert a
+        // false store before a nonexistent outer conditional. A bare rethrow
+        // clears this bit after transferring the payload, while ordinary
+        // handler exit leaves it true and destroys the catch object once.
+        OwnershipActive = CreateTempAllocaWithoutCast(
+            Builder.getInt1Ty(), CharUnits::One(), "herb.catch.owned");
+        Builder.CreateStore(Builder.getTrue(), OwnershipActive);
+      }
+      EmitAutoVarCleanups(var, OwnershipActive);
     }
+
+    // The destination scope for this handler was popped before its body, but
+    // bare rethrow still needs the handled value itself. Keep that source
+    // separate from HerbceptionCatchScopes, which now contains only outward
+    // destinations. OwnershipActive makes the std::error destructor
+    // branch-sensitive when the value is transferred.
+    HerbceptionCaughtErrors.emplace_back(H.ErrorSlot, H.ErrorType,
+                                         OwnershipActive);
     EmitStmt(H.Stmt->getHandlerBlock());
+    if (DoImplicitRethrow && HaveInsertPoint())
+      EmitHerbceptionRethrow(H.Stmt->getCatchLoc());
+    HerbceptionCaughtErrors.pop_back();
     CatchScope.ForceCleanup();
     if (HaveInsertPoint())
       Builder.CreateBr(ContBB);

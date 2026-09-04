@@ -127,7 +127,9 @@ ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
 
   if (ThrowsExpr->isTypeDependent() ||
       ThrowsExpr->containsUnexpandedParameterPack()) {
-    EST = EST_BasicThrows;
+    // Retain the condition so template substitution can select either the
+    // ordinary noexcept ABI or the active herbception ABI per specialization.
+    EST = EST_DependentThrows;
     return ThrowsExpr;
   }
 
@@ -139,7 +141,7 @@ ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
     return ExprError();
   }
   if (Converted.get()->isValueDependent()) {
-    EST = EST_BasicThrows;
+    EST = EST_DependentThrows;
     return Converted;
   }
   if (Result.getBoolValue())
@@ -324,11 +326,39 @@ static bool hasImplicitExceptionSpec(FunctionDecl *Decl) {
   return !Ty->hasExceptionSpec();
 }
 
+/// Whether this prototype has, or will resolve from a template to, a
+/// herbception channel whose ABI must be checked even when C++ unwinding is
+/// disabled. A dependent throws condition is included because different
+/// specializations can select different physical return types.
+static bool hasPotentialHerbceptionABI(const FunctionProtoType *FPT) {
+  if (!FPT)
+    return false;
+  if (FPT->hasPotentialThrowsSpec())
+    return true;
+  if (FPT->getExceptionSpecType() != EST_Uninstantiated)
+    return false;
+
+  const FunctionDecl *Source = FPT->getExceptionSpecTemplate();
+  const auto *SourceFPT =
+      Source ? Source->getType()->getAs<FunctionProtoType>() : nullptr;
+  return SourceFPT && SourceFPT != FPT &&
+         SourceFPT->hasPotentialThrowsSpec();
+}
+
+static bool hasPotentialHerbceptionABI(const FunctionDecl *FD) {
+  return FD && hasPotentialHerbceptionABI(
+                   FD->getType()->getAs<FunctionProtoType>());
+}
+
 bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   // Just completely ignore this under -fno-exceptions prior to C++17.
   // In C++17 onwards, the exception specification is part of the type and
   // we will diagnose mismatches anyway, so it's better to check for them here.
-  if (!getLangOpts().CXXExceptions && !getLangOpts().CPlusPlus17)
+  // Herbception channels are an independent ABI property in every supported
+  // language mode and must never take this traditional-EH shortcut.
+  if (!getLangOpts().CXXExceptions && !getLangOpts().CPlusPlus17 &&
+      !hasPotentialHerbceptionABI(Old) &&
+      !hasPotentialHerbceptionABI(New))
     return false;
 
   OverloadedOperatorKind OO = New->getDeclName().getCXXOverloadedOperator();
@@ -410,12 +440,14 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
 
   if (ESI.Type == EST_NoexceptFalse)
     ESI.Type = EST_None;
-  if (ESI.Type == EST_NoexceptTrue)
+  if (ESI.Type == EST_NoexceptTrue || ESI.Type == EST_BasicThrowsFalse)
     ESI.Type = EST_BasicNoexcept;
 
   // For dependent noexcept, we can't just take the expression from the old
   // prototype. It likely contains references to the old prototype's parameters.
-  if (ESI.Type == EST_DependentNoexcept) {
+  if (ESI.Type == EST_DependentNoexcept || ESI.Type == EST_DependentThrows) {
+    // The new declaration requires its own transformed condition expression;
+    // copying the old AST would bind it to the wrong template parameters.
     New->setInvalidDecl();
   } else {
     // Update the type of the function with the appropriate exception
@@ -429,7 +461,8 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
     DiagID = diag::ext_missing_exception_specification;
     ReturnValueOnError = false;
   } else if (New->isReplaceableGlobalAllocationFunction() &&
-             ESI.Type != EST_DependentNoexcept) {
+             ESI.Type != EST_DependentNoexcept &&
+             ESI.Type != EST_DependentThrows) {
     // Allow missing exception specifications in redeclarations as an extension,
     // when declaring a replaceable global allocation function.
     DiagID = diag::ext_missing_exception_specification;
@@ -495,6 +528,12 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   case EST_BasicThrowsFalse:
     OS << "throws(false)";
     break;
+  case EST_DependentThrows:
+    OS << "throws(";
+    assert(OldProto->getThrowsExpr() != nullptr && "Expected non-null Expr");
+    OldProto->getThrowsExpr()->printPretty(OS, nullptr, getPrintingPolicy());
+    OS << ")";
+    break;
   case EST_ThrowsTyped:
     OS << "fails{";
     assert(OldProto->getNumExceptions() == 1 && "Expected fails error type");
@@ -537,7 +576,11 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
 bool Sema::CheckEquivalentExceptionSpec(
     const FunctionProtoType *Old, SourceLocation OldLoc,
     const FunctionProtoType *New, SourceLocation NewLoc) {
-  if (!getLangOpts().CXXExceptions)
+  // `-fno-exceptions` disables stack unwinding, not Herbceptions' shaped
+  // return ABI. Continue comparing active and dependent channels so callers
+  // cannot silently bind incompatible function types.
+  if (!getLangOpts().CXXExceptions && !hasPotentialHerbceptionABI(Old) &&
+      !hasPotentialHerbceptionABI(New))
     return false;
 
   unsigned DiagID = diag::err_mismatched_exception_spec;
@@ -629,10 +672,11 @@ static bool CheckEquivalentExceptionSpecImpl(
   // C++14 [except.spec]p3:
   //   Two exception-specifications are compatible if [...] both have the form
   //   noexcept(constant-expression) and the constant-expressions are equivalent
-  if (OldEST == EST_DependentNoexcept && NewEST == EST_DependentNoexcept) {
+  if ((OldEST == EST_DependentNoexcept && NewEST == EST_DependentNoexcept) ||
+      (OldEST == EST_DependentThrows && NewEST == EST_DependentThrows)) {
     llvm::FoldingSetNodeID OldFSN, NewFSN;
-    Old->getNoexceptExpr()->Profile(OldFSN, S.Context, true);
-    New->getNoexceptExpr()->Profile(NewFSN, S.Context, true);
+    Old->getExceptionSpecExpr()->Profile(OldFSN, S.Context, true);
+    New->getExceptionSpecExpr()->Profile(NewFSN, S.Context, true);
     if (OldFSN == NewFSN)
       return false;
   }
@@ -662,13 +706,12 @@ static bool CheckEquivalentExceptionSpecImpl(
   }
 
   // Herbception specifications must match: 'throws' matches 'throws', and
-  // 'fails{E}' matches 'fails{E}' with the same error type. These change the
-  // ABI (return type is lowered to {T, i1}), so they cannot be freely
-  // mixed with other specification kinds.
-  if ((OldEST == EST_BasicThrows || OldEST == EST_BasicThrowsTrue ||
-        OldEST == EST_BasicThrowsFalse) &&
-      (NewEST == EST_BasicThrows || NewEST == EST_BasicThrowsTrue ||
-        NewEST == EST_BasicThrowsFalse))
+  // 'fails{E}' matches 'fails{E}' with the same error type. These live error
+  // channels change the ABI (return type is lowered to {T, i1}), so they cannot
+  // be freely mixed with other specification kinds. `throws(false)` is absent
+  // here because the CT_Cannot rule above makes it equivalent to noexcept(true).
+  if ((OldEST == EST_BasicThrows || OldEST == EST_BasicThrowsTrue) &&
+      (NewEST == EST_BasicThrows || NewEST == EST_BasicThrowsTrue))
     return false;
   if (OldEST == EST_ThrowsTyped && NewEST == EST_ThrowsTyped) {
     bool Success = true;
@@ -744,7 +787,9 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
                                         SourceLocation OldLoc,
                                         const FunctionProtoType *New,
                                         SourceLocation NewLoc) {
-  if (!getLangOpts().CXXExceptions && !getLangOpts().CPlusPlus17)
+  if (!getLangOpts().CXXExceptions && !getLangOpts().CPlusPlus17 &&
+      !hasPotentialHerbceptionABI(Old) &&
+      !hasPotentialHerbceptionABI(New))
     return false;
   return CheckEquivalentExceptionSpecImpl(*this, DiagID, NoteID, Old, OldLoc,
                                           New, NewLoc);
@@ -840,8 +885,15 @@ bool Sema::CheckExceptionSpecSubset(
     SourceLocation SuperLoc, const FunctionProtoType *Subset,
     bool SkipSubsetFirstParameter, SourceLocation SubLoc) {
 
-  // Just auto-succeed under -fno-exceptions.
-  if (!getLangOpts().CXXExceptions)
+  // Preserve the traditional -fno-exceptions fast path unless an active
+  // herbception channel makes the two function types ABI-sensitive. Unlike a
+  // C++ exception specification, `throws`/`return_failure{E}` changes the
+  // physical return type, so accepting a mismatched override would make the
+  // caller and callee disagree about the calling convention even when stack
+  // unwinding is disabled.
+  bool CheckHerbceptionABI =
+      Superset->hasThrowsSpec() || Subset->hasThrowsSpec();
+  if (!getLangOpts().CXXExceptions && !CheckHerbceptionABI)
     return false;
 
   // FIXME: As usual, we could be more specific in our error messages, but
@@ -865,20 +917,19 @@ bool Sema::CheckExceptionSpecSubset(
          "Shouldn't see unknown exception specifications here");
 
   // Herbception (throws/fails): the specifier is part of the canonical
-  // function type because it changes the calling convention ({T, i1} return
-  // instead of T). There is no subset relation: two throws/fails specs are
-  // compatible only when they are identical, and a throws/fails type is
+  // function type when its channel is live because it changes the calling
+  // convention ({T, i1} return instead of T). There is no subset relation: two
+  // live throws/fails specs are compatible only when they are identical, and a
+  // live throws/fails type is
   // incompatible with a plain or noexcept type in either direction.
-  bool SuperHerb = hasHerbceptionExceptionSpec(SuperEST);
-  bool SubHerb = hasHerbceptionExceptionSpec(SubEST);
+  bool SuperHerb = Superset->hasThrowsSpec();
+  bool SubHerb = Subset->hasThrowsSpec();
   if (SuperHerb || SubHerb) {
     if (SuperHerb && SubHerb) {
       if ((SuperEST == EST_BasicThrows ||
-            SuperEST == EST_BasicThrowsTrue ||
-            SuperEST == EST_BasicThrowsFalse) &&
+            SuperEST == EST_BasicThrowsTrue) &&
            (SubEST == EST_BasicThrows ||
-            SubEST == EST_BasicThrowsTrue ||
-            SubEST == EST_BasicThrowsFalse))
+            SubEST == EST_BasicThrowsTrue))
         return false;
       if (SuperEST == EST_ThrowsTyped && SubEST == EST_ThrowsTyped) {
         // fails{E}: error types must be equivalent.
@@ -903,11 +954,18 @@ bool Sema::CheckExceptionSpecSubset(
     return true;
   }
 
+  // Active herbception channels have now been compared. Keep the historical
+  // behavior of suppressing all traditional C++ exception-specification
+  // subset checks under -fno-exceptions.
+  if (!getLangOpts().CXXExceptions)
+    return false;
+
   // If there are dependent noexcept specs, assume everything is fine. Unlike
   // with the equivalency check, this is safe in this case, because we don't
   // want to merge declarations. Checks after instantiation will catch any
   // omissions we make here.
-  if (SuperEST == EST_DependentNoexcept || SubEST == EST_DependentNoexcept)
+  if (SuperEST == EST_DependentNoexcept || SubEST == EST_DependentNoexcept ||
+      SuperEST == EST_DependentThrows || SubEST == EST_DependentThrows)
     return false;
 
   CanThrowResult SuperCanThrow = Superset->canThrow();
@@ -1168,11 +1226,11 @@ static bool canCalleeHerbceptionThrow(Sema &S, const CallExpr *CE, QualType E) {
   return calleeHerbceptionThrow(S, FT, E);
 }
 
-/// Determine whether the callee of \p CE has any herbception `throws`/`fails{E}`
-/// specification, regardless of the condition. Used by the noexcept check in
-/// requires-expr: any throws spec means the function is not noexcept.
+/// Determine whether the callee can propagate through a live herbception
+/// `throws`/`fails{E}` channel. `throws(false)` is not live and must remain
+/// noexcept in a compound requirement.
 static bool calleeHasHerbceptionSpec(const FunctionProtoType *FT) {
-  return hasHerbceptionExceptionSpec(FT->getExceptionSpecType());
+  return FT->hasThrowsSpec();
 }
 
 static bool canCalleeHaveHerbceptionSpec(const CallExpr *CE) {

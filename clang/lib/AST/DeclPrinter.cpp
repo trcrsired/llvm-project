@@ -809,7 +809,13 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
         }
       Proto += ")";
     } else if (FT && FT->hasBasicThrowsSpec()) {
-      if (FT->getExceptionSpecType() == EST_BasicThrowsTrue)
+      if (FT->getExceptionSpecType() == EST_DependentThrows) {
+        Proto += " throws(";
+        llvm::raw_string_ostream EOut(Proto);
+        FT->getThrowsExpr()->printPretty(EOut, nullptr, SubPolicy,
+                                         Indentation, "\n", &Context);
+        Proto += ")";
+      } else if (FT->getExceptionSpecType() == EST_BasicThrowsTrue)
         Proto += " throws(true)";
       else if (FT->getExceptionSpecType() == EST_BasicThrowsFalse)
         Proto += " throws(false)";

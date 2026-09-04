@@ -420,13 +420,21 @@ void JumpScopeChecker::BuildScopeInformation(Stmt *S,
 
     // Jump from the catch into the try is not allowed either.
     for (unsigned I = 0, E = TS->getNumHandlers(); I != E; ++I) {
-      CXXCatchStmt *CS = TS->getCatchHandler(I);
+      Stmt *Handler = TS->getHandler(I);
+      Stmt *HandlerBlock;
+      if (auto *Herb = dyn_cast<CXXCatchThrowsStmt>(Handler))
+        HandlerBlock = Herb->getHandlerBlock();
+      else
+        HandlerBlock = cast<CXXCatchStmt>(Handler)->getHandlerBlock();
+      // Both handler kinds introduce the same protected jump scope. Do not
+      // use getCatchHandler here: that accessor intentionally asserts that the
+      // selected clause belongs to the traditional exception channel.
       unsigned NewParentScope = Scopes.size();
       Scopes.push_back(GotoScope(ParentScope,
                                  diag::note_protected_by_cxx_catch,
                                  diag::note_exits_cxx_catch,
-                                 CS->getSourceRange().getBegin()));
-      BuildScopeInformation(CS->getHandlerBlock(), NewParentScope);
+                                 Handler->getSourceRange().getBegin()));
+      BuildScopeInformation(HandlerBlock, NewParentScope);
     }
     return;
   }

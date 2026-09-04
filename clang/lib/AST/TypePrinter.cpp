@@ -967,7 +967,11 @@ FunctionProtoType::printExceptionSpecification(raw_ostream &OS,
   } else if (EST_NoThrow == getExceptionSpecType()) {
     OS << " __attribute__((nothrow))";
   } else if (hasBasicThrowsSpec()) {
-    if (getExceptionSpecType() == EST_BasicThrowsTrue)
+    if (getExceptionSpecType() == EST_DependentThrows) {
+      OS << " throws(";
+      getThrowsExpr()->printPretty(OS, nullptr, Policy);
+      OS << ')';
+    } else if (getExceptionSpecType() == EST_BasicThrowsTrue)
       OS << " throws(true)";
     else if (getExceptionSpecType() == EST_BasicThrowsFalse)
       OS << " throws(false)";

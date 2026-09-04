@@ -25,8 +25,13 @@ int use_wrap_fail(int x) {
   return e.failed ? e.error : e.value;
 }
 
+int use_propagate_errc(bool fail) throws { return propagate_errc(fail); }
+
 // The imported 'throws' function keeps its attribute and {payload, i1}
 // return shape; the imported inline definition is emitted (linkonce_odr).
 // CHECK-DAG: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_Z9throws_iov()
 // CHECK-DAG: define {{.*}}@_Z13use_wrap_faili(
+// CHECK-LABEL: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_Z14propagate_errcb(
+// CHECK: call {{.*}} @_ZNSt12error_domainISt4errcE6domainEv
+// CHECK: call {{.*}} @_ZNSt12error_domainISt4errcE4codeES0_
 // CHECK-DAG: attributes #[[ATTR:[0-9]+]] = { {{.*}}throws{{.*}} }

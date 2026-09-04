@@ -380,6 +380,57 @@ cir::ReturnOp CIRGenFunction::LexicalScope::emitReturn(mlir::Location loc) {
   return cir::ReturnOp::create(builder, loc);
 }
 
+mlir::Value CIRGenFunction::coerceHerbceptionPayload(
+    mlir::Location loc, Address source, mlir::Type destinationType) {
+  if (source.getElementType() == destinationType)
+    return builder.createLoad(loc, source);
+
+  const cir::CIRDataLayout &layout = cgm.getDataLayout();
+  llvm::TypeSize sourceSize = layout.getTypeAllocSize(source.getElementType());
+  llvm::TypeSize destinationSize = layout.getTypeAllocSize(destinationType);
+  assert(!sourceSize.isScalable() && !destinationSize.isScalable() &&
+         "herbception payload must have a fixed ABI size");
+
+  CharUnits destinationAlign =
+      CharUnits::fromQuantity(layout.getABITypeAlign(destinationType));
+  Address destination = createTempAlloca(destinationType, destinationAlign,
+                                         loc, "herb.payload.coerce");
+
+  // A shaped payload is a bytewise union whose active error representation
+  // starts at offset zero.  Zero-fill the inactive tail, then copy only the
+  // bytes present in both source and destination.  This handles both a wider
+  // callee success alternative and a wider caller success alternative without
+  // an out-of-bounds typed load.
+  mlir::Value zero = builder.getConstInt(loc, cgm.uInt8Ty, 0);
+  mlir::Value destinationBytes = builder.getConstInt(
+      loc, sizeTy, destinationSize.getFixedValue());
+  Address destinationBytesAddress =
+      destination.withElementType(builder, voidTy);
+  builder.createMemSet(loc, destinationBytesAddress, zero, destinationBytes);
+
+  uint64_t copySize =
+      std::min(sourceSize.getFixedValue(), destinationSize.getFixedValue());
+  mlir::Value copyBytes = builder.getConstInt(loc, sizeTy, copySize);
+  Address sourceBytesAddress = source.withElementType(builder, voidTy);
+  builder.createMemCpy(loc, destinationBytesAddress.getPointer(),
+                       sourceBytesAddress.getPointer(), copyBytes);
+  return builder.createLoad(loc, destination);
+}
+
+mlir::Value CIRGenFunction::coerceHerbceptionPayload(
+    mlir::Location loc, mlir::Value source, mlir::Type destinationType) {
+  if (source.getType() == destinationType)
+    return source;
+
+  const cir::CIRDataLayout &layout = cgm.getDataLayout();
+  CharUnits sourceAlign =
+      CharUnits::fromQuantity(layout.getABITypeAlign(source.getType()));
+  Address sourceAddress = createTempAlloca(source.getType(), sourceAlign, loc,
+                                           "herb.payload.source");
+  builder.createStore(loc, source, sourceAddress);
+  return coerceHerbceptionPayload(loc, sourceAddress, destinationType);
+}
+
 mlir::Value CIRGenFunction::wrapHerbceptionReturnValue(mlir::Location loc,
                                                        mlir::Value payload,
                                                        bool disc) {
@@ -395,7 +446,16 @@ mlir::Value CIRGenFunction::wrapHerbceptionReturnValue(mlir::Location loc,
     // data layout, which anonymous records have no entry for.
     mlir::Value memberPtr = builder.createGetMember(
         loc, builder.getPointerTo(members[idx]), tmp.getBasePointer(), "", idx);
-    builder.createStore(loc, idx == 0 ? payload : builder.getBool(disc, loc),
+    mlir::Value memberValue;
+    if (idx == 0) {
+      // The logical success/error value can be narrower than the union-sized
+      // payload member.  Materialize it by bounded byte copy rather than by a
+      // mismatched typed store.
+      memberValue = coerceHerbceptionPayload(loc, payload, members[idx]);
+    } else {
+      memberValue = builder.getBool(disc, loc);
+    }
+    builder.createStore(loc, memberValue,
                         Address(memberPtr, members[idx], align));
   }
   return builder.createLoad(loc, tmp);
@@ -1232,6 +1292,13 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
   case Expr::CXXOperatorCallExprClass:
   case Expr::UserDefinedLiteralClass:
     return emitCallExprLValue(cast<CallExpr>(e));
+  case Expr::CXXTryExprClass: {
+    // Deterministic propagation changes only the control-flow edge.  On
+    // success a reference try expression still designates the callee's object.
+    RValue rv = emitHerbceptionTry(cast<CXXTryExpr>(e));
+    assert(rv.isScalar() && "reference try expression must return an address");
+    return makeNaturalAlignPointeeAddrLValue(rv.getValue(), e->getType());
+  }
   case Expr::CXXRewrittenBinaryOperatorClass:
     getCIRGenModule().errorNYI(e->getSourceRange(),
                                "emitLValue: CXXRewrittenBinaryOperator");

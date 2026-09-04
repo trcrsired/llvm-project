@@ -2222,7 +2222,8 @@ void CodeGenFunction::emitAutoVarTypeCleanup(
                                      useEHCleanup);
 }
 
-void CodeGenFunction::EmitAutoVarCleanups(const AutoVarEmission &emission) {
+void CodeGenFunction::EmitAutoVarCleanups(
+    const AutoVarEmission &emission, RawAddress DestructionActiveFlag) {
   assert(emission.Variable && "emission was not valid!");
 
   // If this was emitted as a global constant, we're done.
@@ -2241,6 +2242,14 @@ void CodeGenFunction::EmitAutoVarCleanups(const AutoVarEmission &emission) {
       getContext().getDiagnostics().Report(D.getLocation(),
                                            diag::err_seh_object_unwinding);
     emitAutoVarTypeCleanup(emission, dtorKind);
+    // A caught std::error normally owns the error and must be destroyed at
+    // handler exit. Bare rethrow transfers that ownership to another channel;
+    // attach a run-time flag to the destructor cleanup so only the transferring
+    // control-flow edge suppresses destruction. Later variable cleanup
+    // attributes remain ordinary scope cleanups and are intentionally not
+    // covered by this ownership flag.
+    if (DestructionActiveFlag.isValid())
+      initFullExprCleanupWithFlag(DestructionActiveFlag);
   }
 
   // In GC mode, honor objc_precise_lifetime.

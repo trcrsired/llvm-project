@@ -59,7 +59,7 @@ void throw_template(T ec) throws {
   throw throws ec; // ok: fabrication deferred to instantiation
 }
 
-void use_throw_template() {
+void use_throw_template() throws {
   throw_template(::std::errc::io_error); // ok: errc has error_domain
 }
 
@@ -73,7 +73,7 @@ void throw_template_no_domain(T ec) throws {
   throw throws ec; // expected-error {{'throw throws' operand type 'no_domain_type' has no std::error_domain specialization}}
 }
 
-void use_throw_template_no_domain() {
+void use_throw_template_no_domain() throws {
   throw_template_no_domain(no_domain_type{}); // expected-note {{in instantiation of function template specialization 'throw_template_no_domain<no_domain_type>' requested here}}
 }
 
@@ -90,7 +90,7 @@ void if_constexpr_throw(T ec) throws {
   }
 }
 
-void use_if_constexpr_throw() {
+void use_if_constexpr_throw() throws {
   if_constexpr_throw(::std::errc::io_error);  // ok: branch live, errc has domain
   if_constexpr_throw(no_domain_type{});        // ok: branch discarded at instantiation
 }
@@ -112,7 +112,7 @@ struct Widget {
   }
 };
 
-void use_widget() {
+void use_widget() throws {
   Widget w;
   w.process(::std::errc::bad_address);
 }
@@ -133,7 +133,7 @@ struct Derived : Base {
   }
 };
 
-void use_derived() {
+void use_derived() throws {
   Derived d;
   d.do_throw(::std::errc::io_error);
   Base *b = &d;
@@ -167,7 +167,7 @@ void catch_and_reref(T ec) throws {
   }
 }
 
-void use_catch_and_reref() {
+void use_catch_and_reref() throws {
   catch_and_reref(::std::errc::io_error);
 }
 
@@ -203,7 +203,7 @@ void specialized_throw(T ec) throws {
 template <>
 void specialized_throw<no_domain_type>(no_domain_type) throws {}
 
-void use_specialized() {
+void use_specialized() throws {
   specialized_throw(::std::errc::bad_address);
   specialized_throw(no_domain_type{}); // ok: uses the specialization
 }
@@ -217,7 +217,7 @@ struct Processor {
   }
 };
 
-void use_processor_no_domain() {
+void use_processor_no_domain() throws {
   Processor p;
   p.handle(no_domain_type{}); // expected-note {{in instantiation of function template specialization 'Processor::handle<no_domain_type>' requested here}}
 }
@@ -241,7 +241,35 @@ struct Outer {
   }
 };
 
-void use_nested() {
+void use_nested() throws {
   Outer<::std::errc> o;
   o.nested(::std::errc::bad_address, ::std::errc::io_error); // ok
+}
+
+// --- 13. Dependent catch-return-failure carrier ---
+
+int capture_source() return_failure{::std::errc} { return 41; }
+
+template <class F> auto capture_failure(F f) {
+  // T and E are unknown here. The synthetic N2289 carrier must remain the
+  // canonical dependent type until TreeTransform substitutes the callee.
+  return catch return_failure(f());
+}
+
+template <class E>
+using failure_function = int (*)() return_failure{E};
+
+template <class E> auto capture_dependent_error(failure_function<E> f) {
+  // The success type is the concrete int, but E (and therefore the synthetic
+  // result carrier) remains dependent. Expression dependence must include the
+  // result type rather than only CallExpr's success type.
+  return catch return_failure(f());
+}
+
+void use_capture_failure() {
+  auto captured = capture_failure(capture_source);
+  (void)captured.failed;
+  auto dependent_error =
+      capture_dependent_error<::std::errc>(capture_source);
+  (void)dependent_error.failed;
 }

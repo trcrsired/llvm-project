@@ -1278,15 +1278,20 @@ public:
 class CXXErrorValueExpr : public Expr {
   friend class ASTStmtReader;
 
-  /// The value being thrown (e.g. an enum with an `error_domain<T>`
-  /// specialization).
-  Stmt *Operand;
+  enum SubExprIndex : unsigned {
+    OperandIndex,
+    DomainCallIndex,
+    CodeCallIndex,
+    NumSubExprs,
+  };
 
-  /// `error_domain<T>::domain()` — the domain singleton lookup call.
-  Stmt *DomainCall;
-
-  /// `error_domain<T>::code(operand)` — the code lookup call.
-  Stmt *CodeCall;
+  /// The value being thrown followed by the resolved domain and code calls.
+  ///
+  /// These children form one real array because StmtIterator consumes a
+  /// contiguous half-open range. A range spanning distinct pointer members is
+  /// not guaranteed by the C++ object model, even when their physical layout
+  /// happens to be adjacent on a particular host ABI.
+  Stmt *SubExprs[NumSubExprs];
 
   /// The location of the 'throw'.
   SourceLocation Loc;
@@ -1295,21 +1300,26 @@ public:
   CXXErrorValueExpr(Expr *Operand, Expr *DomainCall, Expr *CodeCall,
                     QualType Ty, SourceLocation Loc)
       : Expr(CXXErrorValueExprClass, Ty, VK_PRValue, OK_Ordinary),
-        Operand(Operand), DomainCall(DomainCall), CodeCall(CodeCall), Loc(Loc) {
+        SubExprs{Operand, DomainCall, CodeCall}, Loc(Loc) {
     setDependence(computeDependence(this));
   }
-  CXXErrorValueExpr(EmptyShell Empty) : Expr(CXXErrorValueExprClass, Empty) {}
+  CXXErrorValueExpr(EmptyShell Empty)
+      : Expr(CXXErrorValueExprClass, Empty), SubExprs{} {}
 
-  const Expr *getOperand() const { return cast<Expr>(Operand); }
-  Expr *getOperand() { return cast<Expr>(Operand); }
+  const Expr *getOperand() const { return cast<Expr>(SubExprs[OperandIndex]); }
+  Expr *getOperand() { return cast<Expr>(SubExprs[OperandIndex]); }
 
   /// The `error_domain<T>::domain()` call expression.
-  const Expr *getDomainCall() const { return cast<Expr>(DomainCall); }
-  Expr *getDomainCall() { return cast<Expr>(DomainCall); }
+  const Expr *getDomainCall() const {
+    return cast<Expr>(SubExprs[DomainCallIndex]);
+  }
+  Expr *getDomainCall() { return cast<Expr>(SubExprs[DomainCallIndex]); }
 
   /// The `error_domain<T>::code(operand)` call expression.
-  const Expr *getCodeCall() const { return cast<Expr>(CodeCall); }
-  Expr *getCodeCall() { return cast<Expr>(CodeCall); }
+  const Expr *getCodeCall() const {
+    return cast<Expr>(SubExprs[CodeCallIndex]);
+  }
+  Expr *getCodeCall() { return cast<Expr>(SubExprs[CodeCallIndex]); }
 
   SourceLocation getThrowLoc() const { return Loc; }
 
@@ -1322,11 +1332,11 @@ public:
 
   // Iterators
   child_range children() {
-    return child_range(&Operand, &CodeCall + 1);
+    return child_range(SubExprs, SubExprs + NumSubExprs);
   }
 
   const_child_range children() const {
-    return const_child_range(&Operand, &CodeCall + 1);
+    return const_child_range(SubExprs, SubExprs + NumSubExprs);
   }
 };
 
@@ -1368,38 +1378,113 @@ public:
 class CXXTryExpr : public Expr {
   friend class ASTStmtReader;
 
-  /// The subexpression being "tried".
-  Stmt *SubExpr;
+  enum SubExprIndex : unsigned {
+    OperandIndex,
+    DomainCallIndex,
+    CodeCallIndex,
+    NumSubExprs,
+  };
+
+  /// The tried operand followed by the optional error-domain conversion
+  /// calls. These are stored in a genuine array so children() exposes a valid
+  /// contiguous range to every generic AST walker.
+  Stmt *SubExprs[NumSubExprs];
+
+  /// The placeholder denoting the active E object decoded from the shaped
+  /// return carrier. It is referenced by CodeCall and mapped exactly once by
+  /// CodeGen; it is not a separate evaluated child.
+  OpaqueValueExpr *FailureValue;
 
   /// The location of the "try".
   SourceLocation TryLoc;
 
-  /// When auto-propagating a `fails{E}` call's error into a `throws` function
-  /// (whose implicit error type is std::error), the E error value must be
-  /// converted to std::error via `error_domain<E>::domain()` /
-  /// `error_domain<E>::code(e)`. If non-null, \p ErrorDomain is the resolved
-  /// `error_domain<E>` specialization to use for that conversion.
-  CXXRecordDecl *ErrorDomain;
+  /// The explicit failure type E of a `return_failure{E}` operand. Keeping
+  /// the semantic type, rather than recovering it from the LLVM union
+  /// carrier, is required because the carrier may use the success type as its
+  /// storage representative. A null type denotes the implicit std::error
+  /// channel of a basic `throws` callee.
+  QualType FailureType;
+
+public:
+  /// The destination decision is delayed until the complete enclosing try and
+  /// handler graph is available. `Pending` is an instantiation-dependent AST
+  /// state and must never reach CodeGen for a live expression.
+  enum class PropagationKind : unsigned char {
+    Pending,
+    Raw,
+    ToStdError,
+  };
+
+private:
+  LLVM_PREFERRED_TYPE(PropagationKind)
+  unsigned Propagation : 2;
 
 public:
   /// \p Ty is the type of the success value. \p Loc is the location of the
   /// try keyword.
   CXXTryExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc,
-             bool IsLValue = false, CXXRecordDecl *ErrorDomain = nullptr)
-      : Expr(CXXTryExprClass, Ty,
-             IsLValue ? VK_LValue : VK_PRValue, OK_Ordinary),
-        SubExpr(SubExpr), TryLoc(Loc), ErrorDomain(ErrorDomain) {
+             ExprValueKind ValueKind = VK_PRValue,
+             Expr *DomainCall = nullptr, Expr *CodeCall = nullptr,
+             OpaqueValueExpr *FailureValue = nullptr,
+             QualType FailureType = QualType(),
+             PropagationKind Propagation = PropagationKind::Pending)
+      : Expr(CXXTryExprClass, Ty, ValueKind, OK_Ordinary),
+        SubExprs{SubExpr, DomainCall, CodeCall},
+        FailureValue(FailureValue), TryLoc(Loc), FailureType(FailureType),
+        Propagation(static_cast<unsigned>(Propagation)) {
     setDependence(computeDependence(this));
   }
-  CXXTryExpr(EmptyShell Empty) : Expr(CXXTryExprClass, Empty) {}
+  CXXTryExpr(EmptyShell Empty)
+      : Expr(CXXTryExprClass, Empty), SubExprs{}, FailureValue(nullptr),
+        Propagation(static_cast<unsigned>(PropagationKind::Pending)) {}
 
-  const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
-  Expr *getSubExpr() { return cast<Expr>(SubExpr); }
+  const Expr *getSubExpr() const { return cast<Expr>(SubExprs[OperandIndex]); }
+  Expr *getSubExpr() { return cast<Expr>(SubExprs[OperandIndex]); }
 
-  /// The `error_domain<E>` specialization used to convert a `fails{E}` error
-  /// into std::error when propagating into a `throws` function, or null when
-  /// no conversion is needed (callee error type already matches).
-  CXXRecordDecl *getErrorDomain() const { return ErrorDomain; }
+  const Expr *getDomainCall() const {
+    return cast_or_null<Expr>(SubExprs[DomainCallIndex]);
+  }
+  Expr *getDomainCall() {
+    return cast_or_null<Expr>(SubExprs[DomainCallIndex]);
+  }
+  const Expr *getCodeCall() const {
+    return cast_or_null<Expr>(SubExprs[CodeCallIndex]);
+  }
+  Expr *getCodeCall() { return cast_or_null<Expr>(SubExprs[CodeCallIndex]); }
+  OpaqueValueExpr *getFailureValue() const { return FailureValue; }
+
+  /// Attach the conversion selected after a containing try statement's
+  /// handlers become known. Sema forms the operand before parsing those
+  /// handlers, so handler-only conversion cannot be decided in the
+  /// constructor without rejecting typed propagation that remains raw.
+  void setErrorDomainConversion(Expr *Domain, Expr *Code,
+                                OpaqueValueExpr *Value) {
+    assert(Domain && Code && Value && "incomplete error-domain conversion");
+    SubExprs[DomainCallIndex] = Domain;
+    SubExprs[CodeCallIndex] = Code;
+    FailureValue = Value;
+  }
+
+  /// Return the explicit E carried by a return_failure{E} callee, or a null
+  /// type when the callee's error is already the implicit std::error.
+  QualType getFailureType() const { return FailureType; }
+
+  PropagationKind getPropagationKind() const {
+    return static_cast<PropagationKind>(Propagation);
+  }
+  bool isPropagationPending() const {
+    return getPropagationKind() == PropagationKind::Pending;
+  }
+  bool propagatesRaw() const {
+    return getPropagationKind() == PropagationKind::Raw;
+  }
+  bool convertsToStdError() const {
+    return getPropagationKind() == PropagationKind::ToStdError;
+  }
+  void setPropagationKind(PropagationKind Kind) {
+    Propagation = static_cast<unsigned>(Kind);
+    setDependence(computeDependence(this));
+  }
 
   SourceLocation getTryLoc() const { return TryLoc; }
 
@@ -1413,10 +1498,12 @@ public:
   }
 
   // Iterators
-  child_range children() { return child_range(&SubExpr, &SubExpr + 1); }
+  child_range children() {
+    return child_range(SubExprs, SubExprs + NumSubExprs);
+  }
 
   const_child_range children() const {
-    return const_child_range(&SubExpr, &SubExpr + 1);
+    return const_child_range(SubExprs, SubExprs + NumSubExprs);
   }
 };
 

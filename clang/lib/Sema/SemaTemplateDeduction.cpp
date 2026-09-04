@@ -2066,36 +2066,71 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
       if (TDF & TDF_AllowCompatibleFunctionType)
         return TemplateDeductionResult::Success;
 
-      // FIXME: Per core-2016/10/1019 (no corresponding core issue yet), permit
-      // deducing through the noexcept-specifier if it's part of the canonical
-      // type. libstdc++ relies on this.
-      Expr *NoexceptExpr = FPP->getNoexceptExpr();
+      // Permit deduction through a conditional exception specification when
+      // it is part of the canonical function type. Herbceptions uses a
+      // distinct dependent condition because true selects a shaped return ABI
+      // while false selects the ordinary noexcept ABI.
+      Expr *ConditionExpr = FPP->getExceptionSpecExpr();
       if (NonTypeOrVarTemplateParmDecl NTTP =
-              NoexceptExpr ? getDeducedNTTParameterFromExpr(Info, NoexceptExpr)
-                           : nullptr) {
+              ConditionExpr
+                  ? getDeducedNTTParameterFromExpr(Info, ConditionExpr)
+                  : nullptr) {
         assert(NTTP.getDepth() == Info.getDeducedDepth() &&
                "saw non-type template parameter with wrong depth");
 
-        llvm::APSInt Noexcept(1);
+        llvm::APSInt Condition(1);
+        if (isComputedThrows(FPP->getExceptionSpecType())) {
+          switch (FPA->getExceptionSpecType()) {
+          case EST_DependentThrows:
+            return DeduceNonTypeTemplateArgument(
+                S, TemplateParams, NTTP, FPA->getThrowsExpr(), Info,
+                POK != PartialOrderingKind::None, Deduced,
+                HasDeducedAnyParam);
+
+          case EST_BasicThrows:
+          case EST_BasicThrowsTrue:
+            Condition = 1;
+            break;
+
+          default:
+            // Only a non-failing function is equivalent to throws(false).
+            // A potentially-unwinding function and a typed failure channel
+            // are neither state of the basic conditional throws family.
+            if (FPA->canThrow() != CT_Cannot)
+              return TemplateDeductionResult::NonDeducedMismatch;
+            Condition = 0;
+            break;
+          }
+
+          return DeduceNonTypeTemplateArgument(
+              S, TemplateParams, NTTP, Condition, S.Context.BoolTy,
+              /*DeducedFromArrayBound=*/true, Info,
+              POK != PartialOrderingKind::None, Deduced,
+              HasDeducedAnyParam);
+        }
+
+        // FIXME: Per core-2016/10/1019 (no corresponding core issue yet),
+        // permit deducing through the noexcept-specifier if it is part of the
+        // canonical type. libstdc++ relies on this.
         switch (FPA->canThrow()) {
         case CT_Cannot:
-        // A herbception 'throws'/'fails{E}' spec is noexcept(true).
+        // A herbception `throws`/`return_failure{E}` function does not unwind.
         case CT_Deterministic:
-          Noexcept = 1;
+          Condition = 1;
           [[fallthrough]];
 
         case CT_Can:
           // We give E in noexcept(E) the "deduced from array bound" treatment.
           // FIXME: Should we?
           return DeduceNonTypeTemplateArgument(
-              S, TemplateParams, NTTP, Noexcept, S.Context.BoolTy,
+              S, TemplateParams, NTTP, Condition, S.Context.BoolTy,
               /*DeducedFromArrayBound=*/true, Info,
               POK != PartialOrderingKind::None, Deduced, HasDeducedAnyParam);
 
         case CT_Dependent:
-          if (Expr *ArgNoexceptExpr = FPA->getNoexceptExpr())
+          if (Expr *ArgConditionExpr = FPA->getNoexceptExpr())
             return DeduceNonTypeTemplateArgument(
-                S, TemplateParams, NTTP, ArgNoexceptExpr, Info,
+                S, TemplateParams, NTTP, ArgConditionExpr, Info,
                 POK != PartialOrderingKind::None, Deduced, HasDeducedAnyParam);
           // Can't deduce anything from throw(T...).
           break;
@@ -7110,7 +7145,7 @@ MarkUsedTemplateParameters(ASTContext &Ctx, QualType T,
         // subtract that from the list of deduced parameters after marking.
       }
     }
-    if (auto *E = Proto->getNoexceptExpr())
+    if (auto *E = Proto->getExceptionSpecExpr())
       MarkUsedTemplateParameters(Ctx, E, OnlyDeduced, Depth, Used);
     break;
   }

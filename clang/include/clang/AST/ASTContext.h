@@ -1719,6 +1719,12 @@ public:
   /// is `.failed`; `.value`/`.error` share a union.
   QualType getCatchReturnFailureType(QualType T, QualType E) const;
 
+  /// Return whether \p T is the compiler-owned discriminated result of a
+  /// `catch return_failure(expr)` expression. The marker is carried by the
+  /// synthetic declaration itself so serialization and AST import preserve
+  /// the result's active-member lifetime semantics.
+  bool isCatchReturnFailureType(QualType T) const;
+
   /// Return the synthetic result struct for invoking a `fails{E}` function:
   /// `struct { using value_type = V; using error_type = E; }` (or void for
   /// error_type when the callable does not use fails). Backs the

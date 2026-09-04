@@ -1989,9 +1989,9 @@ void ASTStmtReader::VisitCXXThrowExpr(CXXThrowExpr *E) {
 void ASTStmtReader::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
   VisitExpr(E);
   E->Loc = readSourceLocation();
-  E->Operand = Record.readSubExpr();
-  E->DomainCall = Record.readSubExpr();
-  E->CodeCall = Record.readSubExpr();
+  E->SubExprs[CXXErrorValueExpr::OperandIndex] = Record.readSubExpr();
+  E->SubExprs[CXXErrorValueExpr::DomainCallIndex] = Record.readSubExpr();
+  E->SubExprs[CXXErrorValueExpr::CodeCallIndex] = Record.readSubExpr();
 }
 
 void ASTStmtReader::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
@@ -2002,8 +2002,13 @@ void ASTStmtReader::VisitCXXCxaExceptionExpr(CXXCxaExceptionExpr *E) {
 void ASTStmtReader::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   E->TryLoc = readSourceLocation();
-  E->SubExpr = Record.readSubExpr();
-  E->ErrorDomain = readDeclAs<CXXRecordDecl>();
+  E->SubExprs[CXXTryExpr::OperandIndex] = Record.readSubExpr();
+  E->SubExprs[CXXTryExpr::DomainCallIndex] = Record.readSubExpr();
+  E->SubExprs[CXXTryExpr::CodeCallIndex] = Record.readSubExpr();
+  E->FailureValue =
+      cast_or_null<OpaqueValueExpr>(Record.readSubExpr());
+  E->FailureType = Record.readType();
+  E->Propagation = Record.readInt();
 }
 
 void ASTStmtReader::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E) {

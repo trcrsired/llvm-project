@@ -1001,7 +1001,7 @@ private:
           if (FunctionProtoTypeLoc TL =
                   TSI->getTypeLoc().getAs<FunctionProtoTypeLoc>())
             if (const FunctionProtoType *FPT = TL.getTypePtr())
-              NoexceptExpr = FPT->getNoexceptExpr();
+              NoexceptExpr = FPT->getExceptionSpecExpr();
         }
       }
 

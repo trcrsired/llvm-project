@@ -1,0 +1,8 @@
+module herb_catch_result_a {
+  header "herbceptions-catch-result-a.h"
+  export *
+}
+module herb_catch_result_b {
+  header "herbceptions-catch-result-b.h"
+  export *
+}

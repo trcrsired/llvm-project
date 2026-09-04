@@ -29,6 +29,36 @@ static_assert(use_catch(0) == 42, "failure");
 static_assert(use_catch_g(3) == 6, "try auto-propagate success");
 static_assert(use_catch_g(0) == 42, "try auto-propagate failure");
 
+struct reference_value {
+  int member;
+};
+
+constexpr reference_value reference_object{17};
+
+constexpr reference_value const &reference_source_lvalue()
+    return_failure{int} {
+  return reference_object;
+}
+
+constexpr reference_value const &&reference_source_xvalue()
+    return_failure{int} {
+  return static_cast<reference_value const &&>(reference_object);
+}
+
+constexpr bool reference_identity_lvalue() return_failure{int} {
+  return &(try(reference_source_lvalue())) == &reference_object;
+}
+
+constexpr bool reference_identity_xvalue() return_failure{int} {
+  auto &&result = try(reference_source_xvalue());
+  return &result == &reference_object;
+}
+
+static_assert(reference_identity_lvalue(),
+              "constexpr lvalue propagation preserves identity");
+static_assert(reference_identity_xvalue(),
+              "constexpr xvalue propagation preserves identity");
+
 // `catch fails` must not be applied to a `throws` function: its error type is
 // the implicit compiler-fabricated std::error, which is only handled by a
 // `try { } catch throws(std::error e)` block handler.

@@ -139,14 +139,19 @@ Expressions and statements
 * bare ``throw throws`` -- rethrow; only valid inside a ``try`` block whose
   handlers are herbception handlers
   (``err_throw_throws_rethrow_outside_catch``). CodeGen reads the error from
-  the active catch scope's error slot.
+  ``HerbceptionCaughtErrors``, transfers its exact representation to the next
+  outward handler/function destination, and disables only the source catch
+  variable's destructor on that control-flow edge. This keeps the error's
+  domain cleanup single-owner while unrelated scope cleanups still execute.
 * ``try(expr)`` -- ``Sema::ActOnHerbceptionTry`` builds ``CXXTryExpr``. Only
   valid inside a throws/return_failure function
   (``err_try_throws_outside_throws_function``); the operand must be a call
   to a throws/return_failure function (``err_try_expr_requires_throws_call``,
-  deferred while type-dependent). When a ``throws`` caller invokes a
-  ``return_failure{E}`` callee, the resolved ``error_domain<E>`` record is attached
-  to the node for the E->std::error conversion on the error path.
+  deferred while type-dependent). Every node begins in ``Pending`` state;
+  function finalization resolves the completed control-flow graph to ``Raw``
+  or ``ToStdError``. The latter stores the semantically checked accessor
+  ``CallExpr`` nodes and one shared ``OpaqueValueExpr`` for the decoded E, so
+  CodeGen uses ordinary ABI lowering rather than reconstructing a call.
 * ``catch return_failure(expr)`` -- ``Sema::ActOnHerbceptionCatchReturnFailure`` builds
   ``CXXCatchReturnFailureExpr`` holding the N2289 aggregate type produced by
   ``ASTContext::getCatchReturnType(T, E)``:
@@ -173,24 +178,29 @@ Auto-propagation
 ----------------
 
 In ``Sema::ActOnCallExpr`` (``clang/lib/Sema/SemaExpr.cpp``): in C++, when
-the current function has a throws/return_failure spec and
 ``Sema::HerbceptionOperandDepth == 0``, a bare call to a throws/return_failure
-function is wrapped in ``ActOnHerbceptionTry`` (auto-propagation). In C,
-any unwrapped call is rejected with ``err_return_failure_call_without_wrapper`` plus
-``note_return_failure_function_declared_here``. Inside a ``catch throws(std::error)``
-handler of a ``return_failure{E}`` function, a bare call to a plain ``return_failure{E2}``
-function is rejected outright (``err_return_failure_call_in_catch_throws``): the
-handler slot holds std::error, so the raw E2 payload would be stored
-unconverted; an explicit ``try()`` performs the conversion.
+function is wrapped in ``ActOnHerbceptionTry`` (auto-propagation) whenever the
+completed control-flow destination can accept the callee's failure channel. In
+C, any unwrapped call is rejected with
+``err_return_failure_call_without_wrapper`` plus
+``note_return_failure_function_declared_here``. A ``catch throws`` handler is a
+destination only for the statement it protects, never for its own body. Thus a
+same-E ``return_failure{E}`` call in a handler body propagates raw E to an
+enclosing ``return_failure{E}`` function; conversion through
+``std::error_domain<E>`` is required only when the selected outward destination
+is a basic ``throws`` function or an outer ``catch throws`` handler.
 
 ``noexcept`` boundary
 ---------------------
 
-A call whose result would escape a non-throws/non-return_failure enclosing function
-is diagnosed at call-lowering time with
-``err_herbceptions_non_throws_call_throws`` (``CodeGen::EmitCall``,
-``clang/lib/CodeGen/CGCall.cpp``). ``main()`` is a special case: its error
-path branches to a ``herb.main.trap`` block that executes ``llvm.trap``
+An evaluated direct call or overloaded-operator call whose failure result would
+escape a callable with no failure channel or local handler is diagnosed during
+semantic analysis with ``err_herbceptions_non_throws_call_throws``. Call forms
+created by an implicit conversion or initialization retain the equivalent
+call-lowering diagnostic as a backstop. These checks apply independently to
+nested lambdas, blocks, and local-class methods: they do not inherit the
+containing function's channel. ``main()`` is a deliberate special case; its
+error path branches to a ``herb.main.trap`` block that executes ``llvm.trap``
 (the success path continues in ``herb.main.ok``).
 
 Type traits
@@ -225,9 +235,10 @@ Nodes
 All registered in ``clang/include/clang/Basic/StmtNodes.td``:
 
 * ``CXXTryExpr`` (``ExprCXX.h``) -- herbception ``try(expr)``; distinct from
-  the statement-level ``CXXTryStmt``. Carries the optional
-  ``CXXRecordDecl *ErrorDomain`` used for the fails-to-std::error
-  conversion.
+  the statement-level ``CXXTryStmt``. Carries ``Pending`` / ``Raw`` /
+  ``ToStdError`` propagation state, semantic failure type E, and (for
+  ``ToStdError``) the persisted domain/code calls plus their shared opaque E
+  placeholder. All of these are profiled, serialized, imported, and rebuilt.
 * ``CXXCatchReturnFailureExpr`` (``ExprCXX.h``) -- ``catch return_failure(expr)``; wraps the
   call and the N2289 aggregate type.
 * ``CXXCatchThrowsStmt`` (``StmtCXX.h``) -- a ``catch throws(E e)`` /
@@ -301,6 +312,14 @@ Sema
   of using EH type-matching; the [except.handle]p5 catch-all-position check
   considers only later *traditional* clauses, so traditional and herbception
   clauses may interleave freely.
+* ``ResolveHerbceptionPropagation`` -- runs after the enclosing callable is
+  complete. A try body targets its first catch-throws clause, a traditional
+  handler targets the next later catch-throws clause, and a catch-throws body
+  targets the enclosing graph. Typed-to-typed propagation requires the exact
+  canonical E; basic-to-typed propagation is rejected. Discarded
+  ``if constexpr`` arms and nested callable/local-class bodies are excluded.
+  Constructor initializers are visited separately and use the function-try
+  handler destination because they are not AST children of the try body.
 
 Whole-function conversion
 -------------------------
@@ -361,9 +380,8 @@ struct return is never misclassified: only a second struct element of type
 * a ``throws``/``fails`` function: store the error value into the return
   slot, set the discriminant, run cleanups, branch to the return block --
   this is ``EmitHerbceptionThrow`` (``CGStmt.cpp``), which first checks the
-  nearest active catch scope (so bare ``throw throws`` rethrows route to the
-  innermost handler) and coerces the payload between ``T`` / ``E`` /
-  ``std::error`` representations;
+  nearest active destination. Bare rethrow instead consumes the separately
+  recorded currently caught error and transfers its ownership outward;
 * ``main()``: trap on error (blocks ``herb.main.ok`` / ``herb.main.trap``);
 * otherwise: diagnose with ``err_herbceptions_non_throws_call_throws``.
 
@@ -380,8 +398,12 @@ cleanups). ``EmitHerbceptionCatchFails`` emits the N2289 aggregate: stores
 ``value`` and sets ``failed=false`` on success, stores ``error`` and sets
 ``failed=true`` on failure (anonymous-union-aware member lookup).
 ``EmitFailsErrorToStdError`` converts a ``return_failure{E}`` error to ``std::error``
-on the error path by calling the resolved ``error_domain<E>::domain()`` /
-``code()`` static members (honoring an optional ``domain_alias_type``).
+on the error path by decoding exactly ``sizeof(E)`` bytes, binding the stored
+opaque E once, and ordinarily emitting the persisted
+``error_domain<E>::domain()`` / ``code()`` calls (honoring an optional
+``domain_alias_type`` and ABI-affecting parameter attributes). The only raw
+representation bridge is a strictly layout-validated global
+``cxx_std_error``.
 
 Block handlers
 ``````````````
@@ -401,6 +423,14 @@ competes for the legacy stream. While a traditional handler body runs, its
 forward. Cleanups (including the caught variable's destructor, which runs
 the domain's ``do_cleanup``) execute exactly once. Funclet-based
 personalities keep the handler inside the proper funclet region.
+For constructor/destructor function-try-blocks the callback-form emitter puts
+the constructor prologue or destructor epilogue in the same protected region.
+Normal handler fallthrough performs the mandatory outward rethrow; it can
+never turn partial construction/destruction into success.
+
+CIR deliberately diagnoses ``ToStdError`` as not yet implemented. It does not
+silently copy the unrelated typed payload; raw propagation retains the
+existing CIR lowering.
 
 Legacy C++ EH interop
 =====================

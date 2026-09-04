@@ -2731,12 +2731,12 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry) {
 
   // Herbception: track try-body nesting so that a throw inside a try nested
   // within a herbception handler can be routed to the nested handlers.
-  ++Actions.HerbceptionTryBodyDepth;
+  Actions.EnterHerbceptionTryBody();
   StmtResult TryBlock(ParseCompoundStatement(
       /*isStmtExpr=*/false,
       Scope::DeclScope | Scope::TryScope | Scope::CompoundStmtScope |
           (FnTry ? Scope::FnTryCatchScope : Scope::NoScope)));
-  --Actions.HerbceptionTryBodyDepth;
+  Actions.ExitHerbceptionTryBody();
   if (TryBlock.isInvalid())
     return TryBlock;
 
@@ -2791,13 +2791,14 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
 
   SourceLocation CatchLoc = ConsumeToken();
 
-  // Track catch-clause nesting: herbception throws inside traditional
-  // handlers chain forward, so context diagnostics defer inside any clause.
-  ++Actions.HerbceptionCatchClauseDepth;
-  struct PopDepth {
+  // Track the callable that owns this clause. A lexical counter would leak
+  // the forwarding permission into a lambda or Apple block declared in the
+  // handler even though its invocation cannot branch to the outer CFG.
+  Actions.EnterHerbceptionCatchClause();
+  struct PopCatchClause {
     Sema &Actions;
-    ~PopDepth() { --Actions.HerbceptionCatchClauseDepth; }
-  } PopDepthGuard{Actions};
+    ~PopCatchClause() { Actions.ExitHerbceptionCatchClause(); }
+  } PopCatchClauseGuard{Actions};
 
   // Herbception: `catch throws(E e) { ... }` block handler. The caught type
   // must be std::error (checked by Sema). There is no `catch fails` block
@@ -2851,9 +2852,9 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
     if (Tok.isNot(tok::l_brace))
       return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
 
-    ++Actions.HerbceptionCatchDepth;
+    Actions.EnterHerbceptionHandler();
     StmtResult Block(ParseCompoundStatement());
-    --Actions.HerbceptionCatchDepth;
+    Actions.ExitHerbceptionHandler();
     if (Block.isInvalid())
       return Block;
 

@@ -1106,6 +1106,12 @@ public:
   /// Retrieve the current block, if any.
   sema::BlockScopeInfo *getCurBlock();
 
+  /// Return the function prototype for the innermost callable that owns a
+  /// Herbception operation. Unlike getCurFunctionDecl(), this deliberately
+  /// does not look through an Apple block: a block's effect is independent of
+  /// the function or block that lexically contains it.
+  const FunctionProtoType *getCurHerbceptionFunctionProto();
+
   /// Get the innermost lambda or block enclosing the current location, if any.
   /// This looks through intervening non-lambda, non-block scopes such as local
   /// functions.
@@ -5563,6 +5569,15 @@ public:
     llvm::SmallPtrSet<CanQualType, 4> ExceptionsSeen;
     SmallVector<QualType, 4> Exceptions;
 
+    // Deterministic failure is an independent effect until the implicit
+    // specification is finalized.  A generated special member that invokes
+    // any live Herbception operation is itself `throws`; that channel also
+    // converts an escaping legacy C++ exception to std::error.  Keeping this
+    // bit separate from ComputedEST makes the merge monotone and prevents the
+    // declaration order of deterministic and legacy-throwing subobjects from
+    // changing the generated function type.
+    bool HasDeterministicFailure = false;
+
     void ClearExceptions() {
       ExceptionsSeen.clear();
       Exceptions.clear();
@@ -5577,6 +5592,8 @@ public:
 
     /// Get the computed exception specification type.
     ExceptionSpecificationType getExceptionSpecType() const {
+      if (HasDeterministicFailure)
+        return EST_BasicThrows;
       assert(!isComputedNoexcept(ComputedEST) &&
              "noexcept(expr) should not be a possible result");
       return ComputedEST;
@@ -6685,6 +6702,11 @@ public:
   /// type
   ///                   when the input is an array or a function type.
   bool CheckSpecifiedExceptionType(QualType &T, SourceRange Range);
+
+  /// Check the additional semantic requirements on the explicit error type of
+  /// a `return_failure{E}` specification. A dependent E is deliberately
+  /// accepted here and must be checked again after template substitution.
+  bool CheckReturnFailureErrorType(QualType T, SourceRange Range);
 
   /// CheckDistantExceptionSpec - Check if the given type is a pointer or
   /// pointer to member to a function with an exception specification. This
@@ -8564,9 +8586,21 @@ public:
   /// Look up the std::error_domain<T> class template specialization for \p T.
   /// Returns the record decl or null if there is no such specialization.
   CXXRecordDecl *lookupErrorDomain(SourceLocation Loc, QualType T);
-  /// Build a DeclRefExpr referring to the static member function \p Fn.
-  DeclRefExpr *BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
-                                               SourceLocation Loc);
+  /// Return whether \p T is the exact global C ABI bridge record
+  /// `struct cxx_std_error { void *domain; size_t code; }`. The check includes
+  /// field types and the target record layout and is shared by direct
+  /// `throw throws` and typed-to-basic propagation.
+  bool isValidCXXStdErrorABIType(QualType T) const;
+  /// Resolve and attach the exact std::error_domain accessors used to convert
+  /// a typed CXXTryExpr failure. Returns true after issuing a diagnostic.
+  bool ResolveHerbceptionErrorDomainConversion(CXXTryExpr *E);
+  /// Resolve all pending propagation expressions in \p Body against their
+  /// actual control-flow destination. This runs only after each complete
+  /// try/handler graph and the enclosing callable effect are known. \p IsMain
+  /// preserves the language's distinguished hard-termination boundary.
+  bool ResolveHerbceptionPropagation(
+      const FunctionProtoType *FPT, Stmt *Body, bool IsMain = false,
+      bool HasCatchThrowsDestination = false);
   /// ActOnHerbceptionTry - Parse `try(expr)` (herbception auto-propagate).
   ExprResult ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex);
   /// ActOnHerbceptionCatchReturnFailure - Parse `catch fails(expr)`.
@@ -8585,32 +8619,101 @@ public:
   /// to throws functions are not implicitly wrapped in `try`.
   unsigned HerbceptionOperandDepth = 0;
 
-  /// Whether the parser is inside a herbception `catch throws` / `catch fails`
-  /// block handler body. Only there may bare `throw throws` rethrow the caught
-  /// error, and `throw throws expr` is disallowed.
-  unsigned HerbceptionCatchDepth = 0;
-
   /// Whether the parser is inside an `if constexpr` branch subtree. Herbception
   /// throw-context diagnostics are suppressed there: a discarded branch never
   /// throws, and for dependent conditions liveness is only decided at
   /// instantiation (live violations are diagnosed at CodeGen).
   unsigned HerbceptionIfConstexprDepth = 0;
 
-  /// Whether the parser is inside any catch clause of a try statement
-  /// (traditional or herbception). Herbception throws inside traditional
-  /// handlers chain forward to sibling herbception handlers, so context
-  /// diagnostics are deferred there; CodeGen enforces routability.
-  unsigned HerbceptionCatchClauseDepth = 0;
+  /// Callable owners of the try bodies currently being parsed or rebuilt.
+  /// A lexical depth counter is insufficient here: a lambda or Apple block
+  /// declared inside a try body is a different callable and cannot route a
+  /// later invocation into the enclosing function's handler.
+  SmallVector<sema::FunctionScopeInfo *, 4> HerbceptionTryBodyOwners;
 
-  /// Whether the parser is inside the body of a try statement (any nesting
-  /// level). Combined with HerbceptionCatchDepth this distinguishes a nested
-  /// try inside a herbception handler - whose own handlers may consume the
-  /// error locally - from a throw directly in handler code.
-  unsigned HerbceptionTryBodyDepth = 0;
+  /// Callable owners of active herbception handler bodies and catch clauses.
+  /// Parser scopes are lexical and therefore extend into the source text of a
+  /// nested lambda or Apple block. Recording FunctionScopeInfo identity keeps
+  /// rethrow and sibling-handler routing attached to the callable whose
+  /// control-flow graph actually contains the destination.
+  SmallVector<sema::FunctionScopeInfo *, 4> HerbceptionHandlerOwners;
+  SmallVector<sema::FunctionScopeInfo *, 4> HerbceptionCatchClauseOwners;
+
+  /// Enter and leave a try body while preserving the callable that owns its
+  /// deterministic handler scope. TreeTransform uses the same API as the
+  /// parser so dependent calls acquire identical routing after substitution.
+  void EnterHerbceptionTryBody() {
+    HerbceptionTryBodyOwners.push_back(getCurFunction());
+  }
+  void ExitHerbceptionTryBody() {
+    assert(!HerbceptionTryBodyOwners.empty() &&
+           "unbalanced Herbception try-body context");
+    HerbceptionTryBodyOwners.pop_back();
+  }
+
+  /// Return whether the innermost callable is lexically within one of its own
+  /// try bodies. Entries owned by an enclosing lambda, block, or function are
+  /// deliberately ignored.
+  bool isInCurrentCallableHerbceptionTryBody() const {
+    sema::FunctionScopeInfo *Current = getCurFunction();
+    if (!Current)
+      return false;
+    for (auto *Owner : llvm::reverse(HerbceptionTryBodyOwners))
+      if (Owner == Current)
+        return true;
+    return false;
+  }
+
+  /// Enter and leave a herbception handler. Only an exact owner match
+  /// authorizes bare `throw throws`; an enclosing callable's error slot is
+  /// unreachable from a separately invoked closure.
+  void EnterHerbceptionHandler() {
+    HerbceptionHandlerOwners.push_back(getCurFunction());
+  }
+  void ExitHerbceptionHandler() {
+    assert(!HerbceptionHandlerOwners.empty() &&
+           "unbalanced Herbception handler context");
+    HerbceptionHandlerOwners.pop_back();
+  }
+  bool isInCurrentCallableHerbceptionHandler() const {
+    sema::FunctionScopeInfo *Current = getCurFunction();
+    if (!Current)
+      return false;
+    for (auto *Owner : llvm::reverse(HerbceptionHandlerOwners))
+      if (Owner == Current)
+        return true;
+    return false;
+  }
+
+  /// Enter and leave any catch clause. A traditional handler may forward a
+  /// deterministic error to a later herbception handler, but only within the
+  /// same callable; lambdas and blocks have independent return channels.
+  void EnterHerbceptionCatchClause() {
+    HerbceptionCatchClauseOwners.push_back(getCurFunction());
+  }
+  void ExitHerbceptionCatchClause() {
+    assert(!HerbceptionCatchClauseOwners.empty() &&
+           "unbalanced Herbception catch-clause context");
+    HerbceptionCatchClauseOwners.pop_back();
+  }
+  bool isInCurrentCallableHerbceptionCatchClause() const {
+    sema::FunctionScopeInfo *Current = getCurFunction();
+    if (!Current)
+      return false;
+    for (auto *Owner : llvm::reverse(HerbceptionCatchClauseOwners))
+      if (Owner == Current)
+        return true;
+    return false;
+  }
 
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'fails{E}' spec.
   bool isHerbceptionThrowsCall(const Expr *Ex);
+
+  /// Return the canonical function prototype used by a herbception call,
+  /// including indirect calls through function pointers/references and bound
+  /// member pointers.  Returns null while the callee type is still dependent.
+  const FunctionProtoType *getHerbceptionCalleeProto(const Expr *Ex);
 
   /// CheckCXXThrowOperand - Validate the operand of a throw.
   bool CheckCXXThrowOperand(SourceLocation ThrowLoc, QualType ThrowTy, Expr *E);

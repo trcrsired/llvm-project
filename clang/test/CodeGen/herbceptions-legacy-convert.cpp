@@ -1,6 +1,6 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=ITANIUM
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=MSVC
-// RUN: %clang_cc1 -triple wasm32-unknown-unknown -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -exception-model=wasm -mllvm -wasm-enable-eh -emit-llvm -o - %s | FileCheck %s --check-prefix=WASM
+// RUN: %clang_cc1 -triple wasm32-unknown-unknown -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -exception-model=wasm -emit-llvm -o - %s | FileCheck %s --check-prefix=WASM
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -exception-model=sjlj -emit-llvm -o - %s | FileCheck %s --check-prefix=SJLJ
 
 // A `try { } catch throws(std::error e)` block also catches legacy C++

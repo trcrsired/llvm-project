@@ -202,8 +202,7 @@ bool CheckDefaultArgumentVisitor::VisitCoyieldExpr(const CoyieldExpr *E) {
 void
 Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
                                                  const CXXMethodDecl *Method) {
-  // If we have an MSAny spec already, don't bother.
-  if (!Method || ComputedEST == EST_MSAny)
+  if (!Method)
     return;
 
   const FunctionProtoType *Proto
@@ -213,10 +212,6 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
     return;
 
   ExceptionSpecificationType EST = Proto->getExceptionSpecType();
-
-  // If we have a throw-all spec at this point, ignore the function.
-  if (ComputedEST == EST_None)
-    return;
 
   if (EST == EST_None && Method->hasAttr<NoThrowAttr>())
     EST = EST_BasicNoexcept;
@@ -229,22 +224,35 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
 
   // If this function can throw any exceptions, make a note of that.
   case EST_MSAny:
-  case EST_None:
-    // FIXME: Whichever we see last of MSAny and None determines our result.
-    // We should make a consistent, order-independent choice here.
+    // throw(...) is the widest legacy specification.  Once observed it
+    // dominates every other traditional exception specification, although a
+    // later deterministic effect can still dominate the final ABI.
     ClearExceptions();
-    ComputedEST = EST;
+    ComputedEST = EST_MSAny;
     return;
-  case EST_NoexceptFalse:
+  case EST_None:
+    if (ComputedEST == EST_MSAny)
+      return;
     ClearExceptions();
     ComputedEST = EST_None;
     return;
-  // A herbception 'throws'/'fails{E}' spec implies noexcept(true): the call
-  // cannot propagate a traditional C++ exception.
+  case EST_NoexceptFalse:
+    if (ComputedEST == EST_MSAny)
+      return;
+    ClearExceptions();
+    ComputedEST = EST_None;
+    return;
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
-  case EST_BasicThrowsFalse:
   case EST_ThrowsTyped:
+    // A live Herbception callee requires a deterministic failure channel on
+    // the generated special member.  This effect dominates a legacy-throwing
+    // callee in either visitation order because bare `throws` converts legacy
+    // exceptions at the generated function boundary.
+    HasDeterministicFailure = true;
+    return;
+  case EST_BasicThrowsFalse:
+    // `throws(false)` is the same non-failing type as noexcept(true).
     return;
 
   // FIXME: If the call to this decl is using any of its default arguments, we
@@ -261,12 +269,16 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
       ComputedEST = EST_DynamicNone;
     return;
   case EST_DependentNoexcept:
+  case EST_DependentThrows:
     llvm_unreachable(
         "should not generate implicit declarations for dependent cases");
   case EST_Dynamic:
     break;
   }
   assert(EST == EST_Dynamic && "EST case not considered earlier.");
+  if (ComputedEST == EST_MSAny || ComputedEST == EST_None)
+    return;
+
   assert(ComputedEST != EST_None &&
          "Shouldn't collect exceptions when throw-all is guaranteed.");
   ComputedEST = EST_Dynamic;
@@ -277,7 +289,7 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
 }
 
 void Sema::ImplicitExceptionSpecification::CalledStmt(Stmt *S) {
-  if (!S || ComputedEST == EST_MSAny)
+  if (!S)
     return;
 
   // FIXME:
@@ -300,9 +312,23 @@ void Sema::ImplicitExceptionSpecification::CalledStmt(Stmt *S) {
   // specification should be the set of exceptions which can be thrown by the
   // implicit definition. For now, we assume that any non-nothrow expression can
   // throw any exception.
+  //
+  // CanThrowResult intentionally collapses an expression containing both a
+  // deterministic failure and a legacy exception to CT_Can.  Preserve the
+  // deterministic axis separately: it selects the generated `throws` ABI and
+  // therefore dominates the legacy axis instead of being misclassified as
+  // noexcept(false).  Inspecting the live specification also covers such
+  // mixed expression trees; throws(false) is excluded by hasThrowsSpec().
+  CanThrowResult CT = Self->canThrow(S);
+  if (CT == CT_Deterministic || Self->hasHerbceptionSpec(S)) {
+    HasDeterministicFailure = true;
+    return;
+  }
 
-  if (Self->canThrow(S))
+  if (CT != CT_Cannot && ComputedEST != EST_MSAny) {
+    ClearExceptions();
     ComputedEST = EST_None;
+  }
 }
 
 ExprResult Sema::ConvertParamDefaultArgument(ParmVarDecl *Param, Expr *Arg,
@@ -19076,8 +19102,16 @@ static void SearchForReturnInStmt(Sema &Self, Stmt *S) {
 
 void Sema::DiagnoseReturnInConstructorExceptionHandler(CXXTryStmt *TryBlock) {
   for (unsigned I = 0, E = TryBlock->getNumHandlers(); I != E; ++I) {
-    CXXCatchStmt *Handler = TryBlock->getCatchHandler(I);
-    SearchForReturnInStmt(*this, Handler);
+    Stmt *Handler = TryBlock->getHandler(I);
+    Stmt *HandlerBlock;
+    if (auto *Herb = dyn_cast<CXXCatchThrowsStmt>(Handler))
+      HandlerBlock = Herb->getHandlerBlock();
+    else
+      HandlerBlock = cast<CXXCatchStmt>(Handler)->getHandlerBlock();
+    // Constructor function-try handlers forbid return statements regardless
+    // of which failure channel selected the clause. The generic handler
+    // accessor is required because getCatchHandler accepts only CXXCatchStmt.
+    SearchForReturnInStmt(*this, HandlerBlock);
   }
 }
 
@@ -19798,6 +19832,10 @@ bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
   case EST_ThrowsTyped:
     break;
 
+  case EST_DependentThrows:
+    if (!Finder.TraverseStmt(Proto->getThrowsExpr()))
+      return true;
+    break;
   case EST_DependentNoexcept:
   case EST_NoexceptFalse:
   case EST_NoexceptTrue:
@@ -19858,6 +19896,54 @@ bool Sema::checkThisInStaticMemberFunctionAttributes(CXXMethodDecl *Method) {
   return false;
 }
 
+bool Sema::CheckReturnFailureErrorType(QualType T, SourceRange Range) {
+  // A reference can never be the active object in the union carrier. Reject a
+  // dependent reference immediately because substitution cannot change that
+  // category; defer only genuinely unknown dependent types.
+  if (T->isReferenceType() || (!T->isDependentType() && !T->isObjectType())) {
+    Diag(Range.getBegin(), diag::err_return_failure_type_not_object)
+        << T << Range;
+    return true;
+  }
+
+  // A template pattern cannot determine the representation or object traits of
+  // its E. TransformExceptionSpec calls this routine again for the substituted
+  // type, so accepting a dependent type here is a deferral rather than an
+  // exemption.
+  if (T->isDependentType())
+    return false;
+
+  // `fails{std::error}` is invalid: std::error is a compiler-fabricated value
+  // that may only be carried by the implicit `throws` channel, never returned
+  // as an explicit typed failure.
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"),
+                   Range.getBegin(), LookupTagName);
+    if (LookupQualifiedName(R, Std)) {
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>()) {
+        QualType StdErrorTy =
+            Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
+        if (Context.hasSameUnqualifiedType(T, StdErrorTy)) {
+          Diag(Range.getBegin(), diag::err_return_failure_std_error_type)
+              << Range;
+          return true;
+        }
+      }
+    }
+  }
+
+  // E is transferred by value through the {T, i1} result carrier. Require a
+  // complete, trivially-copyable object type before committing that ABI.
+  if (RequireCompleteType(Range.getBegin(), T, diag::err_incomplete_type))
+    return true;
+  if (!T.isTriviallyCopyableType(Context)) {
+    Diag(Range.getBegin(), diag::err_return_failure_type_not_trivially_copyable)
+        << T << Range;
+    return true;
+  }
+  return false;
+}
+
 void Sema::checkExceptionSpecification(
     bool IsTopLevel, ExceptionSpecificationType EST,
     ArrayRef<ParsedType> DynamicExceptions,
@@ -19867,6 +19953,18 @@ void Sema::checkExceptionSpecification(
   Exceptions.clear();
   ESI.Type = EST;
   if (EST == EST_Dynamic || EST == EST_ThrowsTyped) {
+    // Unlike a dynamic exception list, a typed failure channel denotes one
+    // physical payload alternative. Keep malformed recovery types out of the
+    // AST so mangling and CodeGen never have to guess which E is active.
+    if (EST == EST_ThrowsTyped && DynamicExceptions.size() != 1) {
+      Diag(DynamicExceptionRanges.empty()
+               ? SourceLocation()
+               : DynamicExceptionRanges.front().getBegin(),
+           diag::err_return_failure_requires_single_error_type);
+      ESI.Type = EST_None;
+      return;
+    }
+
     Exceptions.reserve(DynamicExceptions.size());
     for (unsigned ei = 0, ee = DynamicExceptions.size(); ei != ee; ++ei) {
       // FIXME: Preserve type source info.
@@ -19883,53 +19981,28 @@ void Sema::checkExceptionSpecification(
         }
       }
 
-      // Check that the type is valid for an exception spec, and
-      // drop it if not.
-      if (!CheckSpecifiedExceptionType(ET, DynamicExceptionRanges[ei]))
-        Exceptions.push_back(ET);
-
-      // `fails{std::error}` is invalid: std::error is a compiler-fabricated
-      // value that may only be carried by the implicit `throws` channel, never
-      // returned as an explicit fails error type.
-      if (EST == EST_ThrowsTyped) {
-        if (NamespaceDecl *Std = getStdNamespace()) {
-          LookupResult R(*this, &PP.getIdentifierTable().get("error"),
-                         DynamicExceptionRanges[ei].getBegin(),
-                         LookupTagName);
-          if (LookupQualifiedName(R, Std)) {
-            if (RecordDecl *RD = R.getAsSingle<RecordDecl>()) {
-              QualType StdErrorTy =
-                  Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
-              if (Context.hasSameUnqualifiedType(ET, StdErrorTy)) {
-                Diag(DynamicExceptionRanges[ei].getBegin(),
-                     diag::err_return_failure_std_error_type)
-                    << DynamicExceptionRanges[ei];
-                continue;
-              }
-            }
-          }
-        }
-
-        // The `fails{E}` error type must be trivially copyable, matching the C
-        // behavior where the error value flows through the {T, i1} ABI slot by
-        // value.
-        if (RequireCompleteType(DynamicExceptionRanges[ei].getBegin(), ET,
-                                diag::err_incomplete_type)) {
-          continue;
-        }
-        if (!ET.isTriviallyCopyableType(Context)) {
-          Diag(DynamicExceptionRanges[ei].getBegin(),
-               diag::err_return_failure_type_not_trivially_copyable)
-              << ET << DynamicExceptionRanges[ei];
-          continue;
-        }
+      // Check the common exception-type rules first, then the stronger typed
+      // payload contract. A dependent E is retained in the pattern and is
+      // subjected to both checks by TransformExceptionSpec after substitution.
+      bool Invalid =
+          CheckSpecifiedExceptionType(ET, DynamicExceptionRanges[ei]);
+      if (EST == EST_ThrowsTyped && !Invalid) {
+        // Canonicalize before discarding top-level cv so aliases cannot hide
+        // qualifiers from the typed-failure ABI identity. Qualifiers below a
+        // pointer or member boundary remain part of E.
+        ET = Context.getCanonicalType(ET).getUnqualifiedType();
+        Invalid = CheckReturnFailureErrorType(ET, DynamicExceptionRanges[ei]);
       }
+      if (!Invalid)
+        Exceptions.push_back(ET);
     }
+    if (EST == EST_ThrowsTyped && Exceptions.size() != 1)
+      ESI.Type = EST_None;
     ESI.Exceptions = Exceptions;
     return;
   }
 
-  if (isComputedNoexcept(EST)) {
+  if (hasExceptionSpecificationExpr(EST)) {
     assert((NoexceptExpr->isTypeDependent() ||
             NoexceptExpr->getType()->getCanonicalTypeUnqualified() ==
             Context.BoolTy) &&
@@ -19961,9 +20034,12 @@ void Sema::actOnDelayedExceptionSpecification(
 
   // Herbception: a destructor cannot be declared 'throws' or 'fails{...}'.
   // Destruction must be able to run during unwinding/cleanup, so it cannot
-  // itself fail through the herbception channel.
+  // itself fail through the herbception channel. A dependent condition is
+  // conservatively rejected, but the resolved false state is canonical
+  // noexcept and creates no channel.
   if (isa<CXXDestructorDecl>(FD) &&
-      hasHerbceptionExceptionSpec(EST)) {
+      (EST == EST_BasicThrows || EST == EST_BasicThrowsTrue ||
+       EST == EST_DependentThrows || EST == EST_ThrowsTyped)) {
     Diag(SpecificationRange.getBegin(),
          diag::err_herbceptions_destructor_spec)
         << SpecificationRange;

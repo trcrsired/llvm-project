@@ -1,0 +1,24 @@
+; RUN: llvm-undname < %s | FileCheck %s
+
+; CHECK-NOT: Invalid mangled name
+
+?plain@@YAXP6AHXZ@Z
+; CHECK: void __cdecl plain(int (__cdecl *)(void))
+
+?nothrow@@YAXP6AHX_E@Z
+; CHECK: void __cdecl nothrow(int (__cdecl *)(void) noexcept)
+
+?active@@YAXP6AHX_HB@Z
+; CHECK: void __cdecl active(int (__cdecl *)(void) throws)
+
+?typed_int@@YAXP6AHX_HTH@Z
+; CHECK: void __cdecl typed_int(int (__cdecl *)(void) return_failure{int})
+
+?typed_long@@YAXP6AHX_HTJ@Z
+; CHECK: void __cdecl typed_long(int (__cdecl *)(void) return_failure{long})
+
+?dependent_a@@YAXP6AHX_HDA@@Z
+; CHECK: void __cdecl dependent_a(int (__cdecl *)(void) throws(<dependent:0>))
+
+?dependent_b@@YAXP6AHX_HD0@Z
+; CHECK: void __cdecl dependent_b(int (__cdecl *)(void) throws(<dependent:1>))

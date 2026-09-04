@@ -206,16 +206,15 @@ void mixed_with_typed_ok() {
   }
 }
 
-// A 'catch throws(std::error)' handler inside a return_failure{E} function requires a
-// visible std::error_domain<E> specialization.
+// A nested handler consumes only failures raised in its protected statement.
+// It does not convert the enclosing function's independent typed return
+// channel merely by existing.
 enum class no_domain_errc : int { boom = 1 };
 
 int fails_dom(int x) return_failure{::std::errc} { return x; }
 
 void throws_io() throws { throw throws ::std::errc::io_error; }
 
-// A 'catch throws(std::error)' handler inside a return_failure{E} function requires a
-// visible std::error_domain<E> specialization.
 void gate_ok() return_failure{::std::errc} {
   try {
     throws_io();
@@ -224,21 +223,22 @@ void gate_ok() return_failure{::std::errc} {
   }
 }
 
-void gate_missing_domain_bad() return_failure{no_domain_errc} {
+void unused_outer_domain_is_valid() return_failure{no_domain_errc} {
   try {
   } catch throws(::std::error e) {
-    // expected-error@-1 {{'catch throws' inside a 'return_failure{...}' function requires a visible std::error_domain specialization for 'no_domain_errc'}}
+    (void)e;
   }
 }
 
-// Inside such a handler, calls to plain return_failure{...} functions must be wrapped
-// in an explicit try() so their error is converted to std::error.
-void needs_try_in_handler_bad() return_failure{::std::errc} {
+// The handler's own slot is inactive while its body executes. Calls from the
+// body therefore use the enclosing function destination: the same typed E is
+// propagated raw, with or without an explicit spelling of try(...).
+void handler_body_routes_outward() return_failure{::std::errc} {
   try {
   } catch throws(::std::error e) {
-    fails_dom(1);
-    // expected-error@-1 {{'catch throws(std::error)' handles std::error values; wrap this 'return_failure{...}' call in 'try()' to convert its error}}
-    auto r = try(fails_dom(2)); // ok: explicit conversion marker
+    (void)e;
+    (void)fails_dom(1);
+    auto r = try(fails_dom(2));
     (void)r;
   }
 }

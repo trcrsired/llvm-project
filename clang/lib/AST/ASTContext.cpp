@@ -5023,22 +5023,57 @@ ASTContext::getCanonicalFunctionResultType(QualType ResultType) const {
   return CanResultType;
 }
 
+/// Return the canonical payload identity used by the typed Herbception ABI.
+/// Canonicalization must precede removal of top-level qualifiers: a typedef can
+/// hide `const` or `volatile`, while qualifiers below a pointer boundary remain
+/// part of the payload type.
+static QualType getCanonicalHerbceptionPayloadType(QualType T) {
+  return T.getCanonicalType().getUnqualifiedType();
+}
+
+/// Determine whether two C function types describe the same physical failure
+/// result ABI. A FunctionNoProtoType has no storage for an exception
+/// specification, so a null prototype is necessarily an ordinary, untagged
+/// function type. Typed channels are compatible only when both sides carry the
+/// same single canonical payload; no other C exception specification is valid.
+static bool areCompatibleCFunctionExceptionSpecs(
+    const FunctionProtoType *LHS, const FunctionProtoType *RHS) {
+  const ExceptionSpecificationType LEST =
+      LHS ? LHS->getExceptionSpecType() : EST_None;
+  const ExceptionSpecificationType REST =
+      RHS ? RHS->getExceptionSpecType() : EST_None;
+
+  if (LEST == EST_None && REST == EST_None)
+    return true;
+  if (LEST != EST_ThrowsTyped || REST != EST_ThrowsTyped ||
+      LHS->getNumExceptions() != 1 || RHS->getNumExceptions() != 1)
+    return false;
+
+  return getCanonicalHerbceptionPayloadType(LHS->getExceptionType(0)) ==
+         getCanonicalHerbceptionPayloadType(RHS->getExceptionType(0));
+}
+
 static bool isCanonicalExceptionSpecification(
     const FunctionProtoType::ExceptionSpecInfo &ESI, bool NoexceptInType) {
   if (ESI.Type == EST_None)
     return true;
 
-  // Herbception (throws/fails) is always part of the canonical type because it
-  // changes the function ABI (the return type is lowered to {T, i1}).
-  if (ESI.Type == EST_BasicThrows || ESI.Type == EST_BasicThrowsTrue ||
-      ESI.Type == EST_BasicThrowsFalse)
+  // A live herbception channel is part of the canonical type because it changes
+  // the function ABI (the return type is lowered to {T, i1}). `throws(false)`
+  // is instead sugar for noexcept(true), so it must canonicalize to the same
+  // ordinary function type rather than introducing an ABI-distinct type.
+  if (ESI.Type == EST_BasicThrows)
     return true;
+  if (ESI.Type == EST_BasicThrowsTrue || ESI.Type == EST_BasicThrowsFalse)
+    return false;
   if (ESI.Type == EST_ThrowsTyped) {
     for (QualType ET : ESI.Exceptions)
-      if (!ET.isCanonical())
+      if (ET != getCanonicalHerbceptionPayloadType(ET))
         return false;
     return true;
   }
+  if (ESI.Type == EST_DependentThrows)
+    return true;
 
   if (!NoexceptInType)
     return false;
@@ -5089,17 +5124,18 @@ QualType ASTContext::getFunctionTypeInternal(
     QualType Existing = QualType(FPT, 0);
 
     // If we find a pre-existing equivalent FunctionProtoType, we can just reuse
-    // it so long as our exception specification doesn't contain a dependent
-    // noexcept expression, or we're just looking for a canonical type.
-    // Otherwise, we're going to need to create a type
-    // sugar node to hold the concrete expression.
-    if (OnlyWantCanonical || !isComputedNoexcept(EPI.ExceptionSpec.Type) ||
-        EPI.ExceptionSpec.NoexceptExpr == FPT->getNoexceptExpr())
+    // it so long as our exception specification has no condition expression,
+    // or we're just looking for a canonical type. Otherwise, create a sugar
+    // node that retains the concrete noexcept/throws expression. In particular,
+    // dependent throws expressions from distinct templates may have identical
+    // canonical profiles but must still refer to their own template parameters.
+    if (OnlyWantCanonical ||
+        !hasExceptionSpecificationExpr(EPI.ExceptionSpec.Type) ||
+        EPI.ExceptionSpec.NoexceptExpr == FPT->getExceptionSpecExpr())
       return Existing;
 
-    // We need a new type sugar node for this one, to hold the new noexcept
-    // expression. We do no canonicalization here, but that's OK since we don't
-    // expect to see the same noexcept expression much more than once.
+    // We do no canonicalization here, but that is OK since the existing node
+    // already supplies the shared canonical type.
     Canonical = getCanonicalType(Existing);
     Unique = true;
   }
@@ -5134,6 +5170,22 @@ QualType ASTContext::getFunctionTypeInternal(
 
     if (IsCanonicalExceptionSpec) {
       // Exception spec is already OK.
+    } else if (EPI.ExceptionSpec.Type == EST_BasicThrowsTrue) {
+      // Herbception effects are canonical ABI properties independently of the
+      // language mode's treatment of C++ exception specifications. Preserve
+      // the live channel even before C++17 and canonicalize explicit true to
+      // the same effect type as bare throws.
+      CanonicalEPI.ExceptionSpec.Type = EST_BasicThrows;
+    } else if (EPI.ExceptionSpec.Type == EST_ThrowsTyped) {
+      // A typed failure payload also participates in the physical return type.
+      // Canonicalize its unqualified object type instead of dropping the
+      // channel in language modes where noexcept itself is not part of the
+      // function type. Removing top-level cv matches by-value result types;
+      // qualifiers below pointer/member boundaries remain intact.
+      CanonicalEPI.ExceptionSpec.Type = EST_ThrowsTyped;
+      for (QualType ET : EPI.ExceptionSpec.Exceptions)
+        ExceptionTypeStorage.push_back(getCanonicalHerbceptionPayloadType(ET));
+      CanonicalEPI.ExceptionSpec.Exceptions = ExceptionTypeStorage;
     } else if (NoexceptInType) {
       switch (EPI.ExceptionSpec.Type) {
       case EST_Unparsed: case EST_Unevaluated: case EST_Uninstantiated:
@@ -5165,25 +5217,32 @@ QualType ASTContext::getFunctionTypeInternal(
       case EST_DynamicNone:
       case EST_BasicNoexcept:
       case EST_NoexceptTrue:
+      case EST_BasicThrowsFalse:
       case EST_NoThrow:
         CanonicalEPI.ExceptionSpec.Type = EST_BasicNoexcept;
         break;
 
       case EST_BasicThrows:
-      case EST_BasicThrowsTrue:
-      case EST_BasicThrowsFalse:
         CanonicalEPI.ExceptionSpec.Type = EPI.ExceptionSpec.Type;
+        break;
+
+      case EST_BasicThrowsTrue:
+        // The explicit true condition is sugar for a bare live channel.
+        CanonicalEPI.ExceptionSpec.Type = EST_BasicThrows;
         break;
 
       case EST_ThrowsTyped:
         CanonicalEPI.ExceptionSpec.Type = EPI.ExceptionSpec.Type;
         for (QualType ET : EPI.ExceptionSpec.Exceptions)
-          ExceptionTypeStorage.push_back(getCanonicalType(ET));
+          ExceptionTypeStorage.push_back(
+              getCanonicalHerbceptionPayloadType(ET));
         CanonicalEPI.ExceptionSpec.Exceptions = ExceptionTypeStorage;
         break;
 
       case EST_DependentNoexcept:
         llvm_unreachable("dependent noexcept is already canonical");
+      case EST_DependentThrows:
+        llvm_unreachable("dependent throws is already canonical");
       }
     } else {
       CanonicalEPI.ExceptionSpec = FunctionProtoType::ExceptionSpecInfo();
@@ -7792,6 +7851,29 @@ bool ASTContext::isSameEntity(const NamedDecl *X, const NamedDecl *Y) const {
   if (X->getKind() != Y->getKind())
     return false;
 
+  if (!getLangOpts().CPlusPlus) {
+    const auto *RecordX = dyn_cast<RecordDecl>(X);
+    const auto *RecordY = dyn_cast<RecordDecl>(Y);
+    const auto *IdentityX =
+        RecordX ? RecordX->getAttr<HerbceptionCatchResultAttr>() : nullptr;
+    const auto *IdentityY =
+        RecordY ? RecordY->getAttr<HerbceptionCatchResultAttr>() : nullptr;
+    if (IdentityX || IdentityY) {
+      // Compiler-owned N2289 carriers deliberately share one reserved C tag
+      // spelling, but their structural entity is the canonical pair <T, E>.
+      // ASTReader has deserialized these no-spelling attributes before asking
+      // isSameEntity, so merge equal pairs and reject both cross-pair merging
+      // and any user declaration which merely collides with the tag name.
+      return RecordX && RecordY && RecordX->isImplicit() &&
+             RecordY->isImplicit() && IdentityX && IdentityY &&
+             IdentityX->isImplicit() && IdentityY->isImplicit() &&
+             hasSameType(IdentityX->getValueType(),
+                         IdentityY->getValueType()) &&
+             hasSameType(IdentityX->getErrorType(),
+                         IdentityY->getErrorType());
+    }
+  }
+
   // Objective-C classes and protocols with the same name always match.
   if (isa<ObjCInterfaceDecl>(X) || isa<ObjCProtocolDecl>(X))
     return true;
@@ -8695,27 +8777,300 @@ QualType ASTContext::getBlockDescriptorType() const {
   return getCanonicalTagType(BlockDescriptorType);
 }
 
+static constexpr llvm::StringLiteral CatchReturnFailureTypeAnnotation =
+    "__clang_herbception_catch_return_failure";
+static constexpr llvm::StringLiteral CatchReturnFailureTemplateAnnotation =
+    "__clang_herbception_catch_return_failure_template";
+
+static bool hasCatchReturnFailureAnnotation(const Decl *D,
+                                            llvm::StringRef Annotation) {
+  return llvm::any_of(D->specific_attrs<AnnotateAttr>(),
+                      [Annotation](const auto *A) {
+                        return A->getAnnotation() == Annotation;
+                      });
+}
+
+static bool isCompilerCatchReturnFailureTemplate(const ClassTemplateDecl *CTD,
+                                                 const TranslationUnitDecl *TU) {
+  if (!CTD || !CTD->isImplicit() || CTD->getDeclContext() != TU)
+    return false;
+
+  CTD = CTD->getCanonicalDecl();
+  const CXXRecordDecl *Pattern = CTD->getTemplatedDecl();
+  if (!CTD->isImplicit() || CTD->getDeclContext() != TU || !Pattern ||
+      !Pattern->isImplicit() || Pattern->getDeclContext() != TU ||
+      !Pattern->getDescribedClassTemplate() ||
+      Pattern->getDescribedClassTemplate()->getCanonicalDecl() != CTD ||
+      !hasCatchReturnFailureAnnotation(
+          Pattern, CatchReturnFailureTemplateAnnotation))
+    return false;
+
+  const TemplateParameterList *Parameters = CTD->getTemplateParameters();
+  if (Parameters->size() != 2)
+    return false;
+  for (unsigned I = 0; I != 2; ++I) {
+    const auto *Parameter =
+        dyn_cast<TemplateTypeParmDecl>(Parameters->getParam(I));
+    if (!Parameter || Parameter->isParameterPack() ||
+        Parameter->getDepth() != 0 || Parameter->getIndex() != I)
+      return false;
+  }
+  return true;
+}
+
+static bool isCompilerCatchReturnFailureRecord(const ASTContext &Context,
+                                               const RecordDecl *RD,
+                                               CanQualType ValueType,
+                                               CanQualType ErrorType) {
+  RD = RD ? RD->getDefinition() : nullptr;
+  const auto *Identity =
+      RD ? RD->getAttr<HerbceptionCatchResultAttr>() : nullptr;
+  if (!RD || !RD->isImplicit() ||
+      !Identity || !Identity->isImplicit() ||
+      !Context.hasSameType(Identity->getValueType(), ValueType) ||
+      !Context.hasSameType(Identity->getErrorType(), ErrorType) ||
+      !hasCatchReturnFailureAnnotation(
+          RD, CatchReturnFailureTypeAnnotation))
+    return false;
+
+  const FieldDecl *UnionField = nullptr;
+  const FieldDecl *FailedField = nullptr;
+  unsigned OuterFieldCount = 0;
+  for (const FieldDecl *Field : RD->fields()) {
+    ++OuterFieldCount;
+    if (Field->getName() == "failed")
+      FailedField = Field;
+    else if (Field->isAnonymousStructOrUnion())
+      UnionField = Field;
+    else
+      return false;
+  }
+  if (OuterFieldCount != 2 || !UnionField || !FailedField ||
+      !Context.hasSameType(FailedField->getType(), Context.BoolTy))
+    return false;
+
+  const RecordDecl *Union = UnionField->getType()->getAsRecordDecl();
+  if (!Union || !Union->isUnion() || !Union->isAnonymousStructOrUnion() ||
+      Union->getDeclContext() != RD || Union->getLexicalDeclContext() != RD)
+    return false;
+
+  const FieldDecl *ValueField = nullptr;
+  const FieldDecl *ErrorField = nullptr;
+  unsigned AlternativeCount = 0;
+  for (const FieldDecl *Field : Union->fields()) {
+    ++AlternativeCount;
+    if (Field->getName() == "value")
+      ValueField = Field;
+    else if (Field->getName() == "error")
+      ErrorField = Field;
+    else
+      return false;
+  }
+  const bool HasVoidSuccess = ValueType->isVoidType();
+  if (AlternativeCount != (HasVoidSuccess ? 1u : 2u) ||
+      HasVoidSuccess != (ValueField == nullptr) || !ErrorField)
+    return false;
+  return (!ValueField ||
+          Context.hasSameType(ValueField->getType(), ValueType)) &&
+         Context.hasSameType(ErrorField->getType(), ErrorType);
+}
+
 QualType ASTContext::getCatchReturnFailureType(QualType T, QualType E) const {
   CanQualType CT = getCanonicalType(T);
   CanQualType CE = getCanonicalType(E);
+  assert(!CT->isDependentType() && !CE->isDependentType() &&
+         "dependent catch-result types must be rebuilt after substitution");
   auto Key = std::make_pair(CT, CE);
   auto It = CatchReturnFailureTypes.find(Key);
   if (It != CatchReturnFailureTypes.end())
     return getCanonicalTagType(It->second);
 
-  // N2289: struct { union { T value; E error; }; bool failed; }.
-  RecordDecl *RD = buildImplicitRecord("__herb_catch_fails");
+  ASTContext &MutableContext = *const_cast<ASTContext *>(this);
+  TranslationUnitDecl *TU = getTranslationUnitDecl();
+  RecordDecl *RD = nullptr;
+
+  if (getLangOpts().CPlusPlus) {
+    // Model the compiler-owned family as real class-template specializations.
+    // Besides giving each <T, E> destructor a distinct ABI identity, template
+    // specialization lookup automatically reuses a definition loaded from a
+    // PCH or module when the same catch expression is formed afterwards.
+    // Prefer the stable public ABI spelling, but never adopt a declaration
+    // merely because it carries a user-spellable annotation. Alternate
+    // reserved family names provide a deterministic fail-closed path if an
+    // old PCM or explicit specialization has occupied a template-id with an
+    // incompatible layout. The unbounded sequence cannot be exhausted by a
+    // finite translation unit.
+    for (uint64_t FamilyIndex = 0;; ++FamilyIndex) {
+      SmallString<64> FamilyName;
+      if (FamilyIndex == 0)
+        FamilyName = "__herb_catch_fails";
+      else {
+        FamilyName = "__clang_herb_catch_fails_fallback_";
+        llvm::raw_svector_ostream(FamilyName) << FamilyIndex;
+      }
+
+      IdentifierInfo *TemplateII = &Idents.get(FamilyName);
+      ClassTemplateDecl *Template = nullptr;
+      bool NameOccupied = false;
+      for (NamedDecl *Candidate : TU->lookup(TemplateII)) {
+        NameOccupied = true;
+        const auto *CTD = dyn_cast<ClassTemplateDecl>(Candidate);
+        if (!CTD)
+          continue;
+        if (isCompilerCatchReturnFailureTemplate(CTD, TU)) {
+          Template = const_cast<ClassTemplateDecl *>(CTD->getCanonicalDecl());
+          break;
+        }
+      }
+
+      if (!Template && !NameOccupied) {
+        auto *Pattern = cast<CXXRecordDecl>(buildImplicitRecord(FamilyName));
+        Pattern->addAttr(AnnotateAttr::CreateImplicit(
+            MutableContext, CatchReturnFailureTemplateAnnotation, nullptr, 0));
+
+        auto *TParam = TemplateTypeParmDecl::Create(
+            MutableContext, TU, SourceLocation(), SourceLocation(),
+            /*Depth=*/0, /*Position=*/0, &Idents.get("T"), /*Typename=*/true,
+            /*ParameterPack=*/false);
+        auto *EParam = TemplateTypeParmDecl::Create(
+            MutableContext, TU, SourceLocation(), SourceLocation(),
+            /*Depth=*/0, /*Position=*/1, &Idents.get("E"), /*Typename=*/true,
+            /*ParameterPack=*/false);
+        NamedDecl *Parameters[] = {TParam, EParam};
+        TemplateParameterList *ParameterList = TemplateParameterList::Create(
+            MutableContext, SourceLocation(), SourceLocation(), Parameters,
+            SourceLocation(), /*RequiresClause=*/nullptr);
+        Template = ClassTemplateDecl::Create(
+            MutableContext, TU, SourceLocation(), DeclarationName(TemplateII),
+            ParameterList, Pattern);
+        Template->setImplicit();
+        Template->setLexicalDeclContext(TU);
+        Pattern->setDescribedClassTemplate(Template);
+        TU->addDecl(Template);
+      }
+      if (!Template)
+        continue;
+
+      // Specialization identity is canonical-type based. Profiling raw
+      // typedef or elaborated sugar would create a second AST declaration for
+      // the same ABI template-id after PCH/module deserialization.
+      TemplateArgument Arguments[] = {TemplateArgument(CT),
+                                      TemplateArgument(CE)};
+      llvm::FoldingSetInsertToken InsertPosition;
+      ClassTemplateSpecializationDecl *Specialization =
+          Template->findSpecialization(Arguments, InsertPosition);
+      if (Specialization) {
+        const CXXRecordDecl *Definition = Specialization->getDefinition();
+        const TemplateArgumentList &FoundArgs =
+            Specialization->getTemplateArgs();
+        const bool HasExactArguments =
+            FoundArgs.size() == 2 &&
+            FoundArgs[0].getKind() == TemplateArgument::Type &&
+            FoundArgs[1].getKind() == TemplateArgument::Type &&
+            hasSameType(FoundArgs[0].getAsType(), CT) &&
+            hasSameType(FoundArgs[1].getAsType(), CE);
+        if (Specialization->isImplicit() &&
+            Specialization->getSpecializationKind() ==
+                TSK_ExplicitSpecialization &&
+            Specialization->getTemplateArgsAsWritten() && HasExactArguments &&
+            Definition && Definition->isImplicit() &&
+            Specialization->getSpecializedTemplate()->getCanonicalDecl() ==
+                Template->getCanonicalDecl() &&
+            isCompilerCatchReturnFailureRecord(*this, Definition, CT, CE)) {
+          CatchReturnFailureTypes[Key] =
+              const_cast<CXXRecordDecl *>(Definition);
+          return getCanonicalTagType(Definition);
+        }
+
+        // Do not complete or lower an incompatible declaration as the
+        // compiler-owned layout. Retry in a distinct reserved family.
+        continue;
+      }
+
+      Specialization = ClassTemplateSpecializationDecl::Create(
+          MutableContext, TagTypeKind::Struct, TU, SourceLocation(),
+          SourceLocation(), Template, Arguments, /*StrictPackMatch=*/false,
+          /*PrevDecl=*/nullptr);
+      Specialization->setImplicit();
+      // The primary template is an identity family, not a layout definition;
+      // each compiler-owned carrier is therefore a directly defined explicit
+      // specialization rather than an instantiation of that empty pattern.
+      // Supplying a complete as-written argument list preserves the ordinary
+      // ClassTemplateSpecializationDecl invariants used by visitors, printers,
+      // import, and serialization even though all source locations are empty.
+      TemplateArgumentListInfo WrittenArguments;
+      WrittenArguments.addArgument(
+          TemplateArgumentLoc(Arguments[0], getTrivialTypeSourceInfo(CT)));
+      WrittenArguments.addArgument(
+          TemplateArgumentLoc(Arguments[1], getTrivialTypeSourceInfo(CE)));
+      Specialization->setTemplateArgsAsWritten(
+          ASTTemplateArgumentListInfo::Create(MutableContext,
+                                              WrittenArguments));
+      Specialization->setSpecializationKind(TSK_ExplicitSpecialization);
+      Template->AddSpecialization(Specialization, InsertPosition);
+      // Explicit specializations are intentionally not traversed through the
+      // primary's instantiation set. A hidden lexical declaration makes this
+      // specialization discoverable exactly once without exposing the
+      // reserved implementation name to ordinary source lookup.
+      TU->addHiddenDecl(Specialization);
+      RD = Specialization;
+      break;
+    }
+  } else {
+    // C has no class-template identity. Reconstruct the per-context cache by
+    // scanning marker-bearing declarations loaded from a PCH/module and
+    // validating their complete semantic shape before reuse.
+    for (Decl *Candidate : TU->decls()) {
+      auto *CandidateRD = dyn_cast<RecordDecl>(Candidate);
+      if (isCompilerCatchReturnFailureRecord(*this, CandidateRD, CT, CE)) {
+        CatchReturnFailureTypes[Key] = CandidateRD;
+        return getCanonicalTagType(CandidateRD);
+      }
+    }
+    RD = buildImplicitRecord("__herb_catch_fails");
+    // Unlike C++ specializations, a C synthetic record has no template owner
+    // through which ASTWriter can discover it. Keep it in the TU lexical list
+    // without exposing the reserved tag to ordinary lookup; a later PCH cache
+    // miss can then recover it by the validated marker and field shape above.
+    TU->addHiddenDecl(RD);
+  }
+
+  // N2289: struct { union { T value; E error; }; bool failed; }. A void
+  // success type has no value object and therefore no active union member on
+  // its success arm; representing it as a forbidden `void value` field merely
+  // happened to be layout-elided and was not valid source-language semantics.
   RD->startDefinition();
+  // Keep the language ownership marker on the declaration rather than in an
+  // ASTContext side table. Generic attribute serialization, import, and
+  // structural profiling therefore preserve the conditional-destruction rule.
+  RD->addAttr(AnnotateAttr::CreateImplicit(
+      MutableContext, CatchReturnFailureTypeAnnotation, nullptr, 0));
+  RD->addAttr(HerbceptionCatchResultAttr::CreateImplicit(
+      MutableContext, getTrivialTypeSourceInfo(CT),
+      getTrivialTypeSourceInfo(CE)));
 
   // The anonymous union member { T value; E error; }. It must be truly
   // unnamed: buildImplicitRecord("") would mint an empty IdentifierInfo,
   // whose zero-length entry corrupts the module/PCH identifier lookup table.
-  RecordDecl *Union = buildImplicitRecord("", RecordDecl::TagKind::Union);
-  Union->setDeclName(DeclarationName());
+  RecordDecl *Union;
+  if (getLangOpts().CPlusPlus)
+    Union = CXXRecordDecl::Create(*this, TagTypeKind::Union, RD,
+                                  SourceLocation(), SourceLocation(), nullptr);
+  else
+    Union = RecordDecl::Create(*this, TagTypeKind::Union, RD, SourceLocation(),
+                               SourceLocation(), nullptr);
+  Union->setImplicit();
+  Union->setLexicalDeclContext(RD);
+  Union->addAttr(TypeVisibilityAttr::CreateImplicit(
+      MutableContext, TypeVisibilityAttr::Default));
   Union->setAnonymousStructOrUnion(true);
+  RD->addDecl(Union);
   Union->startDefinition();
-  for (const auto &F : {std::pair<const char *, QualType>{"value", T},
-                        std::pair<const char *, QualType>{"error", E}}) {
+  SmallVector<std::pair<const char *, QualType>, 2> Alternatives;
+  if (!T->isVoidType())
+    Alternatives.emplace_back("value", T);
+  Alternatives.emplace_back("error", E);
+  for (const auto &F : Alternatives) {
     FieldDecl *Field = FieldDecl::Create(
         *this, Union, SourceLocation(), SourceLocation(), &Idents.get(F.first),
         F.second, /*TInfo=*/nullptr, /*BitWidth=*/nullptr, /*Mutable=*/false,
@@ -8758,9 +9113,168 @@ QualType ASTContext::getCatchReturnFailureType(QualType T, QualType E) const {
   FailedField->setAccess(AS_public);
   RD->addDecl(FailedField);
 
+  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD);
+      CXXRD && (T.isDestructedType() != QualType::DK_none ||
+                E.isDestructedType() != QualType::DK_none)) {
+    // A normal anonymous union deletes its implicit destructor as soon as one
+    // alternative is non-trivial. This compiler-owned result is instead a
+    // discriminated union: its destructor is valid and CodeGen selects exactly
+    // the active alternative from `.failed`. Install a real declaration so
+    // destructibility checks and all ordinary object-lifetime machinery see
+    // that contract; the implicit annotation identifies its specialized body.
+    auto IsNothrowDestructible = [&](QualType Ty) {
+      if (Ty->isVoidType())
+        return true;
+      Ty = getBaseElementType(Ty);
+      switch (Ty.isDestructedType()) {
+      case QualType::DK_none:
+        return true;
+      case QualType::DK_cxx_destructor: {
+        const auto *MemberRD = Ty->getAsCXXRecordDecl();
+        const auto *Dtor = MemberRD ? MemberRD->getDestructor() : nullptr;
+        const auto *FPT =
+            Dtor ? Dtor->getType()->getAs<FunctionProtoType>() : nullptr;
+        // ASTContext can synthesize a catch result while an operand type's
+        // implicit destructor still has an unevaluated exception
+        // specification. Resolving it requires Sema and must not be attempted
+        // here; conservatively retain a potentially-throwing wrapper until a
+        // resolved member specification proves otherwise.
+        return FPT &&
+               !isUnresolvedExceptionSpec(FPT->getExceptionSpecType()) &&
+               FPT->isNothrow();
+      }
+      case QualType::DK_objc_strong_lifetime:
+      case QualType::DK_objc_weak_lifetime:
+        return true;
+      case QualType::DK_nontrivial_c_struct:
+        // A non-trivial C destroy helper has no C++ exception specification;
+        // retain a conservative potentially-throwing result destructor.
+        return false;
+      }
+      llvm_unreachable("unknown destruction kind");
+    };
+
+    auto IsConstexprDestructible = [&](QualType Ty) {
+      if (Ty->isVoidType() || Ty.isDestructedType() == QualType::DK_none)
+        return true;
+      Ty = getBaseElementType(Ty);
+      if (Ty.isDestructedType() != QualType::DK_cxx_destructor)
+        return false;
+      const auto *MemberRD = Ty->getAsCXXRecordDecl();
+      return MemberRD && MemberRD->hasConstexprDestructor();
+    };
+
+    FunctionProtoType::ExtProtoInfo EPI;
+    if (IsNothrowDestructible(T) && IsNothrowDestructible(E))
+      EPI.ExceptionSpec.Type = EST_BasicNoexcept;
+    QualType DtorTy = getFunctionType(VoidTy, {}, EPI);
+    CanQualType ClassTy = getCanonicalTagType(CXXRD);
+    DeclarationName DtorName = DeclarationNames.getCXXDestructorName(ClassTy);
+    // C++23 permits a constexpr destructor even when a non-selected union
+    // alternative has non-constexpr destruction. In C++20 every alternative
+    // that the discriminator can make active must itself be constexpr-
+    // destructible; older modes cannot declare a constexpr destructor.
+    const bool IsConstexprDestructor =
+        getLangOpts().CPlusPlus23 ||
+        (getLangOpts().CPlusPlus20 && IsConstexprDestructible(T) &&
+         IsConstexprDestructible(E));
+    CXXDestructorDecl *Dtor = CXXDestructorDecl::Create(
+        MutableContext, CXXRD, SourceLocation(),
+        DeclarationNameInfo(DtorName, SourceLocation()), DtorTy,
+        getTrivialTypeSourceInfo(DtorTy), /*UsesFPIntrin=*/false,
+        /*isInline=*/true, /*isImplicitlyDeclared=*/true,
+        IsConstexprDestructor ? ConstexprSpecKind::Constexpr
+                              : ConstexprSpecKind::Unspecified);
+    Dtor->setAccess(AS_public);
+    Dtor->setTrivial(false);
+    Dtor->setTrivialForCall(false);
+    // The empty AST body is intentional: CGClass emits the discriminator-aware
+    // body from the serialized marker and semantic field types.
+    Dtor->setBody(new (MutableContext) CompoundStmt(SourceLocation()));
+    CXXRD->addDecl(Dtor);
+
+    // Without discriminator-aware construction and assignment, an ordinary
+    // default construction would leave no active union member and an
+    // indeterminate `.failed`, while a bitwise copy/assignment could create
+    // two owners or overwrite a live non-trivial alternative. Delete those
+    // operations explicitly. Mandatory prvalue elision from the language
+    // wrapper does not select any of them. When destruction is constexpr, a
+    // deleted constexpr default constructor also makes the carrier a literal
+    // type without exposing a callable constructor; this permits constant
+    // evaluation of the compiler-only wrapper construction.
+    auto AddDeletedConstructor = [&](QualType ParameterTy) {
+      SmallVector<QualType, 1> ParameterTypes;
+      if (!ParameterTy.isNull())
+        ParameterTypes.push_back(ParameterTy);
+      QualType ConstructorTy = getFunctionType(VoidTy, ParameterTypes, {});
+      DeclarationName ConstructorName =
+          DeclarationNames.getCXXConstructorName(ClassTy);
+      auto *Constructor = CXXConstructorDecl::Create(
+          MutableContext, CXXRD, SourceLocation(),
+          DeclarationNameInfo(ConstructorName, SourceLocation()), ConstructorTy,
+          getTrivialTypeSourceInfo(ConstructorTy), ExplicitSpecifier(),
+          /*UsesFPIntrin=*/false, /*isInline=*/true,
+          /*isImplicitlyDeclared=*/false,
+          ParameterTy.isNull() && IsConstexprDestructor
+              ? ConstexprSpecKind::Constexpr
+              : ConstexprSpecKind::Unspecified);
+      Constructor->setAccess(AS_public);
+      Constructor->setDeletedAsWritten();
+      if (!ParameterTy.isNull()) {
+        auto *Parameter = ParmVarDecl::Create(
+            MutableContext, Constructor, SourceLocation(), SourceLocation(),
+            /*IdentifierInfo=*/nullptr, ParameterTy,
+            getTrivialTypeSourceInfo(ParameterTy), SC_None, nullptr);
+        Constructor->setParams(Parameter);
+      }
+      CXXRD->addDecl(Constructor);
+    };
+
+    QualType ObjectTy(ClassTy);
+    QualType ConstObjectTy = ObjectTy.withConst();
+    QualType CopyParameterTy = getLValueReferenceType(ConstObjectTy);
+    QualType MoveParameterTy = getRValueReferenceType(ObjectTy);
+    AddDeletedConstructor(QualType());
+    AddDeletedConstructor(CopyParameterTy);
+    AddDeletedConstructor(MoveParameterTy);
+
+    auto AddDeletedAssignment = [&](QualType ParameterTy) {
+      QualType ResultTy = getLValueReferenceType(ObjectTy);
+      QualType AssignmentTy = getFunctionType(ResultTy, {ParameterTy}, {});
+      auto *Assignment = CXXMethodDecl::Create(
+          MutableContext, CXXRD, SourceLocation(),
+          DeclarationNameInfo(DeclarationNames.getCXXOperatorName(OO_Equal),
+                              SourceLocation()),
+          AssignmentTy, getTrivialTypeSourceInfo(AssignmentTy), SC_None,
+          /*UsesFPIntrin=*/false, /*isInline=*/true,
+          ConstexprSpecKind::Unspecified, SourceLocation());
+      Assignment->setAccess(AS_public);
+      Assignment->setDeletedAsWritten();
+      auto *Parameter = ParmVarDecl::Create(
+          MutableContext, Assignment, SourceLocation(), SourceLocation(),
+          /*IdentifierInfo=*/nullptr, ParameterTy,
+          getTrivialTypeSourceInfo(ParameterTy), SC_None, nullptr);
+      Assignment->setParams(Parameter);
+      CXXRD->addDecl(Assignment);
+    };
+    AddDeletedAssignment(CopyParameterTy);
+    AddDeletedAssignment(MoveParameterTy);
+  }
+
   RD->completeDefinition();
   CatchReturnFailureTypes[Key] = RD;
   return getCanonicalTagType(RD);
+}
+
+bool ASTContext::isCatchReturnFailureType(QualType T) const {
+  const auto *RD = T->getAsCXXRecordDecl();
+  if (!RD || !RD->isImplicit())
+    return false;
+  const auto *Identity = RD->getAttr<HerbceptionCatchResultAttr>();
+  return Identity && Identity->isImplicit() &&
+         llvm::any_of(RD->specific_attrs<AnnotateAttr>(), [](const auto *A) {
+           return A->getAnnotation() == CatchReturnFailureTypeAnnotation;
+         });
 }
 
 QualType
@@ -11739,6 +12253,15 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
   bool allLTypes = true;
   bool allRTypes = true;
 
+  // C normally has no exception specifications, but return_failure{E} is a
+  // physical result-channel ABI. Reject an incompatible channel before any
+  // ordinary C compatibility rule can select one operand and silently discard
+  // or replace that ABI. This also makes a typed prototype incompatible with a
+  // no-prototype function type, which cannot represent the channel at all.
+  if (!AllowCXX &&
+      !areCompatibleCFunctionExceptionSpecs(lproto, rproto))
+    return {};
+
   // Check return type
   QualType retType;
   if (OfBlockPointer) {
@@ -11826,8 +12349,8 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
 
   if (lproto && rproto) { // two C99 style function prototypes
     assert((AllowCXX ||
-            (!lproto->hasExceptionSpec() && !rproto->hasExceptionSpec())) &&
-           "C++ shouldn't be here");
+            areCompatibleCFunctionExceptionSpecs(lproto, rproto)) &&
+           "incompatible C function result ABI passed the compatibility gate");
     // Compatible functions must have the same number of parameters
     if (lproto->getNumParams() != rproto->getNumParams())
       return {};
@@ -11902,6 +12425,8 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
     if (allLTypes) return lhs;
     if (allRTypes) return rhs;
 
+    // The C ABI gate requires both typed operands to carry the same canonical
+    // E, so retaining the left EPI also retains the exact merged channel.
     FunctionProtoType::ExtProtoInfo EPI = lproto->getExtProtoInfo();
     EPI.ExtInfo = einfo;
     EPI.ExtParameterInfos =
@@ -11916,7 +12441,8 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
 
   const FunctionProtoType *proto = lproto ? lproto : rproto;
   if (proto) {
-    assert((AllowCXX || !proto->hasExceptionSpec()) && "C++ shouldn't be here");
+    assert((AllowCXX || !proto->hasExceptionSpec()) &&
+           "typed C prototype cannot merge with a no-prototype function type");
     if (proto->isVariadic())
       return {};
     // Check that the types are compatible with the types that
@@ -11979,6 +12505,35 @@ static QualType mergeEnumWithInteger(ASTContext &Context, const EnumType *ET,
 }
 
 QualType ASTContext::mergeTagDefinitions(QualType LHS, QualType RHS) {
+  const TagDecl *LTagD = LHS->castAsTagDecl(), *RTagD = RHS->castAsTagDecl();
+
+  if (!LangOpts.CPlusPlus) {
+    auto GetCatchResultIdentity = [](const TagDecl *D) {
+      const auto *RD = dyn_cast<RecordDecl>(D);
+      RD = RD ? RD->getDefinition() : nullptr;
+      return RD ? RD->getAttr<HerbceptionCatchResultAttr>() : nullptr;
+    };
+    const auto *LIdentity = GetCatchResultIdentity(LTagD);
+    const auto *RIdentity = GetCatchResultIdentity(RTagD);
+    if (LIdentity || RIdentity) {
+      // C23 structural tag compatibility is intentionally broader than
+      // compiler-owned catch-result identity: two distinct <T, E> pairs can
+      // have indistinguishable field layouts, and a user can spell the same
+      // reserved tag and layout. The implicit marker is therefore an
+      // identity gate, not another structure to compare. Equal canonical
+      // pairs remain compatible across PCH/module declaration boundaries;
+      // every cross-pair or compiler/user comparison is incompatible.
+      if (!LIdentity || !RIdentity || !LIdentity->isImplicit() ||
+          !RIdentity->isImplicit() ||
+          !hasSameType(LIdentity->getValueType(),
+                       RIdentity->getValueType()) ||
+          !hasSameType(LIdentity->getErrorType(),
+                       RIdentity->getErrorType()))
+        return {};
+      return LHS;
+    }
+  }
+
   // C17 and earlier and C++ disallow two tag definitions within the same TU
   // from being compatible.
   if (LangOpts.CPlusPlus || !LangOpts.C23)
@@ -11986,7 +12541,6 @@ QualType ASTContext::mergeTagDefinitions(QualType LHS, QualType RHS) {
 
   // Nameless tags are comparable only within outer definitions. At the top
   // level they are not comparable.
-  const TagDecl *LTagD = LHS->castAsTagDecl(), *RTagD = RHS->castAsTagDecl();
   if (!LTagD->getIdentifier() || !RTagD->getIdentifier())
     return {};
 
@@ -14465,6 +15019,34 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
                                 bool AcceptDependent) const {
   ExceptionSpecificationType EST1 = ESI1.Type, EST2 = ESI2.Type;
 
+  auto HasPotentialHerbceptionABI = [](ExceptionSpecificationType EST) {
+    return EST == EST_BasicThrows || EST == EST_BasicThrowsTrue ||
+           EST == EST_ThrowsTyped || EST == EST_DependentThrows;
+  };
+  auto HaveEquivalentHerbceptionABI = [&] {
+    if ((EST1 == EST_BasicThrows || EST1 == EST_BasicThrowsTrue) &&
+        (EST2 == EST_BasicThrows || EST2 == EST_BasicThrowsTrue))
+      return true;
+    if (EST1 == EST_DependentThrows && EST2 == EST_DependentThrows)
+      return hasSameExpr(ESI1.NoexceptExpr, ESI2.NoexceptExpr);
+    if (EST1 != EST_ThrowsTyped || EST2 != EST_ThrowsTyped ||
+        ESI1.Exceptions.size() != ESI2.Exceptions.size())
+      return false;
+    return llvm::equal(
+        ESI1.Exceptions, ESI2.Exceptions,
+        [](QualType T1, QualType T2) { return hasSameType(T1, T2); });
+  };
+
+  // Unlike noexcept qualification, a live or dependent Herbception channel
+  // changes the physical return type and has no safe common function ABI with
+  // an ordinary function. Sema rejects such composite pointer expressions;
+  // keep this lower-level merger fail-closed so a future caller cannot turn
+  // `throws(false)` plus active throws into the active ABI (or vice versa).
+  if (HasPotentialHerbceptionABI(EST1) || HasPotentialHerbceptionABI(EST2)) {
+    if (!HaveEquivalentHerbceptionABI())
+      llvm_unreachable("merging incompatible herbception function ABIs");
+  }
+
   // If either of them can throw anything, that is the result.
   for (auto I : {EST_None, EST_MSAny, EST_NoexceptFalse}) {
     if (EST1 == I)
@@ -14474,12 +15056,21 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
   }
 
   // If either of them is non-throwing, the result is the other.
-  for (auto I :
-       {EST_NoThrow, EST_DynamicNone, EST_BasicNoexcept, EST_NoexceptTrue}) {
+  for (auto I : {EST_NoThrow, EST_DynamicNone, EST_BasicNoexcept,
+                 EST_NoexceptTrue, EST_BasicThrowsFalse}) {
     if (EST1 == I)
       return ESI2;
     if (EST2 == I)
       return ESI1;
+  }
+
+  // A dependent throws condition determines whether the specialization uses
+  // an ordinary or shaped ABI. Preserve that condition in a composite type;
+  // dropping it would commit to the wrong ABI before substitution.
+  if (EST1 == EST_DependentThrows || EST2 == EST_DependentThrows) {
+    assert(AcceptDependent &&
+           "computing composite pointer type of dependent throws types");
+    return EST1 == EST_DependentThrows ? ESI1 : ESI2;
   }
 
   // If we're left with value-dependent computed noexcept expressions, we're
@@ -14501,9 +15092,11 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
   case EST_MSAny:
   case EST_BasicNoexcept:
   case EST_DependentNoexcept:
+  case EST_DependentThrows:
   case EST_NoexceptFalse:
   case EST_NoexceptTrue:
   case EST_NoThrow:
+  case EST_BasicThrowsFalse:
     llvm_unreachable("These ESTs should be handled above");
 
   case EST_Dynamic: {
@@ -14523,10 +15116,14 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
     llvm_unreachable("shouldn't see unresolved exception specifications here");
 
   // Herbception specs are part of the canonical type: they can only merge
-  // with an identical spec (a mismatched combination is rejected by Sema).
+  // with an ABI-equivalent spec (a mismatched combination is rejected by
+  // Sema). `throws(true)` is source sugar for a bare `throws` channel.
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
-  case EST_BasicThrowsFalse:
+    assert((EST2 == EST_BasicThrows || EST2 == EST_BasicThrowsTrue) &&
+           "mismatched herbception exception specifications");
+    return ESI1;
+
   case EST_ThrowsTyped:
     assert(EST2 == EST1 && "mismatched herbception exception specifications");
     return ESI1;

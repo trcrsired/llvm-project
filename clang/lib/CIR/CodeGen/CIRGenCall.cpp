@@ -434,8 +434,13 @@ void CIRGenModule::constructAttributeList(
     // TODO(cir): Add noalias to returns for malloc-like functions
     // (__attribute__((malloc)) / __declspec(restrict)).
 
+    // A herbception function returns a shaped {payload, i1} record.  Pointer
+    // contracts describe the successful payload, not that record, and are
+    // false on the failure alternative.  Keep them off the shaped CIR result;
+    // a future payload-aware representation may recover them on the success
+    // edge.
     if (targetDecl->hasAttr<ReturnsNonNullAttr>() &&
-        !codeGenOpts.NullPointerIsValid)
+        !codeGenOpts.NullPointerIsValid && !info.hasThrowsReturn())
       retAttrs.set(mlir::LLVM::LLVMDialect::getNonNullAttrName(),
                    mlir::UnitAttr::get(&getMLIRContext()));
     if (targetDecl->hasAttr<AnyX86NoCallerSavedRegistersAttr>())
@@ -447,7 +452,11 @@ void CIRGenModule::constructAttributeList(
     // TODO(cir): Implement 'BPFFastCall' attribute here.  This requires C, and
     // the BPF target.
 
-    if (auto *allocSizeAttr = targetDecl->getAttr<AllocSizeAttr>()) {
+    // alloc_size describes a returned allocation pointer.  Applying it to the
+    // shaped record makes generic allocation analysis interpret an aggregate
+    // as a pointer and is not valid on the failure alternative.
+    if (auto *allocSizeAttr = targetDecl->getAttr<AllocSizeAttr>();
+        allocSizeAttr && !info.hasThrowsReturn()) {
       unsigned size = allocSizeAttr->getElemSizeParam().getLLVMIndex();
 
       if (allocSizeAttr->getNumElemsParam().isValid()) {
@@ -898,8 +907,15 @@ CIRGenTypes::arrangeCXXStructorDeclaration(GlobalDecl gd) {
   assert(!cir::MissingFeatures::opCallCIRGenFuncInfoExtParamInfo());
   assert(!cir::MissingFeatures::opCallFnInfoOpts());
 
+  // Constructors are source-level void functions, so resultType alone cannot
+  // encode an active `throws` channel. Carry the declared effect after the
+  // target ABI has selected its structor success result, keeping declaration
+  // and call lowering identical. Active Herbception destructors are rejected
+  // by Sema, and `throws(false)` deliberately keeps the ordinary ABI.
   return arrangeCIRFunctionInfo(resultType, /*isInstanceMethod=*/true, argTypes,
-                                fpt->getExtInfo(), required);
+                                fpt->getExtInfo(), required,
+                                fpt.getTypePtr()->hasThrowsSpec(),
+                                getHerbceptionErrorType(fpt.getTypePtr()));
 }
 
 /// Derives the 'this' type for CIRGen purposes, i.e. ignoring method CVR
@@ -1050,8 +1066,13 @@ const CIRGenFunctionInfo &CIRGenTypes::arrangeCXXConstructorCall(
   assert(!cir::MissingFeatures::opCallFnInfoOpts());
   assert(!cir::MissingFeatures::opCallCIRGenFuncInfoExtParamInfo());
 
+  // Mirror the constructor declaration's active effect. This is independent
+  // of its source-level void result and therefore must be forwarded
+  // explicitly into CIR's function-info cache key and physical return type.
   return arrangeCIRFunctionInfo(resultType, /*isInstanceMethod=*/true, argTypes,
-                                fpt->getExtInfo(), required);
+                                fpt->getExtInfo(), required,
+                                fpt.getTypePtr()->hasThrowsSpec(),
+                                getHerbceptionErrorType(fpt.getTypePtr()));
 }
 
 /// Arrange a call to a C++ method, passing the given arguments.
@@ -1502,19 +1523,9 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
           builder, loc, disc,
           /*withElseRegion=*/true,
           [&](mlir::OpBuilder &, mlir::Location) {
-            mlir::Value payload = builder.createLoad(loc, payloadPtr);
             mlir::Type slotTy = scope.errorSlot.getElementType();
-            if (slotTy != payload.getType()) {
-              // Same-layout coercion between the shaped payload record and
-              // the handler's slot type (e.g. anonymous {void *, size_t} vs
-              // the named std::error), through memory.
-              Address ptmp = createTempAlloca(payload.getType(), align, loc,
-                                              "herb.payload");
-              builder.createStore(loc, payload, ptmp);
-              mlir::Value casted = builder.createBitcast(
-                  ptmp.getBasePointer(), builder.getPointerTo(slotTy));
-              payload = builder.createLoad(loc, Address(casted, slotTy, align));
-            }
+            mlir::Value payload =
+                coerceHerbceptionPayload(loc, payloadPtr, slotTy);
             builder.createStore(loc, payload, scope.errorSlot);
             // Branching out of the enclosing scopes runs their cleanups.
             cir::GotoOp::create(builder, loc, scope.handlerLabel);
@@ -1540,19 +1551,15 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
       if (curFnInfo && curFnInfo->hasThrowsReturn()) {
         RunCleanupsScope propagateScope(*this);
         Address payloadPtr = memberAddr(0);
-        mlir::Value payload = builder.createLoad(loc, payloadPtr);
-        // Coerce the callee's payload into the caller's shaped member[0]
-        // type if they differ (same-layout coercion through memory).
-        mlir::Type callerPayloadTy = members[0];
-        if (payload.getType() != callerPayloadTy) {
-          Address ptmp =
-              createTempAlloca(payload.getType(), align, loc, "herb.payload");
-          builder.createStore(loc, payload, ptmp);
-          mlir::Value casted = builder.createBitcast(
-              ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
-          payload =
-              builder.createLoad(loc, Address(casted, callerPayloadTy, align));
-        }
+        auto callerTy = cast<cir::RecordType>(
+            cast<cir::FuncOp>(curFn).getFunctionType().getReturnType());
+        mlir::Type callerPayloadTy = callerTy.getMembers().front();
+        // The callee payload may be wider because its success alternative is
+        // wider, or narrower because the caller's is.  Copy only bytes that
+        // exist in both records; the common error representation starts at
+        // offset zero.
+        mlir::Value payload =
+            coerceHerbceptionPayload(loc, payloadPtr, callerPayloadTy);
         mlir::Value wrapped = wrapHerbceptionReturnValue(loc, payload,
                                                          /*disc=*/true);
         cir::ReturnOp::create(builder, loc, wrapped);

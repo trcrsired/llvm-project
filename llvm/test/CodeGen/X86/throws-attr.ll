@@ -102,4 +102,27 @@ cont:
   ret void
 }
 
+; A wide payload commonly needs arithmetic on the inactive or error half
+; before the discriminator is consumed. NEG clobbers CF, so the post-call
+; HERB_SETCCr must remain materialized; folding the later TEST/CMOV into a
+; direct CF consumer would read NEG's carry instead of the callee's result.
+declare { { i64, i64 }, i1 } @ret_wide() #0
+define i64 @call_wide_and_select() #1 {
+; CHECK-LABEL: call_wide_and_select:
+; CHECK:       callq ret_wide@PLT
+; CHECK-NEXT:  setb [[DISC:%[a-z0-9]+]]
+; CHECK:       negq %rdx
+; CHECK:       testb $1, [[DISC]]
+; CHECK:       cmovne
+entry:
+  %call = call { { i64, i64 }, i1 } @ret_wide()
+  %payload = extractvalue { { i64, i64 }, i1 } %call, 0
+  %value = extractvalue { i64, i64 } %payload, 0
+  %error = extractvalue { i64, i64 } %payload, 1
+  %disc = extractvalue { { i64, i64 }, i1 } %call, 1
+  %neg.error = sub i64 0, %error
+  %result = select i1 %disc, i64 %neg.error, i64 %value
+  ret i64 %result
+}
+
 attributes #3 = { nounwind }

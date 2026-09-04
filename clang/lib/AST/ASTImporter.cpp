@@ -3423,6 +3423,31 @@ ExpectedDecl ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
   if (ToD)
     return ToD;
 
+  // C has no template specialization identity for a compiler-owned
+  // `catch return_failure` carrier. Import its canonical <T, E> identity
+  // before record lookup: the declaration attribute itself is imported only
+  // after ImportImpl returns, which is too late to decide whether a same-name
+  // target record denotes this entity. C++ carriers use their real template
+  // specialization identity and deliberately bypass this C-only rule.
+  const bool IsC = !Importer.getToContext().getLangOpts().CPlusPlus;
+  const auto *FromCatchResultIdentity =
+      IsC ? D->getAttr<HerbceptionCatchResultAttr>() : nullptr;
+  QualType ToCatchResultValueType;
+  QualType ToCatchResultErrorType;
+  if (FromCatchResultIdentity) {
+    ExpectedType ValueTypeOrErr =
+        import(FromCatchResultIdentity->getValueType());
+    if (!ValueTypeOrErr)
+      return ValueTypeOrErr.takeError();
+    ToCatchResultValueType = *ValueTypeOrErr;
+
+    ExpectedType ErrorTypeOrErr =
+        import(FromCatchResultIdentity->getErrorType());
+    if (!ErrorTypeOrErr)
+      return ErrorTypeOrErr.takeError();
+    ToCatchResultErrorType = *ErrorTypeOrErr;
+  }
+
   // Figure out what structure name we're looking for.
   unsigned IDNS = Decl::IDNS_Tag;
   DeclarationName SearchName = Name;
@@ -3477,6 +3502,30 @@ ExpectedDecl ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
 
         if (!hasSameVisibilityContextAndLinkage(FoundRecord, D))
           continue;
+
+        if (IsC) {
+          const auto *ToCatchResultIdentity =
+              FoundRecord->getAttr<HerbceptionCatchResultAttr>();
+          if (FromCatchResultIdentity || ToCatchResultIdentity) {
+            // A reserved spelling and an otherwise equivalent field layout
+            // are not sufficient identity. Only compiler-owned records with
+            // the exact imported canonical <T, E> pair may proceed to the
+            // ordinary structural check. A mismatch is not a user-name
+            // conflict, so leave it out of ConflictingDecls and continue
+            // searching for the matching synthetic declaration.
+            if (!D->isImplicit() || !FoundRecord->isImplicit() ||
+                !FromCatchResultIdentity || !ToCatchResultIdentity ||
+                !FromCatchResultIdentity->isImplicit() ||
+                !ToCatchResultIdentity->isImplicit() ||
+                !Importer.getToContext().hasSameType(
+                    ToCatchResultValueType,
+                    ToCatchResultIdentity->getValueType()) ||
+                !Importer.getToContext().hasSameType(
+                    ToCatchResultErrorType,
+                    ToCatchResultIdentity->getErrorType()))
+              continue;
+          }
+        }
 
         if (IsStructuralMatch(D, FoundRecord)) {
           RecordDecl *FoundDef = FoundRecord->getDefinition();
@@ -8475,20 +8524,18 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryExpr(CXXTryExpr *E) {
   Error Err = Error::success();
   auto ToSubExpr = importChecked(Err, E->getSubExpr());
   auto ToType = importChecked(Err, E->getType());
+  auto ToFailureType = importChecked(Err, E->getFailureType());
   auto ToTryLoc = importChecked(Err, E->getTryLoc());
+  auto ToDomainCall = importChecked(Err, E->getDomainCall());
+  auto ToCodeCall = importChecked(Err, E->getCodeCall());
+  auto ToFailureValue = importChecked(Err, E->getFailureValue());
   if (Err)
     return std::move(Err);
 
-  CXXRecordDecl *ToErrorDomain = nullptr;
-  if (E->getErrorDomain()) {
-    auto ToErrorDomainOrErr = import(E->getErrorDomain());
-    if (!ToErrorDomainOrErr)
-      return ToErrorDomainOrErr.takeError();
-    ToErrorDomain = *ToErrorDomainOrErr;
-  }
   return new (Importer.getToContext())
-      CXXTryExpr(ToSubExpr, ToType, ToTryLoc, /*IsLValue=*/false,
-                 ToErrorDomain);
+      CXXTryExpr(ToSubExpr, ToType, ToTryLoc, E->getValueKind(),
+                 ToDomainCall, ToCodeCall, ToFailureValue, ToFailureType,
+                 E->getPropagationKind());
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E) {
@@ -9829,6 +9876,16 @@ Expected<Attr *> ASTImporter::Import(const Attr *FromAttr) {
   case attr::AlignValue: {
     auto *From = cast<AlignValueAttr>(FromAttr);
     AI.importAttr(From, AI.importArg(From->getAlignment()).value());
+    break;
+  }
+
+  case attr::HerbceptionCatchResult: {
+    const auto *From = cast<HerbceptionCatchResultAttr>(FromAttr);
+    // Generic cloneAttr would retain TypeSourceInfo pointers owned by the
+    // source ASTContext. Import both type arguments explicitly so the target
+    // marker is self-contained and remains valid after the source AST dies.
+    AI.importAttr(From, AI.importArg(From->getValueTypeLoc()).value(),
+                  AI.importArg(From->getErrorTypeLoc()).value());
     break;
   }
 

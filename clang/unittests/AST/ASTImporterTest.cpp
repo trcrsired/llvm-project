@@ -10,8 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/Attr.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Testing/CommandLineArgs.h"
 #include "llvm/Support/SmallVectorMemoryBuffer.h"
@@ -2026,6 +2028,291 @@ TEST_P(
                       return T->isThisDeclarationADefinition();
                     })
                     .match(ToTU, classTemplateSpecializationDecl()));
+}
+
+struct HerbceptionCatchResultImport : ASTImporterTestBase {
+protected:
+  std::vector<std::string> getExtraArgs() const override {
+    return {"-fherbceptions"};
+  }
+};
+
+static RecordDecl *getHerbceptionCatchResultRecord(TranslationUnitDecl *TU,
+                                                   StringRef TypedefName) {
+  auto *TD = FirstDeclMatcher<TypedefNameDecl>().match(
+      TU, typedefNameDecl(hasName(TypedefName)));
+  return TD ? TD->getUnderlyingType()->getAsRecordDecl() : nullptr;
+}
+
+TEST_F(HerbceptionCatchResultImport,
+       ImportsIdentityTypesIntoTheTargetContextAndMergesTheSamePair) {
+  const char *Code = R"(
+      struct import_value { int member; };
+      struct import_error { int member; };
+      struct import_value import_source(void)
+          return_failure { struct import_error };
+      typedef __typeof__(catch return_failure(import_source())) import_result;
+      )";
+  auto *FromTU0 = getTuDecl(Code, Lang_C23, "input0.c");
+  auto *FromTU1 = getTuDecl(Code, Lang_C23, "input1.c");
+  auto *From0 = getHerbceptionCatchResultRecord(FromTU0, "import_result");
+  auto *From1 = getHerbceptionCatchResultRecord(FromTU1, "import_result");
+  ASSERT_TRUE(From0);
+  ASSERT_TRUE(From1);
+
+  auto *To0 = Import(From0, Lang_C23);
+  auto *To1 = Import(From1, Lang_C23);
+  ASSERT_TRUE(To0);
+  ASSERT_TRUE(To1);
+  EXPECT_EQ(To0->getCanonicalDecl(), To1->getCanonicalDecl());
+
+  const auto *FromIdentity =
+      From0->getAttr<HerbceptionCatchResultAttr>();
+  const auto *ToIdentity = To0->getAttr<HerbceptionCatchResultAttr>();
+  ASSERT_TRUE(FromIdentity);
+  ASSERT_TRUE(ToIdentity);
+  const auto *FromValue = FromIdentity->getValueType()->getAsRecordDecl();
+  const auto *FromError = FromIdentity->getErrorType()->getAsRecordDecl();
+  const auto *ToValue = ToIdentity->getValueType()->getAsRecordDecl();
+  const auto *ToError = ToIdentity->getErrorType()->getAsRecordDecl();
+  ASSERT_TRUE(FromValue);
+  ASSERT_TRUE(FromError);
+  ASSERT_TRUE(ToValue);
+  ASSERT_TRUE(ToError);
+  EXPECT_NE(FromValue, ToValue);
+  EXPECT_NE(FromError, ToError);
+  EXPECT_EQ(&ToValue->getASTContext(), &ToAST->getASTContext());
+  EXPECT_EQ(&ToError->getASTContext(), &ToAST->getASTContext());
+}
+
+TEST_F(HerbceptionCatchResultImport,
+       DoesNotMergeDifferentPairsWithTheSameCarrierLayout) {
+  const char *Code0 = R"(
+      struct distinct_value_a { int member; };
+      struct distinct_error { int member; };
+      struct distinct_value_a distinct_source_a(void)
+          return_failure { struct distinct_error };
+      typedef __typeof__(catch return_failure(distinct_source_a()))
+          distinct_result_a;
+      )";
+  const char *Code1 = R"(
+      struct distinct_value_b { int member; };
+      struct distinct_error { int member; };
+      struct distinct_value_b distinct_source_b(void)
+          return_failure { struct distinct_error };
+      typedef __typeof__(catch return_failure(distinct_source_b()))
+          distinct_result_b;
+      )";
+  auto *FromTU0 = getTuDecl(Code0, Lang_C23, "input0.c");
+  auto *FromTU1 = getTuDecl(Code1, Lang_C23, "input1.c");
+  auto *From0 =
+      getHerbceptionCatchResultRecord(FromTU0, "distinct_result_a");
+  auto *From1 =
+      getHerbceptionCatchResultRecord(FromTU1, "distinct_result_b");
+  ASSERT_TRUE(From0);
+  ASSERT_TRUE(From1);
+
+  auto *To0 = Import(From0, Lang_C23);
+  auto *To1 = Import(From1, Lang_C23);
+  ASSERT_TRUE(To0);
+  ASSERT_TRUE(To1);
+  EXPECT_NE(To0->getCanonicalDecl(), To1->getCanonicalDecl());
+  EXPECT_EQ(0u, ToAST->getASTContext().getDiagnostics().getNumWarnings());
+}
+
+TEST_F(HerbceptionCatchResultImport,
+       KeepsSyntheticAndUserRecordsSeparateInBothDirections) {
+  const char *RecordDefinitions = R"(
+      struct isolated_value { int member; };
+      struct isolated_error { int member; };
+      )";
+  std::string ToCode = std::string(RecordDefinitions) + R"(
+      struct __herb_catch_fails {
+        union {
+          struct isolated_value value;
+          struct isolated_error error;
+        };
+        _Bool failed;
+      };
+      )";
+  auto *ToTU = getToTuDecl(ToCode, Lang_C23);
+  auto *UserTo = FirstDeclMatcher<RecordDecl>().match(
+      ToTU, recordDecl(hasName("__herb_catch_fails")));
+  ASSERT_TRUE(UserTo);
+
+  std::string SyntheticCode = std::string(RecordDefinitions) + R"(
+      struct isolated_value isolated_source(void)
+          return_failure { struct isolated_error };
+      typedef __typeof__(catch return_failure(isolated_source()))
+          isolated_result;
+      )";
+  auto *SyntheticTU = getTuDecl(SyntheticCode, Lang_C23, "synthetic.c");
+  auto *SyntheticFrom =
+      getHerbceptionCatchResultRecord(SyntheticTU, "isolated_result");
+  ASSERT_TRUE(SyntheticFrom);
+  auto *SyntheticTo = Import(SyntheticFrom, Lang_C23);
+  ASSERT_TRUE(SyntheticTo);
+  EXPECT_NE(UserTo->getCanonicalDecl(), SyntheticTo->getCanonicalDecl());
+  EXPECT_TRUE(SyntheticTo->hasAttr<HerbceptionCatchResultAttr>());
+
+  std::string UserCode = std::string(RecordDefinitions) + R"(
+      struct __herb_catch_fails {
+        union {
+          struct isolated_value value;
+          struct isolated_error error;
+        };
+        _Bool failed;
+      };
+      )";
+  auto *UserTU = getTuDecl(UserCode, Lang_C23, "user.c");
+  auto *UserFrom = FirstDeclMatcher<RecordDecl>().match(
+      UserTU, recordDecl(hasName("__herb_catch_fails")));
+  ASSERT_TRUE(UserFrom);
+  auto *ImportedUser = Import(UserFrom, Lang_C23);
+  ASSERT_TRUE(ImportedUser);
+  EXPECT_EQ(UserTo->getCanonicalDecl(), ImportedUser->getCanonicalDecl());
+  EXPECT_NE(SyntheticTo->getCanonicalDecl(),
+            ImportedUser->getCanonicalDecl());
+}
+
+TEST_F(HerbceptionCatchResultImport,
+       KeepsAUserRecordSeparateWhenTheSyntheticRecordArrivesFirst) {
+  const char *SyntheticCode = R"(
+      struct synthetic_first_value { int member; };
+      struct synthetic_first_error { int member; };
+      struct synthetic_first_value synthetic_first_source(void)
+          return_failure { struct synthetic_first_error };
+      typedef __typeof__(catch return_failure(synthetic_first_source()))
+          synthetic_first_result;
+      )";
+  auto *SyntheticTU = getTuDecl(SyntheticCode, Lang_C23, "synthetic.c");
+  auto *SyntheticFrom =
+      getHerbceptionCatchResultRecord(SyntheticTU, "synthetic_first_result");
+  ASSERT_TRUE(SyntheticFrom);
+  auto *SyntheticTo = Import(SyntheticFrom, Lang_C23);
+  ASSERT_TRUE(SyntheticTo);
+  ASSERT_TRUE(SyntheticTo->hasAttr<HerbceptionCatchResultAttr>());
+
+  const char *UserCode = R"(
+      struct synthetic_first_value { int member; };
+      struct synthetic_first_error { int member; };
+      struct __herb_catch_fails {
+        union {
+          struct synthetic_first_value value;
+          struct synthetic_first_error error;
+        };
+        _Bool failed;
+      };
+      )";
+  auto *UserTU = getTuDecl(UserCode, Lang_C23, "user.c");
+  auto *UserFrom = FirstDeclMatcher<RecordDecl>().match(
+      UserTU, recordDecl(hasName("__herb_catch_fails")));
+  ASSERT_TRUE(UserFrom);
+  auto *UserTo = Import(UserFrom, Lang_C23);
+  ASSERT_TRUE(UserTo);
+
+  EXPECT_NE(SyntheticTo->getCanonicalDecl(), UserTo->getCanonicalDecl());
+  EXPECT_FALSE(UserTo->hasAttr<HerbceptionCatchResultAttr>());
+  EXPECT_EQ(0u, ToAST->getASTContext().getDiagnostics().getNumWarnings());
+}
+
+TEST_F(HerbceptionCatchResultImport,
+       DoesNotReuseAnOldMarkerWithoutStructuralIdentity) {
+  const char *Code = R"(
+      struct old_value { int member; };
+      struct old_error { int member; };
+      struct old_value old_source(void)
+          return_failure { struct old_error };
+      typedef __typeof__(catch return_failure(old_source())) old_result;
+      )";
+  auto *FromTU = getTuDecl(Code, Lang_C23, "old.c");
+  auto *From = getHerbceptionCatchResultRecord(FromTU, "old_result");
+  ASSERT_TRUE(From);
+  auto *OldTo = Import(From, Lang_C23);
+  ASSERT_TRUE(OldTo);
+  const auto *Identity = OldTo->getAttr<HerbceptionCatchResultAttr>();
+  ASSERT_TRUE(Identity);
+  QualType ValueType = Identity->getValueType();
+  QualType ErrorType = Identity->getErrorType();
+
+  // Emulate a carrier loaded from an older compiler which has the legacy
+  // AnnotateAttr marker and field shape but no exact compiler-owned identity.
+  OldTo->dropAttr<HerbceptionCatchResultAttr>();
+  QualType FreshType = ToAST->getASTContext().getCatchReturnFailureType(
+      ValueType, ErrorType);
+  auto *Fresh = FreshType->getAsRecordDecl();
+  ASSERT_TRUE(Fresh);
+  EXPECT_NE(OldTo->getCanonicalDecl(), Fresh->getCanonicalDecl());
+  EXPECT_TRUE(Fresh->hasAttr<HerbceptionCatchResultAttr>());
+}
+
+struct HerbceptionPropagationImport : ASTImporterTestBase {
+protected:
+  std::vector<std::string> getExtraArgs() const override {
+    return {"-fherbceptions"};
+  }
+};
+
+template <class Node>
+class FindFirstNode : public RecursiveASTVisitor<FindFirstNode<Node>> {
+  Node *Found = nullptr;
+
+public:
+  bool VisitStmt(Stmt *S) {
+    if (!Found)
+      Found = dyn_cast<Node>(S);
+    return !Found;
+  }
+
+  Node *find(Stmt *Root) {
+    this->TraverseStmt(Root);
+    return Found;
+  }
+};
+
+TEST_F(HerbceptionPropagationImport,
+       PreservesResolvedAccessorCallsAndSharedOpaqueValue) {
+  const char *Code = R"(
+      namespace std {
+      struct error_domain_singleton {};
+      struct error { void *domain; __SIZE_TYPE__ code; };
+      template <class T> struct error_domain;
+      }
+      struct imported_error { int value; };
+      template <> struct std::error_domain<imported_error> {
+        static std::error_domain_singleton *domain() noexcept;
+        static int code(imported_error) noexcept;
+      };
+      int imported_source() return_failure{imported_error};
+      int imported_wrapper() throws { return imported_source(); }
+      )";
+  getToTuDecl("", Lang_CXX20);
+  Decl *FromTU = getTuDecl(Code, Lang_CXX20, "propagation.cc");
+  auto *FromFD = FirstDeclMatcher<FunctionDecl>().match(
+      FromTU, functionDecl(hasName("imported_wrapper")));
+  ASSERT_TRUE(FromFD);
+  auto *FromTry = FindFirstNode<CXXTryExpr>().find(FromFD->getBody());
+  ASSERT_TRUE(FromTry);
+  ASSERT_TRUE(FromTry->convertsToStdError());
+
+  auto *ToFD = Import(FromFD, Lang_CXX20);
+  ASSERT_TRUE(ToFD);
+  auto *ToTry = FindFirstNode<CXXTryExpr>().find(ToFD->getBody());
+  ASSERT_TRUE(ToTry);
+  EXPECT_TRUE(ToTry->convertsToStdError());
+  ASSERT_TRUE(ToTry->getDomainCall());
+  ASSERT_TRUE(ToTry->getCodeCall());
+  ASSERT_TRUE(ToTry->getFailureValue());
+  EXPECT_NE(ToTry->getFailureValue(), FromTry->getFailureValue());
+
+  // CodeCall owns the same imported placeholder that CXXTryExpr records for
+  // CodeGen mapping. Importing each edge independently must still converge on
+  // one target AST node; two OpaqueValueExpr objects would evaluate or map
+  // different logical E values.
+  auto *CodeOpaque =
+      FindFirstNode<OpaqueValueExpr>().find(ToTry->getCodeCall());
+  ASSERT_TRUE(CodeOpaque);
+  EXPECT_EQ(CodeOpaque, ToTry->getFailureValue());
 }
 
 TEST_P(ASTImporterOptionSpecificTestBase, ObjectsWithUnnamedStructType) {

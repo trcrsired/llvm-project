@@ -224,7 +224,7 @@ public:
     esi.Type = ExceptionSpecificationType(asImpl().readUInt32());
     if (esi.Type == EST_Dynamic || esi.Type == EST_ThrowsTyped) {
       esi.Exceptions = asImpl().template readArray<QualType>(buffer);
-    } else if (isComputedNoexcept(esi.Type)) {
+    } else if (hasExceptionSpecificationExpr(esi.Type)) {
       esi.NoexceptExpr = asImpl().readExprRef();
     } else if (esi.Type == EST_Uninstantiated) {
       esi.SourceDecl = asImpl().readFunctionDeclRef();

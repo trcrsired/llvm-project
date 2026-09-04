@@ -205,7 +205,7 @@ public:
     asImpl().writeUInt32(uint32_t(esi.Type));
     if (esi.Type == EST_Dynamic || esi.Type == EST_ThrowsTyped) {
       asImpl().writeArray(esi.Exceptions);
-    } else if (isComputedNoexcept(esi.Type)) {
+    } else if (hasExceptionSpecificationExpr(esi.Type)) {
       asImpl().writeExprRef(esi.NoexceptExpr);
     } else if (esi.Type == EST_Uninstantiated) {
       asImpl().writeDeclRef(esi.SourceDecl);

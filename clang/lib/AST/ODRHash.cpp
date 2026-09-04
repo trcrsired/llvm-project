@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ODRHash.h"
+#include "clang/Basic/ExceptionSpecificationType.h"
 
 #include "clang/AST/DeclVisitor.h"
 #include "clang/AST/NestedNameSpecifier.h"
@@ -20,9 +21,88 @@
 
 using namespace clang;
 
+namespace {
+
+/// Map exception-specification spellings to the semantic channel that is
+/// relevant to ODR identity.  In particular, evaluated boolean conditions no
+/// longer carry an expression once their result is known, while dependent
+/// conditions remain structurally significant.
+static ExceptionSpecificationType
+normalizeExceptionSpecForODR(ExceptionSpecificationType EST) {
+  switch (EST) {
+  case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+    return EST_BasicThrows;
+
+  case EST_BasicThrowsFalse:
+  case EST_DynamicNone:
+  case EST_BasicNoexcept:
+  case EST_NoexceptTrue:
+  case EST_NoThrow:
+    return EST_DynamicNone;
+
+  case EST_None:
+  case EST_NoexceptFalse:
+  case EST_MSAny:
+    return EST_None;
+
+  default:
+    return EST;
+  }
+}
+
+} // namespace
+
 void ODRHash::AddStmt(const Stmt *S) {
   assert(S && "Expecting non-null pointer.");
   S->ProcessODRHash(ID, *this);
+}
+
+void ODRHash::AddFunctionProtoTypeExceptionSpec(const FunctionProtoType *T) {
+  const FunctionProtoType::ExceptionSpecInfo ESI = T->getExceptionSpecInfo();
+  const ExceptionSpecificationType NormalizedEST =
+      normalizeExceptionSpecForODR(ESI.Type);
+  ID.AddInteger(llvm::to_underlying(NormalizedEST));
+
+  if (NormalizedEST == EST_Dynamic || NormalizedEST == EST_ThrowsTyped) {
+    // A typed Herbception payload is carried in the same trailing type array
+    // as a dynamic exception list. Its exact type controls the shaped return
+    // representation and is consequently ODR-significant.
+    ID.AddInteger(ESI.Exceptions.size());
+    for (QualType ExceptionType : ESI.Exceptions) {
+      // Herbception payload identity follows exception-type adjustment:
+      // typedef sugar and top-level cv-qualifiers do not split the shaped
+      // return ABI, while qualifiers below the top level remain significant.
+      // Dynamic exception lists retain their existing treatment.
+      if (NormalizedEST == EST_ThrowsTyped)
+        ExceptionType = ExceptionType.getCanonicalType().getUnqualifiedType();
+      AddQualType(ExceptionType);
+    }
+    return;
+  }
+
+  if (hasExceptionSpecificationExpr(NormalizedEST)) {
+    // Dependent throws conditions select between ordinary and shaped ABIs at
+    // substitution time. Hash the expression structurally rather than its AST
+    // address so separately serialized modules produce stable results.
+    AddBoolean(ESI.NoexceptExpr);
+    if (ESI.NoexceptExpr)
+      AddStmt(ESI.NoexceptExpr);
+    return;
+  }
+
+  if (NormalizedEST == EST_Uninstantiated) {
+    AddBoolean(ESI.SourceDecl);
+    if (ESI.SourceDecl)
+      AddDecl(ESI.SourceDecl);
+    AddBoolean(ESI.SourceTemplate);
+    if (ESI.SourceTemplate)
+      AddDecl(ESI.SourceTemplate);
+  } else if (NormalizedEST == EST_Unevaluated) {
+    AddBoolean(ESI.SourceDecl);
+    if (ESI.SourceDecl)
+      AddDecl(ESI.SourceDecl);
+  }
 }
 
 void ODRHash::AddIdentifierInfo(const IdentifierInfo *II) {
@@ -757,6 +837,9 @@ void ODRHash::AddFunctionDecl(const FunctionDecl *Function,
 
   AddQualType(Function->getReturnType());
 
+  if (const auto *FPT = Function->getType()->getAs<FunctionProtoType>())
+    AddFunctionProtoTypeExceptionSpec(FPT);
+
   ID.AddInteger(Function->param_size());
   for (auto *Param : Function->parameters())
     AddSubDecl(Param);
@@ -1088,6 +1171,10 @@ public:
     ID.AddInteger(T->getNumParams());
     for (auto ParamType : T->getParamTypes())
       AddQualType(ParamType);
+
+    // Function types can occur inside an otherwise identical function body;
+    // their Herbception channel and payload must still perturb the ODR hash.
+    Hash.AddFunctionProtoTypeExceptionSpec(T);
 
     VisitFunctionType(T);
   }

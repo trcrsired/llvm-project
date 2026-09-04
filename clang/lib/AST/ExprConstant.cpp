@@ -82,6 +82,7 @@ using llvm::FixedPointSemantics;
 
 namespace {
   struct LValue;
+  struct HerbceptionResultDestination;
   class CallStackFrame;
   class EvalInfo;
 
@@ -911,6 +912,10 @@ namespace {
     /// ESR_ErrorReturned. Only read/written at statement boundaries.
     bool HerbceptionErrorPending = false;
     APValue HerbceptionErrorValue;
+    /// The final error alternative for a `return try(expr)` currently being
+    /// evaluated.  This is deliberately scoped to a return expression: an
+    /// arbitrary failing call may still be recovered by an enclosing handler.
+    HerbceptionResultDestination *HerbceptionReturnDestination = nullptr;
 
     /// Herbception: fabricated per-domain opaque `error_domain_singleton`
     /// objects, keyed by the `error_domain<T>` specialization record. Each
@@ -5761,6 +5766,24 @@ static bool EvaluateCond(EvalInfo &Info, const VarDecl *CondDecl,
 }
 
 namespace {
+struct HerbceptionResultDestination {
+  APValue &UnionValue;
+  const FieldDecl *ErrorField;
+  const LValue &ErrorSlot;
+  bool ErrorConstructed = false;
+
+  APValue &activateError() {
+    if (!ErrorConstructed) {
+      // This invalidates a previously selected success APValue.  Failure
+      // control flow must not read that reference after the return statement;
+      // it exists only to let the successful path construct in place.
+      UnionValue = APValue(ErrorField);
+      ErrorConstructed = true;
+    }
+    return UnionValue.getUnionValue();
+  }
+};
+
 /// A location where the result (returned value) of evaluating a
 /// statement should be stored.
 struct StmtResult {
@@ -5771,6 +5794,10 @@ struct StmtResult {
   /// For an ESR_ErrorReturned, the error value (the `failure(expr)` operand or
   /// the fabricated std::error). Null otherwise.
   APValue *ErrorValue = nullptr;
+  /// Optional discriminated destination supplied by `catch return_failure`.
+  /// The failure arm is selected only once the callee actually returns an
+  /// error, before evaluating that error object in its final storage.
+  HerbceptionResultDestination *HerbceptionDestination = nullptr;
 };
 
 struct TempVersionRAII {
@@ -6154,23 +6181,44 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
           Throw && Throw->isHerbception()) {
         const Expr *Op = Throw->getSubExpr();
         if (Op && !Op->isValueDependent() && Result.ErrorValue) {
-          if (!Evaluate(*Result.ErrorValue, Info, Op))
+          if (Result.HerbceptionDestination) {
+            APValue &FinalError =
+                Result.HerbceptionDestination->activateError();
+            if (!EvaluateInPlace(FinalError, Info,
+                                 Result.HerbceptionDestination->ErrorSlot, Op))
+              return ESR_Failed;
+            // Keep the ordinary error channel populated for routing while the
+            // actual object and its identity remain in final carrier storage.
+            *Result.ErrorValue = FinalError;
+          } else if (!Evaluate(*Result.ErrorValue, Info, Op)) {
             return ESR_Failed;
+          }
         }
         return Scope.destroy() ? ESR_ErrorReturned : ESR_Failed;
       }
-    if (RetExpr &&
-        !(Result.Slot
-              ? EvaluateInPlace(Result.Value, Info, *Result.Slot, RetExpr)
-              : Evaluate(Result.Value, Info, RetExpr)))
-      return ESR_Failed;
+    if (RetExpr) {
+      // A `try` in the return expression is known to propagate rather than be
+      // recovered locally, so its error may use the caller's final arm.
+      llvm::SaveAndRestore<HerbceptionResultDestination *> ReturnDestination(
+          Info.HerbceptionReturnDestination,
+          Result.HerbceptionDestination);
+      if (!(Result.Slot
+                ? EvaluateInPlace(Result.Value, Info, *Result.Slot, RetExpr)
+                : Evaluate(Result.Value, Info, RetExpr)))
+        return ESR_Failed;
+    }
     // Herbception: a `try(expr)` / bare throws call inside the return
     // expression may have auto-propagated an error; surface it as an error
     // return. If there is no function-level error slot, leave the error in
     // Info so an enclosing `try { } catch throws` can intercept it.
     if (Info.HerbceptionErrorPending) {
       if (Result.ErrorValue) {
-        *Result.ErrorValue = std::move(Info.HerbceptionErrorValue);
+        if (Result.HerbceptionDestination &&
+            Result.HerbceptionDestination->ErrorConstructed)
+          *Result.ErrorValue =
+              Result.HerbceptionDestination->UnionValue.getUnionValue();
+        else
+          *Result.ErrorValue = std::move(Info.HerbceptionErrorValue);
         Info.HerbceptionErrorPending = false;
       }
       return Scope.destroy() ? ESR_ErrorReturned : ESR_Failed;
@@ -7260,7 +7308,9 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                ArrayRef<const Expr *> Args, CallRef Call,
                                const Stmt *Body, EvalInfo &Info,
                                APValue &Result, const LValue *ResultSlot,
-                               APValue *ErrorValue = nullptr) {
+                               APValue *ErrorValue = nullptr,
+                               HerbceptionResultDestination *
+                                   HerbceptionDestination = nullptr) {
   if (!Info.CheckCallLimit(CallLoc))
     return false;
 
@@ -7311,7 +7361,14 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
-  StmtResult Ret = {Result, ResultSlot, ErrorValue};
+  StmtResult Ret = {Result, ResultSlot, ErrorValue,
+                    HerbceptionDestination};
+  // A destination inherited from the caller is valid only for a callee
+  // return.  Isolate the callee body so a locally recoverable `try` cannot
+  // prematurely select the caller's final error alternative; ReturnStmt
+  // reinstalls Ret.HerbceptionDestination around its own return expression.
+  llvm::SaveAndRestore<HerbceptionResultDestination *> ReturnDestination(
+      Info.HerbceptionReturnDestination, nullptr);
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
@@ -7727,6 +7784,63 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
   StmtResult Ret = {RetVal, nullptr};
   if (EvaluateStmt(Ret, Info, Definition->getBody()) == ESR_Failed)
     return false;
+
+  if (Info.Ctx.isCatchReturnFailureType(T)) {
+    // The compiler-owned catch result is a discriminated anonymous union.
+    // Its empty source-level destructor body stands for this conditional
+    // operation; applying ordinary record destruction would instead skip the
+    // anonymous union and leak the active success alternative in the legacy
+    // constant evaluator.
+    const FieldDecl *UnionField = nullptr;
+    const FieldDecl *FailedField = nullptr;
+    for (const FieldDecl *Field : RD->fields()) {
+      if (Field->getName() == "failed")
+        FailedField = Field;
+      else if (Field->isAnonymousStructOrUnion())
+        UnionField = Field;
+    }
+    if (!UnionField || !FailedField || !Value.isStruct())
+      return false;
+
+    APValue &FailedValue =
+        Value.getStructField(FailedField->getFieldIndex());
+    APValue &UnionValue = Value.getStructField(UnionField->getFieldIndex());
+    if (!FailedValue.isInt() || !UnionValue.isUnion())
+      return false;
+
+    const bool Failed = FailedValue.getInt().getBoolValue();
+    const FieldDecl *ActiveField = UnionValue.getUnionField();
+    if (!ActiveField) {
+      // A successful void result intentionally has no active union member.
+      if (Failed)
+        return false;
+      Value = APValue();
+      return true;
+    }
+    if ((Failed && ActiveField->getName() != "error") ||
+        (!Failed && ActiveField->getName() != "value"))
+      return false;
+
+    const ASTRecordLayout &OuterLayout = Info.Ctx.getASTRecordLayout(RD);
+    LValue UnionLValue = This;
+    if (!HandleLValueMember(Info, &LocE, UnionLValue, UnionField,
+                            &OuterLayout))
+      return false;
+    const RecordDecl *UnionRD = UnionField->getType()->getAsRecordDecl();
+    if (!UnionRD)
+      return false;
+    const ASTRecordLayout &UnionLayout = Info.Ctx.getASTRecordLayout(UnionRD);
+    LValue ActiveLValue = UnionLValue;
+    if (!HandleLValueMember(Info, &LocE, ActiveLValue, ActiveField,
+                            &UnionLayout) ||
+        !HandleDestructionImpl(Info, CallRange, ActiveLValue,
+                               UnionValue.getUnionValue(),
+                               ActiveField->getType()))
+      return false;
+
+    Value = APValue();
+    return true;
+  }
 
   // A union destructor does not implicitly destroy its members.
   if (RD->isUnion())
@@ -9011,8 +9125,25 @@ public:
   bool VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
     APValue Result, ErrorVal;
     APValue *ErrorPtr = &ErrorVal;
-    if (!handleCallExpr(cast<CallExpr>(E->getSubExpr()->IgnoreParenImpCasts()),
-                        Result, nullptr, ErrorPtr))
+    const Expr *Operand = E->getSubExpr();
+    // Sema retains the ordinary full-expression and result-destruction nodes
+    // around a non-trivial call. Constant evaluation models their lifetime at
+    // the enclosing expression; peel only those transparent wrappers when
+    // identifying the shaped call, and deliberately leave MTE semantics intact.
+    for (;;) {
+      Operand = Operand->IgnoreParenImpCasts();
+      if (const auto *Cleanups = dyn_cast<ExprWithCleanups>(Operand)) {
+        Operand = Cleanups->getSubExpr();
+        continue;
+      }
+      if (const auto *Bound = dyn_cast<CXXBindTemporaryExpr>(Operand)) {
+        Operand = Bound->getSubExpr();
+        continue;
+      }
+      break;
+    }
+    const auto *Call = dyn_cast<CallExpr>(Operand->IgnoreParenImpCasts());
+    if (!Call || !handleCallExpr(Call, Result, nullptr, ErrorPtr))
       return false;
 
     // Build the catch-fails aggregate {union{T value; E error}; bool failed}.
@@ -9039,11 +9170,19 @@ public:
         else if (F->getName() == "error")
           ErrorField = F;
       }
-    if (!ValueField || !ErrorField)
+    if ((!ValueField && !Call->getType()->isVoidType()) || !ErrorField)
       return Error(E);
 
-    APValue UnionVal(ErrorPtr->hasValue() ? ErrorField : ValueField,
-                     ErrorPtr->hasValue() ? ErrorVal : Result);
+    APValue UnionVal;
+    if (ErrorPtr->hasValue())
+      UnionVal = APValue(ErrorField, ErrorVal);
+    else if (ValueField)
+      UnionVal = APValue(ValueField, Result);
+    else
+      // A successful void result intentionally leaves the anonymous union
+      // without an active member; APValue represents that state with a null
+      // active FieldDecl.
+      UnionVal = APValue(static_cast<const FieldDecl *>(nullptr));
     APValue CatchResult(APValue::UninitStruct(), /*NumBases=*/0,
                         /*NumMembers=*/2);
     CatchResult.getStructField(0) = UnionVal;
@@ -9057,13 +9196,92 @@ public:
   /// Evaluate a herbception `try(expr)`: call the throws/fails function and
   /// auto-propagate its error on failure.
   bool VisitCXXTryExpr(const CXXTryExpr *E) {
-    APValue Result, ErrorVal;
+    APValue Result;
+    return evaluateCXXTryExpr(E, Result, nullptr);
+  }
+
+  bool evaluateCXXTryExpr(const CXXTryExpr *E, APValue &Result,
+                          const LValue *ResultSlot) {
+    APValue ErrorVal;
     APValue *ErrorPtr = &ErrorVal;
-    if (!handleCallExpr(cast<CallExpr>(E->getSubExpr()->IgnoreParenImpCasts()),
-                        Result, nullptr, ErrorPtr))
+    const Expr *Operand = E->getSubExpr();
+    for (;;) {
+      Operand = Operand->IgnoreParenImpCasts();
+      if (const auto *Cleanups = dyn_cast<ExprWithCleanups>(Operand)) {
+        Operand = Cleanups->getSubExpr();
+        continue;
+      }
+      if (const auto *Bound = dyn_cast<CXXBindTemporaryExpr>(Operand)) {
+        Operand = Bound->getSubExpr();
+        continue;
+      }
+      break;
+    }
+    const auto *Call = dyn_cast<CallExpr>(Operand->IgnoreParenImpCasts());
+    HerbceptionResultDestination *ReturnDestination =
+        Info.HerbceptionReturnDestination;
+    // Only a raw typed propagation whose error type exactly matches the final
+    // carrier can construct there.  std::error conversion and untyped/basic
+    // propagation must first complete their semantic conversion in scratch
+    // storage, and a nested locally handled `try` must not leak into a caller.
+    if (ReturnDestination &&
+        (!E->propagatesRaw() || E->getFailureType().isNull() ||
+         !Info.Ctx.hasSameType(E->getFailureType(),
+                               ReturnDestination->ErrorField->getType())))
+      ReturnDestination = nullptr;
+    if (!Call || !handleCallExpr(Call, Result, ResultSlot, ErrorPtr,
+                                 ReturnDestination))
       return false;
     if (!ErrorPtr->hasValue())
-      return DerivedSuccess(Result, E);
+      return ResultSlot ? true : DerivedSuccess(Result, E);
+
+    if (E->convertsToStdError() && E->getDomainCall()) {
+      if (!E->getCodeCall() || !E->getFailureValue())
+        return Error(E);
+
+      // The accessor CallExprs share an OpaqueValueExpr standing for the
+      // active E alternative. Bind it to exactly one constexpr temporary, as
+      // CodeGen binds the same node to its one decoded E object.
+      LValue FailureLV;
+      APValue &FailureSlot = Info.CurrentCall->createTemporary(
+          E->getFailureValue(),
+          getStorageType(Info.Ctx, E->getFailureValue()),
+          ScopeKind::FullExpression, FailureLV);
+      FailureSlot = std::move(ErrorVal);
+
+      APValue Domain, Code;
+      const auto *DomainCall =
+          dyn_cast<CallExpr>(E->getDomainCall()->IgnoreParenImpCasts());
+      const auto *CodeCall =
+          dyn_cast<CallExpr>(E->getCodeCall()->IgnoreParenImpCasts());
+      if (!DomainCall || !CodeCall ||
+          !handleCallExpr(DomainCall, Domain, nullptr) ||
+          !handleCallExpr(CodeCall, Code, nullptr))
+        return false;
+
+      // The accessor contract deliberately accepts any integer or enum return
+      // type. Apply the same signed extension, truncation, and modulo
+      // conversion that CodeGen performs before placing the result in the
+      // size_t field; storing the accessor's narrower APSInt verbatim would
+      // make constant evaluation disagree with runtime propagation.
+      if (!Code.isInt())
+        return Error(E);
+      Code = APValue(HandleIntToIntCast(
+          Info, E, Info.Ctx.getSizeType(), E->getCodeCall()->getType(),
+          Code.getInt()));
+
+      // std::error's compiler-owned ABI is {domain pointer, size_t code}.
+      // APValue record values do not carry their RecordDecl, so the two-field
+      // representation can flow to either a catch variable or a basic throws
+      // function without fabricating a user-visible std::error expression.
+      APValue Converted(APValue::UninitStruct(), /*NumBases=*/0,
+                        /*NumMembers=*/2);
+      Converted.getStructField(0) = std::move(Domain);
+      Converted.getStructField(1) = std::move(Code);
+      ErrorVal = std::move(Converted);
+    }
+    // A ToStdError node with no accessor calls is the strictly validated
+    // cxx_std_error ABI bridge and therefore already has this representation.
     // Auto-propagate: store the error into EvalInfo so the enclosing statement
     // evaluation can turn this into an ESR_ErrorReturned for the current
     // function.
@@ -9118,7 +9336,9 @@ public:
   }
 
   bool handleCallExpr(const CallExpr *E, APValue &Result,
-                     const LValue *ResultSlot, APValue *ErrorValue = nullptr) {
+                     const LValue *ResultSlot, APValue *ErrorValue = nullptr,
+                     HerbceptionResultDestination *
+                         HerbceptionDestination = nullptr) {
     CallScopeRAII CallScope(Info);
 
     const Expr *Callee = E->getCallee()->IgnoreParens();
@@ -9339,7 +9559,8 @@ public:
 
     if (!CheckConstexprFunction(Info, Loc, FD, Definition, Body) ||
         !HandleFunctionCall(Loc, Definition, This, E, Args, Call, Body, Info,
-                            Result, ResultSlot, ErrorValue))
+                            Result, ResultSlot, ErrorValue,
+                            HerbceptionDestination))
       return false;
 
     if (!CovariantAdjustmentPath.empty() &&
@@ -11608,6 +11829,11 @@ namespace {
     bool VisitCallExpr(const CallExpr *E) {
       return handleCallExpr(E, Result, &This);
     }
+    bool VisitCXXCatchReturnFailureExpr(
+        const CXXCatchReturnFailureExpr *E);
+    bool VisitCXXTryExpr(const CXXTryExpr *E) {
+      return evaluateCXXTryExpr(E, Result, &This);
+    }
     bool VisitCastExpr(const CastExpr *E);
     bool VisitInitListExpr(const InitListExpr *E);
     bool VisitCXXConstructExpr(const CXXConstructExpr *E) {
@@ -12173,6 +12399,105 @@ bool RecordExprEvaluator::VisitDesignatedInitUpdateExpr(
   if (!Visit(E->getBase()))
     return false;
   return Visit(E->getUpdater());
+}
+
+bool RecordExprEvaluator::VisitCXXCatchReturnFailureExpr(
+    const CXXCatchReturnFailureExpr *E) {
+  const Expr *Operand = E->getSubExpr();
+  // These wrappers describe the lifetime of the call result in the ordinary
+  // AST.  The catch-result carrier owns that lifetime instead, so locate the
+  // shaped call without materializing an intermediate return object.
+  for (;;) {
+    Operand = Operand->IgnoreParenImpCasts();
+    if (const auto *Cleanups = dyn_cast<ExprWithCleanups>(Operand)) {
+      Operand = Cleanups->getSubExpr();
+      continue;
+    }
+    if (const auto *Bound = dyn_cast<CXXBindTemporaryExpr>(Operand)) {
+      Operand = Bound->getSubExpr();
+      continue;
+    }
+    break;
+  }
+  const auto *Call = dyn_cast<CallExpr>(Operand->IgnoreParenImpCasts());
+  if (!Call)
+    return Error(E);
+
+  const RecordDecl *RD = E->getType()->getAsRecordDecl();
+  if (!RD)
+    return Error(E);
+  const FieldDecl *UnionField = nullptr;
+  const FieldDecl *FailedField = nullptr;
+  for (const FieldDecl *F : RD->fields()) {
+    if (F->getName() == "failed")
+      FailedField = F;
+    else
+      UnionField = F;
+  }
+  if (!UnionField || !FailedField)
+    return Error(E);
+
+  const RecordDecl *UR = UnionField->getType()->getAsRecordDecl();
+  const FieldDecl *ValueField = nullptr;
+  const FieldDecl *ErrorField = nullptr;
+  if (UR)
+    for (const FieldDecl *F : UR->fields()) {
+      if (F->getName() == "value")
+        ValueField = F;
+      else if (F->getName() == "error")
+        ErrorField = F;
+    }
+  if ((!ValueField && !Call->getType()->isVoidType()) || !ErrorField)
+    return Error(E);
+
+  Result = APValue(APValue::UninitStruct(), /*NumBases=*/0,
+                   RD->getNumFields());
+  APValue &UnionValue =
+      Result.getStructField(UnionField->getFieldIndex());
+  APValue &FailedValue =
+      Result.getStructField(FailedField->getFieldIndex());
+  FailedValue = APValue(
+      APSInt(APInt(1, 0), /*isUnsigned=*/true));
+
+  APValue ErrorValue;
+  APValue ScratchSuccess;
+  APValue *SuccessValue = &ScratchSuccess;
+  const LValue *SuccessSlot = nullptr;
+  LValue ValueLValue;
+  LValue ErrorLValue = This;
+
+  const ASTRecordLayout &OuterLayout = Info.Ctx.getASTRecordLayout(RD);
+  if (!HandleLValueMember(Info, E, ErrorLValue, UnionField, &OuterLayout))
+    return false;
+  LValue UnionLValue = ErrorLValue;
+  const ASTRecordLayout &UnionLayout = Info.Ctx.getASTRecordLayout(UR);
+  if (!HandleLValueMember(Info, E, ErrorLValue, ErrorField, &UnionLayout))
+    return false;
+
+  if (ValueField) {
+    UnionValue = APValue(ValueField);
+    ValueLValue = UnionLValue;
+    if (!HandleLValueMember(Info, E, ValueLValue, ValueField, &UnionLayout))
+      return false;
+    SuccessValue = &UnionValue.getUnionValue();
+    SuccessSlot = &ValueLValue;
+  } else {
+    // A successful void result has no active anonymous-union member.
+    UnionValue = APValue(static_cast<const FieldDecl *>(nullptr));
+  }
+
+  HerbceptionResultDestination Destination{UnionValue, ErrorField,
+                                            ErrorLValue};
+  if (!handleCallExpr(Call, *SuccessValue, SuccessSlot, &ErrorValue,
+                      &Destination))
+    return false;
+
+  const bool Failed = ErrorValue.hasValue();
+  if (Failed && !Destination.ErrorConstructed)
+    UnionValue = APValue(ErrorField, ErrorValue);
+  FailedValue = APValue(
+      APSInt(APInt(1, Failed ? 1 : 0), /*isUnsigned=*/true));
+  return true;
 }
 
 static bool EvaluateRecord(const Expr *E, const LValue &This,

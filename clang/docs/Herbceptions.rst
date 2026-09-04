@@ -111,12 +111,14 @@ Semantically:
    T foo() throws;                    // may fail via herbceptions channel; nounwind
    T foo() return_failure{E};         // may fail via herbceptions channel; nounwind
 
-* ``throws`` and ``return_failure{E}`` are part of the *canonical function type* and
-  change the function ABI (the return type is lowered to ``{T, i1}``). This
-  is unlike ``noexcept`` since C++17, which is not part of the canonical
-  type.
+* An active ``throws`` or ``return_failure{E}`` channel is part of the
+  *canonical function type* and changes the function ABI (the return type is
+  lowered to ``{T, i1}``). This is unlike ``noexcept`` since C++17, which is
+  not part of the canonical type.
+* ``throws(true)`` is equivalent to a bare ``throws`` and has the same canonical
+  function type and ABI.
 * ``throws(false)`` means the function cannot fail: it is equivalent to
-  ``noexcept(true)``.
+  ``noexcept(true)`` and uses the ordinary, unshaped return ABI.
 * ``throws``/``return_failure{E}`` and ``noexcept`` are mutually exclusive: a
   function picks one or the other, never both. ``throws`` supersedes ``noexcept``.
 * In trait queries (``noexcept(expr)``, ``is_nothrow``), ``throws(true)`` / bare
@@ -124,6 +126,10 @@ Semantically:
   function may fail via the herbceptions channel. However, they are not
   semantically ``noexcept(false)`` — they use a different ABI and a different
   exception mechanism. In LLVM IR they are ``nounwind`` (no unwinding).
+* A value-dependent ``throws(condition)`` retains its condition in the function
+  type. Template substitution selects the active ``throws`` type and shaped ABI
+  when true, or the ``noexcept(true)`` type and ordinary ABI when false; the
+  primary template does not prematurely commit to either ABI.
 * ``return_failure(E)`` (parentheses) is rejected; the braces form is mandatory.
   Combining ``throws`` and ``return_failure{...}`` on one declaration is rejected.
 
@@ -170,8 +176,11 @@ and a ``code(E)`` projection. ``T`` need not be an enum -- any type with an
   };
     }
 
-Returning ``nullptr`` from ``domain()`` is a compile-time error: the
-fabricated ``std::error`` dereferences the domain pointer in its destructor.
+A statically evident ``return nullptr;`` or ``return 0;`` in ``domain()`` is a
+compile-time error: the fabricated ``std::error`` dereferences the domain
+pointer in its destructor. More complex implementations, including shipped
+domains that call a runtime singleton factory, retain the ordinary C++
+runtime contract to return a non-null pointer.
 
 The ``libherbceptions`` runtime ships ready-made domains -- POSIX (``errc``),
 Win32, NTSTATUS, COM, Wine, ``cmath`` and ``parse`` -- each exposed through
@@ -238,8 +247,12 @@ error; no wrapper is required:
   return fd;
    }
 
-The auto-propagation is suppressed while parsing the operand of an explicit
-``try(expr)`` or ``catch return_failure(expr)``.
+An explicit ``try(expr)`` consumes only the fallible call at the semantic top
+level of ``expr``. Fallible calls nested in its callee or argument expressions
+retain their own propagation nodes, so their failures are handled before the
+outer call is evaluated. ``catch return_failure(expr)`` continues to suppress
+automatic wrapping of its complete operand because it captures that operand's
+raw typed failure as data.
 
 **C** -- calling a ``return_failure{
   E}`` function without an explicit wrapper is a
@@ -321,6 +334,8 @@ routes the error value to the handler instead of propagating:
    }
 
 Inside the handler, bare ``throw throws`` rethrows the caught error.
+The rethrow transfers ownership: the inner catch variable does not destroy the
+error, and the eventual consuming handler destroys it exactly once.
 
 Additional rules for ``catch throws`` handlers:
 
@@ -335,23 +350,24 @@ Additional rules for ``catch throws`` handlers:
   handler also receives legacy exceptions auto-converted through the
   exception-pointer domain; with traditional clauses present they are
   delivered untouched instead.
-* Inside a ``return_failure{
-  E}`` function, a ``catch throws(std::error)`` handler
-  requires a visible ``std::error_domain<E>`` specialization.
-* Inside such a handler, a call to a plain ``return_failure{
-  ...}`` function must be
-  wrapped in an explicit ``try()`` so its error is converted to
-  ``std::error`` (C-style explicitness):
+* A visible ``std::error_domain<E>`` specialization is required only when a
+  ``return_failure{E}`` error is routed to a basic ``std::error`` destination.
+  Merely placing a ``catch throws(std::error)`` handler inside a
+  ``return_failure{E}`` function does not require the specialization.
+* A handler body routes to the next *outward* destination; it never routes back
+  into the handler currently executing. Thus a ``return_failure{E}`` call in a
+  handler of a ``return_failure{E}`` function propagates raw E. If an outer
+  catch-throws handler is the destination, E is converted to ``std::error``.
+  A different typed E or a basic ``throws`` error cannot enter a typed
+  destination and is diagnosed.
 
 .. code-block:: cpp
 
-   void g() return_failure{std::errc} {
+   int g() return_failure{std::errc} {
   try {
     // ...
   } catch throws(std::error e) {
-    auto r = try
-      (return_failure_callee()); // ok: converted via error_domain
-    // return_failure_callee();              // rejected: unconverted raw payload
+    return return_failure_callee(); // same E: raw outward propagation
   }
    }
 
@@ -363,10 +379,17 @@ Convertibility between specifiers
   or ``try(expr)``) converts the error to ``std::error`` through the
   ``std::error_domain<E>`` accessors (``domain()`` / ``code()``); a missing
   specialization is rejected.
-* Calling a ``throws`` function from a ``return_failure{
-  E}`` function propagates the
-  fabricated two-word ``std::error`` payload verbatim into the error slot;
-  no conversion is performed.
+* Calling a ``throws`` function from a ``return_failure{E}`` destination is
+  rejected: the basic ``std::error`` channel cannot be reinterpreted as E.
+  Likewise, ``return_failure{E1}`` can propagate into
+  ``return_failure{E2}`` only when E1 and E2 are the same canonical type
+  (ignoring only top-level cv as required by the function-type rules).
+
+A constructor function-try-block protects its complete base/member initializer
+list as well as its written body. If a catch-throws handler finishes normally,
+the caught error is automatically re-propagated through the constructor's
+``throws`` channel after all partial-construction cleanups; a failed constructor
+can never become a successful object merely because the handler fell through.
 
 ``noexcept`` boundary
 ---------------------

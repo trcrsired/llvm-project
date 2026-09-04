@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Tooling/Tooling.h"
@@ -16,6 +17,43 @@
 namespace clang {
 namespace {
 using namespace ast_matchers;
+
+TEST(Profiling, HerbceptionExpressionChildrenHaveLinearProfiles) {
+  auto AST = tooling::buildASTFromCode("");
+  ASTContext &Ctx = AST->getASTContext();
+  auto MakeLiteral = [&Ctx](unsigned Value) {
+    return IntegerLiteral::Create(Ctx, llvm::APInt(32, Value), Ctx.IntTy,
+                                  SourceLocation());
+  };
+  auto ProfileSize = [&Ctx](Expr *E) {
+    llvm::FoldingSetNodeID ID;
+    E->Profile(ID, Ctx, /*Canonical=*/true);
+    return ID.Intern(Ctx.getAllocator()).getSize();
+  };
+
+  for (unsigned Kind = 0; Kind != 3; ++Kind) {
+    Expr *E = MakeLiteral(1);
+    size_t Sizes[4] = {ProfileSize(E)};
+    for (unsigned Depth = 1; Depth != 4; ++Depth) {
+      if (Kind == 0)
+        E = new (Ctx) CXXErrorValueExpr(E, MakeLiteral(2), MakeLiteral(3),
+                                        Ctx.IntTy, SourceLocation());
+      else if (Kind == 1)
+        E = new (Ctx) CXXTryExpr(E, Ctx.IntTy, SourceLocation(), VK_PRValue,
+                                 nullptr, nullptr, nullptr, QualType(),
+                                 CXXTryExpr::PropagationKind::Raw);
+      else
+        E = new (Ctx) CXXCatchReturnFailureExpr(E, Ctx.IntTy, SourceLocation());
+      Sizes[Depth] = ProfileSize(E);
+    }
+
+    // Each wrapper contributes a fixed amount of metadata and visits each
+    // child exactly once. A second manual child walk duplicates progressively
+    // deeper subtrees, so its profile-size increment cannot remain constant.
+    EXPECT_EQ(Sizes[2] - Sizes[1], Sizes[1] - Sizes[0]) << Kind;
+    EXPECT_EQ(Sizes[3] - Sizes[2], Sizes[1] - Sizes[0]) << Kind;
+  }
+}
 
 static auto getClassTemplateRedecls() {
   std::string Code = R"cpp(

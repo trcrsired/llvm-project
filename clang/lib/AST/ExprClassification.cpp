@@ -183,7 +183,6 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::CXXThrowExprClass:
   case Expr::CXXErrorValueExprClass:
   case Expr::CXXCxaExceptionExprClass:
-  case Expr::CXXTryExprClass:
   case Expr::CXXCatchReturnFailureExprClass:
   case Expr::ShuffleVectorExprClass:
   case Expr::ConvertVectorExprClass:
@@ -325,6 +324,12 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
 
   case Expr::RecoveryExprClass:
   case Expr::OpaqueValueExprClass:
+    return ClassifyExprValueKind(Lang, E, E->getValueKind());
+
+  // A deterministic try expression has the successful call's value category.
+  // In particular, a reference success remains a designator rather than a
+  // class temporary after its discriminator has been tested.
+  case Expr::CXXTryExprClass:
     return ClassifyExprValueKind(Lang, E, E->getValueKind());
 
     // Pseudo-object expressions can produce l-values with reference magic.

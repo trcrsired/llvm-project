@@ -79,6 +79,34 @@ static_assert(noexcept(foo_throws_false(bar())), "throws(false) is noexcept");
 // noexcept(expr) for bare throws should be false
 static_assert(!noexcept(foo_throws(bar())), "bare throws is not noexcept");
 
+// The equivalence is a type-system and ABI property, not merely the result of
+// a noexcept query. A disabled channel has the ordinary noexcept function type
+// and must not satisfy invocation traits for the herbception channel.
+using throws_false_type = void(bar) throws(false);
+using noexcept_type = void(bar) noexcept;
+using throws_true_type = void(bar) throws(true);
+using throws_type = void(bar) throws;
+static_assert(__is_same(throws_false_type, noexcept_type));
+static_assert(!__is_same(throws_false_type, throws_true_type));
+static_assert(!__is_same(throws_false_type, throws_type));
+static_assert(__is_same(throws_true_type, throws_type));
+static_assert(!throws(foo_throws_false(bar())));
+static_assert(!__is_herbceptions_throws_invocable(throws_false_type, bar));
+static_assert(__is_herbceptions_throws_invocable(throws_true_type, bar));
+
+// Equivalent non-throwing spellings may redeclare one function in either
+// order; they cannot create an ABI disagreement between declarations.
+void redeclared_noexcept_first(bar) noexcept;
+void redeclared_noexcept_first(bar) throws(false);
+void redeclared_throws_false_first(bar) throws(false);
+void redeclared_throws_false_first(bar) noexcept;
+void redeclared_throws_first(bar) throws;
+void redeclared_throws_first(bar) throws(true);
+void redeclared_throws_true_first(bar) throws(true);
+void redeclared_throws_true_first(bar) throws;
+
+noexcept_type *from_throws_false = &foo_throws_false;
+throws_false_type *from_noexcept = &foo_noexcept;
 
 
 // throws and noexcept cannot be combined

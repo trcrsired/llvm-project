@@ -2178,10 +2178,10 @@ void StmtProfiler::VisitCXXThrowExpr(const CXXThrowExpr *S) {
 }
 
 void StmtProfiler::VisitCXXErrorValueExpr(const CXXErrorValueExpr *S) {
+  // VisitExpr profiles children() once, including the operand and both
+  // resolved accessor calls. Reprofiling those edges here would duplicate
+  // recursively nested subtrees instead of adding node-specific identity.
   VisitExpr(S);
-  VisitStmt(S->getOperand());
-  VisitStmt(S->getDomainCall());
-  VisitStmt(S->getCodeCall());
 }
 
 void StmtProfiler::VisitCXXCxaExceptionExpr(const CXXCxaExceptionExpr *S) {
@@ -2189,13 +2189,18 @@ void StmtProfiler::VisitCXXCxaExceptionExpr(const CXXCxaExceptionExpr *S) {
 }
 
 void StmtProfiler::VisitCXXTryExpr(const CXXTryExpr *S) {
+  // The generic child walk includes the operand, conversion calls, and null
+  // markers for absent conversions. Only non-child semantic state belongs
+  // here; profiling the operand again makes nested propagation nonlinear.
   VisitExpr(S);
-  VisitStmt(S->getSubExpr());
+  VisitType(S->getFailureType());
+  ID.AddInteger(llvm::to_underlying(S->getPropagationKind()));
 }
 
-void StmtProfiler::VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *S) {
+void StmtProfiler::VisitCXXCatchReturnFailureExpr(
+    const CXXCatchReturnFailureExpr *S) {
+  // The caught operand is already an ordinary child; it has one profile edge.
   VisitExpr(S);
-  VisitStmt(S->getSubExpr());
 }
 
 void StmtProfiler::VisitCXXDefaultArgExpr(const CXXDefaultArgExpr *S) {

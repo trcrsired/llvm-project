@@ -4401,7 +4401,10 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
       if (MergeTypeWithOld && isa<FunctionNoProtoType>(NewFuncType) &&
           (OldProto = dyn_cast<FunctionProtoType>(OldFuncType))) {
         // The old declaration provided a function prototype, but the
-        // new declaration does not. Merge in the prototype.
+        // new declaration does not. The physical-ABI gate in
+        // ASTContext::mergeFunctionTypes makes a typed failure prototype
+        // incompatible with such a declaration, so only an ordinary C
+        // prototype can reach this inheritance path.
         assert(!OldProto->hasExceptionSpec() && "Exception spec in C");
         NewQType = Context.getFunctionType(NewFuncType->getReturnType(),
                                            OldProto->getParamTypes(),
@@ -10766,15 +10769,14 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   NewFD->setParams(Params);
 
   // Herbception `fails{E}` is a C-style feature: it may only be attached to
-  // free (non-member) functions. It is disallowed on member functions
-  // (including static members), lambdas, and function templates, which keeps
-  // the fails{E} machinery (and its type traits) simple. (Coroutines are
-  // rejected separately when the body is parsed, since coroutine-ness is only
-  // known then.)
+  // free (non-member) functions. A free function template is permitted because
+  // substitution reconstructs and validates its unique E before its body can
+  // produce a typed failure. Members (including static members) and lambdas
+  // remain excluded. (Coroutines are rejected separately when the body is
+  // parsed, since coroutine-ness is only known then.)
   if (const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>()) {
     if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
-        FPT->hasReturnFailureSpec() &&
-        (NewFD->isCXXClassMember() || NewFD->getDescribedFunctionTemplate())) {
+        FPT->hasReturnFailureSpec() && NewFD->isCXXClassMember()) {
       Diag(D.getIdentifierLoc(), diag::err_return_failure_only_free_function);
       NewFD->setInvalidDecl();
     }
@@ -16852,6 +16854,35 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
 
+  // Herbception propagation destinations depend on the complete nesting and
+  // source order of try handlers. Resolve them while the function semantic
+  // context is still active, but only after its full body has been formed.
+  // Pending nodes in dependent/discarded subtrees remain explicitly
+  // instantiation-dependent and are resolved in the instantiated function.
+  if (getLangOpts().HerbExceptions && FD && Body && !FD->isInvalidDecl()) {
+    const auto *FPT = FD->getType()->getAs<FunctionProtoType>();
+    bool InvalidPropagation = false;
+    // Constructor initializers execute in the constructor callable but are
+    // not children of its CompoundStmt. A function-try-block additionally
+    // protects the initializer list, so its first catch-throws clause (when
+    // present) is their destination just as it is for the written body.
+    if (auto *Ctor = dyn_cast<CXXConstructorDecl>(FD)) {
+      bool InitializersRouteToCatchThrows = false;
+      if (const auto *FunctionTry = dyn_cast<CXXTryStmt>(Body))
+        for (unsigned I = 0; I != FunctionTry->getNumHandlers(); ++I)
+          InitializersRouteToCatchThrows |=
+              isa<CXXCatchThrowsStmt>(FunctionTry->getHandler(I));
+      for (const CXXCtorInitializer *Init : Ctor->inits())
+        InvalidPropagation |= ResolveHerbceptionPropagation(
+            FPT, Init->getInit(), /*IsMain=*/false,
+            InitializersRouteToCatchThrows);
+    }
+    InvalidPropagation |=
+        ResolveHerbceptionPropagation(FPT, Body, FD->isMain());
+    if (InvalidPropagation)
+      FD->setInvalidDecl();
+  }
+
   // Herbception: error_domain<T>::domain() must not return nullptr. The
   // fabricated std::error dereferences the domain pointer in ~error(), so a
   // null domain would be a null-pointer dereference. Diagnose a definition
@@ -16896,7 +16927,8 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   // silently without it.
   if (getLangOpts().HerbExceptions && Body && FD && !FD->isInvalidDecl()) {
     if (auto *FPT = FD->getType()->getAs<FunctionProtoType>();
-        FPT && FPT->hasBasicThrowsSpec() && !FD->isDependentContext() &&
+        FPT && FPT->hasBasicThrowsSpec() && FPT->hasThrowsSpec() &&
+        !FD->isDependentContext() &&
         canThrow(Body) == CT_Can) {
       // A legacy C++ exception can escape this `throws` function. Fabricate
       // the conversion to herbception using the built-in ABI calls

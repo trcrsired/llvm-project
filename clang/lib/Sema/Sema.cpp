@@ -2686,6 +2686,26 @@ BlockScopeInfo *Sema::getCurBlock() {
   return CurBSI;
 }
 
+const FunctionProtoType *Sema::getCurHerbceptionFunctionProto() {
+  // Apple blocks are callable boundaries rather than transparent lexical
+  // scopes. Selecting the enclosing FunctionDecl here would let a plain block
+  // accidentally inherit a surrounding `throws` channel, while an active
+  // block in an ordinary function would be rejected. FunctionType is already
+  // established before parsing the block body and is therefore authoritative.
+  if (BlockScopeInfo *BSI = getCurBlock()) {
+    if (BSI->FunctionType.isNull())
+      return nullptr;
+    return BSI->FunctionType->getAs<FunctionProtoType>();
+  }
+
+  // Keep lambda call operators as callable boundaries as well. This preserves
+  // the same innermost-callable rule when a lambda is nested in a block.
+  const FunctionDecl *FD = getCurFunctionDecl(/*AllowLambda=*/true);
+  if (!FD)
+    return nullptr;
+  return FD->getType()->getAs<FunctionProtoType>();
+}
+
 FunctionScopeInfo *Sema::getEnclosingFunction() const {
   if (FunctionScopes.empty())
     return nullptr;

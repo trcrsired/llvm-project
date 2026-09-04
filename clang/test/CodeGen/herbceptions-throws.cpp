@@ -24,7 +24,7 @@ public:
 };
 }
 
-// CHECK: define dso_local { { ptr, i64 }, i1 } @_Z3fooi(i32 noundef %0) #[[ATTR:[0-9]+]]
+// CHECK: define dso_local { { ptr, i64 }, i1 } @_Z3fooi(i32 noundef %{{.*}}) #[[ATTR:[0-9]+]]
 // CHECK-NOT: call void @__cxa_throw
 // CHECK: ret { { ptr, i64 }, i1 }
 int foo(int x) throws {
@@ -33,15 +33,15 @@ int foo(int x) throws {
 }
 
 // Plain functions (no throws) are unchanged.
-// CHECK-LABEL: define dso_local noundef i32 @_Z4plinii(i32 noundef %0, i32 noundef %1)
+// CHECK-LABEL: define dso_local noundef i32 @_Z4plinii(i32 noundef %{{.*}}, i32 noundef %{{.*}})
 int plin(int a, int b) { return a + b; }
 
 // try(expr) auto-propagates the error of a throws call. The caller extracts
 // the discriminant, branches on it, and on error returns {err, true}.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z6calleri(i32 noundef %0)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z6calleri(i32 noundef %{{.*}})
 // CHECK:         call { { ptr, i64 }, i1 } @_Z3fooi
 // CHECK:         extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
-// CHECK:         br i1 %{{.*}}, label %{{[0-9]+}}, label %{{[0-9]+}}
+// CHECK:         br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
 int caller(int x) throws {
   return try(foo(x));
 }

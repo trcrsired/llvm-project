@@ -6770,20 +6770,6 @@ static void DiagnosedUnqualifiedCallsToStdFunctions(Sema &S,
       << FixItHint::CreateInsertion(DRE->getLocation(), "std::");
 }
 
-/// Return the function prototype of the callee of \p E if it is a call to a
-/// throws/fails function, or null otherwise.
-static const FunctionProtoType *getHerbceptionCalleeProto(const Expr *E) {
-  const auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
-  if (!Call)
-    return nullptr;
-  const Decl *Callee = Call->getCalleeDecl();
-  if (const auto *FTD = dyn_cast_or_null<FunctionTemplateDecl>(Callee))
-    Callee = FTD->getTemplatedDecl();
-  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
-    return FD->getType()->getAs<FunctionProtoType>();
-  return nullptr;
-}
-
 ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                MultiExprArg ArgExprs, SourceLocation RParenLoc,
                                Expr *ExecConfig) {
@@ -6813,29 +6799,40 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     // is only suppressed while parsing the operand of an explicit
     // try(expr)/catch fails(expr). C code must always use try()/catch fails()
     // explicitly, so this never applies in C.
-    if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0) {
-      if (const FunctionDecl *CurFD = getCurFunctionDecl()) {
-        if (const auto *CurFPT =
-                CurFD->getType()->getAs<FunctionProtoType>();
-            CurFPT && CurFPT->hasThrowsSpec() &&
-            isHerbceptionThrowsCall(Call.get())) {
-          SourceLocation CallLoc = Call.get()->getBeginLoc();
+    // Unevaluated calls retain their original function effect for noexcept and
+    // trait inspection; wrapping them as runtime propagation would erase the
+    // queried channel without any call ever taking place.
+    // A default argument or default member initializer is evaluated only at a
+    // later use site. Its eventual callable owns the failure destination, so
+    // definition-time Sema must preserve the raw effect for exception-spec
+    // inference instead of routing it through the surrounding parse context.
+    if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0 &&
+        !isUnevaluatedContext() &&
+        !isCheckingDefaultArgumentOrInitializer()) {
+      const auto *CurFPT = getCurHerbceptionFunctionProto();
+      const bool HasFunctionChannel =
+          CurFPT && CurFPT->hasPotentialThrowsSpec();
+      const bool HasLocalRoutingCandidate =
+          isInCurrentCallableHerbceptionTryBody() ||
+          isInCurrentCallableHerbceptionCatchClause();
+      const bool IsFallibleCall = isHerbceptionThrowsCall(Call.get());
+      if ((HasFunctionChannel || HasLocalRoutingCandidate) && IsFallibleCall) {
+        SourceLocation CallLoc = Call.get()->getBeginLoc();
 
-          // Inside a `catch throws(std::error)` handler the error slot holds a
-          // std::error. A bare call to a plain `fails{E2}` function would
-          // store its raw E2 payload there; require an explicit `try()` (which
-          // resolves std::error_domain<E2> and converts), C-style.
-          if (HerbceptionCatchDepth > 0 && CurFPT->hasReturnFailureSpec()) {
-            const FunctionProtoType *CalleeFPT =
-                getHerbceptionCalleeProto(Call.get());
-            if (CalleeFPT && CalleeFPT->hasReturnFailureSpec() &&
-                !CalleeFPT->hasBasicThrowsSpec()) {
-              Diag(CallLoc, diag::err_return_failure_call_in_catch_throws);
-              return ExprError();
-            }
-          }
-
-          Call = ActOnHerbceptionTry(CallLoc, Call.get());
+        Call = ActOnHerbceptionTry(CallLoc, Call.get());
+      } else if (IsFallibleCall && getCurFunction()) {
+        const auto *CurrentFD = getCurFunctionDecl(/*AllowLambda=*/true);
+        // main is the sole unhandled-call boundary: CodeGen consumes its
+        // discriminant and traps. A lambda or Apple block nested in main is a
+        // distinct callable and must not inherit that privilege merely because
+        // ordinary function lookup can see through the capturing scope.
+        const bool IsCurrentMain =
+            CurrentFD && CurrentFD->isMain() &&
+            !isa<sema::CapturingScopeInfo>(getCurFunction());
+        if (!IsCurrentMain) {
+          Diag(Call.get()->getBeginLoc(),
+               diag::err_herbceptions_non_throws_call_throws);
+          return ExprError();
         }
       }
     }
@@ -6847,7 +6844,8 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
         DRE && Call.get()->isValueDependent()) {
       currentEvaluationContext().ReferenceToConsteval.erase(DRE);
     }
-  } else if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0) {
+  } else if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0 &&
+             !isUnevaluatedContext()) {
     // Herbception (C): calling a fails{E} function without an explicit
     // try(expr) or catch fails(expr) wrapper is a compile error.
     if (isHerbceptionThrowsCall(Call.get())) {
@@ -17227,6 +17225,19 @@ ExprResult Sema::ActOnBlockStmtExpr(SourceLocation CaretLoc,
 
   DiagnoseUnusedParameters(BD->parameters());
   BlockTy = Context.getBlockPointerType(BlockTy);
+
+  // An Apple block is an independent callable boundary and therefore cannot
+  // be resolved by the enclosing FunctionDecl walk (which deliberately skips
+  // BlockExpr bodies). Resolve it here while its semantic context is still
+  // active and its final function type, including the Herbception effect, is
+  // available. This prevents a live Pending CXXTryExpr from reaching CIR or
+  // LLVM CodeGen in an explicitly `throws` block.
+  if (getLangOpts().HerbExceptions && Body && !BD->isInvalidDecl()) {
+    const auto *BlockFPT =
+        BlockTy->getPointeeType()->getAs<FunctionProtoType>();
+    if (ResolveHerbceptionPropagation(BlockFPT, Body))
+      BD->setInvalidDecl();
+  }
 
   // If needed, diagnose invalid gotos and switches in the block.
   if (getCurFunction()->NeedsScopeChecking() &&

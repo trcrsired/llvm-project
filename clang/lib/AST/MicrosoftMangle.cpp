@@ -23,6 +23,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/GlobalDecl.h"
 #include "clang/AST/Mangle.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/VTableBuilder.h"
 #include "clang/Basic/ABI.h"
 #include "clang/Basic/DiagnosticAST.h"
@@ -3413,9 +3414,48 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(const FunctionType *T,
 }
 
 void MicrosoftCXXNameMangler::mangleThrowSpecification(
-                                                const FunctionProtoType *FT) {
+    const FunctionProtoType *FT) {
   // <throw-spec> ::= Z # (default)
   //              ::= _E # noexcept
+  //              ::= _HB # active Herbceptions `throws`
+  //              ::= _HT <type> # Herbceptions `return_failure{type}`
+  //              ::= _HD <number> # dependent Herbceptions `throws(expression)`
+  //
+  // _H introduces a Clang vendor extension. The Microsoft ABI has no grammar
+  // for effectful return channels, but collapsing them to Z aliases physically
+  // incompatible function types. The Microsoft ABI has no structural
+  // exception-expression production, so dependent conditions use Clang's
+  // stable ODR hash. This follows the ABI's existing allowance for hashed
+  // encodings while preventing distinct conditions from silently coalescing.
+  switch (FT->getExceptionSpecType()) {
+  case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+    Out << "_HB";
+    return;
+  case EST_ThrowsTyped:
+    assert(FT->getNumExceptions() == 1 &&
+           "return_failure must carry exactly one error type");
+    Out << "_HT";
+    // Match the canonical typed-failure ABI even when an alias hides
+    // top-level cv-qualification in a non-canonical source type.
+    mangleType(
+        FT->getExceptionType(0).getCanonicalType().getUnqualifiedType(),
+        SourceRange(), QMM_Drop);
+    return;
+  case EST_DependentThrows:
+    Out << "_HD";
+    {
+      ODRHash Hasher;
+      Hasher.AddStmt(FT->getThrowsExpr());
+      llvm::APSInt ConditionHash(llvm::APInt(32, Hasher.CalculateHash()),
+                                 /*IsUnsigned=*/true);
+      mangleNumber(ConditionHash);
+    }
+    return;
+  default:
+    break;
+  }
+
   if (FT->canThrow())
     Out << 'Z';
   else

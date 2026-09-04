@@ -723,12 +723,14 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
     if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
       if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
-          FPT && FPT->hasBasicThrowsSpec()) {
+          FPT && FPT->hasPotentialThrowsSpec()) {
         Diag(KWLoc, diag::err_throws_not_allowed_in_coroutine);
         const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
       }
     }
   }
+  // `throws(false)` is canonical noexcept and is intentionally absent from
+  // hasPotentialThrowsSpec(); it does not create a coroutine error channel.
 
   // Support for coroutines is not stable on 32 bits windows
   // Warn about it.

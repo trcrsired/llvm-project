@@ -54,6 +54,8 @@ enum class StorageClass : uint8_t {
 enum class PointerAffinity { None, Pointer, Reference, RValueReference };
 enum class FunctionRefQualifier { None, Reference, RValueReference };
 
+enum class HerbceptionSpecKind { None, Throws, DependentThrows, ReturnFailure };
+
 // Calling conventions
 enum class CallingConv : uint8_t {
   None,
@@ -384,6 +386,11 @@ struct DEMANGLE_ABI FunctionSignatureNode : public TypeNode {
 
   // True if the function type is noexcept.
   bool IsNoexcept = false;
+
+  // Clang's Microsoft-ABI extension for Herbceptions function effects.
+  HerbceptionSpecKind HerbceptionSpec = HerbceptionSpecKind::None;
+  TypeNode *HerbceptionErrorType = nullptr;
+  uint64_t HerbceptionConditionHash = 0;
 };
 
 struct IdentifierNode : public Node {

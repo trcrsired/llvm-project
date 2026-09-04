@@ -3039,9 +3039,16 @@ void Sema::SubstExceptionSpec(FunctionDecl *New, const FunctionProtoType *Proto,
 
   SmallVector<QualType, 4> ExceptionStorage;
   if (SubstExceptionSpec(New->getTypeSourceInfo()->getTypeLoc().getEndLoc(),
-                         ESI, ExceptionStorage, Args))
+                         ESI, ExceptionStorage, Args)) {
     // On error, recover by dropping the exception specification.
     ESI.Type = EST_None;
+    // A failed typed-payload substitution means no valid result ABI exists.
+    // Mark the specialization invalid so recovery cannot hand an ordinary
+    // function type to CodeGen after diagnosing an incomplete, non-object, or
+    // non-trivially-copyable E.
+    if (Proto->hasReturnFailureSpec())
+      New->setInvalidDecl();
+  }
 
   UpdateExceptionSpec(New, ESI);
 }

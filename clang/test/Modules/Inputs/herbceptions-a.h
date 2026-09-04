@@ -41,3 +41,13 @@ inline int fail_fn(int x) return_failure{int} {
     return_failure x;
   return x;
 }
+
+inline int fail_errc(bool fail) return_failure{std::errc} {
+  if (fail)
+    return_failure std::errc::io_error;
+  return 41;
+}
+
+// The module serializes the resolved DomainCall, CodeCall, and their shared
+// OpaqueValueExpr. An importer must not redo lookup or split that identity.
+inline int propagate_errc(bool fail) throws { return fail_errc(fail); }

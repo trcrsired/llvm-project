@@ -3694,8 +3694,15 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
 
   // Add the Returned attribute for "this", except for iOS 5 and earlier
   // where substantial code, including the libstdc++ dylib, was compiled with
-  // GCC and does not actually return "this".
-  if (!IsThunk && getCXXABI().HasThisReturn(GD) &&
+  // GCC and does not actually return "this".  An active Herbception
+  // constructor still carries `this` as its success alternative on ABIs such
+  // as Microsoft C++, but its physical result is {payload, discriminator}.
+  // LLVM's `returned` parameter attribute requires the parameter and complete
+  // function result to be losslessly bitcast-compatible, so it cannot describe
+  // that nested success alternative.
+  const auto *FPT = FD->getType()->getAs<FunctionProtoType>();
+  const bool HasHerbceptionReturn = FPT && FPT->hasThrowsSpec();
+  if (!IsThunk && getCXXABI().HasThisReturn(GD) && !HasHerbceptionReturn &&
       !(getTriple().isiOS() && getTriple().isOSVersionLT(6))) {
     assert(!F->arg_empty() &&
            F->arg_begin()->getType()

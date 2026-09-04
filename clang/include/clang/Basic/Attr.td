@@ -2053,6 +2053,19 @@ def GNUInline : InheritableAttr {
   let Documentation = [GnuInlineDocs];
 }
 
+def HerbceptionCatchResult : Attr {
+  // This compiler-only identity is serialized before ASTReader performs
+  // top-level C tag merging. Carrying canonical T/E types directly avoids
+  // lossy hashes and gives anonymous or module-local alternatives their
+  // ordinary AST identity. This marker intentionally is not inheritable:
+  // derived or redeclared user records must never acquire carrier identity.
+  let Spellings = [];
+  let Args = [TypeArgument<"ValueType">, TypeArgument<"ErrorType">];
+  let Subjects = SubjectList<[Record]>;
+  let SemaHandler = 0;
+  let Documentation = [InternalOnly];
+}
+
 def Hot : InheritableAttr {
   let Spellings = [GCC<"hot">];
   let Subjects = SubjectList<[Function]>;

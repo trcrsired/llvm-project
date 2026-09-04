@@ -490,6 +490,68 @@ llvm::Value *CodeGenFunction::GetVTTParameter(GlobalDecl GD,
 }
 
 namespace {
+enum class HerbceptionConstructorCleanupMode : unsigned char {
+  None,
+  FunctionDiscriminator,
+  InlinedFailureEdge
+};
+
+/// Determine how a completed constructor subobject must be protected from a
+/// later deterministic failure.  A normally emitted `throws` constructor
+/// shares its normal ReturnBlock with successful explicit returns, so its
+/// cleanup must inspect the function discriminator.  An inlined inheriting
+/// constructor instead owns a nested RunCleanupsScope: successful fallthrough
+/// deactivates its deferred cleanups, and every branch which crosses the scope
+/// denotes failure, so no private discriminator is available or necessary.
+static HerbceptionConstructorCleanupMode
+GetHerbceptionConstructorCleanupMode(const CodeGenFunction &CGF) {
+  using InlinedState = CodeGenFunction::InlinedInheritingConstructorState;
+  switch (CGF.InlinedInheritingConstructor) {
+  case InlinedState::Herbception:
+    return HerbceptionConstructorCleanupMode::InlinedFailureEdge;
+  case InlinedState::Ordinary:
+    return HerbceptionConstructorCleanupMode::None;
+  case InlinedState::NotInlined:
+    break;
+  }
+
+  if (isa_and_nonnull<CXXConstructorDecl>(CGF.CurCodeDecl) && CGF.CurFnInfo &&
+      CGF.CurFnInfo->hasThrowsReturn() && CGF.HerbceptionDiscriminant.isValid())
+    return HerbceptionConstructorCleanupMode::FunctionDiscriminator;
+  return HerbceptionConstructorCleanupMode::None;
+}
+
+static llvm::BasicBlock *
+EnterHerbceptionConstructorFailureCleanup(CodeGenFunction &CGF) {
+  assert(CGF.HerbceptionDiscriminant.isValid() &&
+         "active constructor must own a Herbception discriminator");
+
+  llvm::BasicBlock *DestroyBB =
+      CGF.createBasicBlock("herb.ctor.partial.destroy");
+  llvm::BasicBlock *ContinueBB = CGF.createBasicBlock("herb.ctor.partial.cont");
+  llvm::Value *Failed =
+      CGF.Builder.CreateLoad(CGF.HerbceptionDiscriminant, "herb.ctor.failed");
+  CGF.Builder.CreateCondBr(Failed, DestroyBB, ContinueBB);
+  CGF.EmitBlock(DestroyBB);
+  return ContinueBB;
+}
+
+static void EmitDirectBaseDtor(CodeGenFunction &CGF,
+                               const CXXRecordDecl *BaseClass,
+                               bool BaseIsVirtual) {
+  const CXXRecordDecl *DerivedClass =
+      cast<CXXMethodDecl>(CGF.CurCodeDecl)->getParent();
+
+  const CXXDestructorDecl *D = BaseClass->getDestructor();
+  // We are already inside a destructor, so presumably the object being
+  // destroyed should have the expected type.
+  QualType ThisTy = D->getFunctionObjectParameterType();
+  Address Addr = CGF.GetAddressOfDirectBaseInCompleteClass(
+      CGF.LoadCXXThisAddress(), DerivedClass, BaseClass, BaseIsVirtual);
+  CGF.EmitCXXDestructorCall(D, Dtor_Base, BaseIsVirtual,
+                            /*Delegating=*/false, Addr, ThisTy);
+}
+
 /// Call the destructor for a direct base class.
 struct CallBaseDtor final : EHScopeStack::Cleanup {
   const CXXRecordDecl *BaseClass;
@@ -498,19 +560,123 @@ struct CallBaseDtor final : EHScopeStack::Cleanup {
       : BaseClass(Base), BaseIsVirtual(BaseIsVirtual) {}
 
   void Emit(CodeGenFunction &CGF, Flags flags) override {
-    const CXXRecordDecl *DerivedClass =
-        cast<CXXMethodDecl>(CGF.CurCodeDecl)->getParent();
-
-    const CXXDestructorDecl *D = BaseClass->getDestructor();
-    // We are already inside a destructor, so presumably the object being
-    // destroyed should have the expected type.
-    QualType ThisTy = D->getFunctionObjectParameterType();
-    Address Addr = CGF.GetAddressOfDirectBaseInCompleteClass(
-        CGF.LoadCXXThisAddress(), DerivedClass, BaseClass, BaseIsVirtual);
-    CGF.EmitCXXDestructorCall(D, Dtor_Base, BaseIsVirtual,
-                              /*Delegating=*/false, Addr, ThisTy);
+    EmitDirectBaseDtor(CGF, BaseClass, BaseIsVirtual);
   }
 };
+
+/// Destroy a completed base only while returning a deterministic failure from
+/// an active Herbception constructor.  Traditional unwinding continues to use
+/// the independent EH-only cleanup above.
+struct CallBaseDtorOnHerbceptionFailure final : EHScopeStack::Cleanup {
+  const CXXRecordDecl *BaseClass;
+  bool BaseIsVirtual;
+  bool GuardWithFunctionDiscriminator;
+
+  CallBaseDtorOnHerbceptionFailure(const CXXRecordDecl *Base,
+                                   bool BaseIsVirtual,
+                                   bool GuardWithFunctionDiscriminator)
+      : BaseClass(Base), BaseIsVirtual(BaseIsVirtual),
+        GuardWithFunctionDiscriminator(GuardWithFunctionDiscriminator) {}
+
+  void Emit(CodeGenFunction &CGF, Flags flags) override {
+    assert(flags.isForNormalCleanup() &&
+           "Herbception constructor cleanup must be normal-only");
+    llvm::BasicBlock *ContinueBB =
+        GuardWithFunctionDiscriminator
+            ? EnterHerbceptionConstructorFailureCleanup(CGF)
+            : nullptr;
+    EmitDirectBaseDtor(CGF, BaseClass, BaseIsVirtual);
+    if (ContinueBB)
+      CGF.EmitBlock(ContinueBB);
+  }
+};
+
+/// Destroy a completed member only while returning a deterministic failure
+/// from an active Herbception constructor. Array destruction deliberately does
+/// not install a recursive EH partial-array cleanup: this normal cleanup is
+/// already leaving a partially constructed object on a deterministic failure
+/// edge, and legacy exception handling remains represented by its independent
+/// EH-only constructor cleanup.
+struct DestroyObjectOnHerbceptionFailure final : EHScopeStack::Cleanup {
+  Address Addr;
+  QualType Type;
+  CodeGenFunction::Destroyer *Destroyer;
+  bool GuardWithFunctionDiscriminator;
+
+  DestroyObjectOnHerbceptionFailure(Address Addr, QualType Type,
+                                    CodeGenFunction::Destroyer *Destroyer,
+                                    bool GuardWithFunctionDiscriminator)
+      : Addr(Addr), Type(Type), Destroyer(Destroyer),
+        GuardWithFunctionDiscriminator(GuardWithFunctionDiscriminator) {}
+
+  void Emit(CodeGenFunction &CGF, Flags flags) override {
+    assert(flags.isForNormalCleanup() &&
+           "Herbception constructor cleanup must be normal-only");
+    llvm::BasicBlock *ContinueBB =
+        GuardWithFunctionDiscriminator
+            ? EnterHerbceptionConstructorFailureCleanup(CGF)
+            : nullptr;
+    CGF.emitDestroy(Addr, Type, Destroyer, /*useEHCleanupForArray=*/false);
+    if (ContinueBB)
+      CGF.EmitBlock(ContinueBB);
+  }
+};
+
+/// Destroy the prefix completed by an aggregate constructor loop when the next
+/// element returns a deterministic failure.  The loop's element type is the
+/// constructor's record type (never a nested array), so the regular reverse
+/// array destroy directly models the existing EH partial cleanup.
+struct DestroyArrayPrefixOnHerbceptionFailure final : EHScopeStack::Cleanup {
+  llvm::Value *ArrayBegin;
+  llvm::Value *ArrayEnd;
+  QualType ElementType;
+  CharUnits ElementAlign;
+  CodeGenFunction::Destroyer *Destroyer;
+  bool GuardWithFunctionDiscriminator;
+
+  DestroyArrayPrefixOnHerbceptionFailure(llvm::Value *ArrayBegin,
+                                         llvm::Value *ArrayEnd,
+                                         QualType ElementType,
+                                         CharUnits ElementAlign,
+                                         CodeGenFunction::Destroyer *Destroyer,
+                                         bool GuardWithFunctionDiscriminator)
+      : ArrayBegin(ArrayBegin), ArrayEnd(ArrayEnd), ElementType(ElementType),
+        ElementAlign(ElementAlign), Destroyer(Destroyer),
+        GuardWithFunctionDiscriminator(GuardWithFunctionDiscriminator) {}
+
+  void Emit(CodeGenFunction &CGF, Flags flags) override {
+    assert(flags.isForNormalCleanup() &&
+           "Herbception constructor cleanup must be normal-only");
+    llvm::BasicBlock *ContinueBB =
+        GuardWithFunctionDiscriminator
+            ? EnterHerbceptionConstructorFailureCleanup(CGF)
+            : nullptr;
+    CGF.emitArrayDestroy(ArrayBegin, ArrayEnd, ElementType, ElementAlign,
+                         Destroyer, /*checkZeroLength=*/true,
+                         /*useEHCleanup=*/false);
+    if (ContinueBB)
+      CGF.EmitBlock(ContinueBB);
+  }
+};
+
+static void
+PushMemberHerbceptionFailureCleanup(CodeGenFunction &CGF,
+                                    QualType::DestructionKind DtorKind,
+                                    Address Addr, QualType Type) {
+  HerbceptionConstructorCleanupMode Mode =
+      GetHerbceptionConstructorCleanupMode(CGF);
+  if (Mode == HerbceptionConstructorCleanupMode::None)
+    return;
+
+  // Deterministic propagation uses ordinary branch-through-cleanup control
+  // flow, so EH-only constructor cleanups cannot observe it. Deferred
+  // deactivation removes every cleanup on an inlined success path; actual
+  // constructor returns additionally require the function-discriminator
+  // guard because successful and failed returns share one epilogue.
+  CGF.pushCleanupAndDeferDeactivation<DestroyObjectOnHerbceptionFailure>(
+      NormalCleanup, Addr, Type, CGF.getDestroyer(DtorKind),
+      Mode == HerbceptionConstructorCleanupMode::FunctionDiscriminator);
+}
 
 /// A visitor which checks whether an initializer uses 'this' in a
 /// way which requires the vtable to be properly set.
@@ -565,10 +731,17 @@ static void EmitBaseInitializer(CodeGenFunction &CGF,
 
   CGF.EmitAggExpr(BaseInit->getInit(), AggSlot);
 
-  if (CGF.CGM.getLangOpts().Exceptions &&
-      !BaseClassDecl->hasTrivialDestructor())
-    CGF.EHStack.pushCleanup<CallBaseDtor>(EHCleanup, BaseClassDecl,
-                                          isBaseVirtual);
+  if (!BaseClassDecl->hasTrivialDestructor()) {
+    if (CGF.CGM.getLangOpts().Exceptions)
+      CGF.EHStack.pushCleanup<CallBaseDtor>(EHCleanup, BaseClassDecl,
+                                            isBaseVirtual);
+    HerbceptionConstructorCleanupMode Mode =
+        GetHerbceptionConstructorCleanupMode(CGF);
+    if (Mode != HerbceptionConstructorCleanupMode::None)
+      CGF.pushCleanupAndDeferDeactivation<CallBaseDtorOnHerbceptionFailure>(
+          NormalCleanup, BaseClassDecl, isBaseVirtual,
+          Mode == HerbceptionConstructorCleanupMode::FunctionDiscriminator);
+  }
 }
 
 static void EmitLValueForAnyFieldInitialization(CodeGenFunction &CGF,
@@ -643,6 +816,9 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
       QualType::DestructionKind dtorKind = FieldType.isDestructedType();
       if (CGF.needsEHCleanup(dtorKind))
         CGF.pushEHDestroy(dtorKind, LHS.getAddress(), FieldType);
+      if (dtorKind)
+        PushMemberHerbceptionFailureCleanup(CGF, dtorKind, LHS.getAddress(),
+                                            FieldType);
       return;
     }
   }
@@ -682,6 +858,9 @@ void CodeGenFunction::EmitInitializerForField(FieldDecl *Field, LValue LHS,
   QualType::DestructionKind dtorKind = FieldType.isDestructedType();
   if (needsEHCleanup(dtorKind))
     pushEHDestroy(dtorKind, LHS.getAddress(), FieldType);
+  if (dtorKind)
+    PushMemberHerbceptionFailureCleanup(*this, dtorKind, LHS.getAddress(),
+                                        FieldType);
 }
 
 /// Checks whether the given constructor is a valid subject for the
@@ -820,38 +999,47 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
   Stmt *Body = Ctor->getBody(Definition);
   assert(Definition == Ctor && "emitting wrong constructor body");
 
-  // Enter the function-try-block before the constructor prologue if
-  // applicable.
-  bool IsTryBody = isa_and_nonnull<CXXTryStmt>(Body);
-  if (IsTryBody)
-    EnterCXXTryStmt(*cast<CXXTryStmt>(Body), true);
+  const auto *TryBody = dyn_cast_or_null<CXXTryStmt>(Body);
+  auto EmitProtectedBody = [&] {
+    incrementProfileCounter(Body);
+    maybeCreateMCDCCondBitmap();
 
-  incrementProfileCounter(Body);
-  maybeCreateMCDCCondBitmap();
+    RunCleanupsScope RunCleanups(*this);
 
-  RunCleanupsScope RunCleanups(*this);
+    // TODO: in restricted cases, we can emit the vbase initializers of
+    // a complete ctor and then delegate to the base ctor.
 
-  // TODO: in restricted cases, we can emit the vbase initializers of
-  // a complete ctor and then delegate to the base ctor.
+    // A constructor function-try-block protects both this prologue and the
+    // compound-statement body. Keeping them in one callback ensures that a
+    // deterministic failure crosses the same partial-construction cleanups as
+    // a legacy exception before entering either kind of handler.
+    EmitCtorPrologue(Ctor, CtorType, Args);
+    if (TryBody)
+      EmitStmt(TryBody->getTryBlock());
+    else if (Body)
+      EmitStmt(Body);
 
-  // Emit the constructor prologue, i.e. the base and member
-  // initializers.
-  EmitCtorPrologue(Ctor, CtorType, Args);
+    // Emit any cleanup blocks associated with the member or base
+    // initializers, including destructors for the fully constructed prefix.
+    RunCleanups.ForceCleanup();
+  };
 
-  // Emit the body of the statement.
-  if (IsTryBody)
-    EmitStmt(cast<CXXTryStmt>(Body)->getTryBlock());
-  else if (Body)
-    EmitStmt(Body);
+  if (!TryBody) {
+    EmitProtectedBody();
+    return;
+  }
 
-  // Emit any cleanup blocks associated with the member or base
-  // initializers, which includes (along the exceptional path) the
-  // destructors for those members and bases that were fully
-  // constructed.
-  RunCleanups.ForceCleanup();
+  bool HasHerbceptionHandler = false;
+  for (unsigned I = 0; I != TryBody->getNumHandlers(); ++I)
+    HasHerbceptionHandler |= isa<CXXCatchThrowsStmt>(TryBody->getHandler(I));
+  if (HasHerbceptionHandler) {
+    EmitHerbceptionCatchTry(*TryBody, /*IsFnTryBlock=*/true, EmitProtectedBody);
+    return;
+  }
 
-  if (IsTryBody)
-    ExitCXXTryStmt(*cast<CXXTryStmt>(Body), true);
+  EnterCXXTryStmt(*TryBody, /*IsFnTryBlock=*/true);
+  EmitProtectedBody();
+  ExitCXXTryStmt(*TryBody, /*IsFnTryBlock=*/true);
 }
 
 namespace {
@@ -1098,11 +1286,17 @@ public:
       CXXCtorInitializer *MemberInit = AggregatedInits[i];
       QualType FieldType = MemberInit->getAnyMember()->getType();
       QualType::DestructionKind dtorKind = FieldType.isDestructedType();
-      if (!CGF.needsEHCleanup(dtorKind))
+      if (!dtorKind || (!CGF.needsEHCleanup(dtorKind) &&
+                        GetHerbceptionConstructorCleanupMode(CGF) ==
+                            HerbceptionConstructorCleanupMode::None))
         continue;
       LValue FieldLHS = LHS;
       EmitLValueForAnyFieldInitialization(CGF, MemberInit, FieldLHS);
-      CGF.pushEHDestroy(dtorKind, FieldLHS.getAddress(), FieldType);
+      if (CGF.needsEHCleanup(dtorKind))
+        CGF.pushEHDestroy(dtorKind, FieldLHS.getAddress(), FieldType);
+      if (dtorKind)
+        PushMemberHerbceptionFailureCleanup(CGF, dtorKind,
+                                            FieldLHS.getAddress(), FieldType);
     }
   }
 
@@ -1520,6 +1714,82 @@ static void EmitConditionalArrayDtorCall(const CXXDestructorDecl *DD,
   CGF.EmitBlock(ScalarBB);
 }
 
+/// Emit the destructor of the compiler-owned `catch return_failure` result.
+/// Unlike an ordinary union, its active member is selected by `.failed`, so
+/// entering both member cleanups would either destroy an unconstructed object
+/// or destroy two overlapping objects.
+static void EmitCatchReturnFailureDestructor(CodeGenFunction &CGF,
+                                             CXXRecordDecl const *RD,
+                                             Address ThisAddress) {
+  FieldDecl const *UnionField = nullptr;
+  FieldDecl const *FailedField = nullptr;
+  FieldDecl const *ValueField = nullptr;
+  FieldDecl const *ErrorField = nullptr;
+
+  for (FieldDecl const *Field : RD->fields()) {
+    if (Field->getName() == "failed") {
+      FailedField = Field;
+    }
+    if (Field->isAnonymousStructOrUnion()) {
+      UnionField = Field;
+      if (auto const *UnionRD = Field->getType()->getAsRecordDecl()) {
+        for (FieldDecl const *Alternative : UnionRD->fields()) {
+          if (Alternative->getName() == "value") {
+            ValueField = Alternative;
+          } else if (Alternative->getName() == "error") {
+            ErrorField = Alternative;
+          }
+        }
+      }
+    }
+  }
+
+  assert(UnionField && FailedField && ErrorField &&
+         "malformed catch return_failure result type");
+
+  CanQualType RecordTy = CGF.getContext().getCanonicalTagType(RD);
+  LValue ThisLV = CGF.MakeAddrLValue(ThisAddress, RecordTy);
+  LValue FailedLV = CGF.EmitLValueForField(ThisLV, FailedField);
+  llvm::Value *Failed = CGF.EmitLoadOfScalar(FailedLV, SourceLocation());
+
+  llvm::BasicBlock *ValueBB = CGF.createBasicBlock("herb.catch.destroy.value");
+  llvm::BasicBlock *ErrorBB = CGF.createBasicBlock("herb.catch.destroy.error");
+  llvm::BasicBlock *DoneBB = CGF.createBasicBlock("herb.catch.destroy.done");
+  CGF.Builder.CreateCondBr(Failed, ErrorBB, ValueBB);
+
+  auto EmitAlternative = [&](FieldDecl const *Alternative) {
+    // A void success result has no active union member on its value arm.
+    if (!Alternative) {
+      return;
+    }
+    QualType AlternativeTy = Alternative->getType();
+    QualType::DestructionKind Kind = AlternativeTy.isDestructedType();
+    if (!Kind) {
+      return;
+    }
+
+    LValue UnionLV = CGF.EmitLValueForField(ThisLV, UnionField);
+    LValue AlternativeLV = CGF.EmitLValueForField(UnionLV, Alternative);
+    assert(AlternativeLV.isSimple() &&
+           "catch return_failure alternative must have an address");
+    // Arrays and ownership-qualified alternatives retain their ordinary
+    // element-wise destruction behavior; only selection of the active union
+    // arm is special to this compiler-owned result.
+    CGF.emitDestroy(AlternativeLV.getAddress(), AlternativeTy,
+                    CGF.getDestroyer(Kind), CGF.needsEHCleanup(Kind));
+  };
+
+  CGF.EmitBlock(ValueBB);
+  EmitAlternative(ValueField);
+  CGF.EmitBranch(DoneBB);
+
+  CGF.EmitBlock(ErrorBB);
+  EmitAlternative(ErrorField);
+  CGF.EmitBranch(DoneBB);
+
+  CGF.EmitBlock(DoneBB);
+}
+
 /// EmitDestructorBody - Emits the body of the current destructor.
 void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   const CXXDestructorDecl *Dtor = cast<CXXDestructorDecl>(CurGD.getDecl());
@@ -1562,86 +1832,108 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     return;
   }
 
-  // If the body is a function-try-block, enter the try before
-  // anything else.
-  bool isTryBody = isa_and_nonnull<CXXTryStmt>(Body);
-  if (isTryBody)
-    EnterCXXTryStmt(*cast<CXXTryStmt>(Body), true);
-  EmitAsanPrologueOrEpilogue(false);
+  // The synthetic result owns exactly one union alternative. Its serialized
+  // declaration marker makes this rule available after PCH/module import, and
+  // a dedicated body also covers explicit destructor calls through decltype.
+  if (getContext().isCatchReturnFailureType(
+          getContext().getCanonicalTagType(Dtor->getParent()))) {
+    EmitAsanPrologueOrEpilogue(false);
+    EmitCatchReturnFailureDestructor(*this, Dtor->getParent(),
+                                     LoadCXXThisAddress());
+    return;
+  }
 
-  // Enter the epilogue cleanups.
-  RunCleanupsScope DtorEpilogue(*this);
+  const auto *TryBody = dyn_cast_or_null<CXXTryStmt>(Body);
+  auto EmitProtectedBody = [&] {
+    EmitAsanPrologueOrEpilogue(false);
 
-  // If this is the complete variant, just invoke the base variant;
-  // the epilogue will destruct the virtual bases.  But we can't do
-  // this optimization if the body is a function-try-block, because
-  // we'd introduce *two* handler blocks.  In the Microsoft ABI, we
-  // always delegate because we might not have a definition in this TU.
-  switch (DtorType) {
-  case Dtor_Unified:
-    llvm_unreachable("not expecting a unified dtor");
-  case Dtor_Comdat:
-    llvm_unreachable("not expecting a COMDAT");
-  case Dtor_Deleting:
-    llvm_unreachable("already handled deleting case");
-  case Dtor_VectorDeleting:
-    llvm_unreachable("already handled vector deleting case");
+    // Enter the epilogue cleanups inside the function-try protected region.
+    RunCleanupsScope DtorEpilogue(*this);
 
-  case Dtor_Complete:
-    assert((Body || getTarget().getCXXABI().isMicrosoft()) &&
-           "can't emit a dtor without a body for non-Microsoft ABIs");
+    // If this is the complete variant, just invoke the base variant;
+    // the epilogue will destruct the virtual bases.  But we can't do
+    // this optimization if the body is a function-try-block, because
+    // we'd introduce *two* handler blocks.  In the Microsoft ABI, we
+    // always delegate because we might not have a definition in this TU.
+    switch (DtorType) {
+    case Dtor_Unified:
+      llvm_unreachable("not expecting a unified dtor");
+    case Dtor_Comdat:
+      llvm_unreachable("not expecting a COMDAT");
+    case Dtor_Deleting:
+      llvm_unreachable("already handled deleting case");
+    case Dtor_VectorDeleting:
+      llvm_unreachable("already handled vector deleting case");
 
-    // Enter the cleanup scopes for virtual bases.
-    EnterDtorCleanups(Dtor, Dtor_Complete);
+    case Dtor_Complete:
+      assert((Body || getTarget().getCXXABI().isMicrosoft()) &&
+             "can't emit a dtor without a body for non-Microsoft ABIs");
 
-    if (!isTryBody) {
-      QualType ThisTy = Dtor->getFunctionObjectParameterType();
-      EmitCXXDestructorCall(Dtor, Dtor_Base, /*ForVirtualBase=*/false,
-                            /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
+      // Enter the cleanup scopes for virtual bases.
+      EnterDtorCleanups(Dtor, Dtor_Complete);
+
+      if (!TryBody) {
+        QualType ThisTy = Dtor->getFunctionObjectParameterType();
+        EmitCXXDestructorCall(Dtor, Dtor_Base, /*ForVirtualBase=*/false,
+                              /*Delegating=*/false, LoadCXXThisAddress(),
+                              ThisTy);
+        break;
+      }
+
+      // Fallthrough: act like we're in the base variant.
+      [[fallthrough]];
+
+    case Dtor_Base:
+      assert(Body);
+
+      // Enter the cleanup scopes for fields and non-virtual bases.
+      EnterDtorCleanups(Dtor, Dtor_Base);
+
+      // Initialize the vtable pointers before entering the body.
+      if (!CanSkipVTablePointerInitialization(*this, Dtor)) {
+        // Insert the llvm.launder.invariant.group intrinsic before initializing
+        // the vptrs to cancel any previous assumptions we might have made.
+        if (CGM.getCodeGenOpts().StrictVTablePointers &&
+            CGM.getCodeGenOpts().OptimizationLevel > 0)
+          CXXThisValue = Builder.CreateLaunderInvariantGroup(LoadCXXThis());
+        InitializeVTablePointers(Dtor->getParent());
+      }
+
+      if (TryBody)
+        EmitStmt(TryBody->getTryBlock());
+      else if (Body)
+        EmitStmt(Body);
+      else {
+        assert(Dtor->isImplicit() && "bodyless dtor not implicit");
+        // nothing to do besides what's in the epilogue
+      }
+      // -fapple-kext must inline any call to this dtor into
+      // the caller's body.
+      if (getLangOpts().AppleKext)
+        CurFn->addFnAttr(llvm::Attribute::AlwaysInline);
+
       break;
     }
 
-    // Fallthrough: act like we're in the base variant.
-    [[fallthrough]];
+    DtorEpilogue.ForceCleanup();
+  };
 
-  case Dtor_Base:
-    assert(Body);
-
-    // Enter the cleanup scopes for fields and non-virtual bases.
-    EnterDtorCleanups(Dtor, Dtor_Base);
-
-    // Initialize the vtable pointers before entering the body.
-    if (!CanSkipVTablePointerInitialization(*this, Dtor)) {
-      // Insert the llvm.launder.invariant.group intrinsic before initializing
-      // the vptrs to cancel any previous assumptions we might have made.
-      if (CGM.getCodeGenOpts().StrictVTablePointers &&
-          CGM.getCodeGenOpts().OptimizationLevel > 0)
-        CXXThisValue = Builder.CreateLaunderInvariantGroup(LoadCXXThis());
-      InitializeVTablePointers(Dtor->getParent());
-    }
-
-    if (isTryBody)
-      EmitStmt(cast<CXXTryStmt>(Body)->getTryBlock());
-    else if (Body)
-      EmitStmt(Body);
-    else {
-      assert(Dtor->isImplicit() && "bodyless dtor not implicit");
-      // nothing to do besides what's in the epilogue
-    }
-    // -fapple-kext must inline any call to this dtor into
-    // the caller's body.
-    if (getLangOpts().AppleKext)
-      CurFn->addFnAttr(llvm::Attribute::AlwaysInline);
-
-    break;
+  if (!TryBody) {
+    EmitProtectedBody();
+    return;
   }
 
-  // Jump out through the epilogue cleanups.
-  DtorEpilogue.ForceCleanup();
+  bool HasHerbceptionHandler = false;
+  for (unsigned I = 0; I != TryBody->getNumHandlers(); ++I)
+    HasHerbceptionHandler |= isa<CXXCatchThrowsStmt>(TryBody->getHandler(I));
+  if (HasHerbceptionHandler) {
+    EmitHerbceptionCatchTry(*TryBody, /*IsFnTryBlock=*/true, EmitProtectedBody);
+    return;
+  }
 
-  // Exit the try if applicable.
-  if (isTryBody)
-    ExitCXXTryStmt(*cast<CXXTryStmt>(Body), true);
+  EnterCXXTryStmt(*TryBody, /*IsFnTryBlock=*/true);
+  EmitProtectedBody();
+  ExitCXXTryStmt(*TryBody, /*IsFnTryBlock=*/true);
 }
 
 void CodeGenFunction::emitImplicitAssignmentOperatorBody(
@@ -2234,11 +2526,17 @@ void CodeGenFunction::EmitCXXAggrConstructorCall(
 
     // Evaluate the constructor and its arguments in a regular
     // partial-destroy cleanup.
-    if (getLangOpts().Exceptions &&
-        !ctor->getParent()->hasTrivialDestructor()) {
+    if (!ctor->getParent()->hasTrivialDestructor()) {
       Destroyer *destroyer = destroyCXXObject;
-      pushRegularPartialArrayCleanup(arrayBegin, cur, type, eltAlignment,
-                                     *destroyer);
+      if (getLangOpts().Exceptions)
+        pushRegularPartialArrayCleanup(arrayBegin, cur, type, eltAlignment,
+                                       *destroyer);
+      HerbceptionConstructorCleanupMode Mode =
+          GetHerbceptionConstructorCleanupMode(*this);
+      if (Mode != HerbceptionConstructorCleanupMode::None)
+        pushCleanupAndDeferDeactivation<DestroyArrayPrefixOnHerbceptionFailure>(
+            NormalCleanup, arrayBegin, cur, type, eltAlignment, *destroyer,
+            Mode == HerbceptionConstructorCleanupMode::FunctionDiscriminator);
     }
     auto currAVS = AggValueSlot::forAddr(
         curAddr, type.getQualifiers(), AggValueSlot::IsDestructed,
@@ -2629,6 +2927,36 @@ struct CallDelegatingCtorDtor final : EHScopeStack::Cleanup {
                               /*Delegating=*/true, Addr, ThisTy);
   }
 };
+
+/// Destroy the complete target object if a delegating constructor finishes its
+/// target initializer and subsequently returns a deterministic failure.
+struct CallDelegatingCtorDtorOnHerbceptionFailure final
+    : EHScopeStack::Cleanup {
+  const CXXDestructorDecl *Dtor;
+  Address Addr;
+  CXXDtorType Type;
+  bool GuardWithFunctionDiscriminator;
+
+  CallDelegatingCtorDtorOnHerbceptionFailure(
+      const CXXDestructorDecl *D, Address Addr, CXXDtorType Type,
+      bool GuardWithFunctionDiscriminator)
+      : Dtor(D), Addr(Addr), Type(Type),
+        GuardWithFunctionDiscriminator(GuardWithFunctionDiscriminator) {}
+
+  void Emit(CodeGenFunction &CGF, Flags flags) override {
+    assert(flags.isForNormalCleanup() &&
+           "Herbception constructor cleanup must be normal-only");
+    llvm::BasicBlock *ContinueBB =
+        GuardWithFunctionDiscriminator
+            ? EnterHerbceptionConstructorFailureCleanup(CGF)
+            : nullptr;
+    QualType ThisTy = Dtor->getFunctionObjectParameterType();
+    CGF.EmitCXXDestructorCall(Dtor, Type, /*ForVirtualBase=*/false,
+                              /*Delegating=*/true, Addr, ThisTy);
+    if (ContinueBB)
+      CGF.EmitBlock(ContinueBB);
+  }
+};
 } // end anonymous namespace
 
 void CodeGenFunction::EmitDelegatingCXXConstructorCall(
@@ -2647,16 +2975,26 @@ void CodeGenFunction::EmitDelegatingCXXConstructorCall(
   EmitAggExpr(Ctor->init_begin()[0]->getInit(), AggSlot);
 
   const CXXRecordDecl *ClassDecl = Ctor->getParent();
-  if (CGM.getLangOpts().Exceptions && !ClassDecl->hasTrivialDestructor()) {
+  if (!ClassDecl->hasTrivialDestructor()) {
     CXXDtorType Type =
         CurGD.getCtorType() == Ctor_Complete ? Dtor_Complete : Dtor_Base;
 
-    EHStack.pushCleanup<CallDelegatingCtorDtor>(
-        EHCleanup, ClassDecl->getDestructor(), ThisPtr, Type);
+    if (CGM.getLangOpts().Exceptions) {
+      EHStack.pushCleanup<CallDelegatingCtorDtor>(
+          EHCleanup, ClassDecl->getDestructor(), ThisPtr, Type);
+    }
+    HerbceptionConstructorCleanupMode Mode =
+        GetHerbceptionConstructorCleanupMode(*this);
+    if (Mode != HerbceptionConstructorCleanupMode::None) {
+      pushCleanupAndDeferDeactivation<
+          CallDelegatingCtorDtorOnHerbceptionFailure>(
+          NormalCleanup, ClassDecl->getDestructor(), ThisPtr, Type,
+          Mode == HerbceptionConstructorCleanupMode::FunctionDiscriminator);
+    }
   }
 }
 
-void CodeGenFunction::EmitCXXDestructorCall(const CXXDestructorDecl *DD,
+void CodeGenFunction::EmitCXXDestructorCall(CXXDestructorDecl const *DD,
                                             CXXDtorType Type,
                                             bool ForVirtualBase,
                                             bool Delegating, Address This,
@@ -2667,11 +3005,11 @@ void CodeGenFunction::EmitCXXDestructorCall(const CXXDestructorDecl *DD,
 
 namespace {
 struct CallLocalDtor final : EHScopeStack::Cleanup {
-  const CXXDestructorDecl *Dtor;
+  CXXDestructorDecl const *Dtor;
   Address Addr;
   QualType Ty;
 
-  CallLocalDtor(const CXXDestructorDecl *D, Address Addr, QualType Ty)
+  CallLocalDtor(CXXDestructorDecl const *D, Address Addr, QualType Ty)
       : Dtor(D), Addr(Addr), Ty(Ty) {}
 
   void Emit(CodeGenFunction &CGF, Flags flags) override {

@@ -2058,7 +2058,14 @@ void ASTStmtWriter::VisitCXXTryExpr(CXXTryExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getTryLoc());
   Record.AddStmt(E->getSubExpr());
-  Record.AddDeclRef(E->getErrorDomain());
+  Record.AddStmt(E->getDomainCall());
+  Record.AddStmt(E->getCodeCall());
+  // FailureValue is also referenced from CodeCall. Recording it explicitly
+  // preserves that pointer identity after PCH/module deserialization, exactly
+  // as for coroutine opaque values.
+  Record.AddStmt(E->getFailureValue());
+  Record.AddTypeRef(E->getFailureType());
+  Record.push_back(llvm::to_underlying(E->getPropagationKind()));
   Code = serialization::EXPR_CXX_TRY;
 }
 

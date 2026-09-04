@@ -53,6 +53,7 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/xxhash.h"
 #include "llvm/Transforms/Utils/SanitizerStats.h"
 
@@ -1775,6 +1776,14 @@ LValue CodeGenFunction::EmitLValueHelper(const Expr *E,
   case Expr::CXXOperatorCallExprClass:
   case Expr::UserDefinedLiteralClass:
     return EmitCallExprLValue(cast<CallExpr>(E));
+  case Expr::CXXTryExprClass: {
+    // A successful try of a reference-returning function designates the same
+    // object as the call.  EmitHerbceptionTry returns the decoded reference
+    // pointer after routing the failure edge; no temporary object is formed.
+    RValue RV = EmitHerbceptionTry(cast<CXXTryExpr>(E));
+    assert(RV.isScalar() && "reference try expression must return an address");
+    return MakeNaturalAlignPointeeAddrLValue(RV.getScalarVal(), E->getType());
+  }
   case Expr::CXXRewrittenBinaryOperatorClass:
     return EmitLValue(cast<CXXRewrittenBinaryOperator>(E)->getSemanticForm(),
                       IsKnownNonNull);
@@ -7196,8 +7205,28 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType,
   }
 
   llvm::CallBase *LocalCallOrInvoke = nullptr;
-  RValue Call = EmitCall(FnInfo, Callee, ReturnValue, Args, &LocalCallOrInvoke,
-                         E == MustTailCall, E->getExprLoc());
+  RValue Call = [&] {
+    if (HerbceptionOperandCallResult &&
+        HerbceptionOperandCallResult == CallOrInvoke) {
+      // EmitCallExpr exposes the wrapper's output pointer, while this layer
+      // deliberately captures the instruction in a local slot before copying
+      // it back to the caller. Rebind only around the final invocation so the
+      // common call path can identify the wrapper-owned CI. Argument and
+      // callee evaluation has already completed above; any fallible implicit
+      // calls performed there therefore remain unsuppressed and propagate on
+      // their own channels.
+      // An omitted output slot is not wrapper ownership: direct callers of
+      // this overload, such as the static-chain builtin, may pass nullptr
+      // while no wrapper is active. Equal null pointers must not suppress
+      // that ordinary call's implicit failure propagation.
+      SaveAndRestore<llvm::CallBase **> SaveOperandCall(
+          HerbceptionOperandCallResult, &LocalCallOrInvoke);
+      return EmitCall(FnInfo, Callee, ReturnValue, Args, &LocalCallOrInvoke,
+                      E == MustTailCall, E->getExprLoc());
+    }
+    return EmitCall(FnInfo, Callee, ReturnValue, Args, &LocalCallOrInvoke,
+                    E == MustTailCall, E->getExprLoc());
+  }();
 
   if (auto *CalleeDecl = dyn_cast_or_null<FunctionDecl>(TargetDecl)) {
     if (CalleeDecl->hasAttr<RestrictAttr>() ||

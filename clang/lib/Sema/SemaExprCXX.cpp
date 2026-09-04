@@ -23,6 +23,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/AST/RecordLayout.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/AlignedAllocation.h"
@@ -50,7 +51,9 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/TypeSize.h"
+#include <algorithm>
 #include <optional>
 using namespace clang;
 using namespace sema;
@@ -856,21 +859,92 @@ Sema::ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *Ex) {
   return BuildCXXThrow(OpLoc, Ex, IsThrownVarInScope);
 }
 
-/// Return whether \p Ex is a call to a function (or function template)
-/// declared with a herbception 'throws'/'fails{E}' spec.
-bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
-  const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts());
+const FunctionProtoType *
+Sema::getHerbceptionCalleeProto(const Expr *Ex) {
+  // Cleanup and binding wrappers do not change which callable produced a
+  // value. A MaterializeTemporaryExpr is deliberately *not* transparent here:
+  // it establishes storage and lifetime identity, so treating the enclosed
+  // call as the direct carrier producer would disagree with CodeGen's
+  // fail-closed ownership analysis. (The separate explicit-try idempotence
+  // check may peel it because that check returns the entire original Expr.)
+  const Expr *CallOperand = Ex;
+  for (;;) {
+    CallOperand = CallOperand->IgnoreParenImpCasts();
+    if (const auto *EWC = dyn_cast<ExprWithCleanups>(CallOperand)) {
+      CallOperand = EWC->getSubExpr();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(CallOperand)) {
+      CallOperand = BTE->getSubExpr();
+      continue;
+    }
+    break;
+  }
+  const auto *Call = dyn_cast<CallExpr>(CallOperand);
   if (!Call)
-    return false;
+    return nullptr;
 
-  const FunctionProtoType *CalleeFPT = nullptr;
   if (const Decl *Callee = Call->getCalleeDecl()) {
     if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(Callee))
       Callee = FTD->getTemplatedDecl();
     if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
-      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
+      if (const auto *FPT = FD->getType()->getAs<FunctionProtoType>())
+        return FPT;
   }
+
+  // Indirect calls have no callee declaration.  Recover the canonical
+  // function type from the expression exactly as CallExpr does for its return
+  // type so that effect checking is independent of direct-call syntax.
+  const Expr *CalleeExpr = Call->getCallee();
+  QualType CalleeType = CalleeExpr->getType();
+  if (const auto *Pointer = CalleeType->getAs<PointerType>()) {
+    CalleeType = Pointer->getPointeeType();
+  } else if (const auto *BlockPointer =
+                 CalleeType->getAs<BlockPointerType>()) {
+    CalleeType = BlockPointer->getPointeeType();
+  } else if (CalleeType->isSpecificPlaceholderType(
+                 BuiltinType::BoundMember)) {
+    CalleeType = Expr::findBoundMemberType(CalleeExpr);
+  }
+
+  if (CalleeType.isNull() || CalleeType->isDependentType() ||
+      CalleeType->isSpecificPlaceholderType(BuiltinType::Overload) ||
+      CalleeType->isSpecificPlaceholderType(BuiltinType::BuiltinFn))
+    return nullptr;
+  return CalleeType->getAs<FunctionProtoType>();
+}
+
+/// Return whether \p Ex is a call to a function (or function template)
+/// declared with a herbception 'throws'/'fails{E}' spec.
+bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
+  const FunctionProtoType *CalleeFPT = getHerbceptionCalleeProto(Ex);
   return CalleeFPT && CalleeFPT->hasThrowsSpec();
+}
+
+/// Return a propagation node that is the semantic top level of \p Ex. Only
+/// lifetime-owning and value-preserving wrappers are transparent here; looking
+/// through operators or explicit conversions could incorrectly make `try(x)`
+/// consume a nested call rather than the expression the user wrote.
+static const CXXTryExpr *findTopLevelHerbceptionTry(const Expr *Ex) {
+  const Expr *Current = Ex;
+  for (;;) {
+    Current = Current->IgnoreParenImpCasts();
+    if (const auto *TE = dyn_cast<CXXTryExpr>(Current))
+      return TE;
+    if (const auto *EWC = dyn_cast<ExprWithCleanups>(Current)) {
+      Current = EWC->getSubExpr();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(Current)) {
+      Current = BTE->getSubExpr();
+      continue;
+    }
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(Current)) {
+      Current = MTE->getSubExpr();
+      continue;
+    }
+    return nullptr;
+  }
 }
 
 ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
@@ -882,22 +956,14 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     return ExprError();
   }
 
-  const FunctionDecl *CurFD = getCurFunctionDecl();
+  // A handler is parsed after its try body, so the parser records the callable
+  // that owns each active body. Walking lexical Scope parents is incorrect:
+  // a lambda or Apple block declared there has a distinct control-flow graph
+  // and cannot branch to the enclosing function's eventual handler.
+  const bool InTry = isInCurrentCallableHerbceptionTryBody();
 
-  // Determine whether we are inside a `try` block (whose `catch throws` handler
-  // is parsed after the body, so it is not visible here yet). The handler
-  // routing happens in CodeGen via the active herbception catch scopes.
-  bool InTry = false;
-  for (const Scope *S = getCurScope(); S; S = S->getParent()) {
-    if (S->isTryScope()) {
-      InTry = true;
-      break;
-    }
-  }
-
-  const FunctionProtoType *CurFPT =
-      CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
-  const bool InThrowsFunction = CurFPT && CurFPT->hasThrowsSpec();
+  const FunctionProtoType *CurFPT = getCurHerbceptionFunctionProto();
+  const bool InThrowsFunction = CurFPT && CurFPT->hasPotentialThrowsSpec();
 
   // 'throw throws' belongs to the implicit-std::error ('throws') channel only.
   // A 'fails{E}' function returns errors exclusively through
@@ -907,10 +973,13 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     return ExprError();
   }
 
-  // Whether we are inside a herbception block handler body (parsed with
-  // HerbceptionCatchDepth, which - unlike the try scope - does not also cover
-  // the try block itself or a function-try-block body).
-  const bool InHerbceptionHandler = HerbceptionCatchDepth > 0;
+  // Handler and catch-clause permissions are likewise owned by the current
+  // callable. In particular, bare rethrow must never read an enclosing
+  // callable's catch slot from a separately invoked closure.
+  const bool InHerbceptionHandler =
+      isInCurrentCallableHerbceptionHandler();
+  const bool InCatchClause =
+      isInCurrentCallableHerbceptionCatchClause();
 
   // Inside an `if constexpr` branch the throw may be discarded (or its
   // liveness only decided at instantiation), so defer all context diagnostics
@@ -919,11 +988,20 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   // are checked normally.
   const bool MaybeDiscarded = HerbceptionIfConstexprDepth > 0;
 
+  // Diagnose the operand-less form before the more general destination check.
+  // A nested callable may have no failure channel and no access to the outer
+  // handler, but its defining violation is still that a rethrow lacks a caught
+  // error object; reporting only the absent return channel hides that ownership
+  // rule and differs from an otherwise identical `throws` lambda.
+  if (!Ex && !InHerbceptionHandler && !MaybeDiscarded) {
+    Diag(ThrowsLoc, diag::err_throw_throws_rethrow_outside_catch);
+    return ExprError();
+  }
+
   // A try nested inside a herbception handler may consume the error with its
   // own handlers, so an operand throw there is allowed; whether the nested
   // handlers really catch it is verified at CodeGen time.
-  const bool InNestedTryWithinHandler =
-      HerbceptionTryBodyDepth > 0;
+  const bool InNestedTryWithinHandler = InTry;
 
   // A herbception catch-throws handler body counts as a valid context on its
   // own: unlike the try block, its CatchScope is not nested inside the try's
@@ -931,8 +1009,8 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   // catch clause of a try also counts: throws inside traditional handlers
   // chain forward to sibling herbception handlers (CodeGen verifies).
   const bool ValidContext =
-      InThrowsFunction || InTry || MaybeDiscarded || HerbceptionCatchDepth ||
-      HerbceptionCatchClauseDepth;
+      InThrowsFunction || InTry || MaybeDiscarded || InHerbceptionHandler ||
+      InCatchClause;
 
   if (!ValidContext) {
     Diag(ThrowsLoc, diag::err_throw_throws_outside_throws_function);
@@ -979,11 +1057,6 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
 
   // Bare `throw throws` (rethrow without operand): only valid inside a
   // `catch throws` handler body, which owns the error slot to re-read.
-  if (!InHerbceptionHandler && !MaybeDiscarded) {
-    Diag(ThrowsLoc, diag::err_throw_throws_rethrow_outside_catch);
-    return ExprError();
-  }
-
   // The rethrow is lowered in CodeGen by reading the error from the active
   // HerbceptionCatchScope's error slot.
   return BuildCXXThrow(OpLoc, /*Ex=*/nullptr, /*IsThrownVarInScope=*/false,
@@ -1050,42 +1123,134 @@ static CXXRecordDecl *lookupErrorDomainAlias(Sema &S, SourceLocation Loc,
   return AliasTy->getAsCXXRecordDecl();
 }
 
-/// Find a static member function \p Name on \p RD (e.g. error_domain<T>).
-static CXXMethodDecl *findStaticMember(Sema &S, const CXXRecordDecl *RD,
-                                       StringRef Name, SourceLocation Loc,
-                                       bool IgnoreAccess) {
+/// Build a semantically checked call to an error_domain accessor. Qualified
+/// lookup and normal call construction are intentional here: selecting a
+/// declaration by spelling would bypass inherited members, overload
+/// resolution, access control, deleted declarations, constraints, default
+/// arguments, and reference binding. \p NameFound distinguishes an absent
+/// direct `domain` member (which permits domain_alias_type fallback) from a
+/// malformed declaration for which normal Sema already emitted a diagnostic.
+/// Immediate functions are rejected after selection because the runtime
+/// failure path cannot emit a call to a consteval-only entry point.
+static Expr *buildErrorDomainAccessorCall(Sema &S, const CXXRecordDecl *RD,
+                                          StringRef Name, MultiExprArg Args,
+                                          SourceLocation Loc, QualType ErrorType,
+                                          bool &NameFound,
+                                          CXXMethodDecl *&Selected) {
   DeclarationName DN = &S.PP.getIdentifierTable().get(Name);
   LookupResult R(S, DN, Loc, Sema::LookupOrdinaryName);
-  if (IgnoreAccess)
-    R.suppressDiagnostics();
-  if (!S.LookupQualifiedName(R, const_cast<CXXRecordDecl *>(RD)) || R.empty())
+  if (!S.LookupQualifiedName(R, const_cast<CXXRecordDecl *>(RD)) || R.empty()) {
+    NameFound = false;
     return nullptr;
-  auto *MD = R.getAsSingle<CXXMethodDecl>();
-  if (!MD || !MD->isStatic())
+  }
+  NameFound = true;
+
+  // This compiler-fabricated call is retained on CXXTryExpr for ordinary
+  // CodeGen. Disable immediate-invocation tracking while building it so
+  // a rejected consteval accessor cannot leave a dangling ConstantExpr
+  // candidate that is diagnosed later as though it occurred in user code.
+  // The selected immediate declaration is rejected explicitly below because
+  // the dynamic failure path cannot emit a consteval-only call.
+  llvm::SaveAndRestore<bool> DisableImmediateTracking(
+      S.RebuildingImmediateInvocation, true);
+  ExprResult Callee =
+      S.BuildDeclarationNameExpr(CXXScopeSpec(), R, /*NeedsADL=*/false);
+  if (Callee.isInvalid())
     return nullptr;
-  return MD;
+  ExprResult Call = S.BuildCallExpr(nullptr, Callee.get(), Loc, Args, Loc);
+  if (Call.isInvalid())
+    return nullptr;
+
+  Expr *CallNode = Call.get()->IgnoreParenImpCasts();
+  if (auto *Immediate = dyn_cast<ConstantExpr>(CallNode))
+    CallNode = Immediate->getSubExpr()->IgnoreParenImpCasts();
+  auto *CE = dyn_cast<CallExpr>(CallNode);
+  Selected = CE ? dyn_cast_or_null<CXXMethodDecl>(CE->getDirectCallee())
+                : nullptr;
+  if (!Selected || Selected->isInvalidDecl() || !Selected->isStatic() ||
+      Selected->isImmediateFunction()) {
+    S.Diag(Loc, diag::err_throw_throws_no_error_domain)
+        << ErrorType;
+    return nullptr;
+  }
+  return Call.get();
 }
 
-/// Build a call to a static member function \p Fn with the given arguments.
-static ExprResult buildStaticMemberCall(Sema &S, CXXMethodDecl *Fn,
-                                        MultiExprArg Args,
-                                        SourceLocation Loc) {
-  if (!Fn)
-    return ExprError();
-  DeclRefExpr *DRE = S.BuildDeclRefExprForStaticMember(Fn, Loc);
-  if (!DRE)
-    return ExprError();
-  return S.BuildCallExpr(nullptr, DRE, Loc, Args, Loc);
+/// Error conversion executes while another failure is already being routed.
+/// It therefore cannot open either the legacy exception channel or a second
+/// deterministic-failure channel: the two-word carrier has no recursive
+/// failure representation. Check both specifications explicitly because a
+/// Herbception `throws` function can still be non-throwing in the legacy-EH
+/// sense reported by FunctionProtoType::isNothrow().
+static bool isNonThrowingErrorDomainAccessor(const FunctionProtoType *FPT) {
+  return FPT->isNothrow() && !FPT->hasPotentialThrowsSpec();
 }
 
-/// Build a DeclRefExpr referring to the static member function \p Fn.
-DeclRefExpr *Sema::BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
-                                                   SourceLocation Loc) {
-  DeclarationNameInfo NameInfo(Fn->getDeclName(), Loc);
-  return BuildDeclRefExpr(Fn, Fn->getType(), VK_PRValue, NameInfo,
-                          /*NNS=*/NestedNameSpecifierLoc(), /*FoundD=*/Fn,
-                          /*TemplateKWLoc=*/SourceLocation(),
-                          /*TemplateArgs=*/nullptr);
+/// std::error stores an object-domain singleton (with void* accepted as the
+/// opaque ABI form). A function pointer is representationally a pointer but
+/// cannot designate the domain object whose operations are later invoked.
+static bool isErrorDomainObjectPointer(QualType T) {
+  return T->isPointerType() && !T->getPointeeType()->isFunctionType();
+}
+
+bool Sema::isValidCXXStdErrorABIType(QualType T) const {
+  const auto *RT = T.getCanonicalType().getUnqualifiedType()->getAsRecordDecl();
+  if (!RT)
+    return false;
+  RT = RT->getDefinition();
+  if (!RT || !RT->isStruct() || RT->isUnion() ||
+      RT->getDeclContext() != Context.getTranslationUnitDecl() ||
+      RT->getName() != "cxx_std_error")
+    return false;
+
+  // A C++ bridge must not hide bases, virtual state, or non-trivial object
+  // semantics behind the two visible fields. C records satisfy these
+  // properties structurally.
+  if (const auto *CXXRD = dyn_cast<CXXRecordDecl>(RT))
+    if (!CXXRD->isStandardLayout() || !CXXRD->isTriviallyCopyable() ||
+        CXXRD->getNumBases() != 0)
+      return false;
+
+  auto It = RT->field_begin();
+  if (It == RT->field_end())
+    return false;
+  const FieldDecl *DomainField = *It++;
+  if (It == RT->field_end())
+    return false;
+  const FieldDecl *CodeField = *It++;
+  if (It != RT->field_end() || DomainField->isBitField() ||
+      CodeField->isBitField())
+    return false;
+
+  QualType DomainType = DomainField->getType().getCanonicalType();
+  QualType VoidPtr = Context.VoidPtrTy;
+  QualType ConstVoidPtr =
+      Context.getPointerType(Context.VoidTy.withConst()).getCanonicalType();
+  if (!Context.hasSameType(DomainType, VoidPtr) &&
+      !Context.hasSameType(DomainType, ConstVoidPtr))
+    return false;
+  if (!Context.hasSameType(CodeField->getType().getCanonicalType(),
+                           Context.getSizeType().getCanonicalType()))
+    return false;
+
+  // Exact field types are insufficient when `packed` or an explicit alignment
+  // changes the wire representation. Recompute the ordinary target layout for
+  // {void *, size_t} and reject any offset, size, or alignment difference.
+  CharUnits PtrSize = Context.getTypeSizeInChars(Context.VoidPtrTy);
+  CharUnits PtrAlign = Context.getTypeAlignInChars(Context.VoidPtrTy);
+  CharUnits CodeSize = Context.getTypeSizeInChars(Context.getSizeType());
+  CharUnits CodeAlign = Context.getTypeAlignInChars(Context.getSizeType());
+  CharUnits ExpectedAlign = std::max(PtrAlign, CodeAlign);
+  CharUnits ExpectedCodeOffset = PtrSize.alignTo(CodeAlign);
+  CharUnits ExpectedSize =
+      (ExpectedCodeOffset + CodeSize).alignTo(ExpectedAlign);
+  const ASTRecordLayout &Layout = Context.getASTRecordLayout(RT);
+  return Layout.getFieldOffset(0) == 0 &&
+         Layout.getFieldOffset(1) ==
+             static_cast<uint64_t>(ExpectedCodeOffset.getQuantity()) *
+                 Context.getCharWidth() &&
+         Layout.getSize() == ExpectedSize &&
+         Layout.getAlignment() == ExpectedAlign;
 }
 
 /// Build the compiler-fabricated `std::error` value for `throw throws e`.
@@ -1111,30 +1276,8 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   // error_domain<T>::domain()/code(). This allows throwing a C-produced error
   // value returned from an extern "C" function declared
   // return_failure{struct cxx_std_error}.
-  if (const auto *RT = T->getAsRecordDecl()) {
-    if (RT->isStruct() && !RT->isUnion() && RT->getName() == "cxx_std_error") {
-      // Must be at global scope (not nested in another namespace/scope).
-      const DeclContext *DC = RT->getDeclContext();
-      if (DC->isTranslationUnit()) {
-        auto Fields = RT->fields();
-        auto It = Fields.begin();
-        if (It != Fields.end()) {
-          FieldDecl *F1 = *It;
-          ++It;
-          if (It != Fields.end()) {
-            FieldDecl *F2 = *It;
-            ++It;
-            if (It == Fields.end() && F1->getType()->isPointerType() &&
-                F2->getType()->isIntegerType() &&
-                Context.getTypeSize(F2->getType()) ==
-                    Context.getTypeSize(Context.VoidPtrTy)) {
-              return Operand;
-            }
-          }
-        }
-      }
-    }
-  }
+  if (isValidCXXStdErrorABIType(T))
+    return Operand;
 
   CXXRecordDecl *Domain = lookupErrorDomain(Loc, T);
   if (!Domain) {
@@ -1142,35 +1285,49 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
     return ExprError();
   }
 
-  // error_domain<T>::domain() — no arguments. If the specialization declares a
-  // `domain_alias_type` instead (aliasing another error_domain<U> that shares
-  // the same category), follow the alias and use U::domain() for the fabricated
-  // domain pointer, so T and U values compare equal.
-  CXXMethodDecl *DomainFn =
-      findStaticMember(*this, Domain, "domain", Loc, false);
-  if (!DomainFn) {
+  // Resolve and build the real accessor calls. Besides producing the AST used
+  // by CXXErrorValueExpr, this applies ordinary C++ overload, access, deletion,
+  // constraint, and argument-conversion rules to the compiler-fabricated use.
+  bool DomainNameFound = false;
+  CXXMethodDecl *DomainFn = nullptr;
+  Expr *DomainCall = buildErrorDomainAccessorCall(
+      *this, Domain, "domain", {}, Loc, T, DomainNameFound, DomainFn);
+  if (!DomainCall && !DomainNameFound)
     if (CXXRecordDecl *AliasDomain = lookupErrorDomainAlias(*this, Loc, Domain))
-      DomainFn = findStaticMember(*this, AliasDomain, "domain", Loc, false);
+      DomainCall = buildErrorDomainAccessorCall(
+          *this, AliasDomain, "domain", {}, Loc, T, DomainNameFound, DomainFn);
+  if (!DomainCall) {
+    if (!DomainNameFound)
+      Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
+    return ExprError();
   }
-  if (!DomainFn) {
+  const auto *DomainFPT = DomainFn->getType()->castAs<FunctionProtoType>();
+  if (!isErrorDomainObjectPointer(DomainFn->getReturnType()) ||
+      !isNonThrowingErrorDomainAccessor(DomainFPT) ||
+      DomainFPT->getNumParams() != 0 || DomainFPT->isVariadic()) {
     Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
     return ExprError();
   }
 
-  // error_domain<T>::code(T) — one argument (the thrown value).
-  CXXMethodDecl *CodeFn = findStaticMember(*this, Domain, "code", Loc, false);
-  if (!CodeFn || CodeFn->getNumParams() != 1) {
+  bool CodeNameFound = false;
+  CXXMethodDecl *CodeFn = nullptr;
+  Expr *CodeCall = buildErrorDomainAccessorCall(
+      *this, Domain, "code", Operand, Loc, T, CodeNameFound, CodeFn);
+  if (!CodeCall) {
+    if (!CodeNameFound)
+      Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
+    return ExprError();
+  }
+  const auto *CodeFPT = CodeFn->getType()->castAs<FunctionProtoType>();
+  if ((!CodeFn->getReturnType()->isIntegerType() &&
+       !CodeFn->getReturnType()->isEnumeralType()) ||
+      !isNonThrowingErrorDomainAccessor(CodeFPT) ||
+      CodeFPT->getNumParams() != 1 || CodeFPT->isVariadic() ||
+      !Context.hasSameUnqualifiedType(
+          CodeFPT->getParamType(0).getNonReferenceType(), T)) {
     Diag(Loc, diag::err_throw_throws_no_error_domain) << T;
     return ExprError();
   }
-
-  ExprResult DomainCall = buildStaticMemberCall(*this, DomainFn, {}, Loc);
-  if (DomainCall.isInvalid())
-    return ExprError();
-  ExprResult CodeCall =
-      buildStaticMemberCall(*this, CodeFn, MultiExprArg(Operand), Loc);
-  if (CodeCall.isInvalid())
-    return ExprError();
 
   // The fabricated value's type is std::error, looked up by name. Its layout
   // ({domain, code}) is what the ABI carries; users can never construct one.
@@ -1184,8 +1341,8 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
     }
   }
 
-  return new (Context) CXXErrorValueExpr(Operand, DomainCall.get(),
-                                         CodeCall.get(), ErrorTy, Loc);
+  return new (Context)
+      CXXErrorValueExpr(Operand, DomainCall, CodeCall, ErrorTy, Loc);
 }
 
 /// Rebuild a CXXErrorValueExpr after template instantiation.
@@ -1364,16 +1521,112 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
                                          Loc);
 }
 
+bool Sema::ResolveHerbceptionErrorDomainConversion(CXXTryExpr *E) {
+  QualType FailureType = E->getFailureType();
+  if (FailureType.isNull() || FailureType->isDependentType())
+    return false;
+  if (E->getDomainCall() && E->getCodeCall() && E->getFailureValue()) {
+    E->setPropagationKind(CXXTryExpr::PropagationKind::ToStdError);
+    return false;
+  }
+
+  // The one permitted representation-level conversion is the documented C
+  // FFI bridge. Its strict shared validator proves that the active E bytes are
+  // already the std::error wire representation, so no accessor calls exist.
+  if (isValidCXXStdErrorABIType(FailureType)) {
+    E->setPropagationKind(CXXTryExpr::PropagationKind::ToStdError);
+    return false;
+  }
+
+  SourceLocation Loc = E->getTryLoc();
+  CXXRecordDecl *ErrorDomain = lookupErrorDomain(Loc, FailureType);
+  if (!ErrorDomain) {
+    Diag(Loc, diag::err_throw_throws_no_error_domain) << FailureType;
+    return true;
+  }
+
+  // Resolve real calls only after the destination is known to require
+  // std::error. Besides selecting inherited and overloaded functions, this
+  // makes access, deletion, constraints, and argument binding ordinary C++
+  // semantic checks rather than fragile declaration-name scans in CodeGen.
+  bool DomainNameFound = false;
+  CXXMethodDecl *DomainFunction = nullptr;
+  Expr *DomainCall = buildErrorDomainAccessorCall(
+      *this, ErrorDomain, "domain", {}, Loc, FailureType, DomainNameFound,
+      DomainFunction);
+  if (!DomainCall && !DomainNameFound)
+    if (CXXRecordDecl *Alias =
+            lookupErrorDomainAlias(*this, Loc, ErrorDomain))
+      DomainCall = buildErrorDomainAccessorCall(
+          *this, Alias, "domain", {}, Loc, FailureType, DomainNameFound,
+          DomainFunction);
+  if (!DomainCall) {
+    if (!DomainNameFound)
+      Diag(Loc, diag::err_throw_throws_no_error_domain) << FailureType;
+    return true;
+  }
+  const auto *DomainFPT =
+      DomainFunction->getType()->castAs<FunctionProtoType>();
+  if (!isErrorDomainObjectPointer(DomainFunction->getReturnType()) ||
+      !isNonThrowingErrorDomainAccessor(DomainFPT) ||
+      DomainFPT->getNumParams() != 0 || DomainFPT->isVariadic()) {
+    Diag(Loc, diag::err_throw_throws_no_error_domain) << FailureType;
+    return true;
+  }
+
+  // The typed alternative is consumed from union storage. An xvalue models
+  // that operation for overload resolution while the selected declaration
+  // gives CodeGen the exact ABI after reference binding has been validated.
+  OpaqueValueExpr *FailureValue = new (Context)
+      OpaqueValueExpr(Loc, FailureType, VK_XValue, OK_Ordinary);
+  Expr *CodeArgument = FailureValue;
+  bool CodeNameFound = false;
+  CXXMethodDecl *CodeFunction = nullptr;
+  Expr *CodeCall = buildErrorDomainAccessorCall(
+      *this, ErrorDomain, "code", MultiExprArg(CodeArgument), Loc,
+      FailureType, CodeNameFound, CodeFunction);
+  if (!CodeCall) {
+    if (!CodeNameFound)
+      Diag(Loc, diag::err_throw_throws_no_error_domain) << FailureType;
+    return true;
+  }
+  const auto *CodeFPT =
+      CodeFunction->getType()->castAs<FunctionProtoType>();
+  if ((!CodeFunction->getReturnType()->isIntegerType() &&
+       !CodeFunction->getReturnType()->isEnumeralType()) ||
+      !isNonThrowingErrorDomainAccessor(CodeFPT) ||
+      CodeFPT->getNumParams() != 1 || CodeFPT->isVariadic() ||
+      !Context.hasSameUnqualifiedType(
+          CodeFPT->getParamType(0).getNonReferenceType(), FailureType)) {
+    Diag(Loc, diag::err_throw_throws_no_error_domain) << FailureType;
+    return true;
+  }
+
+  E->setErrorDomainConversion(DomainCall, CodeCall, FailureValue);
+  E->setPropagationKind(CXXTryExpr::PropagationKind::ToStdError);
+  return false;
+}
+
 ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   if (!getLangOpts().HerbExceptions) {
     Diag(TryLoc, diag::err_herbceptions_disabled);
     return ExprError();
   }
 
-  // `try(expr)` is only valid inside a function declared with 'throws' or
-  // 'fails{E}'.
-  const FunctionDecl *CurFD = getCurFunctionDecl();
-  if (!CurFD || !CurFD->getType()->getAs<FunctionProtoType>()->hasThrowsSpec()) {
+  // A propagation expression needs either the enclosing callable's return
+  // channel or a handler candidate owned by that same callable's try body or
+  // catch clause. Traditional handlers may chain deterministic failure to a
+  // later sibling catch-throws clause. Recording the owner (rather than using
+  // lexical depth alone) prevents a nested lambda or Apple block from
+  // inheriting either destination. Dependent effects remain potentially live
+  // until substitution.
+  const FunctionProtoType *CurFPT = getCurHerbceptionFunctionProto();
+  const bool CanPropagateToFunction =
+      CurFPT && CurFPT->hasPotentialThrowsSpec();
+  const bool CanRouteToHandler =
+      isInCurrentCallableHerbceptionTryBody() ||
+      isInCurrentCallableHerbceptionCatchClause();
+  if (!CanPropagateToFunction && !CanRouteToHandler) {
     Diag(TryLoc, diag::err_try_throws_outside_throws_function);
     return ExprError();
   }
@@ -1382,6 +1635,16 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
     Diag(TryLoc, diag::err_herbceptions_try_requires_operand);
     return ExprError();
   }
+
+  // Parsing an explicit try operand without blanket suppression lets nested
+  // fallible calls acquire their own propagation nodes and, in particular,
+  // their own typed E-to-std::error conversions. The direct operand call is
+  // therefore already wrapped automatically in an eligible C++ context.
+  // Treat that top-level wrapper as idempotent instead of nesting another
+  // discriminator consumer around it; retain Ex itself so cleanup and
+  // materialization wrappers remain in the AST.
+  if (findTopLevelHerbceptionTry(Ex))
+    return Ex;
 
   // The subexpression must call a function with a throws/fails spec. When the
   // call is dependent (e.g. inside a template), defer the check to
@@ -1395,28 +1658,26 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   // stripped of the discriminant.
   QualType Ty = Ex->getType();
 
-  // If this call is `fails{E}` and the enclosing function is `throws` (whose
-  // implicit error type is std::error), the auto-propagated E error value must
-  // be converted to std::error via error_domain<E>. Resolve it here so CodeGen
-  // can emit domain()/code() on the error path.
-  CXXRecordDecl *ErrorDomain = nullptr;
-  if (const FunctionDecl *CurFD = getCurFunctionDecl()) {
-    if (const auto *CurFPT =
-            CurFD->getType()->getAs<FunctionProtoType>();
-        CurFPT && CurFPT->hasBasicThrowsSpec()) {
-      if (const CallExpr *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
-        if (const FunctionDecl *FD =
-                dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
-          if (const auto *CalleeFPT =
-                  FD->getType()->getAs<FunctionProtoType>();
-              CalleeFPT && CalleeFPT->hasReturnFailureSpec())
-            ErrorDomain = lookupErrorDomain(TryLoc,
-                                            CalleeFPT->getExceptionType(0));
-    }
-  }
+  // Preserve the callee's semantic E even when LLVM represents the union
+  // carrier with T. Every wrapper starts pending: a surrounding try statement
+  // is parsed before its handlers, and a handler body routes past the handler
+  // currently being emitted. Resolving from lexical parser state would
+  // therefore select the wrong channel. The function-final control-flow walk
+  // assigns Raw or ToStdError once the complete nested handler graph is known.
+  QualType FailureType;
+  if (const auto *CalleeFPT = getHerbceptionCalleeProto(Ex);
+      CalleeFPT && CalleeFPT->hasReturnFailureSpec())
+    FailureType = CalleeFPT->getExceptionType(0);
 
-  return new (Context) CXXTryExpr(Ex, Ty, TryLoc, /*IsLValue=*/false,
-                                  ErrorDomain);
+  // Deterministic failure is orthogonal to the success value category.  A
+  // reference-returning call remains an lvalue or xvalue after its
+  // discriminator has been checked; changing it to a prvalue would both lose
+  // identity and make decltype(auto) wrappers deduce an owning object type.
+  auto *Result = new (Context)
+      CXXTryExpr(Ex, Ty, TryLoc, Ex->getValueKind(), /*DomainCall=*/nullptr,
+                 /*CodeCall=*/nullptr, /*FailureValue=*/nullptr, FailureType,
+                 CXXTryExpr::PropagationKind::Pending);
+  return Result;
 }
 
 ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
@@ -1444,11 +1705,7 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
   // ever handled by a `try { } catch throws(std::error e) { }` block handler;
   // it cannot flow through a `catch fails` aggregate. Reject it here.
   if (!Ex->isTypeDependent()) {
-    const FunctionDecl *FD = nullptr;
-    if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
-      FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl());
-    if (const auto *FPT = FD ? FD->getType()->getAs<FunctionProtoType>()
-                             : nullptr;
+    if (const auto *FPT = getHerbceptionCalleeProto(Ex);
         FPT && FPT->hasBasicThrowsSpec() && !FPT->hasReturnFailureSpec()) {
       Diag(Ex->getBeginLoc(), diag::err_catch_return_failure_expr_throws_function);
       return ExprError();
@@ -1461,18 +1718,22 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
   // handler), so E is always the explicit `fails{E}` error type.
   QualType ValueTy = Ex->getType();
   QualType ErrorTy = ValueTy;
-  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
-    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
-      if (const auto *CalleeFPT =
-              FD->getType()->getAs<FunctionProtoType>()) {
-        ValueTy = FD->getReturnType();
-        if (CalleeFPT->hasReturnFailureSpec())
-          ErrorTy = CalleeFPT->getExceptionType(0);
-      }
+  if (const auto *CalleeFPT = getHerbceptionCalleeProto(Ex)) {
+    ValueTy = CalleeFPT->getReturnType();
+    if (CalleeFPT->hasReturnFailureSpec())
+      ErrorTy = CalleeFPT->getExceptionType(0);
+  }
 
   // `catch fails(expr)` yields the N2289 aggregate
   // `struct { union { T value; E error; }; bool failed; }` in both C and C++.
-  QualType EitherTy = Context.getCatchReturnFailureType(ValueTy, ErrorTy);
+  // Do not intern a concrete carrier from dependent placeholders: its layout
+  // and canonical identity are unknowable until substitution, when
+  // TreeTransform rebuilds this expression through the same entry point.
+  QualType EitherTy =
+      (Ex->isTypeDependent() || ValueTy->isDependentType() ||
+       ErrorTy->isDependentType())
+          ? Context.DependentTy
+          : Context.getCatchReturnFailureType(ValueTy, ErrorTy);
   return new (Context) CXXCatchReturnFailureExpr(Ex, EitherTy, CatchLoc);
 }
 
@@ -1489,17 +1750,16 @@ ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *
 
   // `failure(expr)` is only valid inside a `fails{E}` function, and the operand
   // must be of the explicit error type E.
-  const FunctionDecl *CurFD = getCurFunctionDecl();
-  const FunctionProtoType *CurFPT =
-      CurFD ? CurFD->getType()->getAs<FunctionProtoType>() : nullptr;
+  const FunctionProtoType *CurFPT = getCurHerbceptionFunctionProto();
   if (!CurFPT || !CurFPT->hasReturnFailureSpec()) {
     Diag(FailureLoc, diag::err_failure_outside_return_failure_function);
     return ExprError();
   }
 
-  // Reuse the compiler-fabricated error value path: failure(expr) is the
-  // C-style way to return an error via the failure channel, equivalent to
-  // `throw throws expr` for a fails{E} function.
+  // BuildCXXThrow performs the channel-specific type and result-initialization
+  // checks. Keeping those checks in the common builder is essential because
+  // TreeTransform also rebuilds a dependent return_failure operand there
+  // after substitution.
   return BuildCXXThrow(FailureLoc, Ex, /*IsThrownVarInScope=*/false,
                        /*IsHerbception=*/true);
 }
@@ -1554,6 +1814,59 @@ ExprResult Sema::BuildCXXThrow(SourceLocation OpLoc, Expr *Ex,
       getCurScope()->isInOpenACCComputeConstructScope(Scope::TryScope))
     Diag(OpLoc, diag::err_acc_branch_in_out_compute_construct)
         << /*throw*/ 2 << /*out of*/ 0;
+
+  if (Ex && IsHerbception) {
+    const FunctionProtoType *CurFPT = getCurHerbceptionFunctionProto();
+    if (CurFPT && CurFPT->hasReturnFailureSpec()) {
+      // A typed failure carrier has exactly one declared active alternative.
+      // Do not admit even an ordinarily convertible operand: CodeGen writes
+      // the initialized expression directly through an E-typed view of the
+      // union carrier, so accepting a merely size-compatible type would make
+      // the AST and the active object disagree. Canonical unqualified equality
+      // preserves typedefs and normal top-level-cv source initialization while
+      // rejecting distinct same-layout object types.
+      if (CurFPT->getNumExceptions() != 1)
+        return ExprError();
+      QualType FailureType =
+          Context.getCanonicalType(CurFPT->getExceptionType(0))
+              .getUnqualifiedType();
+      if (!FailureType->isDependentType() && !Ex->isTypeDependent()) {
+        // [conv.array] and [conv.func] adjust an expression designator before
+        // its resulting pointer type participates in the exact active-
+        // alternative check below.  Restrict this normalization to operands
+        // that already have array or function type: qualification, numeric,
+        // derived-to-base, and user-defined conversions must not silently
+        // change which E object CodeGen constructs in the failure carrier.
+        // Object lvalues bypass this branch, preserving their named-return
+        // information for the copy-or-move initialization performed below.
+        if (Ex->getType()->isArrayType() || Ex->getType()->isFunctionType()) {
+          ExprResult Adjusted = DefaultFunctionArrayConversion(Ex);
+          if (Adjusted.isInvalid())
+            return ExprError();
+          Ex = Adjusted.get();
+        }
+
+        if (!Context.hasSameUnqualifiedType(Ex->getType(), FailureType)) {
+          Diag(Ex->getExprLoc(), diag::err_return_failure_operand_type_mismatch)
+              << Ex->getType() << FailureType << Ex->getSourceRange();
+          return ExprError();
+        }
+
+        // Model the failure channel as an ordinary result object of type E.
+        // This applies the language's lvalue-to-rvalue and class
+        // copy-or-move initialization rules, including access and deleted
+        // function checks, before a valid CXXThrowExpr can reach CodeGen.
+        InitializedEntity Entity =
+            InitializedEntity::InitializeResult(OpLoc, FailureType);
+        NamedReturnInfo NRInfo = getNamedReturnInfo(Ex);
+        ExprResult Initialized =
+            PerformMoveOrCopyInitialization(Entity, NRInfo, Ex);
+        if (Initialized.isInvalid())
+          return ExprError();
+        Ex = Initialized.get();
+      }
+    }
+  }
 
   if (Ex && !Ex->isTypeDependent() && !IsHerbception) {
     // Initialize the exception result.  This implicitly weeds out
@@ -7292,6 +7605,17 @@ QualType Sema::FindCompositePointerType(SourceLocation Loc,
         EPI1.CFIUncheckedCallee = CFIUncheckedCallee;
         EPI2.CFIUncheckedCallee = CFIUncheckedCallee;
 
+        // A function-pointer conversion may discard noexcept, but it cannot
+        // invent or erase a Herbception return channel: doing so would make
+        // an indirect caller and callee disagree on the physical return type.
+        // Dependent throws is included because its specialization may select
+        // that shaped ABI. Canonically identical active types (including bare
+        // throws and throws(true)) remain mergeable.
+        if ((FPT1->hasPotentialThrowsSpec() ||
+             FPT2->hasPotentialThrowsSpec()) &&
+            !Context.hasSameType(FPT1, FPT2))
+          return QualType();
+
         // The result is nothrow if both operands are.
         SmallVector<QualType, 8> ExceptionTypeStorage;
         EPI1.ExceptionSpec = EPI2.ExceptionSpec = Context.mergeExceptionSpecs(
@@ -8792,9 +9116,13 @@ Sema::BuildExprRequirement(
     Status = concepts::ExprRequirement::SS_Dependent;
   else if (NoexceptLoc.isValid() && canThrow(E) == CanThrowResult::CT_Can)
     Status = concepts::ExprRequirement::SS_NoexceptNotMet;
-  else if (NoexceptLoc.isValid() && canHerbceptionThrow(E, QualType()))
+  else if (NoexceptLoc.isValid() && hasHerbceptionSpec(E)) {
+    // canHerbceptionThrow(E, {}) intentionally recognizes only the implicit
+    // std::error channel. A typed return_failure{E} call is equally a live
+    // deterministic failure for a compound noexcept requirement, so query
+    // the channel independent of its payload type here.
     Status = concepts::ExprRequirement::SS_NoexceptNotMet;
-  else if (ThrowsLoc.isValid() && !canHerbceptionThrow(E, QualType()))
+  } else if (ThrowsLoc.isValid() && !canHerbceptionThrow(E, QualType()))
     Status = concepts::ExprRequirement::SS_ThrowsNotMet;
   else if (ReturnTypeRequirement.isSubstitutionFailure())
     Status = concepts::ExprRequirement::SS_TypeRequirementSubstitutionFailure;

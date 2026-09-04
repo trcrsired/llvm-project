@@ -682,6 +682,9 @@ void JSONNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
   case EST_BasicThrowsFalse:
     JOS.attribute("exceptionSpec", "throws");
     break;
+  case EST_DependentThrows:
+    JOS.attribute("exceptionSpec", "dependent_throws");
+    break;
   case EST_ThrowsTyped: {
     JOS.attribute("exceptionSpec", "fails");
     llvm::json::Array Types;

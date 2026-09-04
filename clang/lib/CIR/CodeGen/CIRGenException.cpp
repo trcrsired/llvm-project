@@ -957,12 +957,23 @@ bool CIRGenFunction::isCatchOrCleanupRequired() {
 }
 
 RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
+  // A semantically resolved typed-to-basic propagation needs to invoke the
+  // persisted error-domain accessors.  CIR does not implement that lowering
+  // yet, so reject it here instead of silently reinterpreting an E payload as
+  // the unrelated std::error representation.
+  if (E->convertsToStdError()) {
+    cgm.errorNYI(E->getSourceRange(),
+                 "Herbception typed-to-std::error propagation");
+    return getUndefRValue(E->getType());
+  }
+
   assert(curFnInfo && curFnInfo->hasThrowsReturn() &&
          "herbception try outside a throws function");
 
   const Expr *sub = E->getSubExpr()->IgnoreParenImpCasts();
   const CallExpr *call = cast<CallExpr>(sub);
   QualType callTy = call->getType();
+  QualType callReturnTy = call->getCallReturnType(getContext());
 
   // Emit the call. It returns {T, i1}; suppress routing to an enclosing
   // herbception catch scope: this expression handles the discriminant itself.
@@ -1008,31 +1019,21 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
         // Error path
         if (!herbceptionCatchScopes.empty()) {
           const HerbceptionCatchScope &scope = herbceptionCatchScopes.back();
-          mlir::Value payload = builder.createLoad(loc, successAddr);
           mlir::Type slotTy = scope.errorSlot.getElementType();
-          if (slotTy != payload.getType()) {
-            Address ptmp =
-                createTempAlloca(payload.getType(), align, loc, "herb.payload");
-            builder.createStore(loc, payload, ptmp);
-            mlir::Value casted = builder.createBitcast(
-                ptmp.getBasePointer(), builder.getPointerTo(slotTy));
-            payload = builder.createLoad(loc, Address(casted, slotTy, align));
-          }
+          mlir::Value payload =
+              coerceHerbceptionPayload(loc, successAddr, slotTy);
           builder.createStore(loc, payload, scope.errorSlot);
           cir::GotoOp::create(builder, loc, scope.handlerLabel);
         } else {
           // Auto-propagate: wrap the error payload with disc=true and return.
-          mlir::Value payload = builder.createLoad(loc, successAddr);
-          mlir::Type callerPayloadTy = members[0];
-          if (payload.getType() != callerPayloadTy) {
-            Address ptmp =
-                createTempAlloca(payload.getType(), align, loc, "herb.payload");
-            builder.createStore(loc, payload, ptmp);
-            mlir::Value casted = builder.createBitcast(
-                ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
-            payload = builder.createLoad(
-                loc, Address(casted, callerPayloadTy, align));
-          }
+          auto callerTy = cast<cir::RecordType>(
+              cast<cir::FuncOp>(curFn).getFunctionType().getReturnType());
+          mlir::Type callerPayloadTy = callerTy.getMembers().front();
+          // Do not reinterpret a callee-sized temporary as a larger caller
+          // payload: such a load reads beyond the temporary.  The shared
+          // coercion performs a bounded byte copy instead.
+          mlir::Value payload =
+              coerceHerbceptionPayload(loc, successAddr, callerPayloadTy);
           mlir::Value wrapped =
               wrapHerbceptionReturnValue(loc, payload, /*disc=*/true);
           cir::ReturnOp::create(builder, loc, wrapped);
@@ -1042,8 +1043,20 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
   // Success path: the try expression's value is the success value.
   builder.setInsertionPointAfter(routeIf);
 
-  if (getEvaluationKind(callTy) == cir::TEK_Scalar) {
-    mlir::Value v = builder.createLoad(loc, successAddr);
+  if (getEvaluationKind(callReturnTy) == cir::TEK_Scalar) {
+    // The payload is a union-sized field and may therefore be wider than the
+    // successful scalar.  Reference returns are scalars at the ABI layer even
+    // though CallExpr exposes the referred-to type plus an lvalue/xvalue kind.
+    // Reinterpret the payload address as the declared return representation
+    // before loading its low bytes.
+    mlir::Type successTy = convertType(callReturnTy);
+    Address scalarAddr = successAddr;
+    if (scalarAddr.getElementType() != successTy) {
+      mlir::Value casted = builder.createBitcast(
+          scalarAddr.getPointer(), builder.getPointerTo(successTy));
+      scalarAddr = Address(casted, successTy, align);
+    }
+    mlir::Value v = builder.createLoad(loc, scalarAddr);
     return RValue::get(v);
   }
   if (getEvaluationKind(callTy) == cir::TEK_Aggregate) {

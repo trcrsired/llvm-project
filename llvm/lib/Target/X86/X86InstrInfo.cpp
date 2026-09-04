@@ -5493,13 +5493,19 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
           Clean = false;
           break;
         }
-      // Nothing between the SETCCr and the branch may clobber EFLAGS or
-      // touch the discriminant register. Any call-sequence adjustment is
-      // harmless here: the discriminant was already materialized from CF
-      // into a register by HERB_SETCCr, so even if ADJCALLSTACKUP lowers
-      // to an add that clobbers EFLAGS, the TEST8ri reads the register,
-      // not the live CF.
-      auto IsHarmlessAdjCallStack = [](const MachineInstr &MI) {
+      // Nothing between the SETCCr and the branch may clobber EFLAGS or touch
+      // the discriminant register.  A call-frame pseudo is harmless only when
+      // the frame is reserved and frame lowering will erase it; otherwise it
+      // can expand to ADD/SUB, and its current EFLAGS definition prevents
+      // liveness from forcing a flag-preserving LEA.  Although HERB_SETCCr
+      // first materialized CF, this transform erases that instruction and
+      // makes the returned CF live all the way to Consumer.
+      const bool HasReservedCallFrame =
+          Subtarget.getFrameLowering()->hasReservedCallFrame(
+              *MBB->getParent());
+      auto IsErasedCallFramePseudo = [&](const MachineInstr &MI) {
+        if (!HasReservedCallFrame)
+          return false;
         switch (MI.getOpcode()) {
         default:
           return false;
@@ -5513,15 +5519,12 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
       for (MachineBasicBlock::iterator It =
                std::next(MachineBasicBlock::iterator(SetB));
            Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It)
-        if (IsHarmlessAdjCallStack(*It))
+        if (IsErasedCallFramePseudo(*It))
           continue;
         else if (It->readsRegister(DiscReg, TRI))
           Clean = false;
-        else if (It->modifiesRegister(X86::EFLAGS, TRI)) {
-          if (!It->readsRegister(X86::EFLAGS, TRI))
-            continue;
+        else if (It->modifiesRegister(X86::EFLAGS, TRI))
           Clean = false;
-        }
       // Look for a single EFLAGS consumer (JCC or CMOV with E/NE condition)
       // that reads the TEST's flags.  After the consumer, an EFLAGS modifier
       // resets flag state, so subsequent EFLAGS readers observe the new flags
@@ -5556,11 +5559,11 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
         if (ModifiesEFLAGS) {
           if (Consumer)
             FlagsRedefinedAfterConsumer = true;
-          else if (!It->readsRegister(DiscReg, TRI)) {
-            // Harmless flag clobber before consumer (e.g. MOV32r0).
-            ++It;
-            continue;
-          } else {
+          else {
+            // This is not merely a clobber of TEST's now-dead flags. Erasing
+            // HERB_SETCCr and TEST would make the call's CF the Consumer's
+            // input, so every real EFLAGS definition before Consumer blocks
+            // the fold. In particular, MOV32r0 expands to XOR32rr post-RA.
             Clean = false;
             break;
           }

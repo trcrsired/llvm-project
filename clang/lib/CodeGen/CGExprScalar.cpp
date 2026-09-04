@@ -840,6 +840,15 @@ public:
   }
 
   Value *VisitCXXTryExpr(const CXXTryExpr *E) {
+    // A successful T& or T&& call still designates its referent. The shaped
+    // decoder returns that reference's address, whereas a scalar consumer
+    // requires the ordinary [conv.lval] load (including volatile and bool
+    // memory semantics). EmitLValue performs the one-call failure dispatch,
+    // so this load occurs only on the successful edge and never re-emits the
+    // fallible operand.
+    if (E->isGLValue())
+      return EmitLoadOfLValue(E);
+
     RValue RV = CGF.EmitHerbceptionTry(E);
     return RV.getScalarVal();
   }

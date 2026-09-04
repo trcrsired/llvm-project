@@ -413,6 +413,15 @@ public:
   /// value. This is invalid iff the function has no return value.
   Address ReturnValue = Address::invalid();
 
+  /// HerbceptionPayload - The ABI carrier storage underlying ReturnValue for
+  /// an active throws return. ReturnValue is a source-typed view used to emit
+  /// the success object, while this address retains the union carrier's LLVM
+  /// type, size, and alignment for error writes and epilogue coercion. The two
+  /// addresses alias the same allocation; keeping both views prevents ordinary
+  /// aggregate emission from interpreting a scalar or synthetic carrier as the
+  /// source record.
+  Address HerbceptionPayload = Address::invalid();
+
   /// ReturnValuePointer - The temporary alloca to hold a pointer to sret.
   /// This is invalid if sret is not in use.
   Address ReturnValuePointer = Address::invalid();
@@ -604,13 +613,31 @@ public:
   /// `throw throws` / failure stores true.
   Address HerbceptionDiscriminant = Address::invalid();
 
+  /// Classifies the constructor declaration temporarily emitted inline by the
+  /// inherited-constructor ABI fallback.  `CurCodeDecl` alone cannot
+  /// distinguish that declaration from the constructor of the LLVM function
+  /// being emitted, while `CurFnInfo` deliberately continues to describe the
+  /// enclosing function.  Partial-construction cleanups need both facts: an
+  /// active inlined constructor has no private return discriminator, whereas
+  /// an ordinary inlined constructor must not acquire deterministic-failure
+  /// cleanups merely because its enclosing function has a `throws` return.
+  enum class InlinedInheritingConstructorState : unsigned char {
+    NotInlined,
+    Ordinary,
+    Herbception
+  };
+  InlinedInheritingConstructorState InlinedInheritingConstructor =
+      InlinedInheritingConstructorState::NotInlined;
+
   /// An active herbception `catch throws(E e)` handler. When a bare call to a
   /// throws/fails function inside the try block fails, the error value is
   /// stored into ErrorSlot and control branches to HandlerBlock instead of
   /// being ignored or propagating.
   struct HerbceptionCatchScope {
-    HerbceptionCatchScope(JumpDest H, Address S, llvm::Type *T)
-        : Handler(H), ErrorSlot(S), ErrorType(T) {}
+    HerbceptionCatchScope(JumpDest H, Address S, llvm::Type *T,
+                          bool MustFailFunction = false)
+        : Handler(H), ErrorSlot(S), ErrorType(T),
+          MustFailFunction(MustFailFunction) {}
     /// The jump destination of the handler block, at the scope depth of the
     /// enclosing try statement (so the try block's cleanups run first).
     JumpDest Handler;
@@ -618,15 +645,44 @@ public:
     Address ErrorSlot;
     /// The LLVM type of the error value (the payload of the {T, i1} return).
     llvm::Type *ErrorType;
+    /// A constructor/destructor function-try handler cannot recover.  Mark the
+    /// enclosing function failed before crossing partial-object cleanups, not
+    /// only when handler fallthrough later rethrows the captured payload.
+    bool MustFailFunction;
   };
   /// The stack of active herbception catch-throws scopes.
   SmallVector<HerbceptionCatchScope, 4> HerbceptionCatchScopes;
 
-  /// Whether we are currently emitting the operand of a `try(expr)` /
-  /// `catch fails(expr)` expression. While set, calls inside are already being
-  /// handled by EmitHerbceptionTry/EmitHerbceptionCatchReturnFailure and must not be
-  /// routed to an enclosing herbception catch scope.
-  bool InHerbceptionOperand = false;
+  void markHerbceptionFunctionTryFailure(
+      const HerbceptionCatchScope &Scope) {
+    if (!Scope.MustFailFunction)
+      return;
+    assert(HerbceptionDiscriminant.isValid() &&
+           "function-try failure has no enclosing return discriminator");
+    Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
+  }
+
+  /// The error whose `catch throws` handler body is currently being emitted.
+  /// Unlike HerbceptionCatchScopes this describes the already-entered handler,
+  /// not a destination.  Bare rethrow transfers these bytes outward and clears
+  /// OwnershipActive so the inner catch variable does not destroy an error
+  /// which the destination now owns.
+  struct HerbceptionCaughtError {
+    HerbceptionCaughtError(Address V, llvm::Type *T, RawAddress Active)
+        : Value(V), ErrorType(T), OwnershipActive(Active) {}
+    Address Value;
+    llvm::Type *ErrorType;
+    RawAddress OwnershipActive;
+  };
+  SmallVector<HerbceptionCaughtError, 4> HerbceptionCaughtErrors;
+
+  /// The output slot passed specifically for the call owned by a `try(expr)`
+  /// or `catch fails(expr)` node. Only that call's discriminator is consumed by
+  /// the wrapper. A pointer identity is used instead of a nesting boolean
+  /// because evaluating the callee and arguments may itself perform implicit
+  /// fallible calls; those inner calls must propagate normally before the outer
+  /// invocation can take place.
+  llvm::CallBase **HerbceptionOperandCallResult = nullptr;
 
   /// Whether we processed a Microsoft-style asm block during CodeGen. These can
   /// potentially set the return value.
@@ -1916,18 +1972,30 @@ public:
           OldCXXThisValue(CGF.CXXThisValue),
           OldCXXABIThisAlignment(CGF.CXXABIThisAlignment),
           OldCXXThisAlignment(CGF.CXXThisAlignment),
-          OldReturnValue(CGF.ReturnValue), OldFnRetTy(CGF.FnRetTy),
+          OldReturnValue(CGF.ReturnValue),
+          OldInlinedInheritingConstructor(CGF.InlinedInheritingConstructor),
+          OldFnRetTy(CGF.FnRetTy),
           OldCXXInheritedCtorInitExprArgs(
               std::move(CGF.CXXInheritedCtorInitExprArgs)) {
+      const auto *Ctor = cast<CXXConstructorDecl>(GD.getDecl());
       CGF.CurGD = GD;
-      CGF.CurFuncDecl = CGF.CurCodeDecl =
-          cast<CXXConstructorDecl>(GD.getDecl());
+      CGF.CurFuncDecl = CGF.CurCodeDecl = Ctor;
+      CGF.InlinedInheritingConstructor =
+          Ctor->getType()->castAs<FunctionProtoType>()->hasThrowsSpec()
+              ? InlinedInheritingConstructorState::Herbception
+              : InlinedInheritingConstructorState::Ordinary;
       CGF.CXXABIThisDecl = nullptr;
       CGF.CXXABIThisValue = nullptr;
       CGF.CXXThisValue = nullptr;
       CGF.CXXABIThisAlignment = CharUnits();
       CGF.CXXThisAlignment = CharUnits();
       CGF.ReturnValue = Address::invalid();
+      // The synthetic constructor has no independent LLVM function or return
+      // channel.  Keep the enclosing function's Herbception carrier and
+      // discriminator live so a fallible base/member can route its failure to
+      // that function (or to its current catch-throws scope).  ReturnValue is
+      // still reset above because it is a source-typed constructor view, not
+      // the enclosing carrier view.
       CGF.FnRetTy = QualType();
       CGF.CXXInheritedCtorInitExprArgs.clear();
     }
@@ -1941,6 +2009,7 @@ public:
       CGF.CXXABIThisAlignment = OldCXXABIThisAlignment;
       CGF.CXXThisAlignment = OldCXXThisAlignment;
       CGF.ReturnValue = OldReturnValue;
+      CGF.InlinedInheritingConstructor = OldInlinedInheritingConstructor;
       CGF.FnRetTy = OldFnRetTy;
       CGF.CXXInheritedCtorInitExprArgs =
           std::move(OldCXXInheritedCtorInitExprArgs);
@@ -1957,6 +2026,7 @@ public:
     CharUnits OldCXXABIThisAlignment;
     CharUnits OldCXXThisAlignment;
     Address OldReturnValue;
+    InlinedInheritingConstructorState OldInlinedInheritingConstructor;
     QualType OldFnRetTy;
     CallArgList OldCXXInheritedCtorInitExprArgs;
   };
@@ -3598,7 +3668,9 @@ public:
   };
   AutoVarEmission EmitAutoVarAlloca(const VarDecl &var);
   void EmitAutoVarInit(const AutoVarEmission &emission);
-  void EmitAutoVarCleanups(const AutoVarEmission &emission);
+  void EmitAutoVarCleanups(
+      const AutoVarEmission &emission,
+      RawAddress DestructionActiveFlag = RawAddress::invalid());
   void emitAutoVarTypeCleanup(const AutoVarEmission &emission,
                               QualType::DestructionKind dtorKind);
 
@@ -3769,6 +3841,11 @@ public:
   /// Emit a `try { } catch throws(E e) { }` block handler using discriminant
   /// routing instead of the traditional EH machinery.
   void EmitHerbceptionCatchTry(const CXXTryStmt &S);
+  /// Emit a function-try protected region.  The callback form lets a
+  /// constructor place its base/member initialization inside the same
+  /// deterministic and legacy catch scopes as its compound-statement body.
+  void EmitHerbceptionCatchTry(const CXXTryStmt &S, bool IsFnTryBlock,
+                               llvm::function_ref<void()> EmitProtectedBody);
   void EmitSEHTryStmt(const SEHTryStmt &S);
   void EmitSEHLeaveStmt(const SEHLeaveStmt &S);
   void EnterSEHTryStmt(const SEHTryStmt &S);
@@ -5324,6 +5401,11 @@ public:
   /// Emit a herbception `throw throws expr`: return the error value with the
   /// discriminant (the trailing i1 of {T, i1}) set to true.
   void EmitHerbceptionThrow(const Expr *ErrorValue, SourceLocation Loc);
+  /// Transfer the currently handled std::error to the next catch-throws scope
+  /// or to this function's basic throws channel.  This implements both an
+  /// explicit bare `throw throws` and the mandatory fallthrough rethrow of a
+  /// constructor/destructor function-try handler.
+  void EmitHerbceptionRethrow(SourceLocation Loc);
 
   /// Emit the compiler-fabricated `std::error` value for a herbception
   /// `throw throws e`: call error_domain<T>::domain() and ::code(e) and build
@@ -5336,21 +5418,27 @@ public:
   /// herbception channel. Returns a pointer value.
   llvm::Value *EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E);
 
-  /// Convert a `fails{E}` error payload value \p ErrVal into a `std::error`
-  /// value by calling error_domain<E>::domain() and error_domain<E>::code(e)
-  /// (where \p E is \p E->getErrorDomain()). Used when auto-propagating a
-  /// fails{E} error into a throws function. Returns the {void*, size_t} value,
-  /// or null if the conversion cannot be built.
+  /// Convert a `fails{E}` union carrier \p ErrVal into a `std::error` value of
+  /// LLVM type \p StdErrorTy. The semantic E recorded by \p E determines the
+  /// correctly sized and aligned view passed to error_domain<E>::code(e);
+  /// the carrier's LLVM representative is intentionally not used as E.
   llvm::Value *EmitFailsErrorToStdError(const CXXTryExpr *E,
-                                        llvm::Value *ErrVal);
+                                        llvm::Value *ErrVal,
+                                        llvm::Type *StdErrorTy);
 
   /// Emit a herbception `try(expr)`: evaluate the throws/fails call and
-  /// auto-propagate its error on failure. Returns the success value.
-  RValue EmitHerbceptionTry(const CXXTryExpr *E);
+  /// auto-propagate its error on failure. Aggregate success values are
+  /// materialized directly in \p ReturnValue so non-movable objects retain a
+  /// single lifetime. Returns the success value.
+  RValue EmitHerbceptionTry(const CXXTryExpr *E,
+                            ReturnValueSlot ReturnValue = ReturnValueSlot());
 
   /// Emit a herbception `catch fails(expr)`: evaluate the throws/fails call
-  /// and produce an `either{T, E}` value (positive, left, right).
-  RValue EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E);
+  /// and produce an `either{T, E}` value (positive, left, right), constructing
+  /// the selected union alternative directly inside \p ReturnValue.
+  RValue EmitHerbceptionCatchReturnFailure(
+      const CXXCatchReturnFailureExpr *E,
+      ReturnValueSlot ReturnValue = ReturnValueSlot());
 
   RValue EmitAtomicExpr(AtomicExpr *E);
 

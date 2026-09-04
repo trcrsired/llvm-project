@@ -491,8 +491,18 @@ CodeGenTypes::arrangeCXXStructorDeclaration(GlobalDecl GD) {
                            : getCXXABI().hasMostDerivedReturn(GD)
                                ? CGM.getContext().VoidPtrTy
                                : Context.VoidTy;
+  // A constructor has a source-level void return, but an active `throws`
+  // specification still selects the shaped Herbception ABI. Preserve the
+  // ABI-specific success result chosen above (`this`, most-derived pointer,
+  // or void) while carrying the declared error channel into every structor
+  // entry point. Sema rejects active Herbception destructors, and
+  // `throws(false)` does not satisfy hasThrowsSpec(), so both remain on the
+  // ordinary ABI.
   return arrangeLLVMFunctionInfo(resultType, FnInfoOpts::IsInstanceMethod,
-                                 argTypes, extInfo, paramInfos, required, MD);
+                                 argTypes, extInfo, paramInfos, required, MD,
+                                 FTP.getTypePtr()->hasThrowsSpec(),
+                                 getHerbceptionErrorType(*this,
+                                                         FTP.getTypePtr()));
 }
 
 static CanQualTypeList getArgTypesForCall(ASTContext &ctx,
@@ -562,9 +572,14 @@ const CGFunctionInfo &CodeGenTypes::arrangeCXXConstructorCall(
                                 ArgTypes.size());
   }
 
+  // Match the constructor declaration exactly. ResultType alone cannot
+  // describe this effect because constructors are source-level void even
+  // though an active `throws` specification adds a shaped return channel.
   return arrangeLLVMFunctionInfo(ResultType, FnInfoOpts::IsInstanceMethod,
                                  ArgTypes, Info, ParamInfos, Required,
-                                 ABIInfoFD);
+                                 ABIInfoFD, FPT.getTypePtr()->hasThrowsSpec(),
+                                 getHerbceptionErrorType(*this,
+                                                         FPT.getTypePtr()));
 }
 
 /// Arrange the argument and result information for the declaration or
@@ -707,9 +722,19 @@ CodeGenTypes::arrangeMSCtorClosure(const CXXConstructorDecl *CD,
     ArgTys.push_back(Context.IntTy);
   CallingConv CC = Context.getDefaultCallingConvention(
       /*IsVariadic=*/false, /*IsCXXMethod=*/true);
+  // A Microsoft default/copying constructor closure is a real callable ABI
+  // boundary.  Its ordinary success result is void, but a closure for an
+  // active constructor must forward the constructor's deterministic failure
+  // payload and discriminator.  Otherwise the closure body calls a shaped
+  // constructor through a void signature and silently discards failures.
+  // `throws(false)` is excluded by hasThrowsSpec() and remains bit-for-bit
+  // identical to an ordinary MSVC constructor closure.
   return arrangeLLVMFunctionInfo(Context.VoidTy, FnInfoOpts::IsInstanceMethod,
                                  ArgTys, FunctionType::ExtInfo(CC), {},
-                                 RequiredArgs::All, /*ABIInfoFD=*/nullptr);
+                                 RequiredArgs::All, /*ABIInfoFD=*/nullptr,
+                                 FTP.getTypePtr()->hasThrowsSpec(),
+                                 getHerbceptionErrorType(*this,
+                                                         FTP.getTypePtr()));
 }
 
 /// Arrange a call as unto a free function, except possibly with an
@@ -791,10 +816,16 @@ CodeGenTypes::arrangeBlockFunctionDeclaration(const FunctionProtoType *proto,
   CanQualTypeList argTypes = getArgTypesForDeclaration(Context, params);
 
   // FIXME: Use the block's target features when arranging its invoke function.
+  // The invoke entry point is also the callee selected from every block
+  // descriptor, so its deterministic result must be arranged from the block's
+  // own prototype. Using the ordinary result here while block calls use the
+  // shaped result gives the declaration and every indirect call incompatible
+  // LLVM function types. `throws(false)` is excluded by hasThrowsSpec().
   return arrangeLLVMFunctionInfo(
       GetReturnType(proto->getReturnType()), FnInfoOpts::None, argTypes,
       proto->getExtInfo(), paramInfos, RequiredArgs::forPrototypePlus(proto, 1),
-      /*ABIInfoFD=*/nullptr);
+      /*ABIInfoFD=*/nullptr, proto->hasThrowsSpec(),
+      getHerbceptionErrorType(*this, proto));
 }
 
 const CGFunctionInfo &
@@ -1171,23 +1202,59 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
   if (retInfo.canHaveCoerceToType() && retInfo.getCoerceToType() == nullptr)
     retInfo.setCoerceToType(ConvertType(FI->getReturnType()));
 
-  // Herbception (throws): the function returns {T, i1} instead of just T, so
-  // that the discriminant can be returned out-of-band. Force a Direct return
-  // whose coerce type is the {T, i1} struct, and let the middle-end/backend
-  // carry the i1 via the target's discriminant mechanism (the 'throws'
-  // attribute marks it as such).
+  // Herbception (throws): a register-returned success value shares the shaped
+  // {payload, i1} return with the error and discriminant.  Do not, however,
+  // replace an ABI-classified indirect result.  C++ requires a non-trivial
+  // prvalue to be constructed in the caller-provided result object; coercing
+  // that object into a first-class payload would perform a second bitwise
+  // materialization and invalidate self-references and guaranteed elision.
+  // An indirect success therefore retains its sret slot and returns only
+  // {E, i1}; GetFunctionType and the prologue/epilogue add that orthogonal
+  // failure channel without changing the target's success-return contract.
   //
   // The payload slot must be able to hold either the success value T or the
-  // error value E, so it is sized for the larger of the two. For a void
-  // return type the payload is just the error type.
-  if (HasThrowsReturn) {
+  // error value E, so it has the union of their storage requirements. For a
+  // void return type the payload is just the error type.
+  if (HasThrowsReturn && retInfo.getKind() != ABIArgInfo::Indirect) {
     llvm::Type *RetTy = ConvertType(FI->getReturnType());
-    if (RetTy->isVoidTy())
+    if (RetTy->isVoidTy()) {
       RetTy = ErrorType;
-    else if (ErrorType &&
-             CGM.getDataLayout().getTypeAllocSize(ErrorType) >
-                 CGM.getDataLayout().getTypeAllocSize(RetTy))
-      RetTy = ErrorType;
+    } else if (ErrorType) {
+      const llvm::DataLayout &DL = CGM.getDataLayout();
+      llvm::TypeSize RetSize = DL.getTypeAllocSize(RetTy);
+      llvm::TypeSize ErrorSize = DL.getTypeAllocSize(ErrorType);
+      assert(!RetSize.isScalable() && !ErrorSize.isScalable() &&
+             "Herbception payload storage must have a fixed ABI size");
+
+      llvm::Type *SizeType = ErrorSize > RetSize ? ErrorType : RetTy;
+      llvm::Type *AlignType =
+          DL.getABITypeAlign(ErrorType) > DL.getABITypeAlign(RetTy)
+              ? ErrorType
+              : RetTy;
+
+      if (DL.getABITypeAlign(SizeType) >= DL.getABITypeAlign(AlignType)) {
+        RetTy = SizeType;
+      } else {
+        // Neither alternative dominates both storage dimensions. Model the
+        // payload as union storage whose leading member supplies the maximum
+        // ABI alignment and whose byte tail supplies the maximum size. Merely
+        // selecting the larger type can under-align stores of the other
+        // alternative, even when both alternatives happen to have equal size.
+        uint64_t RequiredSize = RetSize.getFixedValue();
+        if (ErrorSize.getFixedValue() > RequiredSize)
+          RequiredSize = ErrorSize.getFixedValue();
+        uint64_t AlignedMemberSize =
+            DL.getTypeAllocSize(AlignType).getFixedValue();
+        if (AlignedMemberSize >= RequiredSize) {
+          RetTy = AlignType;
+        } else {
+          llvm::ArrayType *Tail = llvm::ArrayType::get(
+              llvm::Type::getInt8Ty(getLLVMContext()),
+              RequiredSize - AlignedMemberSize);
+          RetTy = llvm::StructType::get(getLLVMContext(), {AlignType, Tail});
+        }
+      }
+    }
     llvm::StructType *StructTy = llvm::StructType::get(
         getLLVMContext(),
         {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
@@ -2142,6 +2209,21 @@ llvm::FunctionType *CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     break;
 
   case ABIArgInfo::Indirect:
+    if (FI.hasThrowsReturn()) {
+      // Preserve the target ABI's sret success object and return only the
+      // failure alternative plus its discriminator.  The `throws` attribute
+      // still lets the backend select its target-specific flag convention.
+      assert(FI.getHerbceptionErrorType() &&
+             "indirect Herbception result has no error type");
+      resultType = llvm::StructType::get(
+          getLLVMContext(),
+          {FI.getHerbceptionErrorType(),
+           llvm::Type::getInt1Ty(getLLVMContext())});
+    } else {
+      resultType = llvm::Type::getVoidTy(getLLVMContext());
+    }
+    break;
+
   case ABIArgInfo::Ignore:
     resultType = llvm::Type::getVoidTy(getLLVMContext());
     break;
@@ -2827,7 +2909,7 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     if (proto) {
       ExceptionSpecificationType EST = proto->getExceptionSpecType();
       if (EST == EST_BasicThrows || EST == EST_BasicThrowsTrue ||
-          EST == EST_BasicThrowsFalse || EST == EST_ThrowsTyped)
+          EST == EST_ThrowsTyped)
         FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     }
   }
@@ -2880,11 +2962,12 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
       AddAttributesFromFunctionProtoType(
           getContext(), FuncAttrs, Fn->getType()->getAs<FunctionProtoType>());
       if (AttrOnCallSite && Fn->isReplaceableGlobalAllocationFunction()) {
-        // A sane operator new returns a non-aliasing pointer and does not
-        // read or write accessible memory.
+        // A sane ordinary-ABI operator new returns a non-aliasing pointer and
+        // does not read or write accessible memory.
         if (getCodeGenOpts().AssumeSaneOperatorNew &&
             Fn->getDeclName().isAnyOperatorNew()) {
-          RetAttrs.addAttribute(llvm::Attribute::NoAlias);
+          if (!FI.hasThrowsReturn())
+            RetAttrs.addAttribute(llvm::Attribute::NoAlias);
           // FIXME: inaccessiblemem could cause issues if LTO makes the
           // previously inaccessible memory accessible after linking.
           FuncAttrs.addMemoryAttr(
@@ -2929,10 +3012,10 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     }
     if (const auto *RA = TargetDecl->getAttr<RestrictAttr>();
-        RA && RA->getDeallocator() == nullptr)
+        RA && RA->getDeallocator() == nullptr && !FI.hasThrowsReturn())
       RetAttrs.addAttribute(llvm::Attribute::NoAlias);
     if (TargetDecl->hasAttr<ReturnsNonNullAttr>() &&
-        !CodeGenOpts.NullPointerIsValid)
+        !CodeGenOpts.NullPointerIsValid && !FI.hasThrowsReturn())
       RetAttrs.addAttribute(llvm::Attribute::NonNull);
     if (TargetDecl->hasAttr<AnyX86NoCallerSavedRegistersAttr>())
       FuncAttrs.addAttribute("no_caller_saved_registers");
@@ -2944,7 +3027,8 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
       FuncAttrs.addAttribute("bpf_fastcall");
 
     HasOptnone = TargetDecl->hasAttr<OptimizeNoneAttr>();
-    if (auto *AllocSize = TargetDecl->getAttr<AllocSizeAttr>()) {
+    if (auto *AllocSize = TargetDecl->getAttr<AllocSizeAttr>();
+        AllocSize && !FI.hasThrowsReturn()) {
       std::optional<unsigned> NumElemsParam;
       if (AllocSize->getNumElemsParam().isValid())
         NumElemsParam = AllocSize->getNumElemsParam().getLLVMIndex();
@@ -3096,7 +3180,8 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   const llvm::DataLayout &DL = getDataLayout();
 
   // Determine if the return type could be partially undef
-  if (CodeGenOpts.EnableNoundefAttrs &&
+  if (!FI.hasThrowsReturn() &&
+      CodeGenOpts.EnableNoundefAttrs &&
       HasStrictReturn(*this, RetTy, TargetDecl)) {
     if (!RetTy->isVoidType() && RetAI.getKind() != ABIArgInfo::Indirect &&
         DetermineNoUndef(RetTy, getTypes(), DL, RetAI))
@@ -3139,7 +3224,12 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     llvm_unreachable("Invalid ABI kind for return argument");
   }
 
-  if (!IsThunk) {
+  // A herbception return is a shaped `{payload, i1}` aggregate. Attributes
+  // inferred from the source-level reference describe the pointer stored in
+  // the success payload, not the aggregate returned by the LLVM function, and
+  // attaching them to that aggregate is both semantically false on failure and
+  // rejected by the LLVM verifier.
+  if (!IsThunk && !FI.hasThrowsReturn()) {
     // FIXME: fix this properly, https://reviews.llvm.org/D100388
     if (const auto *RefTy = RetTy->getAs<ReferenceType>()) {
       QualType PTy = RefTy->getPointeeType();
@@ -3162,10 +3252,16 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   for (unsigned I = 0; I < IRFunctionArgs.totalIRArgs(); ++I)
     ArgAttrs.emplace_back(getLLVMContext());
 
-  // Attach attributes to sret.
+  // Attach attributes to the ABI result pointer.  LLVM requires a parameter
+  // carrying `sret` to belong to a void-returning function.  An indirect
+  // Herbception result instead uses the same target-selected pointer position
+  // as a compiler-owned success channel while physically returning {E, i1};
+  // omit only the verifier-restricted marker, retaining the pointer's write,
+  // unwind, register, and alignment contracts at definitions and call sites.
   if (IRFunctionArgs.hasSRetArg()) {
     llvm::AttrBuilder &SRETAttrs = ArgAttrs[IRFunctionArgs.getSRetArgNo()];
-    SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
+    if (!FI.hasThrowsReturn())
+      SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
     SRETAttrs.addAttribute(llvm::Attribute::Writable);
     SRETAttrs.addAttribute(llvm::Attribute::DeadOnUnwind);
     hasUsedSRet = true;
@@ -4532,12 +4628,27 @@ void CodeGenFunction::EmitFunctionEpilog(
       break;
     }
     }
+    if (FI.hasThrowsReturn()) {
+      // The success object already occupies the sret address.  Assemble only
+      // the independent failure carrier here; the common epilogue appends the
+      // discriminant.  Poison in the inactive error arm is intentional and
+      // cannot be observed when the discriminant denotes success.
+      auto *PhysicalRetTy = cast<llvm::StructType>(CurFn->getReturnType());
+      assert(PhysicalRetTy->getNumElements() == 2 &&
+             PhysicalRetTy->getElementType(0) ==
+                 FI.getHerbceptionErrorType() &&
+             "malformed indirect Herbception return type");
+      RV = llvm::PoisonValue::get(PhysicalRetTy);
+      llvm::Value *Error = Builder.CreateLoad(HerbceptionPayload);
+      RV = Builder.CreateInsertValue(RV, Error, 0);
+    }
     break;
   }
 
   case ABIArgInfo::Extend:
   case ABIArgInfo::Direct:
-    if (RetAI.getCoerceToType() == ConvertType(RetTy) &&
+    if (!FI.hasThrowsReturn() &&
+        RetAI.getCoerceToType() == ConvertType(RetTy) &&
         RetAI.getDirectOffset() == 0) {
       // The internal return value temp always will have pointer-to-return-type
       // type, just do a load.
@@ -4559,8 +4670,19 @@ void CodeGenFunction::EmitFunctionEpilog(
         RV = Builder.CreateLoad(ReturnValue);
       }
     } else {
+      // ReturnValue is deliberately a source-typed view for an active throws
+      // function, while ABI coercion must read the complete union carrier.
+      // Select the carrier view here; both addresses alias the same allocation.
+      // Reading through ReturnValue would make the coercion machinery infer T's
+      // smaller size and could omit bytes belonging to the active error value.
+      Address CoercionSource = ReturnValue;
+      if (FI.hasThrowsReturn()) {
+        assert(HerbceptionPayload.isValid() &&
+               "throws function has no payload carrier");
+        CoercionSource = HerbceptionPayload;
+      }
       // If the value is offset in memory, apply the offset now.
-      Address V = emitAddressAtOffset(*this, ReturnValue, RetAI);
+      Address V = emitAddressAtOffset(*this, CoercionSource, RetAI);
 
       RV = CreateCoercedLoad(V, RetTy, RetAI.getCoerceToType(), *this);
     }
@@ -6461,10 +6583,17 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       // All calls within a strictfp function are marked strictfp
       Attrs = Attrs.addFnAttribute(getLLVMContext(), llvm::Attribute::StrictFP);
 
-  AssumeAlignedAttrEmitter AssumeAlignedAttrEmitter(*this, TargetDecl);
+  // Alignment contracts describe the logical success pointer. A herbception
+  // call physically returns a shaped aggregate whose payload may instead hold
+  // an error, so neither LLVM return attributes nor unconditional assumptions
+  // may be attached to that aggregate.
+  const Decl *ReturnContractDecl =
+      CallInfo.hasThrowsReturn() ? nullptr : TargetDecl;
+  AssumeAlignedAttrEmitter AssumeAlignedAttrEmitter(*this, ReturnContractDecl);
   Attrs = AssumeAlignedAttrEmitter.TryEmitAsCallSiteAttribute(Attrs);
 
-  AllocAlignAttrEmitter AllocAlignAttrEmitter(*this, TargetDecl, CallArgs);
+  AllocAlignAttrEmitter AllocAlignAttrEmitter(*this, ReturnContractDecl,
+                                               CallArgs);
   Attrs = AllocAlignAttrEmitter.TryEmitAsCallSiteAttribute(Attrs);
 
   // Emit the actual call/invoke instruction.
@@ -6557,6 +6686,15 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       }
     }
   }
+
+  // The scoped output slot identifies a wrapper-owned call only after that
+  // slot has actually been filled with this instruction. Comparing the slot
+  // addresses themselves is insufficient: ordinary implicit calls commonly
+  // pass no output pointer, so two null pointers would incorrectly suppress
+  // their failure channel; nested calls see the outer slot still null and
+  // therefore continue to propagate normally.
+  const bool WrapperConsumesThisCall =
+      HerbceptionOperandCallResult && *HerbceptionOperandCallResult == CI;
 
   // If this is within a function that has the guard(nocf) attribute and is an
   // indirect call, add the "guard_nocf" attribute to this call to indicate that
@@ -6908,7 +7046,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   }
 
   // Emit the assume_aligned check on the return value.
-  if (Ret.isScalar() && TargetDecl) {
+  if (Ret.isScalar() && ReturnContractDecl) {
     AssumeAlignedAttrEmitter.EmitAsAnAssumption(Loc, RetTy, Ret);
     AllocAlignAttrEmitter.EmitAsAnAssumption(Loc, RetTy, Ret);
   }
@@ -6917,6 +7055,71 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // we can't use the full cleanup mechanism.
   for (CallLifetimeEnd &LifetimeEnd : CallLifetimeEndAfterCall)
     LifetimeEnd.Emit(*this, /*Flags=*/{});
+
+  // Explicit call syntax is wrapped in CXXTryExpr by Sema, but the language
+  // also performs calls while forming implicit conversions and overloaded
+  // operators. Those calls reach this common lowering path without a wrapper.
+  // Propagate their discriminator here, before registering destruction of the
+  // success object: on the failure arm that object was never constructed.
+  // CallInfo is the authoritative effect descriptor; inspecting the physical
+  // two-field LLVM type would accidentally classify unrelated aggregates.
+  if (!WrapperConsumesThisCall && CallInfo.hasThrowsReturn() &&
+      CurFnInfo->hasThrowsReturn() && HerbceptionCatchScopes.empty()) {
+    assert(isa<llvm::StructType>(CI->getType()) &&
+           CI->getType()->getStructNumElements() == 2 &&
+           cast<llvm::StructType>(CI->getType())
+               ->getElementType(1)
+               ->isIntegerTy(1) &&
+           "active Herbception call must return {payload, i1}");
+    assert(HerbceptionPayload.isValid() &&
+           HerbceptionDiscriminant.isValid() &&
+           "active Herbception caller must own return-channel storage");
+
+    llvm::Value *Payload = Builder.CreateExtractValue(CI, 0);
+    llvm::Value *Disc = Builder.CreateExtractValue(CI, 1);
+    llvm::BasicBlock *OkBB = createBasicBlock("herb.implicit.ok");
+    llvm::BasicBlock *ErrBB = createBasicBlock("herb.implicit.err");
+    Builder.CreateCondBr(Disc, ErrBB, OkBB);
+
+    EmitBlock(ErrBB);
+    {
+      RunCleanupsScope FailureScope(*this);
+      llvm::Type *SourceTy = Payload->getType();
+      llvm::Type *DestinationTy = HerbceptionPayload.getElementType();
+      if (SourceTy == DestinationTy) {
+        auto *Store = Builder.CreateStore(Payload, HerbceptionPayload);
+        addInstToCurrentSourceAtom(Store, Store->getValueOperand());
+      } else {
+        // The payload is union storage, so only its active error alternative
+        // has a value. Preserve the already evaluated call and copy the common
+        // byte prefix rather than loading an inactive LLVM alternative or
+        // reading beyond a smaller temporary.
+        const llvm::DataLayout &DL = CGM.getDataLayout();
+        llvm::TypeSize SourceSize = DL.getTypeAllocSize(SourceTy);
+        llvm::TypeSize DestinationSize =
+            DL.getTypeAllocSize(DestinationTy);
+        assert(!SourceSize.isScalable() && !DestinationSize.isScalable() &&
+               "Herbception payload storage must have a fixed ABI size");
+        uint64_t CopySize = SourceSize.getFixedValue();
+        if (DestinationSize.getFixedValue() < CopySize)
+          CopySize = DestinationSize.getFixedValue();
+        if (CopySize) {
+          Address Source =
+              CreateDefaultAlignTempAlloca(SourceTy, "herb.implicit.payload");
+          auto *Store = Builder.CreateStore(Payload, Source);
+          addInstToCurrentSourceAtom(Store, Store->getValueOperand());
+          auto *Copy =
+              Builder.CreateMemCpy(HerbceptionPayload, Source, CopySize);
+          addInstToCurrentSourceAtom(Copy, Payload);
+        }
+      }
+      Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
+      FailureScope.ForceCleanup();
+      EmitBranchThroughCleanup(ReturnBlock);
+    }
+
+    EmitBlock(OkBB);
+  }
 
   if (!ReturnValue.isExternallyDestructed() &&
       RetTy.isDestructedType() == QualType::DK_nontrivial_c_struct)
@@ -6947,12 +7150,19 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // `try { } catch throws(E e) { }` block routes the discriminant to the
   // handler instead of discarding it (in a noexcept function) or propagating
   // it (in a throws function). Calls that are the operand of `try(expr)` or
-  // `catch fails(expr)` are handled by those expressions (InHerbceptionOperand
-  // is set), and calls with a plain (non-{T,i1}) return are untouched. A
-  // throws return is specifically `{T, i1}` — the discriminant is a single
-  // bit — so an arbitrary two-field struct (e.g. an iovec-style status like
+  // `catch fails(expr)` are handled by those expressions (their result-output
+  // pointer identifies exactly that call), and calls with a plain
+  // (non-{T,i1}) return are untouched. Nested fallible calls used to evaluate
+  // the wrapped call's callee or arguments retain normal routing. A throws
+  // return is specifically `{T, i1}` — the discriminant is a single bit — so
+  // an arbitrary two-field struct (e.g. an iovec-style status like
   // {size_t, size_t}) is not treated as a throws call.
-  if (!InHerbceptionOperand && isa<llvm::StructType>(CI->getType()) &&
+  // The active-caller/no-handler case was already routed before success-object
+  // destruction above; excluding it here also avoids decoding the same
+  // discriminator twice on the success path.
+  if (!WrapperConsumesThisCall && CallInfo.hasThrowsReturn() &&
+      (!CurFnInfo->hasThrowsReturn() || !HerbceptionCatchScopes.empty()) &&
+      isa<llvm::StructType>(CI->getType()) &&
       CI->getType()->getStructNumElements() == 2 &&
       cast<llvm::StructType>(CI->getType())->getElementType(1)->isIntegerTy(1)) {
     llvm::Value *Payload = Builder.CreateExtractValue(CI, 0);
@@ -6987,6 +7197,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         auto *I = Builder.CreateStore(Coerced, Scope.ErrorSlot);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
         CleanupScope.ForceCleanup();
+        markHerbceptionFunctionTryFailure(Scope);
         EmitBranchThroughCleanup(Scope.Handler);
       }
 

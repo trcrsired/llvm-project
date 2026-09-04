@@ -5382,7 +5382,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             DynamicExceptions.push_back(FTI.Exceptions[I].Ty);
             DynamicExceptionRanges.push_back(FTI.Exceptions[I].Range);
           }
-        } else if (isComputedNoexcept(FTI.getExceptionSpecType())) {
+        } else if (hasExceptionSpecificationExpr(
+                       FTI.getExceptionSpecType())) {
           NoexceptExpr = FTI.NoexceptExpr;
         }
 
@@ -8333,6 +8334,7 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state, ParsedAttr &attr,
       case EST_Unparsed:
       case EST_Uninstantiated:
       case EST_DependentNoexcept:
+      case EST_DependentThrows:
       case EST_Unevaluated:
         // We don't have enough information to properly determine if there is a
         // conflict, so suppress the warning.

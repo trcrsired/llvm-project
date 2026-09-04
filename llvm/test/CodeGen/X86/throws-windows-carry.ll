@@ -77,9 +77,10 @@ entry:
   ret { i32, i1 } %r1
 }
 
-; CMOV discriminant use: folds setb/testb/cmovne into cmovb/cmovae on
-; x86_64, and setb/testb/jne into jb/jae on i686 (where select lowers to
-; a branch with an intervening MOV32r0 that the peephole now skips).
+; CMOV discriminant use folds setb/testb/cmovne into cmovb/cmovae on
+; x86_64. On i686, select lowers to a branch with an intervening MOV32r0.
+; MOV32r0 expands to XOR32rr and therefore clobbers CF, so the callee's
+; discriminator must remain materialized instead of being folded into JCC.
 define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-LABEL: call_and_select:
 ; CHECK:       callq foo
@@ -88,9 +89,9 @@ define i64 @call_and_select(i64 %x) #1 {
 ; CHECK:       cmov{{b|ae}}
 ; CHECK32-LABEL: _call_and_select:
 ; CHECK32:       calll _foo
-; CHECK32-NOT:   setb
-; CHECK32-NOT:   testb
-; CHECK32:       j{{b|ae}} LBB3_
+; CHECK32-NEXT:  setb [[DISC:%[a-z0-9]+]]
+; CHECK32:       testb $1, [[DISC]]
+; CHECK32:       j{{e|ne}} LBB3_
 entry:
   %c = call { i64, i1 } @foo(i64 %x) #1
   %val = extractvalue { i64, i1 } %c, 0

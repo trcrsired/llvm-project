@@ -44,7 +44,11 @@ namespace serialization {
 /// Version 4 of AST files also requires that the version control branch and
 /// revision match exactly, since there is no backward compatibility of
 /// AST files at this time.
-const unsigned VERSION_MAJOR = 39;
+// Version 40 extends AST records with Herbception failure-channel identity and
+// propagation state. Readers of older records cannot reconstruct those ABI
+// distinctions conservatively, so stale PCH and module files must be rejected
+// rather than mis-lowered.
+const unsigned VERSION_MAJOR = 40;
 
 /// AST file minor version number supported by this version of
 /// Clang.

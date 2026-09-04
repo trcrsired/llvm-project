@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++20 -fherbceptions -fcxx-exceptions -fsyntax-only -verify %s
 
 // Destructors cannot be declared with a herbceptions exception specification:
 // destruction must be able to run during cleanup, so it cannot itself fail
@@ -14,10 +14,15 @@ struct DtorThrowsTrue {
 
 struct DtorFails {
   ~DtorFails() return_failure{int}; // expected-error {{destructor cannot be declared with a herbceptions ('throws'/'return_failure{...}') exception specification; destructors cannot propagate errors}} \
-                          // expected-error {{'return_failure{...}' is a C-style feature and may only be attached to free (non-member) functions; it is not allowed on member functions (including static members), lambdas, or function templates}}
+                          // expected-error {{'return_failure{...}' is a C-style feature and may only be attached to free (non-member) functions; it is not allowed on member functions (including static members) or lambdas}}
 };
 
 // noexcept destructors remain fine.
 struct DtorOk {
   ~DtorOk() noexcept;
+};
+
+// The false spelling is the same non-failing type as noexcept(true).
+struct DtorThrowsFalse {
+  ~DtorThrowsFalse() throws(false);
 };

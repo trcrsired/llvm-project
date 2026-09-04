@@ -41,3 +41,15 @@ struct std::coroutine_traits<Task, int> {
 Task make_task(int x) throws {
   co_return;
 }
+
+// An explicit true condition is the same live channel as bare throws.
+// expected-error@+2 {{'throws' is not allowed on coroutine functions; all herbceptions must be caught within the coroutine body}}
+Task make_task_true(int x) throws(true) {
+  co_return;
+}
+
+// The false state is noexcept(true), uses the ordinary coroutine ABI, and has
+// no herbception channel to forbid.
+Task make_task_disabled(int x) throws(false) {
+  co_return;
+}

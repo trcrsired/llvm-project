@@ -4409,20 +4409,6 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
     return StmtError();
   }
 
-  // A `catch throws(std::error)` block inside a `fails{E}` function receives
-  // the errors of `throws` callees and of converted `fails` callees through
-  // the std::error channel; converting this function's own error type E
-  // requires a visible std::error_domain<E> specialization.
-  if (const FunctionDecl *CurFD = getCurFunctionDecl())
-    if (const auto *FPT = CurFD->getType()->getAs<FunctionProtoType>();
-        FPT && FPT->hasReturnFailureSpec()) {
-      QualType ErrTy = FPT->getExceptionType(0);
-      if (!lookupErrorDomain(SpecLoc, ErrTy)) {
-        Diag(SpecLoc, diag::err_catch_throws_requires_error_domain) << ErrTy;
-        return StmtError();
-      }
-    }
-
   // Build the conversion expression that fabricates a std::error from a
   // caught legacy C++ exception (so a `noexcept(false)` call inside the try
   // block throwing is auto-converted and caught here). The conversion is
@@ -4531,6 +4517,224 @@ public:
     return false;
   }
 };
+
+enum class HerbceptionDestinationKind { None, Basic, Typed, Dependent };
+
+struct HerbceptionDestination {
+  HerbceptionDestinationKind Kind = HerbceptionDestinationKind::None;
+  QualType FailureType;
+};
+
+/// Resolve each propagation expression against the destination selected by
+/// the completed control-flow graph. In particular, a try body routes to its
+/// first catch-throws clause, a traditional handler routes to the next later
+/// catch-throws sibling, and a catch-throws handler body routes outward. This
+/// mirrors CodeGen's catch-scope push/pop order and prevents lexical handler
+/// state from selecting a dead or already-popped error slot.
+class HerbceptionPropagationResolver : public DynamicRecursiveASTVisitor {
+  Sema &S;
+  bool IsMain;
+  HerbceptionDestination Current;
+  bool Invalid = false;
+
+  bool traverseWithDestination(Stmt *Node, HerbceptionDestination Destination) {
+    HerbceptionDestination Saved = Current;
+    Current = Destination;
+    bool Result = TraverseStmt(Node);
+    Current = Saved;
+    return Result;
+  }
+
+public:
+  HerbceptionPropagationResolver(Sema &S, bool IsMain,
+                                 HerbceptionDestination Destination)
+      : S(S), IsMain(IsMain), Current(Destination) {}
+
+  bool VisitCXXTryExpr(CXXTryExpr *E) override {
+    if (!E->isPropagationPending())
+      return true;
+
+    const FunctionProtoType *SourceFPT =
+        S.getHerbceptionCalleeProto(E->getSubExpr());
+    if (!SourceFPT ||
+        SourceFPT->getExceptionSpecType() == EST_DependentThrows ||
+        E->getSubExpr()->isTypeDependent() ||
+        (!E->getFailureType().isNull() &&
+         E->getFailureType()->isDependentType()) ||
+        Current.Kind == HerbceptionDestinationKind::Dependent)
+      return true;
+
+    const bool SourceIsTyped = SourceFPT->hasReturnFailureSpec();
+    const bool SourceIsBasic = SourceFPT->hasThrowsSpec() && !SourceIsTyped;
+    if (!SourceIsTyped && !SourceIsBasic)
+      return true;
+
+    if (Current.Kind == HerbceptionDestinationKind::None) {
+      // main preserves the existing hard-termination boundary. Every other
+      // live propagation expression requires an actual handler/function slot.
+      if (!IsMain) {
+        S.Diag(E->getTryLoc(), diag::err_herbceptions_non_throws_call_throws);
+        Invalid = true;
+      }
+      E->setPropagationKind(CXXTryExpr::PropagationKind::Raw);
+      return true;
+    }
+
+    if (Current.Kind == HerbceptionDestinationKind::Basic) {
+      if (!SourceIsTyped) {
+        E->setPropagationKind(CXXTryExpr::PropagationKind::Raw);
+        return true;
+      }
+      Invalid |= S.ResolveHerbceptionErrorDomainConversion(E);
+      return true;
+    }
+
+    assert(Current.Kind == HerbceptionDestinationKind::Typed &&
+           !Current.FailureType.isNull());
+    if (!SourceIsTyped) {
+      S.Diag(E->getTryLoc(), diag::err_herbceptions_basic_to_typed_propagation)
+          << Current.FailureType;
+      E->setPropagationKind(CXXTryExpr::PropagationKind::Raw);
+      Invalid = true;
+      return true;
+    }
+    if (!S.Context.hasSameType(E->getFailureType(), Current.FailureType)) {
+      S.Diag(E->getTryLoc(), diag::err_herbceptions_typed_propagation_mismatch)
+          << E->getFailureType() << Current.FailureType;
+      E->setPropagationKind(CXXTryExpr::PropagationKind::Raw);
+      Invalid = true;
+      return true;
+    }
+    E->setPropagationKind(CXXTryExpr::PropagationKind::Raw);
+    return true;
+  }
+
+  bool TraverseCXXTryExpr(CXXTryExpr *E) override {
+    // Conversion calls are semantic lowering nodes, not source evaluation
+    // regions with independent propagation destinations. Visit the wrapper,
+    // then recurse only into its original operand.
+    if (!VisitCXXTryExpr(E))
+      return false;
+    return TraverseStmt(E->getSubExpr());
+  }
+
+  bool TraverseCXXTryStmt(CXXTryStmt *Try) override {
+    HerbceptionDestination Outer = Current;
+    HerbceptionDestination Basic{HerbceptionDestinationKind::Basic,
+                                 QualType()};
+
+    bool HasHerbceptionHandler = false;
+    for (unsigned I = 0; I != Try->getNumHandlers(); ++I)
+      if (isa<CXXCatchThrowsStmt>(Try->getHandler(I))) {
+        HasHerbceptionHandler = true;
+        break;
+      }
+
+    if (!traverseWithDestination(Try->getTryBlock(),
+                                 HasHerbceptionHandler ? Basic : Outer))
+      return false;
+
+    for (unsigned I = 0; I != Try->getNumHandlers(); ++I) {
+      Stmt *Handler = Try->getHandler(I);
+      if (auto *Herb = dyn_cast<CXXCatchThrowsStmt>(Handler)) {
+        // The current handler's catch scope is popped before its body runs.
+        if (!traverseWithDestination(Herb->getHandlerBlock(), Outer))
+          return false;
+        continue;
+      }
+
+      bool HasLaterHerbceptionHandler = false;
+      for (unsigned J = I + 1; J != Try->getNumHandlers(); ++J)
+        if (isa<CXXCatchThrowsStmt>(Try->getHandler(J))) {
+          HasLaterHerbceptionHandler = true;
+          break;
+        }
+      if (!traverseWithDestination(
+              cast<CXXCatchStmt>(Handler)->getHandlerBlock(),
+              HasLaterHerbceptionHandler ? Basic : Outer))
+        return false;
+    }
+    return true;
+  }
+
+  bool TraverseLambdaExpr(LambdaExpr *Lambda) override {
+    for (unsigned I = 0, N = Lambda->capture_size(); I != N; ++I)
+      TraverseLambdaCapture(Lambda, Lambda->capture_begin() + I,
+                            Lambda->capture_init_begin()[I]);
+    return true;
+  }
+
+  bool TraverseBlockExpr(BlockExpr *) override { return true; }
+
+  // A local class definition is not executed where it is declared. Its
+  // methods and default member initializers acquire their own propagation
+  // destinations when a constructor or method is instantiated/called, so an
+  // enclosing catch-throws clause must not resolve their dormant ASTs.
+  bool TraverseCXXRecordDecl(CXXRecordDecl *) override { return true; }
+
+  bool TraverseIfStmt(IfStmt *If) override {
+    std::optional<Stmt *> Nondiscarded =
+        If->getNondiscardedCase(S.Context);
+    if (!Nondiscarded && !If->isConstexpr())
+      return DynamicRecursiveASTVisitor::TraverseIfStmt(If);
+
+    // A known discarded constexpr arm has no runtime destination and must not
+    // make the live try statement depend on its unused error domain. The init,
+    // condition variable, and condition are still evaluated normally.
+    if (Stmt *Init = If->getInit())
+      if (!TraverseStmt(Init))
+        return false;
+    if (DeclStmt *CondDecl = If->getConditionVariableDeclStmt())
+      if (!TraverseStmt(CondDecl))
+        return false;
+    if (!TraverseStmt(If->getCond()))
+      return false;
+    // A dependent constexpr condition has no selected runtime arm yet. The
+    // instantiated IfStmt replaces its discarded arm and a rebuilt enclosing
+    // try statement runs this resolver again on the selected subtree.
+    return !Nondiscarded || !*Nondiscarded ||
+           TraverseStmt(*Nondiscarded);
+  }
+
+  bool isInvalid() const { return Invalid; }
+};
+}
+
+bool Sema::ResolveHerbceptionPropagation(const FunctionProtoType *FPT,
+                                         Stmt *Body, bool IsMain,
+                                         bool HasCatchThrowsDestination) {
+  if (!FPT || !Body)
+    return false;
+
+  HerbceptionDestination Destination;
+  // Constructor initializers are not children of the function-try statement,
+  // yet [except.handle] places them in that statement's protected region. The
+  // completed handler list is available at function finalization, so callers
+  // can explicitly select its std::error destination for these detached ASTs.
+  if (HasCatchThrowsDestination) {
+    Destination.Kind = HerbceptionDestinationKind::Basic;
+  } else {
+    switch (FPT->getExceptionSpecType()) {
+    case EST_BasicThrows:
+    case EST_BasicThrowsTrue:
+      Destination.Kind = HerbceptionDestinationKind::Basic;
+      break;
+    case EST_ThrowsTyped:
+      Destination.Kind = HerbceptionDestinationKind::Typed;
+      Destination.FailureType = FPT->getExceptionType(0);
+      break;
+    case EST_DependentThrows:
+      Destination.Kind = HerbceptionDestinationKind::Dependent;
+      break;
+    default:
+      Destination.Kind = HerbceptionDestinationKind::None;
+      break;
+    }
+  }
+
+  HerbceptionPropagationResolver Resolver(*this, IsMain, Destination);
+  Resolver.TraverseStmt(Body);
+  return Resolver.isInvalid();
 }
 
 StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,

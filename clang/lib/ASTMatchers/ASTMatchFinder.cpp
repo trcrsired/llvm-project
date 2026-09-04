@@ -579,8 +579,8 @@ public:
         for (const auto &E : T->exceptions())
           TraverseType(E, /*TraverseQualifier=*/true);
 
-        if (Expr *NE = T->getNoexceptExpr())
-          TraverseStmt(NE, Queue);
+        if (Expr *E = T->getExceptionSpecExpr())
+          TraverseStmt(E, Queue);
 
         if (LE->hasExplicitResultType())
           TraverseTypeLoc(Proto.getReturnLoc(), /*TraverseQualifier=*/true);

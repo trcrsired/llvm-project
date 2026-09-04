@@ -36,3 +36,9 @@ template <> struct error_domain<ok> {
   static constexpr __SIZE_TYPE__ code(ok) noexcept { return 0; }
 };
 } // namespace std
+
+void use_invalid_domain() throws {
+  // Lookup of an already-invalid accessor must stop in Sema rather than
+  // leaving malformed pointer construction for CodeGen.
+  throw throws std::bad1::a; // expected-error {{no std::error_domain specialization}}
+}

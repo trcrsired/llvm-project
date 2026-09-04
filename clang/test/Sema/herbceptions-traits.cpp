@@ -76,12 +76,28 @@ using R4 = __invoke_herbceptions_return_failure_result<Fp>;
 static_assert(__is_same(typename R4::value_type, int), "fp returns int");
 static_assert(__is_same(typename R4::error_type, std::myerr), "fp return_failure{myerr}");
 
+using hidden_const_error = const int;
+int hidden_const_failure(int) return_failure{hidden_const_error};
+using R5 =
+    __invoke_herbceptions_return_failure_result<decltype(hidden_const_failure)>;
+static_assert(__is_same(typename R5::error_type, int),
+              "error_type discards top-level cv hidden by an alias");
+
+int const_pointee_failure(int) return_failure{const int *};
+using R6 = __invoke_herbceptions_return_failure_result<
+    decltype(const_pointee_failure)>;
+static_assert(__is_same(typename R6::error_type, const int *),
+              "error_type preserves pointee cv-qualification");
+
 // __is_herbceptions_throws_constructible
 struct throws_copy {
   throws_copy(throws_copy const &) throws;
 };
 struct noexcept_copy {
   noexcept_copy(noexcept_copy const &) noexcept;
+};
+struct throws_false_copy {
+  throws_false_copy(throws_false_copy const &) throws(false);
 };
 struct throws_move {
   throws_move(throws_move &&) throws;
@@ -94,6 +110,9 @@ static_assert(__is_herbceptions_throws_constructible(throws_copy, throws_copy co
               "throws_copy is throws constructible from const&");
 static_assert(!__is_herbceptions_throws_constructible(noexcept_copy, noexcept_copy const &),
               "noexcept_copy is not throws constructible");
+static_assert(!__is_herbceptions_throws_constructible(
+                  throws_false_copy, throws_false_copy const &),
+              "throws(false) copy is not throws constructible");
 static_assert(__is_herbceptions_throws_constructible(throws_move, throws_move &&),
               "throws_move is throws constructible from &&");
 static_assert(!__is_herbceptions_throws_constructible(noexcept_move, noexcept_move &&),
@@ -104,6 +123,10 @@ static_assert(__is_herbceptions_throws_constructible(throws_copy, const throws_c
               "throws_copy is throws copy constructible");
 static_assert(!__is_herbceptions_throws_constructible(noexcept_copy, const noexcept_copy &),
               "noexcept_copy is not throws copy constructible");
+static_assert(!__has_herbceptions_throws_copy(throws_false_copy),
+              "throws(false) copy is not a live herbception copy");
+static_assert(!__has_herbceptions_throws_constructor(throws_false_copy),
+              "throws(false) constructor is not a live herbception constructor");
 static_assert(__is_herbceptions_throws_constructible(throws_move, throws_move &&),
               "throws_move is throws move constructible");
 static_assert(!__is_herbceptions_throws_constructible(noexcept_move, noexcept_move &&),

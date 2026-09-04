@@ -106,6 +106,12 @@ public:
   void AddTemplateArgument(TemplateArgument TA);
   void AddTemplateParameterList(const TemplateParameterList *TPL);
 
+  /// Process a function prototype's exception specification. Herbception
+  /// specifications participate in the physical return ABI, so omitting them
+  /// can make module ODR hashes collide for definitions that are not ABI
+  /// interchangeable.
+  void AddFunctionProtoTypeExceptionSpec(const FunctionProtoType *T);
+
   // Save booleans until the end to lower the size of data to process.
   void AddBoolean(bool value);
 

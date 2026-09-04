@@ -1902,14 +1902,33 @@ TypeNode *Demangler::demangleType(std::string_view &MangledName,
   return Ty;
 }
 
-bool Demangler::demangleThrowSpecification(std::string_view &MangledName) {
-  if (consumeFront(MangledName, "_E"))
-    return true;
+void Demangler::demangleThrowSpecification(std::string_view &MangledName,
+                                           FunctionSignatureNode *FTy) {
+  if (consumeFront(MangledName, "_HB")) {
+    FTy->HerbceptionSpec = HerbceptionSpecKind::Throws;
+    return;
+  }
+  if (consumeFront(MangledName, "_HT")) {
+    FTy->HerbceptionSpec = HerbceptionSpecKind::ReturnFailure;
+    FTy->HerbceptionErrorType =
+        demangleType(MangledName, QualifierMangleMode::Drop);
+    if (FTy->HerbceptionErrorType == nullptr)
+      Error = true;
+    return;
+  }
+  if (consumeFront(MangledName, "_HD")) {
+    FTy->HerbceptionSpec = HerbceptionSpecKind::DependentThrows;
+    FTy->HerbceptionConditionHash = demangleUnsigned(MangledName);
+    return;
+  }
+  if (consumeFront(MangledName, "_E")) {
+    FTy->IsNoexcept = true;
+    return;
+  }
   if (consumeFront(MangledName, 'Z'))
-    return false;
+    return;
 
   Error = true;
-  return false;
 }
 
 FunctionSignatureNode *
@@ -1934,7 +1953,7 @@ Demangler::demangleFunctionType(std::string_view &MangledName,
 
   FTy->Params = demangleFunctionParameterList(MangledName, FTy->IsVariadic);
 
-  FTy->IsNoexcept = demangleThrowSpecification(MangledName);
+  demangleThrowSpecification(MangledName, FTy);
 
   return FTy;
 }

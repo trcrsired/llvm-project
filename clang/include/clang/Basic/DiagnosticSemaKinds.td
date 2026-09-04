@@ -8822,6 +8822,9 @@ def err_herbceptions_non_throws_call_throws : Error<
   "calling function as 'throws' so herbceptions can propagate">;
 def err_failure_outside_return_failure_function : Error<
   "'return_failure(expr)' is only allowed inside a function declared 'return_failure{...}'">;
+def err_return_failure_operand_type_mismatch : Error<
+  "'return_failure' operand has type %0, but the enclosing function declares "
+  "error type %1; the types must match exactly">;
 def err_return_return_failure : Error<
   "'return' cannot be used with 'return_failure': use 'return_failure expr;' directly">;
 def err_herbceptions_destructor_spec : Error<
@@ -8831,7 +8834,11 @@ def err_herbceptions_destructor_spec : Error<
 def err_return_failure_only_free_function : Error<
   "'return_failure{...}' is a C-style feature and may only be attached to free "
   "(non-member) functions; it is not allowed on member functions (including "
-  "static members), lambdas, or function templates">;
+  "static members) or lambdas">;
+def err_return_failure_requires_single_error_type : Error<
+  "'return_failure{...}' requires exactly one non-pack error type">;
+def err_return_failure_type_not_object : Error<
+  "the 'return_failure{...}' error type %0 must be an object type">;
 def err_throws_not_allowed_in_coroutine : Error<
   "'throws' is not allowed on coroutine functions; all herbceptions must be "
   "caught within the coroutine body">;
@@ -8872,6 +8879,12 @@ def err_catch_throws_requires_error_domain : Error<
 def err_return_failure_call_in_catch_throws : Error<
   "'catch throws(std::error)' handles std::error values; wrap this "
   "'return_failure{...}' call in 'try()' to convert its error">;
+def err_herbceptions_typed_propagation_mismatch : Error<
+  "cannot propagate a 'return_failure{%0}' error into a "
+  "'return_failure{%1}' channel; failure types must match exactly">;
+def err_herbceptions_basic_to_typed_propagation : Error<
+  "cannot propagate the implicit std::error channel of a 'throws' function "
+  "into a 'return_failure{%0}' channel; handle it with 'catch throws'">;
 def err_throw_throws_in_return_failure_function : Error<
   "'throw throws' is not allowed inside a 'return_failure{...}' function; use "
   "'return_failure(...)' to return an error">;

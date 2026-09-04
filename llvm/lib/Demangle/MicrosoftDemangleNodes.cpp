@@ -445,6 +445,23 @@ void FunctionSignatureNode::outputPost(OutputBuffer &OB,
   if (IsNoexcept)
     OB << " noexcept";
 
+  switch (HerbceptionSpec) {
+  case HerbceptionSpecKind::None:
+    break;
+  case HerbceptionSpecKind::Throws:
+    OB << " throws";
+    break;
+  case HerbceptionSpecKind::DependentThrows:
+    OB << " throws(<dependent:" << HerbceptionConditionHash << ">)";
+    break;
+  case HerbceptionSpecKind::ReturnFailure:
+    OB << " return_failure{";
+    if (HerbceptionErrorType)
+      HerbceptionErrorType->output(OB, Flags);
+    OB << "}";
+    break;
+  }
+
   if (RefQualifier == FunctionRefQualifier::Reference)
     OB << " &";
   else if (RefQualifier == FunctionRefQualifier::RValueReference)

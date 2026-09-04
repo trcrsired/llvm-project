@@ -346,16 +346,27 @@ ExprDependence clang::computeDependence(CXXErrorValueExpr *E) {
 
 ExprDependence clang::computeDependence(CXXTryExpr *E) {
   // Unlike CXXThrowExpr (whose result type is void), the try expression's
-  // result type is the success value type of the operand call, so it is
-  // type-dependent whenever the operand is.
-  return E->getSubExpr()->getDependence();
+  // result type is the success value type of the operand call. The failure
+  // type can remain dependent even when that success type is concrete. A
+  // pending destination is also instantiation-dependent by construction: it
+  // must be cloned and resolved in each specialization rather than mutating a
+  // shared template-definition node for the first specialization encountered.
+  ExprDependence D = E->getSubExpr()->getDependence();
+  if (!E->getFailureType().isNull())
+    D |= toExprDependenceForImpliedType(
+        E->getFailureType()->getDependence());
+  if (E->isPropagationPending())
+    D |= ExprDependence::Instantiation;
+  return D;
 }
 
 ExprDependence clang::computeDependence(CXXCatchReturnFailureExpr *E) {
   // The catch fails expression's result type is either{T, E}, built from the
-  // operand's value and error types, so it is type-dependent whenever the
-  // operand is (keeping `auto` deduction deferred until instantiation).
-  return E->getSubExpr()->getDependence();
+  // operand's value and error types. E can remain dependent even when the
+  // callable has a concrete T, so include the synthetic result type rather
+  // than relying solely on CallExpr's success-type dependence.
+  return E->getSubExpr()->getDependence() |
+         toExprDependenceForImpliedType(E->getType()->getDependence());
 }
 
 ExprDependence clang::computeDependence(CXXBindTemporaryExpr *E) {

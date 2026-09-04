@@ -3736,8 +3736,13 @@ CXXNameMangler::mangleExtParameterInfo(FunctionProtoType::ExtParameterInfo PI) {
 }
 
 // <type>          ::= <function-type>
-// <function-type> ::= [<CV-qualifiers>] F [Y]
+// <function-type> ::= [<CV-qualifiers>] [<exception-spec>] F [Y]
 //                      <bare-function-type> [<ref-qualifier>] E
+//
+// Herbceptions extension:
+// <exception-spec> ::= DXH              # active `throws`
+//                  ::= DXF <type> E     # `return_failure{type}`
+//                  ::= DX <expression> E # dependent `throws(expression)`
 void CXXNameMangler::mangleType(const FunctionProtoType *T) {
   unsigned SMEAttrs = T->getAArch64SMEAttributes();
 
@@ -3750,12 +3755,32 @@ void CXXNameMangler::mangleType(const FunctionProtoType *T) {
   // e.g. "const" in "int (A::*)() const".
   mangleQualifiers(T->getMethodQuals());
 
-  // Mangle instantiation-dependent exception-specification, if present,
-  // per cxx-abi-dev proposal on 2016-10-11.
-  if (T->hasInstantiationDependentExceptionSpec()) {
+  // The typed Herbception payload is part of the physical function type even
+  // while E is dependent. Use the same delimited production before the generic
+  // dependent-exception path so a template cannot be mistaken for a dynamic
+  // exception specification.
+  if (T->getExceptionSpecType() == EST_ThrowsTyped) {
+    assert(T->getNumExceptions() == 1 &&
+           "return_failure must carry exactly one error type");
+    Out << "DXF";
+    // Match the canonical typed-failure ABI even when an alias hides
+    // top-level cv-qualification in a non-canonical source type.
+    mangleType(T->getExceptionType(0).getCanonicalType().getUnqualifiedType());
+    Out << 'E';
+  } else if (T->hasInstantiationDependentExceptionSpec()) {
+    // Mangle other instantiation-dependent exception specifications per the
+    // cxx-abi-dev proposal on 2016-10-11.
     if (isComputedNoexcept(T->getExceptionSpecType())) {
       Out << "DO";
       mangleExpression(T->getNoexceptExpr());
+      Out << "E";
+    } else if (isComputedThrows(T->getExceptionSpecType())) {
+      // Herbceptions extends the function-type grammar with DX <expression> E
+      // for a dependent throws condition. A distinct marker is required: DO
+      // denotes dependent noexcept and the two can select different physical
+      // return ABIs after substitution.
+      Out << "DX";
+      mangleExpression(T->getThrowsExpr());
       Out << "E";
     } else {
       assert(T->getExceptionSpecType() == EST_Dynamic);
@@ -3763,6 +3788,20 @@ void CXXNameMangler::mangleType(const FunctionProtoType *T) {
       for (auto ExceptTy : T->exceptions())
         mangleType(ExceptTy);
       Out << "E";
+    }
+  } else if (T->hasThrowsSpec()) {
+    switch (T->getExceptionSpecType()) {
+    case EST_BasicThrows:
+    case EST_BasicThrowsTrue:
+      // DXH is deliberately distinct from both an absent exception spec and
+      // Do. The source spellings `throws` and `throws(true)` are canonical
+      // forms of the same active effect type and therefore share this code.
+      Out << "DXH";
+      break;
+    case EST_ThrowsTyped:
+      llvm_unreachable("typed failure handled before dependent specifications");
+    default:
+      llvm_unreachable("unexpected resolved herbception specification");
     }
   } else if (T->isNothrow()) {
     Out << "Do";

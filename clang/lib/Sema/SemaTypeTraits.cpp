@@ -756,7 +756,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
           Found = true;
           auto *CPT = Method->getType()->castAs<FunctionProtoType>();
           CPT = Self.ResolveExceptionSpec(KeyLoc, CPT);
-          if (!CPT || !hasHerbceptionExceptionSpec(CPT->getExceptionSpecType()))
+          if (!CPT || !CPT->hasThrowsSpec())
             return false;
         }
       } else {
@@ -774,7 +774,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
           Found = true;
           auto *CPT = Ctor->getType()->castAs<FunctionProtoType>();
           CPT = Self.ResolveExceptionSpec(KeyLoc, CPT);
-          if (!CPT || !hasHerbceptionExceptionSpec(CPT->getExceptionSpecType()))
+          if (!CPT || !CPT->hasThrowsSpec())
             return false;
         }
       }

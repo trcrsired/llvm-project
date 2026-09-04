@@ -56,3 +56,13 @@ void ffi_throws() throws {
   struct cxx_std_error e = get_c_error();
   throw throws e;
 }
+
+// Automatic propagation is a runtime rewrite. Inside another throws function,
+// an unevaluated operand must remain the original call so noexcept continues to
+// inspect the callee's live channel rather than a synthetic CXXTryExpr.
+void inspect_inside_throws() throws {
+  static_assert(!noexcept(throws_fn()));
+  static_assert(noexcept(plain_fn()));
+  using result_type = decltype(throws_fn());
+  static_assert(__is_same(result_type, void));
+}

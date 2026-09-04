@@ -15390,7 +15390,49 @@ Sema::CreateOverloadedUnaryOp(SourceLocation OpLoc, UnaryOperatorKind Opc,
       if (CheckFunctionCall(FnDecl, TheCall,
                             FnDecl->getType()->castAs<FunctionProtoType>()))
         return ExprError();
-      return CheckForImmediateInvocation(MaybeBindToTemporary(TheCall), FnDecl);
+
+      ExprResult R = TheCall;
+      // Unary operator notation bypasses ActOnCallExpr just like binary
+      // notation. Form the semantic propagation node before temporary binding;
+      // in particular, a free `return_failure{E}` operator must retain E in
+      // the AST so a `throws` caller can convert it through error_domain<E>.
+      // A traditional catch clause is also a candidate because a later
+      // catch-throws sibling may own its deterministic failure. Deferred
+      // default initializers preserve the raw call until their use site owns a
+      // real propagation destination.
+      if (getLangOpts().HerbExceptions && HerbceptionOperandDepth == 0 &&
+          !isUnevaluatedContext() &&
+          !isCheckingDefaultArgumentOrInitializer()) {
+        const auto *CurFPT = getCurHerbceptionFunctionProto();
+        const bool HasFunctionChannel =
+            CurFPT && CurFPT->hasPotentialThrowsSpec();
+        const bool HasLocalRoutingCandidate =
+            isInCurrentCallableHerbceptionTryBody() ||
+            isInCurrentCallableHerbceptionCatchClause();
+        const bool IsFallibleCall = isHerbceptionThrowsCall(TheCall);
+        if ((HasFunctionChannel || HasLocalRoutingCandidate) &&
+            IsFallibleCall) {
+          R = ActOnHerbceptionTry(OpLoc, TheCall);
+        } else if (IsFallibleCall && getCurFunction()) {
+          const auto *CurrentFD = getCurFunctionDecl(/*AllowLambda=*/true);
+          // Operator notation is a call boundary, not an escape hatch from the
+          // ordinary-call rule. Only the actual top-level main function may
+          // defer an unhandled discriminator to CodeGen's mandatory trap;
+          // nested lambdas and blocks remain independent callables.
+          const bool IsCurrentMain =
+              CurrentFD && CurrentFD->isMain() &&
+              !isa<sema::CapturingScopeInfo>(getCurFunction());
+          if (!IsCurrentMain) {
+            Diag(TheCall->getBeginLoc(),
+                 diag::err_herbceptions_non_throws_call_throws);
+            return ExprError();
+          }
+        }
+      }
+      if (R.isInvalid())
+        return ExprError();
+      return CheckForImmediateInvocation(MaybeBindToTemporary(R.get()),
+                                         FnDecl);
     } else {
       // We matched a built-in operator. Convert the arguments, then
       // break out so that we will build the appropriate built-in
@@ -15825,7 +15867,52 @@ ExprResult Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
                   isa<CXXMethodDecl>(FnDecl), OpLoc, TheCall->getSourceRange(),
                   VariadicCallType::DoesNotApply);
 
-        ExprResult R = MaybeBindToTemporary(TheCall);
+        ExprResult R = TheCall;
+        // Operator notation constructs its CXXOperatorCallExpr directly and
+        // therefore bypasses ActOnCallExpr, where ordinary call syntax gains
+        // an implicit Herbception propagation wrapper. Apply the same semantic
+        // transformation before temporary binding. This is essential for a
+        // free `return_failure{E}` operator used by a `throws` caller: the
+        // CXXTryExpr records error_domain<E>, so CodeGen performs the required
+        // E-to-std::error conversion instead of treating two union carriers as
+        // interchangeable byte sequences. Traditional catch clauses use this
+        // path as well when a later catch-throws sibling may receive the call.
+        // Default arguments and default member initializers are deliberately
+        // excluded because their definition context is not their evaluation
+        // context.
+        if (getLangOpts().HerbExceptions && HerbceptionOperandDepth == 0 &&
+            !isUnevaluatedContext() &&
+            !isCheckingDefaultArgumentOrInitializer()) {
+          const auto *CurFPT = getCurHerbceptionFunctionProto();
+          const bool HasFunctionChannel =
+              CurFPT && CurFPT->hasPotentialThrowsSpec();
+          const bool HasLocalRoutingCandidate =
+              isInCurrentCallableHerbceptionTryBody() ||
+              isInCurrentCallableHerbceptionCatchClause();
+          const bool IsFallibleCall = isHerbceptionThrowsCall(TheCall);
+          if ((HasFunctionChannel || HasLocalRoutingCandidate) &&
+              IsFallibleCall) {
+            R = ActOnHerbceptionTry(OpLoc, TheCall);
+          } else if (IsFallibleCall && getCurFunction()) {
+            const auto *CurrentFD = getCurFunctionDecl(/*AllowLambda=*/true);
+            // Match ordinary call syntax exactly: an overloaded operator in a
+            // non-fallible callable has no destination for its discriminator.
+            // The main-function exception belongs only to main itself, never
+            // to a capturing callable nested in main.
+            const bool IsCurrentMain =
+                CurrentFD && CurrentFD->isMain() &&
+                !isa<sema::CapturingScopeInfo>(getCurFunction());
+            if (!IsCurrentMain) {
+              Diag(TheCall->getBeginLoc(),
+                   diag::err_herbceptions_non_throws_call_throws);
+              return ExprError();
+            }
+          }
+        }
+        if (R.isInvalid())
+          return ExprError();
+
+        R = MaybeBindToTemporary(R.get());
         if (R.isInvalid())
           return ExprError();
 

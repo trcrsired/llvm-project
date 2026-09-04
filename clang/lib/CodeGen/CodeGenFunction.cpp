@@ -1250,9 +1250,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     // function: the return type is {E, i1}, so the payload slot holds the
     // error value (std::error / E).
     if (CurFnInfo->hasThrowsReturn()) {
-      ReturnValue =
+      HerbceptionPayload =
           CreateDefaultAlignTempAlloca(CurFnInfo->getHerbceptionErrorType(),
                                        "retval");
+      ReturnValue = HerbceptionPayload;
       // Herbception (throws): create a slot for the discriminant (the i1 of
       // the {T, i1} return). A plain `return` stores false; `throw throws` /
       // failure stores true. The epilogue reads it back.
@@ -1291,6 +1292,18 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       Builder.CreateStore(ReturnValue.emitRawPointer(*this),
                           ReturnValuePointer);
     }
+    if (CurFnInfo->hasThrowsReturn()) {
+      // The target ABI owns the caller-provided sret slot and normal return
+      // emission constructs T there directly.  Keep the failure alternative
+      // separate so a failing path never starts T's lifetime and a successful
+      // path never bitwise-rematerializes a non-trivial object.
+      HerbceptionPayload =
+          CreateDefaultAlignTempAlloca(CurFnInfo->getHerbceptionErrorType(),
+                                       "herbception.error");
+      HerbceptionDiscriminant =
+          CreateIRTempWithoutCast(getContext().BoolTy, "herbception.disc");
+      Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
+    }
   } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::InAlloca &&
              !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
     // Load the sret pointer from the argument struct and return into that.
@@ -1306,14 +1319,20 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     ReturnValue = Address(Addr, ConvertType(RetTy),
                           CGM.getNaturalTypeAlignment(RetTy), KnownNonNull);
   } else {
-    // Herbception (throws): the return payload slot must be able to hold
-    // either the success value T or the error value E, so size it to
-    // max(T, E) rather than the natural return type.
+    // Herbception (throws): allocate the ABI union carrier, but expose a
+    // source-typed view as ReturnValue. Normal scalar, complex, aggregate,
+    // reference, and NRVO emission must see T exactly as it would for an
+    // ordinary return; error paths and the epilogue use HerbceptionPayload.
+    // Both addresses alias the same allocation, whose carrier supplies the
+    // maximum size and alignment required by T and E.
     if (CurFnInfo->hasThrowsReturn()) {
       llvm::Type *PayloadTy = CurFnInfo->getReturnInfo().getCoerceToType();
       if (auto *ST = dyn_cast<llvm::StructType>(PayloadTy))
         PayloadTy = ST->getElementType(0);
-      ReturnValue = CreateDefaultAlignTempAlloca(PayloadTy, "retval");
+      HerbceptionPayload =
+          CreateDefaultAlignTempAlloca(PayloadTy, "retval");
+      ReturnValue =
+          HerbceptionPayload.withElementType(ConvertType(RetTy));
     } else {
       ReturnValue = CreateIRTempWithoutCast(RetTy, "retval");
     }

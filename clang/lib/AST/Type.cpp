@@ -3806,9 +3806,19 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
 
 void FunctionProtoType::ExceptionSpecInfo::instantiate() {
   assert(Type == EST_Uninstantiated);
-  NoexceptExpr =
-      cast<FunctionProtoType>(SourceTemplate->getType())->getNoexceptExpr();
-  Type = EST_DependentNoexcept;
+  const auto *SourceFPT =
+      cast<FunctionProtoType>(SourceTemplate->getType());
+  if (SourceFPT->getExceptionSpecType() == EST_DependentThrows) {
+    // Preserve which conditional syntax selected the ABI: substituting a
+    // dependent throws condition must not reinterpret it as noexcept.
+    NoexceptExpr = SourceFPT->getThrowsExpr();
+    Type = EST_DependentThrows;
+  } else {
+    assert(isComputedNoexcept(SourceFPT->getExceptionSpecType()) &&
+           "uninstantiated specification has no dependent condition");
+    NoexceptExpr = SourceFPT->getNoexceptExpr();
+    Type = EST_DependentNoexcept;
+  }
 }
 
 FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
@@ -3882,6 +3892,13 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
         reinterpret_cast<QualType *>(getTrailingObjects<ExceptionType>());
     unsigned I = 0;
     for (QualType ExceptionType : epi.ExceptionSpec.Exceptions) {
+      // A typed failure is a by-value object result. Canonicalize before
+      // removing top-level qualifiers so a typedef cannot hide cv-qualification
+      // from the invariant payload identity. Pointee/member qualifiers remain.
+      if (getExceptionSpecType() == EST_ThrowsTyped)
+        ExceptionType =
+            ExceptionType.getCanonicalType().getUnqualifiedType();
+
       // Note that, before C++17, a dependent exception specification does
       // *not* make a type dependent; it's not even part of the C++ type
       // system.
@@ -3893,12 +3910,14 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
     }
   }
   // Fill in the Expr * in the exception specification if present.
-  else if (isComputedNoexcept(getExceptionSpecType())) {
-    assert(epi.ExceptionSpec.NoexceptExpr && "computed noexcept with no expr");
-    assert((getExceptionSpecType() == EST_DependentNoexcept) ==
+  else if (hasExceptionSpecificationExpr(getExceptionSpecType())) {
+    assert(epi.ExceptionSpec.NoexceptExpr &&
+           "conditional exception specification with no expression");
+    assert(((getExceptionSpecType() == EST_DependentNoexcept ||
+             getExceptionSpecType() == EST_DependentThrows)) ==
            epi.ExceptionSpec.NoexceptExpr->isValueDependent());
 
-    // Store the noexcept expression and context.
+    // Store the condition expression and context.
     *getTrailingObjects<Expr *>() = epi.ExceptionSpec.NoexceptExpr;
 
     addDependence(
@@ -3921,11 +3940,16 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
     slot[0] = epi.ExceptionSpec.SourceDecl;
   }
 
-  // If this is a canonical type, and its exception specification is dependent,
-  // then it's a dependent type. This only happens in C++17 onwards.
+  // If this is a canonical type and its exception specification is dependent,
+  // then it is a dependent type. Standard exception specifications acquire
+  // this property in C++17; EST_ThrowsTyped also requires it in every language
+  // mode because its dependent E is a physical result-ABI component.
   if (isCanonicalUnqualified()) {
     if (getExceptionSpecType() == EST_Dynamic ||
-        getExceptionSpecType() == EST_DependentNoexcept) {
+        getExceptionSpecType() == EST_DependentNoexcept ||
+        getExceptionSpecType() == EST_DependentThrows ||
+        (getExceptionSpecType() == EST_ThrowsTyped &&
+         hasDependentExceptionSpec())) {
       assert(hasDependentExceptionSpec() && "type should not be canonical");
       addDependence(TypeDependence::DependentInstantiation);
     }
@@ -3984,8 +4008,8 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
 }
 
 bool FunctionProtoType::hasDependentExceptionSpec() const {
-  if (Expr *NE = getNoexceptExpr())
-    return NE->isValueDependent();
+  if (Expr *E = getExceptionSpecExpr())
+    return E->isValueDependent();
   for (QualType ET : exceptions())
     // A pack expansion with a non-dependent pattern is still dependent,
     // because we don't know whether the pattern is in the exception spec
@@ -3996,8 +4020,8 @@ bool FunctionProtoType::hasDependentExceptionSpec() const {
 }
 
 bool FunctionProtoType::hasInstantiationDependentExceptionSpec() const {
-  if (Expr *NE = getNoexceptExpr())
-    return NE->isInstantiationDependent();
+  if (Expr *E = getExceptionSpecExpr())
+    return E->isInstantiationDependent();
   for (QualType ET : exceptions())
     if (ET->isInstantiationDependentType())
       return true;
@@ -4027,6 +4051,9 @@ CanThrowResult FunctionProtoType::canThrow() const {
     // `throws(false)`: cannot fail via herbception and cannot throw C++
     // exceptions — equivalent to noexcept(true).
     return CT_Cannot;
+
+  case EST_DependentThrows:
+    return CT_Dependent;
 
   case EST_None:
   case EST_MSAny:
@@ -4090,16 +4117,19 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
   // shortcut, use one AddInteger call instead of four for the next four
   // fields.
   assert(!(unsigned(epi.Variadic) & ~1) && !(unsigned(epi.RefQualifier) & ~3) &&
-         !(unsigned(epi.ExceptionSpec.Type) & ~15) &&
+         !(unsigned(epi.ExceptionSpec.Type) & ~31) &&
          "Values larger than expected.");
   ID.AddInteger(unsigned(epi.Variadic) + (epi.RefQualifier << 1) +
                 (epi.ExceptionSpec.Type << 3));
   ID.Add(epi.TypeQuals);
   if (epi.ExceptionSpec.Type == EST_Dynamic ||
       epi.ExceptionSpec.Type == EST_ThrowsTyped) {
-    for (QualType Ex : epi.ExceptionSpec.Exceptions)
+    for (QualType Ex : epi.ExceptionSpec.Exceptions) {
+      if (epi.ExceptionSpec.Type == EST_ThrowsTyped)
+        Ex = Ex.getCanonicalType().getUnqualifiedType();
       ID.AddPointer(Ex.getAsOpaquePtr());
-  } else if (isComputedNoexcept(epi.ExceptionSpec.Type)) {
+    }
+  } else if (hasExceptionSpecificationExpr(epi.ExceptionSpec.Type)) {
     epi.ExceptionSpec.NoexceptExpr->Profile(ID, Context, Canonical);
   } else if (epi.ExceptionSpec.Type == EST_Uninstantiated ||
              epi.ExceptionSpec.Type == EST_Unevaluated) {

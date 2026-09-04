@@ -1810,9 +1810,18 @@ ExprResult Parser::ParseHerbceptionTryExpression() {
     Diag(Tok, diag::err_expected_expression);
     return ExprError();
   }
-  ++Actions.HerbceptionOperandDepth;
+  // C++ lets nested calls acquire their ordinary implicit propagation before
+  // Sema treats the automatically wrapped top-level call as this explicit
+  // try's operand. C has no implicit propagation: suppress its mandatory bare-
+  // call diagnostic while parsing the operand so this explicit wrapper can
+  // become the sole owner of the returned discriminator. Destination
+  // conversion is resolved later from the completed control-flow graph, so
+  // explicit syntax carries no lexical conversion bit.
+  if (!getLangOpts().CPlusPlus)
+    ++Actions.HerbceptionOperandDepth;
   ExprResult Expr = ParseExpression();
-  --Actions.HerbceptionOperandDepth;
+  if (!getLangOpts().CPlusPlus)
+    --Actions.HerbceptionOperandDepth;
   if (Expr.isInvalid())
     return Expr;
   T.consumeClose();
