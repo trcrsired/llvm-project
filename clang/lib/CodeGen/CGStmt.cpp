@@ -2029,6 +2029,53 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   // block's cleanups to the handler (mirroring the bare-call routing in
   // EmitCall). Otherwise auto-propagate: store the error value, set the
   // discriminant slot to true, run the scope cleanups, and return.
+  //
+  // The success value's type and the return slot's type may share the
+  // same machine layout but be different LLVM types (e.g. one is a named
+  // struct and the other uses opaque ptr). A value bitcast between such
+  // types is invalid IR under opaque pointers, so coerce through memory
+  // instead.
+  //
+  // The slot's first element may be wider than the success value (e.g.
+  // for reference returns the success is a single pointer but the slot
+  // is sized to hold the full error). In that case we store the success
+  // value at the slot's address and zero the trailing bytes.
+  auto CoerceToSlot = [this](llvm::Value *V, Address Slot) -> llvm::Value * {
+    llvm::Type *SlotElTy = Slot.getElementType();
+    if (V->getType() == SlotElTy)
+      return V;
+    unsigned SrcSize =
+        CGM.getDataLayout().getTypeAllocSize(V->getType());
+    unsigned DstSize = CGM.getDataLayout().getTypeAllocSize(SlotElTy);
+    if (SrcSize == DstSize) {
+      // Same size, different types (e.g. named vs opaque struct):
+      // round-trip through a temp of the source type.
+      Address Tmp =
+          CreateDefaultAlignTempAlloca(V->getType(), "herb.coerce");
+      auto *SI = Builder.CreateStore(V, Tmp);
+      addInstToCurrentSourceAtom(SI, SI->getValueOperand());
+      return Builder.CreateLoad(Tmp.withElementType(SlotElTy));
+    }
+    // Different sizes: store the source value at the slot's address and
+    // zero the trailing bytes so the wider slot carries a well-defined
+    // payload (callers may inspect the unused bytes through a different
+    // type when the discriminant changes meaning).
+    Builder.CreateStore(V, Slot.withElementType(V->getType()));
+    if (DstSize > SrcSize) {
+      // Zero the trailing bytes with memset.
+      llvm::Type *I8 = llvm::Type::getInt8Ty(CGM.getLLVMContext());
+      Address SlotAsI8 = Slot.withElementType(I8);
+      Address Tail =
+          Builder.CreateConstInBoundsGEP(SlotAsI8, SrcSize, "herb.coerce.tail");
+      Builder.CreateMemSet(
+          Tail, llvm::ConstantInt::get(I8, 0),
+          llvm::ConstantInt::get(llvm::Type::getInt64Ty(CGM.getLLVMContext()),
+                                 DstSize - SrcSize),
+          false);
+    }
+    return Builder.CreateLoad(Slot);
+  };
+
   EmitBlock(ErrBB);
   {
     RunCleanupsScope CleanupScope(*this);
@@ -2039,20 +2086,14 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     if (E->getErrorDomain()) {
       llvm::Value *StdErr = EmitFailsErrorToStdError(E, Success);
       if (StdErr) {
-        Address Addr = ReturnValue;
-        llvm::Value *Coerced = StdErr;
-        if (Coerced->getType() != Addr.getElementType())
-          Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
-        auto *I = Builder.CreateStore(Coerced, Addr);
+        llvm::Value *Coerced = CoerceToSlot(StdErr, ReturnValue);
+        auto *I = Builder.CreateStore(Coerced, ReturnValue);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
       }
     } else if (FnRetTy->isVoidType()) {
       // A void throws function's return slot holds the error value
       // (std::error / E); store the payload into it on the error path.
-      llvm::Type *SlotTy = ReturnValue.getElementType();
-      llvm::Value *Coerced = Success;
-      if (Coerced->getType() != SlotTy)
-        Coerced = Builder.CreateBitCast(Coerced, SlotTy);
+      llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
       auto *I = Builder.CreateStore(Coerced, ReturnValue);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
     } else if (getEvaluationKind(CallTy) == TEK_Scalar) {
@@ -2064,11 +2105,8 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     } else {
       // Aggregate success value: the {T, i1} payload already holds it, so
       // store it into the return slot instead of re-calling.
-      Address Addr = ReturnValue;
-      llvm::Value *Coerced = Success;
-      if (Coerced->getType() != Addr.getElementType())
-        Coerced = Builder.CreateBitCast(Coerced, Addr.getElementType());
-      auto *I = Builder.CreateStore(Coerced, Addr);
+      llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
+      auto *I = Builder.CreateStore(Coerced, ReturnValue);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
     }
     Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
@@ -2106,10 +2144,7 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   // blocks tail calls and bloats the plain "throws-call-as-statement"
   // forwarding idiom.
   {
-    llvm::Type *SlotTy = ReturnValue.getElementType();
-    llvm::Value *Coerced = Success;
-    if (Coerced->getType() != SlotTy)
-      Coerced = Builder.CreateBitCast(Coerced, SlotTy);
+    llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
     auto *I = Builder.CreateStore(Coerced, ReturnValue);
     addInstToCurrentSourceAtom(I, I->getValueOperand());
   }
