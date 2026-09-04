@@ -1383,11 +1383,11 @@ class CXXTryExpr : public Expr {
 
 public:
   /// \p Ty is the type of the success value. \p Loc is the location of the
-  /// try keyword.
+  /// try keyword. \p VK is the value kind of the success expression
+  /// (lvalue for T& returns, xvalue for T&& returns, prvalue otherwise).
   CXXTryExpr(Expr *SubExpr, QualType Ty, SourceLocation Loc,
-             bool IsLValue = false, CXXRecordDecl *ErrorDomain = nullptr)
-      : Expr(CXXTryExprClass, Ty,
-             IsLValue ? VK_LValue : VK_PRValue, OK_Ordinary),
+             ExprValueKind VK = VK_PRValue, CXXRecordDecl *ErrorDomain = nullptr)
+      : Expr(CXXTryExprClass, Ty, VK, OK_Ordinary),
         SubExpr(SubExpr), TryLoc(Loc), ErrorDomain(ErrorDomain) {
     setDependence(computeDependence(this));
   }

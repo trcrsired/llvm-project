@@ -8487,8 +8487,7 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryExpr(CXXTryExpr *E) {
     ToErrorDomain = *ToErrorDomainOrErr;
   }
   return new (Importer.getToContext())
-      CXXTryExpr(ToSubExpr, ToType, ToTryLoc, /*IsLValue=*/false,
-                 ToErrorDomain);
+      CXXTryExpr(ToSubExpr, ToType, ToTryLoc, VK_PRValue, ToErrorDomain);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXCatchReturnFailureExpr(CXXCatchReturnFailureExpr *E) {

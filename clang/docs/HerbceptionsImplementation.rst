@@ -340,12 +340,32 @@ CodeGen
 ``clang/lib/CodeGen/CGCall.cpp``: ``FunctionProtoType::hasThrowsSpec()`` is
 threaded through ``CGFunctionInfo`` (``HasThrowsReturn``) together with the
 herbception error IR type (``getHerbceptionErrorType``). The return ABI is a
-``{ T, i1 }`` struct; the payload slot is sized to
-``max(sizeof(T), sizeof(E))`` (``std::error`` is a 2-register
-``{void*, size_t}`` struct). The ``throws`` attribute
+``{ union{T, E}, i1 }`` struct where:
+
+* ``union{T, E}`` is the first element, sized to
+  ``max(sizeof(T), sizeof(E))`` (``std::error`` is a 2-register
+  ``{void*, size_t}`` struct, 16 bytes);
+* the trailing ``i1`` is a **carry-flag placeholder**, never a
+  memory-resident value. ``HERB_SETCCr`` (X86 backend) reads CF into the
+  ``i1`` after each call, so CF survives the call sequence as the active
+  tag:
+  - ``CF = 0`` -> union holds ``T`` (the first ``sizeof(T)`` bytes are
+    ``T``; the rest is padding when ``sizeof(T) < sizeof(E)``);
+  - ``CF = 1`` -> union holds ``E`` (the first ``sizeof(E)`` bytes are
+    ``E``; the rest is padding when ``sizeof(E) < sizeof(T)``).
+
+Under opaque pointers ``T&`` / ``T&&`` / ``T*`` all lower to the same
+``ptr`` first element, so they share the same
+``{ {ptr, i64}, i1 }`` calling convention regardless of the C++
+reference kind. The ``throws`` attribute
 (``llvm::Attribute::Throws``, defined in ``llvm/IR/Attributes.td``; bitcode
 kind ``ATTR_KIND_THROWS``) is added to the function and call site, and the
 function epilogue inserts the discriminant into the returned struct.
+
+When ``sizeof(union{T, E}) > 16`` (e.g. ``T`` is a 32-byte struct), the
+union must be passed by hidden sret pointer (``RDI`` on x86_64 SysV)
+rather than by value. The ``i1`` discriminant remains in CF -- the
+sret-pointer path is purely about the payload size.
 
 Call-site routing
 `````````````````
@@ -453,6 +473,16 @@ mechanism (carry flag on x86/AArch64/ARM via the ADD-with-AllOnes trick in
 (``llvm/lib/CodeGen/TargetLoweringBase.cpp``) and sets the ISD ``Throws``
 argument flag. When ``supportThrowsCC()`` is false the discriminant is a
 regular struct member.
+
+The IR-level ``{ union{T, E}, i1 }`` shape uses the trailing ``i1`` as a
+**CF placeholder** on targets where ``supportThrowsCC()`` is true. The
+frontend's ``arrangeLLVMFunctionInfo`` always emits the ``i1`` as a
+struct member (``getDirect({union, i1})``); the backend then pattern-
+matches the post-call ``i1`` extraction to ``HERB_SETCCr`` (X86) or
+equivalent on other targets, which reads the carry flag and folds it
+into the ``i1`` -- so the ``i1`` never consumes a register or memory
+slot. When ``supportThrowsCC()`` is false, the ``i1`` is a real struct
+member carried in the next available register or stack slot.
 
 Win64 expanded ABI
 ------------------
