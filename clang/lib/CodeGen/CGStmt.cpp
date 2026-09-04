@@ -1995,22 +1995,48 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   const CallExpr *Call = cast<CallExpr>(Sub);
   QualType CallTy = Call->getType();
 
-  // Emit the call. It returns {T, i1}; capture the raw call so we can read
-  // both the success value and the discriminant. Suppress routing to an
-  // enclosing herbception catch scope: this expression handles the
-  // discriminant itself.
+  // Emit the call. It returns {T, i1} (direct) or void + sret (indirect);
+  // capture the raw call so we can read both the success value and the
+  // discriminant. Suppress routing to an enclosing herbception catch
+  // scope: this expression handles the discriminant itself.
+  //
+  // The i1 discriminant is always in the carry flag (CF) on targets that
+  // support the throws calling convention. For the direct-return path
+  // (union fits in registers), the backend materializes CF into the i1
+  // of the {union, i1} return via HERB_SETCCr. For the sret path (union
+  // too large for registers, or T has a C++ destructor), the call
+  // returns void and the caller must read CF directly via inline asm.
   llvm::CallBase *CallOrInvoke = nullptr;
   {
     SaveAndRestore<bool> SaveInOperand(InHerbceptionOperand, true);
     EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
   }
   assert(CallOrInvoke && "throws call did not produce a call instruction");
-  assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
-         CallOrInvoke->getType()->getStructNumElements() == 2 &&
-         "throws call must return {T, i1}");
 
-  llvm::Value *Success = Builder.CreateExtractValue(CallOrInvoke, 0);
-  llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+  bool IsSRet = CallOrInvoke->getType()->isVoidTy();
+  llvm::Value *Success = nullptr;
+  llvm::Value *Disc = nullptr;
+  if (IsSRet) {
+    // Sret path: the callee wrote the union to the sret arg (ReturnValue
+    // already points to it). The discriminant is in CF; read it via
+    // inline asm `setb`. This is ugly but correct -- LLVM IR has no
+    // first-class CF. The backend's HERB_SETCCr is not available here
+    // because there is no {T, i1} return to pattern-match.
+    Success = Builder.CreateLoad(ReturnValue);
+    llvm::FunctionType *FTy = llvm::FunctionType::get(
+        Builder.getInt8Ty(), {}, false);
+    llvm::InlineAsm *Asm = llvm::InlineAsm::get(
+        FTy, "setb $0", "=r", false, false,
+        llvm::InlineAsm::AsmDialect::AD_ATT);
+    Disc = Builder.CreateCall(llvm::FunctionCallee(FTy, Asm), {});
+    Disc = Builder.CreateICmpNE(Disc, Builder.getInt8(0));
+  } else {
+    assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
+           CallOrInvoke->getType()->getStructNumElements() == 2 &&
+           "throws call must return {T, i1}");
+    Success = Builder.CreateExtractValue(CallOrInvoke, 0);
+    Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+  }
 
   // The payload slot is sized to hold the larger of the callee's success type
   // and its error type (a union). On success it holds the value; on error it

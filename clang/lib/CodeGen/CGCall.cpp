@@ -1193,9 +1193,10 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
   // `{ {ptr, i64}, i1 }` calling convention regardless of the C++
   // reference kind.
   //
-  // When sizeof(union{T, E}) > 16, the union is passed by sret pointer
-  // (hidden first arg in RDI) instead of by value, since no register
-  // window is big enough to hold it.
+  // The sret decision is per-target: probe the ABI to see whether a
+  // value of sizeof(union{T, E}) fits in the target's return register
+  // window. If not, pass the union by hidden sret pointer; the i1
+  // discriminant remains in CF either way.
   if (HasThrowsReturn) {
     llvm::Type *RetTy = ConvertType(FI->getReturnType());
     if (RetTy->isVoidTy())
@@ -1204,10 +1205,47 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
         CGM.getDataLayout().getTypeAllocSize(ErrorType) >
             CGM.getDataLayout().getTypeAllocSize(RetTy))
       RetTy = ErrorType;
+    uint64_t UnionSize = CGM.getDataLayout().getTypeAllocSize(RetTy);
     llvm::StructType *StructTy = llvm::StructType::get(
         getLLVMContext(),
         {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
-    retInfo = ABIArgInfo::getDirect(StructTy);
+
+    // The sret decision is per-target. Two reasons to force sret even
+    // when the union fits in registers:
+    //   1. The target ABI cannot return a value of UnionSize bytes in
+    //      registers (probed by classifying char[UnionSize]).
+    //   2. T has a C++ destructor: the callee must not destroy the
+    //      payload (the union lives in caller-allocated sret storage,
+    //      and the caller runs the destructor after reading the value).
+    //      This matches the Win64 ABI rule in X86.cpp that forces
+    //      pointer-pass for types with destructors.
+    bool THasDtor =
+        QualType(FI->getReturnType()).isDestructedType() !=
+        QualType::DK_none;
+    bool NeedsSRet = THasDtor;
+    if (!NeedsSRet) {
+      FunctionType::ExtInfo ProbeInfo;
+      QualType ProbeRetTy = getContext().getConstantArrayType(
+          getContext().CharTy, llvm::APInt(64, UnionSize), nullptr,
+          ArraySizeModifier::Normal, /*IndexTypeQuals=*/0);
+      CanQualType ProbeRetCanTy = GetReturnType(ProbeRetTy);
+      CGFunctionInfo *ProbeFI = CGFunctionInfo::create(
+          ClangCallConvToLLVMCallConv(info.getCC()),
+          /*isInstanceMethod=*/false, /*isChainCall=*/false,
+          /*isDelegateCall=*/false, X86ABIAVXLevel,
+          /*HasThrowsReturn=*/false, /*ErrorType=*/nullptr, ProbeInfo, {},
+          ProbeRetCanTy, {}, RequiredArgs(0));
+      CGM.getABIInfo().computeInfo(*ProbeFI);
+      NeedsSRet = ProbeFI->getReturnInfo().isIndirect() ||
+                  ProbeFI->getReturnInfo().isIndirectAliased() ||
+                  ProbeFI->getReturnInfo().isInAlloca();
+    }
+    if (NeedsSRet) {
+      retInfo = ABIArgInfo::getIndirect(CharUnits::fromQuantity(16),
+                                        /*AddrSpace=*/0, /*ByVal=*/false);
+    } else {
+      retInfo = ABIArgInfo::getDirect(StructTy);
+    }
   }
 
   for (auto &I : FI->arguments())

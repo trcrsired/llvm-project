@@ -58,5 +58,7 @@ __attribute__((noinline)) void outer() throws {
 // CHECK-NOT: bitcast {{.*}} to { ptr, i
 // CHECK-X64: define dso_local { { ptr, i64 }, i1 } @_Z5outerv()
 // CHECK-X64: ret { { ptr, i64 }, i1 }
-// CHECK-X86: define dso_local { { ptr, i32 }, i1 } @_Z5outerv()
-// CHECK-X86: ret { { ptr, i32 }, i1 }
+// i686 has a 1-register return window (EAX), so a 20-byte union+i1 exceeds
+// it and is passed by sret. The discriminant remains in CF.
+// CHECK-X86: define dso_local void @_Z5outerv(ptr dead_on_unwind noalias writable sret(i8) align 16 %agg.result) #0
+// CHECK-X86: ret void
