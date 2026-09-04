@@ -1291,23 +1291,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       Builder.CreateStore(ReturnValue.emitRawPointer(*this),
                           ReturnValuePointer);
     }
-    // Herbception (throws): the i1 discriminant is always in the carry
-    // flag (CF) regardless of whether the union is returned by value or
-    // passed by sret. The per-function discriminant slot is still
-    // allocated so the backend's HERB_SETCCr pattern-matching can
-    // detect a throws call and emit setb after it. The slot is never
-    // read directly in the sret case; it exists only to anchor the
-    // backend's pattern.
-    if (CurFnInfo->hasThrowsReturn()) {
-      HerbceptionDiscriminant =
-          CreateIRTempWithoutCast(getContext().BoolTy, "herbception.disc");
-      Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
-      if (auto *Alloca = dyn_cast<llvm::AllocaInst>(
-              HerbceptionDiscriminant.emitRawPointer(*this)))
-        Alloca->setMetadata(
-            llvm::LLVMContext::MD_coro_outside_frame,
-            llvm::MDNode::get(CGM.getLLVMContext(), {}));
-    }
   } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::InAlloca &&
              !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
     // Load the sret pointer from the argument struct and return into that.
