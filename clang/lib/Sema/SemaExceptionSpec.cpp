@@ -2012,7 +2012,8 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
       CT = mergeCanThrow(CT, canThrow(Init));
     if (const Stmt *CondDS = IS->getConditionVariableDeclStmt())
       CT = mergeCanThrow(CT, canThrow(CondDS));
-    CT = mergeCanThrow(CT, canThrow(IS->getCond()));
+    if (const Expr *Cond = IS->getCond())
+      CT = mergeCanThrow(CT, canThrow(Cond));
 
     // For 'if constexpr', consider only the non-discarded case.
     // FIXME: We should add a DiscardedStmt marker to the AST.
