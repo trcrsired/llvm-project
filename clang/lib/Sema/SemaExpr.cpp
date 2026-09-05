@@ -6814,7 +6814,7 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     // try(expr)/catch fails(expr). C code must always use try()/catch fails()
     // explicitly, so this never applies in C.
     if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0) {
-      if (const FunctionDecl *CurFD = getCurFunctionDecl()) {
+      if (const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true)) {
         if (const auto *CurFPT =
                 CurFD->getType()->getAs<FunctionProtoType>();
             CurFPT && CurFPT->hasThrowsSpec() &&
