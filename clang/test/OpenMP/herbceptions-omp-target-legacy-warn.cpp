@@ -5,7 +5,7 @@
 // the existing behavior.
 
 #pragma omp declare target
-void foo() try { // warn-warning {{target 'nvptx64' does not support exception handling; 'catch' block is ignored}}
+void foo() try { // expected-warning {{target 'nvptx64' does not support exception handling; 'catch' block is ignored}}
   // GPU target body
 } catch(...) {
   // legacy handler
