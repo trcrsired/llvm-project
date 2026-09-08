@@ -4541,25 +4541,27 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
   // use deterministic error propagation, not traditional C++ EH. They are
   // allowed even with -fno-exceptions (and need no EH infrastructure), so skip
   // the exceptions-disabled diagnostic when every handler is a herbception
-  // handler.
+  // handler. Also, herbceptions are available for GPU targets (OpenMP/CUDA)
+  // while legacy C++ EH is not, so skip the GPU checks too.
   const bool AllHerbceptionHandlers =
       !Handlers.empty() &&
       llvm::all_of(Handlers, [](const Stmt *H) {
         return isa<CXXCatchThrowsStmt>(H);
       });
 
-  if (!AllHerbceptionHandlers)
+  if (!AllHerbceptionHandlers) {
     DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
 
-  // In OpenMP target regions, we assume that catch is never reached on GPU
-  // targets.
-  if (IsOpenMPGPUTarget)
-    targetDiag(TryLoc, diag::warn_try_not_valid_on_target) << T.str();
+    // In OpenMP target regions, we assume that catch is never reached on GPU
+    // targets.
+    if (IsOpenMPGPUTarget)
+      targetDiag(TryLoc, diag::warn_try_not_valid_on_target) << T.str();
 
-  // Exceptions aren't allowed in CUDA device code.
-  if (getLangOpts().CUDA)
-    CUDA().DiagIfDeviceCode(TryLoc, diag::err_cuda_device_exceptions)
-        << "try" << CUDA().CurrentTarget();
+    // Exceptions aren't allowed in CUDA device code.
+    if (getLangOpts().CUDA)
+      CUDA().DiagIfDeviceCode(TryLoc, diag::err_cuda_device_exceptions)
+          << "try" << CUDA().CurrentTarget();
+  }
 
   if (getCurScope() && getCurScope()->isOpenMPSimdDirectiveScope())
     Diag(TryLoc, diag::err_omp_simd_region_cannot_use_stmt) << "try";

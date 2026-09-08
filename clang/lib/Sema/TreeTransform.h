@@ -9513,7 +9513,18 @@ StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
     Handlers.push_back(Handler.getAs<Stmt>());
   }
 
-  getSema().DiagnoseExceptionUse(S->getTryLoc(), /* IsTry= */ true);
+  // Herbception `try { } catch throws(...)` handlers use deterministic error
+  // propagation, not traditional C++ EH. They are allowed even with
+  // -fno-exceptions, so skip the exceptions-disabled diagnostic when every
+  // handler is a herbception handler.
+  const bool AllHerbceptionHandlers =
+      !Handlers.empty() &&
+      llvm::all_of(Handlers, [](const Stmt *H) {
+        return isa<CXXCatchThrowsStmt>(H);
+      });
+
+  if (!AllHerbceptionHandlers)
+    getSema().DiagnoseExceptionUse(S->getTryLoc(), /* IsTry= */ true);
 
   if (!getDerived().AlwaysRebuild() && TryBlock.get() == S->getTryBlock() &&
       !HandlerChanged)
