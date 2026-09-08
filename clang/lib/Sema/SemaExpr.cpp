@@ -6814,9 +6814,13 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     // try(expr)/catch fails(expr). C code must always use try()/catch fails()
     // explicitly, so this never applies in C.
     if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0) {
-      if (const FunctionDecl *CurFD = getCurFunctionDecl()) {
-        if (const auto *CurFPT =
-                CurFD->getType()->getAs<FunctionProtoType>();
+      if (const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true)) {
+        // The current function decl can exist but not yet have a type while
+        // the trailing exception specification of a lambda (or function
+        // declarator) is being parsed.
+        if (const auto *CurFPT = CurFD->getType().isNull()
+                                     ? nullptr
+                                     : CurFD->getType()->getAs<FunctionProtoType>();
             CurFPT && CurFPT->hasThrowsSpec() &&
             isHerbceptionThrowsCall(Call.get())) {
           SourceLocation CallLoc = Call.get()->getBeginLoc();
