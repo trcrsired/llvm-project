@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -fopenmp -triple nvptx64 -fopenmp-is-target-device -std=c++26 -fherbceptions %s -verify -Wopenmp-target-exception -analyze
 // RUN: %clang_cc1 -fopenmp -triple amdgcn-amd-amdhsa -fopenmp-is-target-device -std=c++26 -fherbceptions %s -verify -Wopenmp-target-exception -analyze
+// expected-no-diagnostics
 
 // Herbceptions should be allowed on OpenMP GPU targets even with
 // -fno-exceptions, since herbceptions provide their own error propagation
