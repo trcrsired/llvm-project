@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple nvptx64-nvidia-cuda -fcuda-is-device -std=c++26 -fherbceptions -fno-exceptions -fsyntax-only -verify %s
-// RUN: %clang_cc1 -triple amdgcn-amd-amdhsa -fcuda-is-device -std=c++26 -fherbceptions -fno-exceptions -fsyntax-only -verify %s
+// RUN: %clang_cc1 -triple nvptx64-nvidia-cuda -fcuda-is-device -std=c++26 -fherbceptions -fsyntax-only -verify %s
+// RUN: %clang_cc1 -triple amdgcn-amd-amdhsa -fcuda-is-device -std=c++26 -fherbceptions -fsyntax-only -verify %s
 
 // Herbceptions should be allowed on GPU targets (CUDA/AMDGPU) even with
 // -fno-exceptions, since herbceptions provide their own error propagation

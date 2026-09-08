@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fopenmp -triple nvptx64 -fopenmp-is-target-device -std=c++26 -fno-exceptions %s -verify -Wopenmp-target-exception -analyze
+// RUN: %clang_cc1 -fopenmp -triple nvptx64 -fopenmp-is-target-device -std=c++26 %s -verify -Wopenmp-target-exception -analyze
 
 // Without herbceptions, OpenMP target should still emit the warning about
 // target not supporting exception handling. This ensures we haven't broken

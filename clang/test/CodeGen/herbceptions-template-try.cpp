@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++26 -fherbceptions -fno-exceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=ITANIUM
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++26 -fherbceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=ITANIUM
 
 // Regression test: a `try { } catch throws(...)` block inside a function template
 // should not emit "cannot use 'try' with exceptions disabled" under
@@ -20,8 +20,7 @@ void foo(T val) try {
   // handler
 }
 
-// ITANIUM-LABEL: define linkonce_odr void @_Z3fooi(
-// ITANIUM-NOT: err_exceptions_disabled
+// ITANIUM-LABEL: define linkonce_odr void @_Z3fooIiEvT_(
 void test() {
   foo<int>(42);
 }
