@@ -5488,18 +5488,63 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
       CmpInstr.getOperand(0).isReg()) {
     const TargetRegisterInfo *TRI = &getRegisterInfo();
     Register DiscReg = CmpInstr.getOperand(0).getReg();
-    MachineInstr *SetB =
-        DiscReg.isVirtual() ? MRI->getVRegDef(DiscReg) : nullptr;
     MachineBasicBlock *MBB = CmpInstr.getParent();
-    if (SetB && SetB->getOpcode() == X86::HERB_SETCCr &&
-        SetB->getParent() == MBB) {
+    // Find the setb that defines the discriminant register by scanning
+    // backwards from the testb. This handles both virtual and physical
+    // registers, as well as COPY chains.
+    MachineInstr *SetB = nullptr;
+    Register CurrReg = DiscReg;
+    // Start from the instruction BEFORE CmpInstr (skip CmpInstr itself)
+    auto It = MachineBasicBlock::reverse_iterator(CmpInstr);
+    if (It != MBB->rend())
+      ++It;
+    for (; It != MBB->rend(); ++It) {
+      // Check if this instruction is a setb that writes to CurrReg.
+      // Use regsOverlap to handle register aliasing (e.g., %cl vs %rcx).
+      if ((It->getOpcode() == X86::HERB_SETCCr ||
+           It->getOpcode() == X86::SETCCr) &&
+          It->getOperand(0).isReg() &&
+          TRI->regsOverlap(It->getOperand(0).getReg(), CurrReg)) {
+        SetB = &*It;
+        break;
+      }
+      // Check if this is a COPY that copies to CurrReg.
+      // If so, update CurrReg to the source of the COPY and continue.
+      if (It->isCopy() && It->getOperand(0).isReg() &&
+          TRI->regsOverlap(It->getOperand(0).getReg(), CurrReg) &&
+          It->getOperand(1).isReg()) {
+        CurrReg = It->getOperand(1).getReg();
+        continue;
+      }
+      // If this instruction writes to CurrReg but is not a setb or COPY,
+      // then the setb we're looking for is not the actual definition
+      // used by testb. Stop the scan.
+      if (It->getOperand(0).isReg() &&
+          TRI->regsOverlap(It->getOperand(0).getReg(), CurrReg)) {
+        break;
+      }
+    }
+    // After ExpandPostRAPseudos, HERB_SETCCr is lowered to SETCCr(COND_B).
+    // Match either the pseudo (if peephole runs before expansion) or the
+    // lowered setb (if peephole runs after, which is the normal case).
+    // SETCCr operand layout: operand 0 = dst reg, operand 1 = cond code imm.
+    if (SetB && SetB->getParent() == MBB &&
+        (SetB->getOpcode() == X86::HERB_SETCCr ||
+         (SetB->getOpcode() == X86::SETCCr && SetB->getOperand(1).isImm() &&
+          SetB->getOperand(1).getImm() == X86::COND_B))) {
       bool Clean = true;
-      // The TEST must be the only non-debug user of the discriminant.
-      for (MachineInstr &U : MRI->use_nodbg_instructions(DiscReg))
-        if (&U != &CmpInstr) {
-          Clean = false;
-          break;
+      // For virtual registers, the TEST must be the only non-debug user
+      // of the discriminant so we can safely erase the setb.
+      // For physical registers, we keep the setb, so other uses are OK
+      // as long as they don't interfere with the fold.
+      if (DiscReg.isVirtual()) {
+        for (MachineInstr &U : MRI->use_nodbg_instructions(DiscReg)) {
+          if (&U != &CmpInstr) {
+            Clean = false;
+            break;
+          }
         }
+      }
       // Nothing between the SETCCr and the branch may clobber EFLAGS or
       // touch the discriminant register. This fold turns the branch into a
       // direct jb/jae on live CF and erases the HERB_SETCCr, so while the
@@ -5510,6 +5555,13 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
       for (MachineBasicBlock::iterator It =
                std::next(MachineBasicBlock::iterator(SetB));
            Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It) {
+        // Ignore ADJCALLSTACKUP/DOWN pseudo instructions - they are
+        // stack adjustments that don't affect the carry flag from the call.
+        if (It->getOpcode() == X86::ADJCALLSTACKUP64 ||
+            It->getOpcode() == X86::ADJCALLSTACKDOWN64 ||
+            It->getOpcode() == X86::ADJCALLSTACKUP32 ||
+            It->getOpcode() == X86::ADJCALLSTACKDOWN32)
+          continue;
         if (It->modifiesRegister(X86::EFLAGS, TRI))
           Clean = false;
         else if (It->readsRegister(DiscReg, TRI))
@@ -5550,9 +5602,6 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
           if (Consumer)
             FlagsRedefinedAfterConsumer = true;
           else {
-            // A flag clobber between the TEST and the consumer would sit
-            // between the call and the rewritten jb/jae on live CF, so it
-            // is not harmless.
             Clean = false;
             break;
           }
@@ -5577,7 +5626,10 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
                           << (IsCMOV ? "cmov" : "j")
                           << (ConsumerCC == X86::COND_E ? "ae" : "b") << '\n');
         CmpInstr.eraseFromParent();
-        SetB->eraseFromParent();
+        // Only erase the setb if it writes to a virtual register.
+        // Physical registers may be used elsewhere.
+        if (DiscReg.isVirtual())
+          SetB->eraseFromParent();
         return true;
       }
     }
