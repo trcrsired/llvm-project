@@ -845,6 +845,9 @@ public:
     ID.AddBoolean(DelegateCall);
     ID.AddBoolean(NoReturn);
     ID.AddBoolean(ReturnsRetained);
+    ID.AddBoolean(HasThrowsReturn);
+    if (HasThrowsReturn)
+      ID.AddPointer(HerbceptionErrorType);
     ID.AddBoolean(NoCallerSavedRegs);
     ID.AddBoolean(HasRegParm);
     ID.AddInteger(RegParm);
@@ -857,8 +860,6 @@ public:
       for (auto paramInfo : getExtParameterInfos())
         ID.AddInteger(paramInfo.getOpaqueValue());
     }
-    if (HasThrowsReturn)
-      ID.AddPointer(HerbceptionErrorType);
     getReturnType().Profile(ID);
     for (const auto &I : arguments())
       I.type.Profile(ID);
