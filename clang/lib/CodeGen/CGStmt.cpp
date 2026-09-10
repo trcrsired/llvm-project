@@ -1847,12 +1847,33 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
     EmitComplexExprIntoLValue(EV, MakeAddrLValue(ReturnValue, EV->getType()),
                               /*isInit*/ true);
   } else {
-    EmitAggExpr(EV,
-                AggValueSlot::forAddr(ReturnValue, Qualifiers(),
-                                      AggValueSlot::IsDestructed,
-                                      AggValueSlot::DoesNotNeedGCBarriers,
-                                      AggValueSlot::IsNotAliased,
-                                      getOverlapForReturnValue()));
+    // The error value is an aggregate. The slot is typed as the coerced
+    // {T, i1} payload, which need not be a struct at all: when the payload
+    // happens to be at least as large as the error, the union is typed as the
+    // payload, so a payload of (say) i64 leaves an i64-typed slot. Emitting the
+    // aggregate straight into it would GEP a field out of a non-struct
+    // address, so build it in a temp of its own type and copy the bytes over.
+    llvm::Type *ErrIRTy = ConvertTypeForMem(EV->getType());
+    if (ErrIRTy != ReturnValue.getElementType()) {
+      Address Tmp = CreateMemTemp(EV->getType(), "herb.err");
+      EmitAggExpr(EV, AggValueSlot::forAddr(
+                         Tmp, Qualifiers(), AggValueSlot::IsDestructed,
+                         AggValueSlot::DoesNotNeedGCBarriers,
+                         AggValueSlot::IsNotAliased,
+                         AggValueSlot::DoesNotOverlap));
+      const llvm::DataLayout &DL = CGM.getDataLayout();
+      uint64_t Size = std::min<uint64_t>(
+          DL.getTypeStoreSize(ErrIRTy),
+          DL.getTypeStoreSize(ReturnValue.getElementType()));
+      Builder.CreateMemCpy(ReturnValue, Tmp, Size);
+    } else {
+      EmitAggExpr(EV,
+                  AggValueSlot::forAddr(ReturnValue, Qualifiers(),
+                                        AggValueSlot::IsDestructed,
+                                        AggValueSlot::DoesNotNeedGCBarriers,
+                                        AggValueSlot::IsNotAliased,
+                                        getOverlapForReturnValue()));
+    }
   }
 
   Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
