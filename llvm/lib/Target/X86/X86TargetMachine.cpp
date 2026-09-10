@@ -79,6 +79,7 @@ extern "C" LLVM_C_ABI void LLVMInitializeX86Target() {
   initializeFixupLEAsLegacyPass(PR);
   initializeX86FPStackifierLegacyPass(PR);
   initializeX86FixupSetCCLegacyPass(PR);
+  initializeX86HerbceptionFoldPass(PR);
   initializeX86CallFrameOptimizationLegacyPass(PR);
   initializeX86CmovConversionLegacyPass(PR);
   initializeX86TileConfigLegacyPass(PR);
@@ -573,6 +574,10 @@ void X86PassConfig::addPreEmitPass() {
   }
   addPass(createX86CompressEVEXLegacyPass());
   addPass(createX86InsertX87WaitLegacyPass());
+
+  // Must run after prolog/epilog insertion: the fold depends on whether the
+  // call's stack adjustment survives as a real add/sub, which is decided there.
+  addPass(createX86HerbceptionFoldPass());
 }
 
 void X86PassConfig::addPreEmitPass2() {

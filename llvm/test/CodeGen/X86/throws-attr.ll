@@ -31,29 +31,23 @@ entry:
   ret { i64, i1 } %r
 }
 
-; The caller reads the discriminant from CF right after the call (setb) and
-; tests the materialized register. The call's stack adjustment sits between the
-; two, so the test cannot be folded onto CF: on i686 the adjustment survives as
-; a real `addl $12, %esp`, which redefines the flag the fold would read.
+; The caller reads the discriminant from CF right after the call. The test of
+; the materialized register folds into a direct use of CF once the call's stack
+; adjustment is resolved, so both targets branch on the callee's carry-out.
 define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-LABEL: call_and_select:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rax
 ; CHECK-NEXT:    callq ret_error@PLT
-; CHECK-NEXT:    setb %cl
-; CHECK-NEXT:    testb $1, %cl
 ; CHECK-NEXT:    movl $100, %ecx
-; CHECK-NEXT:    cmovneq %rcx, %rax
+; CHECK-NEXT:    cmovbq %rcx, %rax
 ; CHECK-NEXT:    popq %rcx
 ; CHECK-NEXT:    retq
 ; CHECK32-LABEL: call_and_select:
 ; CHECK32:       # %bb.0:
 ; CHECK32:         subl $12, %esp
 ; CHECK32:         calll ret_error@PLT
-; CHECK32:         setb %cl
-; CHECK32:         testb $1, %cl
-; CHECK32-NOT:     j{{b|ae}}
-; CHECK32:         je .LBB2_2
+; CHECK32-NEXT:    jae .LBB2_2
 ; CHECK32-NEXT:  # %bb.1:
 ; CHECK32-NEXT:    xorl %edx, %edx
 ; CHECK32-NEXT:    movl $100, %eax
@@ -71,18 +65,15 @@ entry:
 attributes #0 = { throws }
 attributes #1 = { nounwind }
 
-; Herbception (throws): the branch tests the materialized discriminant. Folding
-; it into a single jcc on CF would require the flag to survive the call's stack
-; adjustment, which on i686 it does not.
+; Herbception (throws): branch on carry flag. When the discriminant is used
+; only for a branch, the setb + test + jcc collapses into a single jcc on CF.
 declare void @capture(i32) #3
 define void @call_and_branch() #1 {
 ; CHECK-LABEL: call_and_branch:
 ; CHECK:       # %bb.0:
 ; CHECK-NEXT:    pushq %rax
 ; CHECK-NEXT:    callq ret_error@PLT
-; CHECK-NEXT:    setb %al
-; CHECK-NEXT:    testb $1, %al
-; CHECK-NEXT:    je .LBB3_1
+; CHECK-NEXT:    jae .LBB3_1
 ; CHECK-NEXT:  # %bb.2: # %err
 ; CHECK-NEXT:    movl $7, %edi
 ; CHECK-NEXT:    popq %rax
@@ -94,10 +85,7 @@ define void @call_and_branch() #1 {
 ; CHECK32:       # %bb.0:
 ; CHECK32:         subl $12, %esp
 ; CHECK32:         calll ret_error@PLT
-; CHECK32:         setb %al
-; CHECK32:         testb $1, %al
-; CHECK32-NOT:     j{{b|ae}}
-; CHECK32:         je .LBB3_2
+; CHECK32-NEXT:    jae .LBB3_2
 ; CHECK32-NEXT:  # %bb.1: # %err
 ; CHECK32-NEXT:    movl $7, (%esp)
 ; CHECK32-NEXT:    calll capture@PLT
