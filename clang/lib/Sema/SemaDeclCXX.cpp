@@ -19876,9 +19876,9 @@ void Sema::checkExceptionSpecification(
       if (!CheckSpecifiedExceptionType(ET, DynamicExceptionRanges[ei]))
         Exceptions.push_back(ET);
 
-      // `fails{std::error}` is invalid: std::error is a compiler-fabricated
+      // `return_failure{std::error}` is invalid: std::error is a compiler-fabricated
       // value that may only be carried by the implicit `throws` channel, never
-      // returned as an explicit fails error type.
+      // returned as an explicit return_failure error type.
       if (EST == EST_ThrowsTyped) {
         if (NamespaceDecl *Std = getStdNamespace()) {
           LookupResult R(*this, &PP.getIdentifierTable().get("error"),
@@ -19898,7 +19898,7 @@ void Sema::checkExceptionSpecification(
           }
         }
 
-        // The `fails{E}` error type must be trivially copyable, matching the C
+        // The `return_failure{E}` error type must be trivially copyable, matching the C
         // behavior where the error value flows through the {T, i1} ABI slot by
         // value.
         if (RequireCompleteType(DynamicExceptionRanges[ei].getBegin(), ET,
@@ -19909,6 +19909,21 @@ void Sema::checkExceptionSpecification(
           Diag(DynamicExceptionRanges[ei].getBegin(),
                diag::err_return_failure_type_not_trivially_copyable)
               << ET << DynamicExceptionRanges[ei];
+          continue;
+        }
+
+        // The error travels in the registers that also carry the failure
+        // discriminant, so it is bounded by the register budget: two
+        // pointers' worth, which is what the implicit `throws` error type
+        // occupies (std::error is {void *, uintptr_t}). An error wider than
+        // that could not ride in registers, and the register return
+        // convention has nowhere to put it. Enforce it here, in the front
+        // end, rather than leaving code generation to fail later.
+        CharUnits Budget = Context.getTypeSizeInChars(Context.VoidPtrTy) * 2;
+        if (Context.getTypeSizeInChars(ET) > Budget) {
+          Diag(DynamicExceptionRanges[ei].getBegin(),
+               diag::err_return_failure_type_too_large)
+              << ET << Budget.getQuantity() << DynamicExceptionRanges[ei];
           continue;
         }
       }

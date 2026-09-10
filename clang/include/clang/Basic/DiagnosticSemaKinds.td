@@ -8831,6 +8831,10 @@ def err_return_failure_std_error_type : Error<
 def err_return_failure_type_not_trivially_copyable : Error<
   "the 'return_failure{...}' error type %0 must be trivially copyable (matching C "
   "behavior): the error value flows through the {T, i1} ABI slot by value">;
+def err_return_failure_type_too_large : Error<
+  "the 'return_failure{...}' error type %0 may not be larger than "
+  "2 * sizeof(uintptr_t) (%1 bytes); the error travels in the same registers as "
+  "the failure discriminant">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'return_failure{...}'">;
 def err_herbceptions_try_requires_operand : Error<
