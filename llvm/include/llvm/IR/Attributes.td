@@ -332,6 +332,12 @@ def StrictFP : EnumAttr<"strictfp", IntersectPreserve, [FnAttr]>;
 /// Hidden pointer to structure to return.
 def StructRet : TypeAttr<"sret", IntersectPreserve, [ParamAttr]>;
 
+/// Hidden pointer through which a herbception (throws) function returns its
+/// payload. Unlike 'sret' this does not make the function's return type void:
+/// the function still returns the herbception discriminant, so the caller
+/// learns from that whether the pointee holds a constructed payload.
+def ThrowsSret : TypeAttr<"throws_sret", IntersectPreserve, [ParamAttr]>;
+
 /// AddressSanitizer is on.
 def SanitizeAddress : EnumAttr<"sanitize_address", IntersectPreserve, [FnAttr]>;
 

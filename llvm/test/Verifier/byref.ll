@@ -8,37 +8,37 @@ define void @byref_unsized(ptr byref(%opaque.ty)) {
   ret void
 }
 
-; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!
+; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', 'sret', and 'throws_sret' are incompatible!
 ; CHECK-NEXT: ptr @byref_byval
 define void @byref_byval(ptr byref(i32) byval(i32)) {
   ret void
 }
 
-; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!
+; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', 'sret', and 'throws_sret' are incompatible!
 ; CHECK-NEXT: ptr @byref_inalloca
 define void @byref_inalloca(ptr byref(i32) inalloca(i32)) {
   ret void
 }
 
-; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!
+; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', 'sret', and 'throws_sret' are incompatible!
 ; CHECK-NEXT: ptr @byref_preallocated
 define void @byref_preallocated(ptr byref(i32) preallocated(i32)) {
   ret void
 }
 
-; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!
+; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', 'sret', and 'throws_sret' are incompatible!
 ; CHECK-NEXT: ptr @byref_sret
 define void @byref_sret(ptr byref(i32) sret(i32)) {
   ret void
 }
 
-; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!
+; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', 'sret', and 'throws_sret' are incompatible!
 ; CHECK-NEXT: ptr @byref_inreg
 define void @byref_inreg(ptr byref(i32) inreg) {
   ret void
 }
 
-; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!
+; CHECK: Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', 'sret', and 'throws_sret' are incompatible!
 ; CHECK-NEXT: ptr @byref_nest
 define void @byref_nest(ptr byref(i32) nest) {
   ret void

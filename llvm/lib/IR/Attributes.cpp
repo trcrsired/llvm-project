@@ -248,6 +248,10 @@ Attribute Attribute::getWithStructRetType(LLVMContext &Context, Type *Ty) {
   return get(Context, StructRet, Ty);
 }
 
+Attribute Attribute::getWithThrowsSretType(LLVMContext &Context, Type *Ty) {
+  return get(Context, ThrowsSret, Ty);
+}
+
 Attribute Attribute::getWithByRefType(LLVMContext &Context, Type *Ty) {
   return get(Context, ByRef, Ty);
 }
@@ -1221,6 +1225,10 @@ Type *AttributeSet::getStructRetType() const {
   return SetNode ? SetNode->getAttributeType(Attribute::StructRet) : nullptr;
 }
 
+Type *AttributeSet::getThrowsSretType() const {
+  return SetNode ? SetNode->getAttributeType(Attribute::ThrowsSret) : nullptr;
+}
+
 Type *AttributeSet::getPreallocatedType() const {
   return SetNode ? SetNode->getAttributeType(Attribute::Preallocated) : nullptr;
 }
@@ -1972,6 +1980,10 @@ Type *AttributeList::getParamStructRetType(unsigned Index) const {
   return getAttributes(Index + FirstArgIndex).getStructRetType();
 }
 
+Type *AttributeList::getParamThrowsSretType(unsigned Index) const {
+  return getAttributes(Index + FirstArgIndex).getThrowsSretType();
+}
+
 Type *AttributeList::getParamByRefType(unsigned Index) const {
   return getAttributes(Index + FirstArgIndex).getByRefType();
 }
@@ -2318,6 +2330,10 @@ AttrBuilder &AttrBuilder::addStructRetAttr(Type *Ty) {
   return addTypeAttr(Attribute::StructRet, Ty);
 }
 
+AttrBuilder &AttrBuilder::addThrowsSretAttr(Type *Ty) {
+  return addTypeAttr(Attribute::ThrowsSret, Ty);
+}
+
 AttrBuilder &AttrBuilder::addByRefAttr(Type *Ty) {
   return addTypeAttr(Attribute::ByRef, Ty);
 }
@@ -2501,6 +2517,7 @@ AttributeMask AttributeFuncs::typeIncompatible(Type *Ty, AttributeSet AS,
           .addAttribute(Attribute::InAlloca)
           .addAttribute(Attribute::ByVal)
           .addAttribute(Attribute::StructRet)
+          .addAttribute(Attribute::ThrowsSret)
           .addAttribute(Attribute::ByRef)
           .addAttribute(Attribute::ElementType)
           .addAttribute(Attribute::AllocatedPointer);

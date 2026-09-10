@@ -119,6 +119,9 @@ public:
   /// If this is an sret argument, return its type.
   LLVM_ABI Type *getParamStructRetType() const;
 
+  /// If this is a throws_sret argument, return its type.
+  LLVM_ABI Type *getParamThrowsSretType() const;
+
   /// If this is a byref argument, return its type.
   LLVM_ABI Type *getParamByRefType() const;
 
@@ -139,6 +142,9 @@ public:
 
   /// Return true if this argument has the sret attribute.
   LLVM_ABI bool hasStructRetAttr() const;
+
+  /// Return true if this argument has the throws_sret attribute.
+  LLVM_ABI bool hasThrowsSretAttr() const;
 
   /// Return true if this argument has the inreg attribute.
   LLVM_ABI bool hasInRegAttr() const;

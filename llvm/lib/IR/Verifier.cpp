@@ -2217,11 +2217,12 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
   AttrCount += Attrs.hasAttribute(Attribute::Preallocated);
   AttrCount += Attrs.hasAttribute(Attribute::StructRet) ||
                Attrs.hasAttribute(Attribute::InReg);
+  AttrCount += Attrs.hasAttribute(Attribute::ThrowsSret);
   AttrCount += Attrs.hasAttribute(Attribute::Nest);
   AttrCount += Attrs.hasAttribute(Attribute::ByRef);
   Check(AttrCount <= 1,
         "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', "
-        "'byref', and 'sret' are incompatible!",
+        "'byref', 'sret', and 'throws_sret' are incompatible!",
         V);
 
   Check(!(Attrs.hasAttribute(Attribute::InAlloca) &&
@@ -2234,6 +2235,12 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
           Attrs.hasAttribute(Attribute::Returned)),
         "Attributes "
         "'sret and returned' are incompatible!",
+        V);
+
+  Check(!(Attrs.hasAttribute(Attribute::ThrowsSret) &&
+          Attrs.hasAttribute(Attribute::Returned)),
+        "Attributes "
+        "'throws_sret and returned' are incompatible!",
         V);
 
   Check(!(Attrs.hasAttribute(Attribute::ZExt) &&
@@ -2386,6 +2393,7 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
   bool SawNest = false;
   bool SawReturned = false;
   bool SawSRet = false;
+  bool SawThrowsSRet = false;
   bool SawSwiftSelf = false;
   bool SawSwiftAsync = false;
   bool SawSwiftError = false;
@@ -2448,6 +2456,13 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
       Check(i == 0 || i == 1,
             "Attribute 'sret' is not on first or second parameter!", V);
       SawSRet = true;
+    }
+
+    if (ArgAttrs.hasAttribute(Attribute::ThrowsSret)) {
+      Check(!SawThrowsSRet, "Cannot have multiple 'throws_sret' parameters!", V);
+      Check(i == 0 || i == 1,
+            "Attribute 'throws_sret' is not on first or second parameter!", V);
+      SawThrowsSRet = true;
     }
 
     if (ArgAttrs.hasAttribute(Attribute::SwiftSelf)) {
@@ -3020,6 +3035,9 @@ void Verifier::verifyStatepoint(const CallBase &Call) {
       AttributeSet ArgAttrs = Attrs.getParamAttrs(5 + i);
       Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
             "Attribute 'sret' cannot be used for vararg call arguments!", Call);
+      Check(!ArgAttrs.hasAttribute(Attribute::ThrowsSret),
+            "Attribute 'throws_sret' cannot be used for vararg call arguments!",
+            Call);
     }
   }
 
@@ -3223,6 +3241,8 @@ void Verifier::visitFunction(const Function &F) {
   case CallingConv::AMDGPU_PS:
   case CallingConv::AMDGPU_CS:
     Check(!F.hasStructRetAttr(), "Calling convention does not allow sret", &F);
+    Check(!F.hasThrowsSretAttr(),
+          "Calling convention does not allow throws_sret", &F);
     if (F.getCallingConv() != CallingConv::SPIR_KERNEL) {
       const unsigned StackAS = DL.getAllocaAddrSpace();
       unsigned i = 0;
@@ -4134,10 +4154,15 @@ void Verifier::visitCallBase(CallBase &Call) {
 
       // Statepoint intrinsic is vararg but the wrapped function may be not.
       // Allow sret here and check the wrapped function in verifyStatepoint.
-      if (Call.getIntrinsicID() != Intrinsic::experimental_gc_statepoint)
+      if (Call.getIntrinsicID() != Intrinsic::experimental_gc_statepoint) {
         Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
               "Attribute 'sret' cannot be used for vararg call arguments!",
               Call);
+        Check(!ArgAttrs.hasAttribute(Attribute::ThrowsSret),
+              "Attribute 'throws_sret' cannot be used for vararg call "
+              "arguments!",
+              Call);
+      }
 
       if (ArgAttrs.hasAttribute(Attribute::InAlloca))
         Check(Idx == Call.arg_size() - 1,
@@ -4284,10 +4309,10 @@ void Verifier::verifyTailCCMustTailAttrs(const AttrBuilder &Attrs,
 
 static AttrBuilder getParameterABIAttributes(LLVMContext& C, unsigned I, AttributeList Attrs) {
   static const Attribute::AttrKind ABIAttrs[] = {
-      Attribute::StructRet,  Attribute::ByVal,          Attribute::InAlloca,
-      Attribute::InReg,      Attribute::StackAlignment, Attribute::SwiftSelf,
-      Attribute::SwiftAsync, Attribute::SwiftError,     Attribute::Preallocated,
-      Attribute::ByRef};
+      Attribute::StructRet,  Attribute::ThrowsSret,    Attribute::ByVal,
+      Attribute::InAlloca,   Attribute::InReg,         Attribute::StackAlignment,
+      Attribute::SwiftSelf,  Attribute::SwiftAsync,    Attribute::SwiftError,
+      Attribute::Preallocated, Attribute::ByRef};
   AttrBuilder Copy(C);
   for (auto AK : ABIAttrs) {
     Attribute Attr = Attrs.getParamAttrs(I).getAttribute(AK);
