@@ -51,6 +51,7 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <optional>
@@ -4581,6 +4582,20 @@ void CodeGenFunction::EmitFunctionEpilog(
 
   case ABIArgInfo::Extend:
   case ABIArgInfo::Direct:
+    // Herbception (throws): the payload slot holds only the payload, and the
+    // discriminant lives in its own slot. Build the ABI's {payload, i1}
+    // aggregate from those two in their own types. The generic path below
+    // would coerce the whole struct out of a payload-sized temp, reading the
+    // discriminant from bytes that were never initialized.
+    if (FI.hasThrowsReturn()) {
+      auto *StructTy = cast<llvm::StructType>(RetAI.getCoerceToType());
+      RV = llvm::PoisonValue::get(StructTy);
+      RV = Builder.CreateInsertValue(RV, Builder.CreateLoad(ReturnValue), 0);
+      RV = Builder.CreateInsertValue(
+          RV, Builder.CreateLoad(HerbceptionDiscriminant), 1);
+      break;
+    }
+
     if (RetAI.getCoerceToType() == ConvertType(RetTy) &&
         RetAI.getDirectOffset() == 0) {
       // The internal return value temp always will have pointer-to-return-type
@@ -4690,15 +4705,6 @@ void CodeGenFunction::EmitFunctionEpilog(
 
   llvm::Instruction *Ret;
   if (RV) {
-    // Herbception (throws): read the discriminant from its slot. Plain
-    // `return` leaves it false; `throw throws` / failure stores true.
-    if (FI.hasThrowsReturn()) {
-      assert(isa<llvm::StructType>(RV->getType()) &&
-             RV->getType()->getStructNumElements() == 2 &&
-             "throws return must be a {T, i1} struct");
-      llvm::Value *Disc = Builder.CreateLoad(HerbceptionDiscriminant);
-      RV = Builder.CreateInsertValue(
-          RV, Disc, RV->getType()->getStructNumElements() - 1);    }
     if (CurFuncDecl && CurFuncDecl->hasAttr<CmseNSEntryAttr>()) {
       // For certain return types, clear padding bits, as they may reveal
       // sensitive information.
@@ -7005,7 +7011,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     if (!HerbceptionCatchScopes.empty()) {
       llvm::BasicBlock *OkBB = createBasicBlock("herb.catch.ok");
       llvm::BasicBlock *ErrBB = createBasicBlock("herb.catch.err");
-      Builder.CreateCondBr(Disc, ErrBB, OkBB);
+      // The error path hands off to the catch handler and leaves this frame;
+      // mark it unlikely so the success path stays the fall-through.
+      Builder.CreateCondBr(Disc, ErrBB, OkBB,
+                           llvm::MDBuilder(getLLVMContext())
+                               .createBranchWeights(1, 1000));
 
       // Error path: store the error value into the handler's error slot and
       // branch to the handler block, running cleanups (including those of the
@@ -7045,7 +7055,10 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       if (CurFD && CurFD->isMain()) {
         llvm::BasicBlock *OkBB = createBasicBlock("herb.main.ok");
         llvm::BasicBlock *TrapBB = createBasicBlock("herb.main.trap");
-        Builder.CreateCondBr(Disc, TrapBB, OkBB);
+        // Trapping on an escaped error is the cold path.
+        Builder.CreateCondBr(Disc, TrapBB, OkBB,
+                             llvm::MDBuilder(getLLVMContext())
+                                 .createBranchWeights(1, 1000));
         EmitBlock(TrapBB);
         EmitTrapCall(llvm::Intrinsic::trap);
         Builder.CreateUnreachable();
@@ -7064,7 +7077,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
              "throws function has no return value slot");
       llvm::BasicBlock *OkBB = createBasicBlock("herb.autoprop.ok");
       llvm::BasicBlock *ErrBB = createBasicBlock("herb.autoprop.err");
-      Builder.CreateCondBr(Disc, ErrBB, OkBB);
+      // Auto-propagation returns the error to this frame's caller; mark it
+      // unlikely so the success path stays the fall-through.
+      Builder.CreateCondBr(Disc, ErrBB, OkBB,
+                           llvm::MDBuilder(getLLVMContext())
+                               .createBranchWeights(1, 1000));
       EmitBlock(ErrBB);
       {
         RunCleanupsScope CleanupScope(*this);

@@ -1703,12 +1703,29 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
         EmitStoreOfScalar(Ret, MakeAddrLValue(ReturnValue, RV->getType()),
                           /*isInit*/ true);
       } else if (CurFnInfo->hasThrowsReturn()) {
-        // Herbception (throws): the payload slot is sized to hold the larger
-        // of the value and the error type, so store the value through a
-        // bitcast of the slot address to the value's type.
-        llvm::Type *RetTy2 = Ret->getType();
+        // Herbception (throws): the payload slot is shared with the error
+        // value, so the success value occupies only the first bytes of it.
+        // Store the value zero-extended to the full width of the slot's first
+        // scalar field, so that the store defines every bit of it. A
+        // narrower store would leave the remaining bits undefined, and the
+        // epilogue's whole-slot load would then have to preserve them from
+        // the other arm of the shared slot -- which the backend can only
+        // express as a mask-and-or merge on the hot path.
+        llvm::Type *LeafTy = ReturnValue.getElementType();
+        while (auto *ST = dyn_cast<llvm::StructType>(LeafTy))
+          LeafTy = ST->getElementType(0);
+        // The first field may be a pointer (e.g. std::error's domain), which
+        // occupies an integer register's worth of bytes.
+        llvm::Type *WideTy = LeafTy->isPointerTy()
+                                 ? Builder.getIntPtrTy(CGM.getDataLayout())
+                                 : LeafTy;
+        llvm::Value *V = Ret;
+        if (V->getType()->isIntegerTy() && WideTy->isIntegerTy() &&
+            V->getType()->getIntegerBitWidth() <
+                WideTy->getIntegerBitWidth())
+          V = Builder.CreateZExt(V, WideTy);
         auto *I = Builder.CreateStore(
-            Ret, ReturnValue.withElementType(RetTy2));
+            V, ReturnValue.withElementType(V->getType()));
         addInstToCurrentSourceAtom(I, I->getValueOperand());
       } else {
         auto *I = Builder.CreateStore(Ret, ReturnValue);
@@ -2021,7 +2038,12 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
 
   llvm::BasicBlock *OkBB = createBasicBlock("try.ok");
   llvm::BasicBlock *ErrBB = createBasicBlock("try.err");
-  Builder.CreateCondBr(Disc, ErrBB, OkBB);
+  // The error path leaves this function, either propagating the error to this
+  // frame's caller or handing it to a `catch throws` handler. Mark it unlikely
+  // so that block placement keeps the success path as the fall-through.
+  Builder.CreateCondBr(Disc, ErrBB, OkBB,
+                       llvm::MDBuilder(getLLVMContext())
+                           .createBranchWeights(1, 1000));
 
   // Error path. When an enclosing `try { } catch throws(E e) { }` block is
   // active, the auto-propagated error is intercepted by that handler: store
