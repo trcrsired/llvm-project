@@ -2,26 +2,34 @@
 ; RUN: llc -mtriple=i686-unknown-windows-msvc < %s | FileCheck %s --check-prefix=CHECK32
 ; RUN: llc -mtriple=aarch64-unknown-windows-msvc < %s | FileCheck %s --check-prefix=CHECK64
 
-; Herbception (throws): on Win64, a throws call with shadow space emits
-; ADJCALLSTACKUP64 32,0 between the call and the branch. The HERB_SETCCr
-; has already captured CF into a register, so ADJCALLSTACKUP64's pessimistic
-; EFLAGS def must not block the setb/test/jcc -> jcc fold.
-
-; Branch-only discriminant use: folds to a single jcc on CF (no setb/testb).
+; Herbception (throws): the callee returns the discriminant in CF and clang
+; materializes it with HERB_SETCCr, so the branch tests the materialized
+; register.
+;
+; Folding that test into a direct branch on live CF is only valid when nothing
+; redefines EFLAGS in between, and on X86 the call-frame adjustment sits exactly
+; there. ADJCALLSTACKUP/DOWN lower to a real add/sub whenever the frame lowering
+; cannot fold them into the prologue, which is what happens on i686 -- it passes
+; arguments on the stack, so the cleanup always survives as `addl $N, %esp`
+; right after the call and redefines CF. The fold therefore has to decline and
+; keep testing the register, on i686 and on x86_64 alike. AArch64 has no such
+; adjustment (its SP update does not set the flags) and still folds.
+;
+; Branch-only discriminant use: the setb/test/jcc stays.
 declare void @capture(i32)
 declare { i32, i1 } @foo(i32) #0
 
 define void @call_and_branch(i32 %x) #1 {
 ; CHECK-LABEL: call_and_branch:
 ; CHECK:       callq foo
-; CHECK-NOT:   setb
-; CHECK-NOT:   testb
-; CHECK:       j{{b|ae}} .LBB0_
+; CHECK:       setb %{{[a-z0-9]+}}
+; CHECK:       testb $1, %{{[a-z0-9]+}}
+; CHECK:       j{{e|ne}} .LBB0_
 ; CHECK32-LABEL: _call_and_branch:
 ; CHECK32:       calll _foo
-; CHECK32-NOT:   setb
-; CHECK32-NOT:   testb
-; CHECK32:       j{{b|ae}} LBB0_
+; CHECK32:       setb %{{[a-z0-9]+}}
+; CHECK32:       testb $1, %{{[a-z0-9]+}}
+; CHECK32:       j{{e|ne}} LBB0_
 ; CHECK64-LABEL: call_and_branch:
 ; CHECK64:       bl foo
 ; CHECK64-NEXT:  b.lo .LBB0_
@@ -77,20 +85,21 @@ entry:
   ret { i32, i1 } %r1
 }
 
-; CMOV discriminant use: folds setb/testb/cmovne into cmovb/cmovae on
-; x86_64, and setb/testb/jne into jb/jae on i686 (where select lowers to
-; a branch with an intervening MOV32r0 that the peephole now skips).
+; CMOV discriminant use: the discriminant is tested in the register and feeds a
+; cmov on x86_64. i686 lowers the select to a branch instead, and puts a
+; zero-idiom between the setb and the test, which redefines EFLAGS a second
+; time; the branch therefore cannot be folded onto the call's CF either.
 define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-LABEL: call_and_select:
 ; CHECK:       callq foo
-; CHECK-NOT:   setb
-; CHECK-NOT:   testb
-; CHECK:       cmov{{b|ae}}
+; CHECK:       setb %{{[a-z0-9]+}}
+; CHECK:       testb $1, %{{[a-z0-9]+}}
+; CHECK:       cmov{{e|ne}}
 ; CHECK32-LABEL: _call_and_select:
 ; CHECK32:       calll _foo
-; CHECK32-NOT:   setb
-; CHECK32-NOT:   testb
-; CHECK32:       j{{b|ae}} LBB3_
+; CHECK32:       setb %{{[a-z0-9]+}}
+; CHECK32:       testb $1, %{{[a-z0-9]+}}
+; CHECK32:       j{{e|ne}} LBB3_
 entry:
   %c = call { i64, i1 } @foo(i64 %x) #1
   %val = extractvalue { i64, i1 } %c, 0

@@ -5552,16 +5552,20 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
       // consumer would read live CF: any EFLAGS modifier in between (an
       // ALU op, or ADJCALLSTACKUP lowering to an add) would corrupt the
       // discriminant and must disqualify the fold.
+      //
+      // ADJCALLSTACKUP/DOWN are deliberately not exempt. They only move the
+      // stack, but on a target where the adjustment cannot be folded into the
+      // frame they are materialised as a real add/sub, and that add redefines
+      // CF. i686 is exactly that case: it passes arguments on the stack, so
+      // the call cleanup always survives as an `addl $N, %esp` right after the
+      // call. Whether the adjustment survives is a frame-lowering decision
+      // taken after this pass has run, so an exemption here would be deciding
+      // on information that does not exist yet -- and on i686 it would fold the
+      // branch onto the cleanup's carry, which is always clear, so the error
+      // path would be unreachable.
       for (MachineBasicBlock::iterator It =
                std::next(MachineBasicBlock::iterator(SetB));
            Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It) {
-        // Ignore ADJCALLSTACKUP/DOWN pseudo instructions - they are
-        // stack adjustments that don't affect the carry flag from the call.
-        if (It->getOpcode() == X86::ADJCALLSTACKUP64 ||
-            It->getOpcode() == X86::ADJCALLSTACKDOWN64 ||
-            It->getOpcode() == X86::ADJCALLSTACKUP32 ||
-            It->getOpcode() == X86::ADJCALLSTACKDOWN32)
-          continue;
         if (It->modifiesRegister(X86::EFLAGS, TRI))
           Clean = false;
         else if (It->readsRegister(DiscReg, TRI))
