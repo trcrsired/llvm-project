@@ -2222,8 +2222,18 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
          CallOrInvoke->getType()->getStructNumElements() == 2 &&
          "throws call must return {T, i1}");
 
-  llvm::Value *Payload = Builder.CreateExtractValue(CallOrInvoke, 0);
+  llvm::Value *Slot = Builder.CreateExtractValue(CallOrInvoke, 0);
   llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+
+  // The ABI return is {slot, i1}. A payload that fits the register budget
+  // shares the slot with the error, so on the failure path the first element
+  // is the error and on the success path it is the payload. A payload too
+  // large for that budget is built in caller storage instead, and the first
+  // element holds the error alone: the payload has to be read back out of the
+  // storage the callee was given, not out of the returned aggregate.
+  bool PayloadIsIndirect =
+      CallOrInvoke->arg_size() > 0 &&
+      CallOrInvoke->paramHasAttr(0, llvm::Attribute::ThrowsSret);
 
   // Build the catch-fails value. C++: either{T, E} with .positive/.left/.right;
   // C (N2289): struct { union { T value; E error; }; bool failed; }.
@@ -2256,12 +2266,12 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
     return {nullptr, nullptr};
   };
 
-  // Store \p V into the field found by \p FindField, descending through an
-  // anonymous union if present.
-  auto StoreField = [&](StringRef Name, llvm::Value *V) {
+  // Resolve the address and IR element type of the field named \p Name,
+  // descending through an anonymous union if present.
+  auto ResolveField = [&](StringRef Name) -> std::pair<Address, llvm::Type *> {
     auto [Outer, Inner] = FindField(Name);
     if (!Inner)
-      return;
+      return {Address::invalid(), nullptr};
     const FieldDecl *F = Inner;
     const CGRecordLayout *TargetRL = &RL;
     Address TargetAddr = Address::invalid();
@@ -2269,23 +2279,30 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
       // The field lives in an anonymous union: GEP to the union member first,
       // then use the union's own record layout for the sub-field.
       if (!RL.containsFieldDecl(Outer))
-        return;
+        return {Address::invalid(), nullptr};
       Address UnionAddr =
           Builder.CreateStructGEP(Addr, RL.getLLVMFieldNo(Outer));
       const RecordDecl *UR = Outer->getType()->getAsRecordDecl();
       const CGRecordLayout &URL = getTypes().getCGRecordLayout(UR);
       if (!URL.containsFieldDecl(F))
-        return;
+        return {Address::invalid(), nullptr};
       TargetAddr = Builder.CreateStructGEP(UnionAddr, URL.getLLVMFieldNo(F));
       TargetRL = &URL;
     } else {
       if (!RL.containsFieldDecl(F))
-        return;
+        return {Address::invalid(), nullptr};
       TargetAddr = Builder.CreateStructGEP(Addr, RL.getLLVMFieldNo(F));
     }
 
-    llvm::Type *FieldIRTy = TargetRL->getLLVMType()->getStructElementType(
-        TargetRL->getLLVMFieldNo(F));
+    unsigned Idx = TargetRL->getLLVMFieldNo(F);
+    return {TargetAddr, TargetRL->getLLVMType()->getStructElementType(Idx)};
+  };
+
+  // Store \p V into the field found by \p FindField.
+  auto StoreField = [&](StringRef Name, llvm::Value *V) {
+    auto [TargetAddr, FieldIRTy] = ResolveField(Name);
+    if (!FieldIRTy)
+      return;
     if (FieldIRTy == V->getType()) {
       Builder.CreateStore(V, TargetAddr);
     } else if (FieldIRTy->isIntegerTy() && V->getType()->isIntegerTy()) {
@@ -2293,17 +2310,19 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
           Builder.CreateIntCast(V, FieldIRTy, false), TargetAddr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
     } else {
-      // The payload may be wider than the field (e.g. the error type
-      // std::error is wider than an int field); reinterpret it through memory,
-      // reading the low bytes as the field type.
-      Address PayloadAddr =
-          CreateDefaultAlignTempAlloca(V->getType(), "herb.payload");
-      auto *SI = Builder.CreateStore(V, PayloadAddr);
+      // The union is laid out for its larger member, so the field can be wider
+      // than the value being written (e.g. the error type std::error is wider
+      // than an int field). Reinterpret through memory, but copy only the
+      // value's own width: both arms start at offset 0, so writing the full
+      // field width would read past the value and, when the other arm holds
+      // the payload, overwrite it.
+      Address Tmp = CreateDefaultAlignTempAlloca(V->getType(), "herb.field");
+      auto *SI = Builder.CreateStore(V, Tmp);
       addInstToCurrentSourceAtom(SI, SI->getValueOperand());
-      llvm::Value *Coerced =
-          Builder.CreateLoad(PayloadAddr.withElementType(FieldIRTy));
-      auto *I = Builder.CreateStore(Coerced, TargetAddr);
-      addInstToCurrentSourceAtom(I, I->getValueOperand());
+      const llvm::DataLayout &DL = CGM.getDataLayout();
+      uint64_t Size = std::min<uint64_t>(DL.getTypeStoreSize(V->getType()),
+                                         DL.getTypeStoreSize(FieldIRTy));
+      Builder.CreateMemCpy(TargetAddr, Tmp, Size);
     }
   };
 
@@ -2311,8 +2330,18 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
   // arms (they share storage, so only one is observable; storing both keeps
   // the IR simple and layout-agnostic).
   StoreField("failed", Disc);
-  StoreField("value", Payload);
-  StoreField("error", Payload);
+  if (PayloadIsIndirect) {
+    // The payload was built directly into storage the callee was handed, so
+    // read it back from there; only the error comes back in the aggregate.
+    QualType PayloadTy = Call->getType();
+    Address PayloadSrc(CallOrInvoke->getArgOperand(0),
+                       getTypes().ConvertTypeForMem(PayloadTy),
+                       CGM.getNaturalTypeAlignment(PayloadTy));
+    StoreField("value", Builder.CreateLoad(PayloadSrc));
+  } else {
+    StoreField("value", Slot);
+  }
+  StoreField("error", Slot);
 
   return RValue::getAggregate(Addr);
 }
