@@ -4343,6 +4343,18 @@ void Verifier::verifyMustTailCall(CallInst &CI) {
   Check(F->getCallingConv() == CI.getCallingConv(),
         "cannot guarantee tail call due to mismatched calling conv", &CI);
 
+  // - The caller and callee must agree on whether the herbception (throws)
+  //   convention is in use. It decides whether the return discriminant travels
+  //   in the carry flag or in an ordinary return register, so a 'throws' caller
+  //   that tail-called a plain function of the same signature would return a
+  //   discriminant its caller reads from a flag the callee never set. 'throws'
+  //   is a function attribute rather than a parameter one, so the ABI attribute
+  //   comparison below does not cover it.
+  Check(F->hasFnAttribute(Attribute::Throws) ==
+            CI.hasFnAttr(Attribute::Throws),
+        "cannot guarantee tail call due to mismatched 'throws' attributes",
+        &CI);
+
   // - The call must immediately precede a :ref:`ret <i_ret>` instruction.
   // - The ret instruction must return the value produced by the call or void.
   Instruction *Next = CI.getNextNode();
