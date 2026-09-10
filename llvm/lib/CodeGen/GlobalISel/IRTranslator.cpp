@@ -5003,7 +5003,16 @@ bool IRTranslatorImpl::runOnMachineFunction(
   CLI = MF->getSubtarget().getCallLowering();
   SPInfo = StackProtectorInfo;
 
-  if (CLI->fallBackToDAGISel(*MF)) {
+  // Herbception (throws) functions carry the return discriminant in the carry
+  // flag rather than in a return register, which makes the flag part of the
+  // calling convention. No target implements that in GlobalISel: it would lower
+  // the return as an ordinary {payload, i1} aggregate, putting the discriminant
+  // in a register, so a function would be given an ABI that disagrees with
+  // SelectionDAG's without anything looking wrong at -O2 or at -O0.
+  //
+  // The check is here rather than in each target's fallBackToDAGISel because an
+  // override that does not chain to the base one would silently drop it.
+  if (F.hasFnAttribute(Attribute::Throws) || CLI->fallBackToDAGISel(*MF)) {
     OptimizationRemarkMissed R("gisel-irtranslator", "GISelFailure",
                                F.getSubprogram(), &F.getEntryBlock());
     R << "unable to lower function: "
