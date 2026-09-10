@@ -89,6 +89,7 @@ Four cases exist:
    * success payload written to ``*success_buffer``
    * error payload written to ``*error_buffer``
 
+
 Why two buffers?
 ----------------
 
@@ -101,6 +102,39 @@ A single buffer cannot be used for both payloads because:
 * aliasing a shared buffer would pessimize optimization.
 
 Therefore, each oversized payload requires its own sret pointer.
+
+Equal-size oversized payloads
+-----------------------------
+
+When both ``T`` and ``E`` exceed the register return capacity ``R`` *and*
+their sizes are equal:
+
+::
+
+   sizeof(T) > R
+   sizeof(E) > R
+   sizeof(T) == sizeof(E)
+
+the caller passes **a single sret buffer**, not two.
+
+In this case, the payload slot has size ``sizeof(T) == sizeof(E)``, and the
+callee may construct either ``T`` or ``E`` directly into the same buffer.
+The discriminant determines how the caller interprets the contents:
+
+* on success: buffer contains ``T``;
+* on failure: buffer contains ``E``.
+
+This optimization reduces ABI complexity and avoids redundant pointer
+arguments. It is safe because:
+
+* ``T`` and ``E`` have identical size;
+* both are trivially copyable;
+* both satisfy the alignment requirements of the shared buffer;
+* the caller reconstructs the N2289 aggregate based solely on the
+  discriminant flag.
+
+This rule applies only when ``sizeof(T) == sizeof(E)`` and both exceed the
+register capacity. If the sizes differ, two buffers are required.
 
 Call-site reconstruction
 ------------------------
