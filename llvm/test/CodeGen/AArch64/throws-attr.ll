@@ -1,6 +1,6 @@
 ; RUN: llc -mtriple=aarch64-unknown-linux-gnu < %s | FileCheck %s
 
-; A function with the throws (herbception) attribute returns its value with a
+; A function with the throws (herbceptions) attribute returns its value with a
 ; discriminant. On AArch64 the discriminant is carried in the NZCV.C flag
 ; instead of a return register.
 
@@ -30,16 +30,15 @@ entry:
   ret { i64, i1 } %r
 }
 
-; The caller reads the discriminant from NZCV.C right after the call (cset hs).
+; The caller selects on the discriminant straight off NZCV.C: the cset and the
+; tst of its low bit fold into the csel's own condition.
 define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-LABEL: call_and_select:
 ; CHECK:       // %bb.0:
 ; CHECK-NEXT:    str x30, [sp, #-16]!
 ; CHECK-NEXT:    bl ret_error
-; CHECK-NEXT:    cset w8, hs
-; CHECK-NEXT:    tst w8, #0x1
 ; CHECK-NEXT:    mov w8, #100
-; CHECK-NEXT:    csel x0, x8, x0, ne
+; CHECK-NEXT:    csel x0, x8, x0, hs
 ; CHECK-NEXT:    ldr x30, [sp], #16
 ; CHECK-NEXT:    ret
 entry:
