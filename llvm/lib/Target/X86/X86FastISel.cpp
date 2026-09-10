@@ -1172,6 +1172,16 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
   if (!FuncInfo.CanLowerReturn)
     return false;
 
+  // Herbception (throws) functions return {payload, i1} and use a
+  // target-specific return convention, with the discriminant carried in the
+  // carry flag. FastISel does not implement that, and the single-value path
+  // below cannot represent it either, so fall back to SelectionDAG. Bailing
+  // out before the AnalyzeReturn below matters: it assigns a location to every
+  // return operand including the discriminant, and would report a fatal error
+  // for a payload that FastISel cannot allocate.
+  if (F.hasFnAttribute(Attribute::Throws))
+    return false;
+
   if (TLI.supportSwiftError() &&
       F.getAttributes().hasAttrSomewhere(Attribute::SwiftError))
     return false;
