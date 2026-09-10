@@ -151,9 +151,9 @@ public:
 
 FunctionPass *createX86FixupSetCCLegacyPass();
 
-/// Return a pass that folds the test of a herbception (throws) failure
+/// Return a pass that folds the test of a herbceptions (throws) failure
 /// discriminant into a direct branch on the carry flag.
-FunctionPass *createX86HerbceptionFoldPass();
+FunctionPass *createX86HerbceptionsFoldPass();
 
 /// Return a pass that avoids creating store forward block issues in the
 /// hardware.
@@ -508,7 +508,7 @@ void initializeX86FPStackifierLegacyPass(PassRegistry &);
 void initializeX86FastPreTileConfigLegacyPass(PassRegistry &);
 void initializeX86FastTileConfigLegacyPass(PassRegistry &);
 void initializeX86FixupSetCCLegacyPass(PassRegistry &);
-void initializeX86HerbceptionFoldPass(PassRegistry &);
+void initializeX86HerbceptionsFoldPass(PassRegistry &);
 void initializeX86FlagsCopyLoweringLegacyPass(PassRegistry &);
 void initializeX86IndirectBranchTrackingLegacyPass(PassRegistry &);
 void initializeX86LoadValueInjectionLoadHardeningLegacyPass(PassRegistry &);

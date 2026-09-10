@@ -1,6 +1,6 @@
 ; RUN: llc -O2 -mtriple=aarch64-unknown-linux-gnu < %s | FileCheck %s
 
-; Herbception (throws): the NZCV.C discriminant of a throws call is
+; Herbceptions (throws): the NZCV.C discriminant of a throws call is
 ; materialized by a HERB_CSET glued to the call. A peephole folds
 ;   %disc = herb_cset; cbz/tbz %disc
 ; into a direct B.cc on live NZCV. That fold is only valid when nothing

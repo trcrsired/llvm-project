@@ -1,6 +1,6 @@
 ; RUN: llc -O2 -mtriple=x86_64-unknown-linux-gnu < %s | FileCheck %s
 
-; Herbception (throws): the carry-flag discriminant of a throws call is
+; Herbceptions (throws): the carry-flag discriminant of a throws call is
 ; materialized by a HERB_SETCCr (pseudo setb) glued to the call. A peephole
 ; folds
 ;   %disc = herb_setcc; testb $1, %disc; jcc

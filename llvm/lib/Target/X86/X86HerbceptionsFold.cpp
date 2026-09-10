@@ -1,4 +1,4 @@
-//===-- X86HerbceptionFold.cpp - Fold the throws discriminant test --------===//
+//===-- X86HerbceptionsFold.cpp - Fold the throws discriminant test --------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// A herbception (throws) function returns its failure discriminant in the carry
+// A herbceptions (throws) function returns its failure discriminant in the carry
 // flag, and clang materialises it immediately after the call:
 //
 //   %disc = setb implicit EFLAGS
@@ -51,17 +51,17 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "x86-herbception-fold"
+#define DEBUG_TYPE "x86-herbceptions-fold"
 
 STATISTIC(NumFolded, "Number of throws discriminant tests folded onto CF");
 
 namespace {
 
-class X86HerbceptionFold : public MachineFunctionPass {
+class X86HerbceptionsFold : public MachineFunctionPass {
 public:
   static char ID;
 
-  X86HerbceptionFold() : MachineFunctionPass(ID) {}
+  X86HerbceptionsFold() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -73,14 +73,14 @@ public:
 
 } // end anonymous namespace
 
-char X86HerbceptionFold::ID = 0;
+char X86HerbceptionsFold::ID = 0;
 
-INITIALIZE_PASS(X86HerbceptionFold, DEBUG_TYPE,
+INITIALIZE_PASS(X86HerbceptionsFold, DEBUG_TYPE,
                 "Fold throws discriminant tests onto the carry flag", false,
                 false)
 
-FunctionPass *llvm::createX86HerbceptionFoldPass() {
-  return new X86HerbceptionFold();
+FunctionPass *llvm::createX86HerbceptionsFoldPass() {
+  return new X86HerbceptionsFold();
 }
 
 /// Whether the value written by \p SetB is read anywhere before it is
@@ -209,13 +209,13 @@ static bool foldDiscriminantTest(MachineInstr &TEST, MachineFunction &MF,
   if (!isDefLive(*SetB, DiscReg, TRI))
     SetB->eraseFromParent();
 
-  LLVM_DEBUG(dbgs() << "Herbception: folded discriminant test in "
+  LLVM_DEBUG(dbgs() << "Herbceptions: folded discriminant test in "
                     << MF.getName() << '\n');
   ++NumFolded;
   return true;
 }
 
-bool X86HerbceptionFold::runOnMachineFunction(MachineFunction &MF) {
+bool X86HerbceptionsFold::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
   bool Changed = false;
 

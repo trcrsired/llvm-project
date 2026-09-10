@@ -376,7 +376,7 @@ bool AArch64MIPeepholeOptImpl::visitCSEL(MachineInstr &MI) {
 }
 
 bool AArch64MIPeepholeOptImpl::visitHERB_CSET(MachineInstr &MI) {
-  // Herbception (throws): fold HERB_CSET + CBZ/CBNZ/TBZ/TBNZ into B.cc/B.cs.
+  // Herbceptions (throws): fold HERB_CSET + CBZ/CBNZ/TBZ/TBNZ into B.cc/B.cs.
   // HERB_CSET produces 1 if NZCV.C is set, else 0.
   // CBZ/TBZ bit 0 branch if the value is zero -> branch if C is clear -> B.cc.
   // CBNZ/TBNZ bit 0 branch if non-zero -> branch if C is set   -> B.cs.
