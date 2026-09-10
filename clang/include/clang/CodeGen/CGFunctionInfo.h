@@ -757,6 +757,16 @@ public:
   bool hasThrowsReturn() const { return HasThrowsReturn; }
   void setHasThrowsReturn(bool V = true) { HasThrowsReturn = V; }
 
+  /// Whether the payload of a herbception return is constructed directly in
+  /// caller storage through a 'throws_sret' pointer instead of being returned
+  /// in registers, so that only the error value and the discriminant come
+  /// back. This is how the arrangement leaves an indirect return classified
+  /// (see CodeGenTypes::arrangeLLVMFunctionInfo), so no separate state is
+  /// needed to record the decision.
+  bool hasThrowsSretReturn() const {
+    return HasThrowsReturn && getReturnInfo().getKind() == ABIArgInfo::Indirect;
+  }
+
   /// The LLVM type of the error value carried by a herbception function, or
   /// null for a normal function.
   llvm::Type *getHerbceptionErrorType() const { return HerbceptionErrorType; }

@@ -1212,10 +1212,28 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
         CGM.getDataLayout().getTypeAllocSize(ErrorType) >
             CGM.getDataLayout().getTypeAllocSize(RetTy))
       RetTy = ErrorType;
-    llvm::StructType *StructTy = llvm::StructType::get(
-        getLLVMContext(),
-        {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
-    retInfo = ABIArgInfo::getDirect(StructTy);
+    // A payload the target would return indirectly must not be bitwise
+    // transported through registers: that detaches the object from its own
+    // storage, so a short std::string keeps a pointer into the frame that
+    // built it and the caller reads freed stack once that frame is gone.
+    //
+    // Leave the ABI's indirect classification alone in that case. The payload
+    // is then constructed straight into the caller's object through a
+    // 'throws_sret' pointer and only {E, i1} is returned, which is what keeps
+    // RVO and location-dependent objects intact. The error travels in
+    // registers, so it has to fit the register-return budget (two GPRs).
+    //
+    // A payload whose union with the error does fit keeps the previous
+    // {union(T, E), i1} register return, so small trivially-copyable returns
+    // carry on coming back in RAX+RDX.
+    const uint64_t RegBudget = 2 * CGM.getDataLayout().getPointerSize();
+    if (!retInfo.isIndirect() ||
+        CGM.getDataLayout().getTypeAllocSize(RetTy) <= RegBudget) {
+      llvm::StructType *StructTy = llvm::StructType::get(
+          getLLVMContext(),
+          {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
+      retInfo = ABIArgInfo::getDirect(StructTy);
+    }
   }
 
   for (auto &I : FI->arguments())
@@ -2166,6 +2184,19 @@ llvm::FunctionType *CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     break;
 
   case ABIArgInfo::Indirect:
+    // A herbception payload built in caller storage still has to hand back
+    // the error and the discriminant, so the return is {E, i1} rather than
+    // the void an ordinary indirect return would produce.
+    if (FI.hasThrowsSretReturn()) {
+      resultType = llvm::StructType::get(
+          getLLVMContext(),
+          {FI.getHerbceptionErrorType(),
+           llvm::Type::getInt1Ty(getLLVMContext())});
+      break;
+    }
+    resultType = llvm::Type::getVoidTy(getLLVMContext());
+    break;
+
   case ABIArgInfo::Ignore:
     resultType = llvm::Type::getVoidTy(getLLVMContext());
     break;
@@ -3210,9 +3241,19 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   // Attach attributes to sret.
   if (IRFunctionArgs.hasSRetArg()) {
     llvm::AttrBuilder &SRETAttrs = ArgAttrs[IRFunctionArgs.getSRetArgNo()];
-    SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
-    SRETAttrs.addAttribute(llvm::Attribute::Writable);
-    SRETAttrs.addAttribute(llvm::Attribute::DeadOnUnwind);
+    if (FI.hasThrowsSretReturn()) {
+      // The storage is the caller's object, which is why this is
+      // 'throws_sret' and not 'sret': the function still returns {E, i1}, so
+      // the verifier's "sret must return void" rule must not apply. The
+      // callee writes the payload only on success, so it is not
+      // dead_on_unwind either.
+      SRETAttrs.addThrowsSretAttr(getTypes().ConvertTypeForMem(RetTy));
+      SRETAttrs.addAttribute(llvm::Attribute::Writable);
+    } else {
+      SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
+      SRETAttrs.addAttribute(llvm::Attribute::Writable);
+      SRETAttrs.addAttribute(llvm::Attribute::DeadOnUnwind);
+    }
     hasUsedSRet = true;
     if (RetAI.getInReg())
       SRETAttrs.addAttribute(llvm::Attribute::InReg);
@@ -4576,6 +4617,24 @@ void CodeGenFunction::EmitFunctionEpilog(
           /*isInit*/ true);
       break;
     }
+    }
+
+    // Herbception (throws): the payload was constructed directly in the
+    // caller's object, so the caller learns it succeeded from the
+    // discriminant rather than from the returned value. What comes back is
+    // {E, i1}: the error, which only holds anything on the failure path, and
+    // the discriminant. The error is read out of the payload slot, where the
+    // failure path stored it.
+    if (FI.hasThrowsSretReturn()) {
+      llvm::Type *ErrTy = FI.getHerbceptionErrorType();
+      auto *StructTy = llvm::StructType::get(
+          getLLVMContext(),
+          {ErrTy, llvm::Type::getInt1Ty(getLLVMContext())});
+      RV = llvm::PoisonValue::get(StructTy);
+      RV = Builder.CreateInsertValue(
+          RV, Builder.CreateLoad(ReturnValue.withElementType(ErrTy)), 0);
+      RV = Builder.CreateInsertValue(
+          RV, Builder.CreateLoad(HerbceptionDiscriminant), 1);
     }
     break;
   }
