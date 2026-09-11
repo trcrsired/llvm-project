@@ -622,6 +622,16 @@ public:
   /// The stack of active herbception catch-throws scopes.
   SmallVector<HerbceptionCatchScope, 4> HerbceptionCatchScopes;
 
+  /// The herbception catch variable of the handler body currently being
+  /// emitted, if any, and whether its error still has to be destroyed.
+  ///
+  /// A bare `throw throws;` moves the caught error out, so its destructor must
+  /// not run. That cannot be a compile-time decision keyed on the variable,
+  /// because one handler can rethrow on one path and swallow on another, so it
+  /// is a flag cleared on the rethrow path and tested by the exit cleanup.
+  const VarDecl *HerbceptionCurrentCatchVar = nullptr;
+  Address HerbceptionCurrentCatchVarFlag = Address::invalid();
+
   /// Whether we are currently emitting the operand of a `try(expr)` /
   /// `catch fails(expr)` expression. While set, calls inside are already being
   /// handled by EmitHerbceptionTry/EmitHerbceptionCatchReturnFailure and must not be

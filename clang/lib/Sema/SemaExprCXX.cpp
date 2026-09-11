@@ -856,10 +856,36 @@ Sema::ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *Ex) {
   return BuildCXXThrow(OpLoc, Ex, IsThrownVarInScope);
 }
 
+/// Strip the nodes that can wrap an expression by the time it is handed to
+/// Sema as a finished operand.
+///
+/// IgnoreParenImpCasts covers parentheses and implicit casts but stops at the
+/// temporary-related nodes. A call whose result type owns a resource comes back
+/// wrapped in CXXBindTemporaryExpr (and MaterializeTemporaryExpr, and at a
+/// higher level ExprWithCleanups), which is exactly the payload shape most
+/// likely to be used with try(). Not unwrapping those made the call invisible
+/// to the checks below, so `try(f(x))` was rejected for any T with a
+/// non-trivial destructor -- a class with no destructor worked, one with a
+/// destructor did not.
+static const Expr *skipHerbceptionTemporaryWrappers(const Expr *Ex) {
+  for (;;) {
+    Ex = Ex->IgnoreParenImpCasts();
+    if (const auto *EWC = dyn_cast<ExprWithCleanups>(Ex))
+      Ex = EWC->getSubExpr();
+    else if (const auto *BT = dyn_cast<CXXBindTemporaryExpr>(Ex))
+      Ex = BT->getSubExpr();
+    else if (const auto *MT = dyn_cast<MaterializeTemporaryExpr>(Ex))
+      Ex = MT->getSubExpr();
+    else
+      return Ex;
+  }
+}
+
 /// Return whether \p Ex is a call to a function (or function template)
 /// declared with a herbception 'throws'/'fails{E}' spec.
 bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
-  const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts());
+  const auto *Call =
+      dyn_cast<CallExpr>(skipHerbceptionTemporaryWrappers(Ex));
   if (!Call)
     return false;
 

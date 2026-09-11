@@ -1734,12 +1734,33 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
       break;
     }
     case TEK_Complex:
-      EmitComplexExprIntoLValue(RV, MakeAddrLValue(ReturnValue, RV->getType()),
-                                /*isInit*/ true);
+      // Herbceptions (throws): same shared-slot reason as the aggregate case
+      // below. Building the complex through the slot's own type would put its
+      // second component at the union's offset (8) rather than the complex's
+      // (4), and the caller reads the two components back at their own
+      // offsets, so the imaginary part silently returns as 0.
+      EmitComplexExprIntoLValue(
+          RV,
+          MakeAddrLValue(CurFnInfo->hasThrowsReturn()
+                             ? ReturnValue.withElementType(ConvertType(FnRetTy))
+                             : ReturnValue,
+                         RV->getType()),
+          /*isInit*/ true);
       break;
     case TEK_Aggregate:
+      // Herbceptions (throws): the slot is sized for max(T, E) and shared with
+      // the error value, so it is not typed as the payload. Building the
+      // payload through the slot's own type would put its fields at the slot's
+      // offsets instead -- {int, int} has a field at 4, the union {ptr, i64}
+      // has none -- while the caller reads the payload back at its own offsets,
+      // so the wrong ones silently return garbage. Construct it through a view
+      // of the slot typed as the payload instead, which stays inside the slot.
+      // The error path writes through the slot type and so is unaffected.
       EmitAggExpr(RV, AggValueSlot::forAddr(
-                          ReturnValue, Qualifiers(),
+                          CurFnInfo->hasThrowsReturn()
+                              ? ReturnValue.withElementType(ConvertType(FnRetTy))
+                              : ReturnValue,
+                          Qualifiers(),
                           AggValueSlot::IsDestructed,
                           AggValueSlot::DoesNotNeedGCBarriers,
                           AggValueSlot::IsNotAliased,
@@ -1761,6 +1782,58 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
   const Expr *EV = ErrorValue;
   if (const auto *EWC = dyn_cast_or_null<ExprWithCleanups>(EV))
     EV = EWC->getSubExpr();
+
+  // Bare `throw throws` rethrows the error the enclosing `catch throws` handler
+  // caught: a destructive move of that error, not a copy and not a new error.
+  // The enclosed try's own catch scope has been popped by the time the handler
+  // body is emitted, so this cannot go through the routing below -- the source
+  // is the caught error itself and the destination is the next handler out or,
+  // failing that, this function's caller.
+  //
+  // A `throw throws <expr>` in the same position is the other case: it builds a
+  // new error out of <expr> and takes the ordinary path below, which leaves the
+  // caught error alone and lets the handler's exit cleanup destroy it. Only the
+  // bare form moves the caught error out, so only the bare form clears the flag.
+  if (!EV && HerbceptionCurrentCatchVar) {
+    Address Src = GetAddrOfLocalVar(HerbceptionCurrentCatchVar);
+    const llvm::DataLayout &DL = CGM.getDataLayout();
+
+    RunCleanupsScope ThrowScope(*this);
+
+    // The error has been moved out, so the handler's copy must not be destroyed.
+    if (HerbceptionCurrentCatchVarFlag.isValid())
+      Builder.CreateStore(Builder.getFalse(), HerbceptionCurrentCatchVarFlag);
+
+    // Where the error goes, and how control gets there.
+    Address Dst = Address::invalid();
+    const HerbceptionCatchScope *Scope = nullptr;
+    if (!HerbceptionCatchScopes.empty()) {
+      Scope = &HerbceptionCatchScopes.back();
+      Dst = Scope->ErrorSlot;
+    } else {
+      assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
+             "herbception rethrow outside a throws function");
+      Dst = ReturnValue;
+    }
+
+    // A move, not a copy: the error's own width is transferred, leaving any
+    // trailing bytes of a wider destination undefined, exactly as the other
+    // error paths leave them.
+    uint64_t Size =
+        std::min<uint64_t>(DL.getTypeStoreSize(Src.getElementType()),
+                           DL.getTypeStoreSize(Dst.getElementType()));
+    Builder.CreateMemCpy(Dst, Src, Size);
+
+    if (!Scope)
+      Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
+
+    ThrowScope.ForceCleanup();
+    if (Scope)
+      EmitBranchThroughCleanup(Scope->Handler);
+    else
+      EmitBranchThroughCleanup(ReturnBlock);
+    return;
+  }
 
   // A `throw throws` is routed to the nearest active `try { } catch throws`
   // handler when one encloses it (like a traditional throw is caught by its
@@ -2025,12 +2098,34 @@ CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
   return Builder.CreatePtrToInt(Obj, ConvertType(E->getType()));
 }
 
+/// The call a 'try'/'catch return_failure' expression wraps.
+///
+/// The operand comes back wrapped in the temporary-related nodes when the
+/// callee's result type owns a resource -- CXXBindTemporaryExpr and
+/// MaterializeTemporaryExpr at this level, ExprWithCleanups further out -- so
+/// the call is not the top-level node. Unwrap those here rather than casting
+/// the subexpression directly; see skipHerbceptionTemporaryWrappers in Sema,
+/// which these have to agree with for the expression to have been accepted.
+static const CallExpr *getHerbceptionWrappedCall(const Expr *Sub) {
+  for (;;) {
+    Sub = Sub->IgnoreParenImpCasts();
+    if (const auto *EWC = dyn_cast<ExprWithCleanups>(Sub))
+      Sub = EWC->getSubExpr();
+    else if (const auto *BT = dyn_cast<CXXBindTemporaryExpr>(Sub))
+      Sub = BT->getSubExpr();
+    else if (const auto *MT = dyn_cast<MaterializeTemporaryExpr>(Sub))
+      Sub = MT->getSubExpr();
+    else
+      break;
+  }
+  return cast<CallExpr>(Sub);
+}
+
 RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
          "herbception try outside a throws function");
 
-  const Expr *Sub = E->getSubExpr()->IgnoreParenImpCasts();
-  const CallExpr *Call = cast<CallExpr>(Sub);
+  const CallExpr *Call = getHerbceptionWrappedCall(E->getSubExpr());
   QualType CallTy = Call->getType();
 
   // Emit the call. It returns {T, i1}; capture the raw call so we can read
@@ -2050,12 +2145,28 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   llvm::Value *Success = Builder.CreateExtractValue(CallOrInvoke, 0);
   llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
 
+  // A payload the ABI returns indirectly is built straight into storage the
+  // callee was handed, and what comes back in the aggregate is then the error
+  // on both paths: element 0 is not the payload. Read the success value back
+  // out of that storage instead, exactly as EmitHerbceptionCatchReturnFailure
+  // does for the same call shape.
+  bool PayloadIsIndirect =
+      CallOrInvoke->arg_size() > 0 &&
+      CallOrInvoke->paramHasAttr(0, llvm::Attribute::ThrowsSret);
+  Address IndirectPayload = Address::invalid();
+  if (PayloadIsIndirect)
+    IndirectPayload = Address(CallOrInvoke->getArgOperand(0),
+                              getTypes().ConvertTypeForMem(CallTy),
+                              CGM.getNaturalTypeAlignment(CallTy));
+
   // The payload slot is sized to hold the larger of the callee's success type
   // and its error type (a union). On success it holds the value; on error it
   // holds the error. When the payload type is wider than the success type, the
   // success value occupies the low bytes, so reinterpreting it requires a
-  // trip through memory rather than a value bitcast.
-  llvm::Type *PayloadTy = Success->getType();
+  // trip through memory rather than a value bitcast. Where the payload is
+  // returned indirectly, the slot is the payload itself, not element 0.
+  llvm::Type *PayloadTy =
+      PayloadIsIndirect ? ConvertType(CallTy) : Success->getType();
 
   llvm::BasicBlock *OkBB = createBasicBlock("try.ok");
   llvm::BasicBlock *ErrBB = createBasicBlock("try.err");
@@ -2187,6 +2298,12 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   // blocks tail calls and bloats the plain "throws-call-as-statement"
   // forwarding idiom.
   {
+    // Deliberately Success rather than the payload: this slot belongs to the
+    // enclosing function, which need not be able to hold the payload at all --
+    // for an indirect payload the function's slot is the error-sized union,
+    // and storing the payload here would overflow it. The error always fits,
+    // and defining the slot from it is all this needs to do. The value the try
+    // expression actually produces is materialised below.
     llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
     auto *I = Builder.CreateStore(Coerced, ReturnValue);
     addInstToCurrentSourceAtom(I, I->getValueOperand());
@@ -2197,21 +2314,34 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     return RValue::getIgnored();
 
   if (getEvaluationKind(CallTy) == TEK_Scalar) {
+    llvm::Value *SuccessValue =
+        PayloadIsIndirect ? Builder.CreateLoad(IndirectPayload) : Success;
     if (PayloadTy == ConvertType(CallTy))
-      return RValue::get(Success);
+      return RValue::get(SuccessValue);
     // The payload is wider than the scalar success value; reinterpret it
     // through memory, reading the low bytes as the value type.
     Address PayloadAddr =
         CreateDefaultAlignTempAlloca(PayloadTy, "try.payload");
-    auto *I = Builder.CreateStore(Success, PayloadAddr);
+    auto *I = Builder.CreateStore(SuccessValue, PayloadAddr);
     addInstToCurrentSourceAtom(I, I->getValueOperand());
     llvm::Value *V = Builder.CreateLoad(
         PayloadAddr.withElementType(ConvertType(CallTy)));
     return RValue::get(V);
   }
-  if (getEvaluationKind(CallTy) == TEK_Complex)
+  if (getEvaluationKind(CallTy) == TEK_Complex) {
+    if (PayloadIsIndirect) {
+      llvm::Value *V = Builder.CreateLoad(IndirectPayload);
+      return RValue::getComplex(std::make_pair(
+          Builder.CreateExtractValue(V, 0), Builder.CreateExtractValue(V, 1)));
+    }
     return RValue::getComplex(std::make_pair(Success, Disc));
+  }
   {
+    // The payload was built directly into the storage the callee was handed,
+    // so it is already an aggregate in its own type: hand that address back
+    // rather than copying element 0 (which holds the error) through a temp.
+    if (PayloadIsIndirect)
+      return RValue::getAggregate(IndirectPayload);
     // Aggregate: materialize the payload into a temp and return it as an
     // aggregate RValue. The payload may be wider than the aggregate success
     // type, so go through a payload-typed temp and reinterpret the address.
@@ -2227,8 +2357,7 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
 }
 
 RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E) {
-  const Expr *Sub = E->getSubExpr()->IgnoreParenImpCasts();
-  const CallExpr *Call = cast<CallExpr>(Sub);
+  const CallExpr *Call = getHerbceptionWrappedCall(E->getSubExpr());
 
   // Emit the call. It returns {T, i1} (value-or-error, discriminant).
   // Suppress routing to an enclosing herbception catch scope: this expression
