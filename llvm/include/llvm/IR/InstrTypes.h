@@ -1897,6 +1897,15 @@ public:
     return nullptr;
   }
 
+  /// Extract the throws_sret type for a parameter.
+  Type *getParamThrowsSretType(unsigned ArgNo) const {
+    if (auto *Ty = Attrs.getParamThrowsSretType(ArgNo))
+      return Ty;
+    if (const Function *F = getCalledFunction())
+      return F->getAttributes().getParamThrowsSretType(ArgNo);
+    return nullptr;
+  }
+
   /// Extract the elementtype type for a parameter.
   /// Note that elementtype() can only be applied to call arguments, not
   /// function declaration parameters.
@@ -2045,6 +2054,15 @@ public:
 
     // Be friendly and also check the callee.
     return paramHasAttr(0, Attribute::StructRet);
+  }
+
+  /// Determine if the call has a throws_sret argument.
+  bool hasThrowsSretAttr() const {
+    if (arg_empty())
+      return false;
+
+    // Be friendly and also check the callee.
+    return paramHasAttr(0, Attribute::ThrowsSret);
   }
 
   /// Determine if any call argument is an aggregate passed by value.

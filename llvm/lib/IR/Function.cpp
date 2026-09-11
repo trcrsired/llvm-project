@@ -176,6 +176,7 @@ bool Argument::hasPointeeInMemoryValueAttr() const {
   AttributeSet Attrs = getAttributes();
   return Attrs.hasAttribute(Attribute::ByVal) ||
          Attrs.hasAttribute(Attribute::StructRet) ||
+         Attrs.hasAttribute(Attribute::ThrowsSret) ||
          Attrs.hasAttribute(Attribute::InAlloca) ||
          Attrs.hasAttribute(Attribute::Preallocated) ||
          Attrs.hasAttribute(Attribute::ByRef);
@@ -196,6 +197,8 @@ static Type *getMemoryParamAllocType(AttributeSet ParamAttrs) {
     return InAllocaTy;
   if (Type *SRetTy = ParamAttrs.getStructRetType())
     return SRetTy;
+  if (Type *ThrowsSretTy = ParamAttrs.getThrowsSretType())
+    return ThrowsSretTy;
 
   return nullptr;
 }
@@ -227,6 +230,11 @@ Type *Argument::getParamByValType() const {
 Type *Argument::getParamStructRetType() const {
   assert(getType()->isPointerTy() && "Only pointers have sret types");
   return getParent()->getParamStructRetType(getArgNo());
+}
+
+Type *Argument::getParamThrowsSretType() const {
+  assert(getType()->isPointerTy() && "Only pointers have throws_sret types");
+  return getParent()->getParamThrowsSretType(getArgNo());
 }
 
 Type *Argument::getParamByRefType() const {
@@ -285,6 +293,11 @@ bool Argument::hasNoFreeAttr() const {
 bool Argument::hasStructRetAttr() const {
   if (!getType()->isPointerTy()) return false;
   return hasAttribute(Attribute::StructRet);
+}
+
+bool Argument::hasThrowsSretAttr() const {
+  if (!getType()->isPointerTy()) return false;
+  return hasAttribute(Attribute::ThrowsSret);
 }
 
 bool Argument::hasInRegAttr() const {

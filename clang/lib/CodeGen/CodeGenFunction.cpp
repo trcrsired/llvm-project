@@ -1291,6 +1291,24 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       Builder.CreateStore(ReturnValue.emitRawPointer(*this),
                           ReturnValuePointer);
     }
+
+    // Herbception (throws): the payload is constructed directly in the
+    // caller's object, so only {E, i1} is handed back. On the error path the
+    // error value is written into this same slot -- it is at least as large
+    // as the error, since an indirect payload is what pushed the return into
+    // memory -- and the epilogue returns it in registers alongside the
+    // discriminant.
+    if (CurFnInfo->hasThrowsSretReturn()) {
+      HerbceptionDiscriminant =
+          CreateIRTempWithoutCast(getContext().BoolTy, "herbception.disc");
+      Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
+
+      if (auto *Alloca = dyn_cast<llvm::AllocaInst>(
+              HerbceptionDiscriminant.emitRawPointer(*this)))
+        Alloca->setMetadata(
+            llvm::LLVMContext::MD_coro_outside_frame,
+            llvm::MDNode::get(CGM.getLLVMContext(), {}));
+    }
   } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::InAlloca &&
              !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
     // Load the sret pointer from the argument struct and return into that.

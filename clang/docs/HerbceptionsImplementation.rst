@@ -103,7 +103,10 @@ the parser rejects any combination. Semantic checks live in
 ``Sema::checkExceptionSpecification`` /
 ``actOnDelayedExceptionSpecification`` (``SemaDeclCXX.cpp``):
 ``return_failure{std::error}`` is rejected (``err_return_failure_std_error_type``), ``E`` must
-be trivially copyable (``err_return_failure_type_not_trivially_copyable``),
+be trivially copyable (``err_return_failure_type_not_trivially_copyable``) and no
+larger than ``2 * sizeof(uintptr_t)`` (``err_return_failure_type_too_large``), the
+room the implicit ``throws`` error type occupies, since the error travels in the
+same registers as the failure discriminant,
 destructors cannot carry a herbceptions spec
 (``err_herbceptions_destructor_spec``) and ``return_failure{E}`` is restricted to free
 functions (``err_return_failure_only_free_function`` -- enforced for members via the

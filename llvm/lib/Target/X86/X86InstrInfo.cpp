@@ -1362,6 +1362,10 @@ MachineInstr *X86InstrInfo::convertToThreeAddressWithLEA(unsigned MIOpc,
       Ins2Idx = LIS->InsertMachineInstrInMaps(*InsMI2);
     SlotIndex NewIdx = LIS->ReplaceMachineInstrInMaps(MI, *NewMI);
     SlotIndex ExtIdx = LIS->InsertMachineInstrInMaps(*ExtMI);
+
+    // Drop the dead EFLAGS def MI had; the replacement does not define EFLAGS.
+    LIS->removePhysRegDefAt(X86::EFLAGS, NewIdx.getRegSlot());
+
     LIS->getInterval(InRegLEA);
     LIS->getInterval(OutRegLEA);
     if (InRegLEA2)
@@ -2042,7 +2046,11 @@ MachineInstr *X86InstrInfo::convertToThreeAddress(MachineInstr &MI,
   MBB.insert(MI.getIterator(), NewMI); // Insert the new inst
 
   if (LIS) {
+    // The replacement does not define EFLAGS; drop the dead EFLAGS def MI had.
+    SlotIndex Idx = LIS->getInstructionIndex(MI);
     LIS->ReplaceMachineInstrInMaps(MI, *NewMI);
+
+    LIS->removePhysRegDefAt(X86::EFLAGS, Idx.getRegSlot());
     if (SrcReg)
       LIS->getInterval(SrcReg);
     if (SrcReg2)
@@ -5473,167 +5481,6 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
   }
   }
 
-  // Herbception (throws): the post-call discriminant is materialized with a
-  // HERB_SETCCr (pseudo setb, glued directly to the call) and typically reaches
-  // a conditional branch through a TEST8ri $1 round-trip:
-  //   %disc = herb_setb implicit EFLAGS
-  //   ...                          // must not clobber EFLAGS
-  //   testb $1, %disc
-  //   jcc eq/ne
-  // When EFLAGS survives untouched from the HERB_SETCCr to the branch, replace
-  // the branch with a direct jc/jae on CF and erase the HERB_SETCCr/TEST8ri
-  // pair.
-  if (CmpInstr.getOpcode() == X86::TEST8ri && CmpValue == 0 &&
-      CmpInstr.getOperand(1).isImm() && CmpInstr.getOperand(1).getImm() == 1 &&
-      CmpInstr.getOperand(0).isReg()) {
-    const TargetRegisterInfo *TRI = &getRegisterInfo();
-    Register DiscReg = CmpInstr.getOperand(0).getReg();
-    MachineBasicBlock *MBB = CmpInstr.getParent();
-    // Find the setb that defines the discriminant register by scanning
-    // backwards from the testb. This handles both virtual and physical
-    // registers, as well as COPY chains.
-    MachineInstr *SetB = nullptr;
-    Register CurrReg = DiscReg;
-    // Start from the instruction BEFORE CmpInstr (skip CmpInstr itself)
-    auto It = MachineBasicBlock::reverse_iterator(CmpInstr);
-    if (It != MBB->rend())
-      ++It;
-    for (; It != MBB->rend(); ++It) {
-      // Check if this instruction is a setb that writes to CurrReg.
-      // Use regsOverlap to handle register aliasing (e.g., %cl vs %rcx).
-      if ((It->getOpcode() == X86::HERB_SETCCr ||
-           It->getOpcode() == X86::SETCCr) &&
-          It->getOperand(0).isReg() &&
-          TRI->regsOverlap(It->getOperand(0).getReg(), CurrReg)) {
-        SetB = &*It;
-        break;
-      }
-      // Check if this is a COPY that copies to CurrReg.
-      // If so, update CurrReg to the source of the COPY and continue.
-      if (It->isCopy() && It->getOperand(0).isReg() &&
-          TRI->regsOverlap(It->getOperand(0).getReg(), CurrReg) &&
-          It->getOperand(1).isReg()) {
-        CurrReg = It->getOperand(1).getReg();
-        continue;
-      }
-      // If this instruction writes to CurrReg but is not a setb or COPY,
-      // then the setb we're looking for is not the actual definition
-      // used by testb. Stop the scan.
-      if (It->getOperand(0).isReg() &&
-          TRI->regsOverlap(It->getOperand(0).getReg(), CurrReg)) {
-        break;
-      }
-    }
-    // After ExpandPostRAPseudos, HERB_SETCCr is lowered to SETCCr(COND_B).
-    // Match either the pseudo (if peephole runs before expansion) or the
-    // lowered setb (if peephole runs after, which is the normal case).
-    // SETCCr operand layout: operand 0 = dst reg, operand 1 = cond code imm.
-    if (SetB && SetB->getParent() == MBB &&
-        (SetB->getOpcode() == X86::HERB_SETCCr ||
-         (SetB->getOpcode() == X86::SETCCr && SetB->getOperand(1).isImm() &&
-          SetB->getOperand(1).getImm() == X86::COND_B))) {
-      bool Clean = true;
-      // For virtual registers, the TEST must be the only non-debug user
-      // of the discriminant so we can safely erase the setb.
-      // For physical registers, we keep the setb, so other uses are OK
-      // as long as they don't interfere with the fold.
-      if (DiscReg.isVirtual()) {
-        for (MachineInstr &U : MRI->use_nodbg_instructions(DiscReg)) {
-          if (&U != &CmpInstr) {
-            Clean = false;
-            break;
-          }
-        }
-      }
-      // Nothing between the SETCCr and the branch may clobber EFLAGS or
-      // touch the discriminant register. This fold turns the branch into a
-      // direct jb/jae on live CF and erases the HERB_SETCCr, so while the
-      // TEST8ri reads the register rather than the flags, the rewritten
-      // consumer would read live CF: any EFLAGS modifier in between (an
-      // ALU op, or ADJCALLSTACKUP lowering to an add) would corrupt the
-      // discriminant and must disqualify the fold.
-      for (MachineBasicBlock::iterator It =
-               std::next(MachineBasicBlock::iterator(SetB));
-           Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It) {
-        // Ignore ADJCALLSTACKUP/DOWN pseudo instructions - they are
-        // stack adjustments that don't affect the carry flag from the call.
-        if (It->getOpcode() == X86::ADJCALLSTACKUP64 ||
-            It->getOpcode() == X86::ADJCALLSTACKDOWN64 ||
-            It->getOpcode() == X86::ADJCALLSTACKUP32 ||
-            It->getOpcode() == X86::ADJCALLSTACKDOWN32)
-          continue;
-        if (It->modifiesRegister(X86::EFLAGS, TRI))
-          Clean = false;
-        else if (It->readsRegister(DiscReg, TRI))
-          Clean = false;
-      }
-      // Look for a single EFLAGS consumer (JCC or CMOV with E/NE condition)
-      // that reads the TEST's flags.  After the consumer, an EFLAGS modifier
-      // resets flag state, so subsequent EFLAGS readers observe the new flags
-      // and are harmless.
-      MachineInstr *Consumer = nullptr;
-      X86::CondCode ConsumerCC = X86::COND_INVALID;
-      bool IsCMOV = false;
-      bool FlagsRedefinedAfterConsumer = false;
-      for (MachineBasicBlock::iterator It =
-               std::next(MachineBasicBlock::iterator(CmpInstr));
-           Clean && It != MBB->end();) {
-        bool ReadsEFLAGS = It->readsRegister(X86::EFLAGS, TRI);
-        bool ModifiesEFLAGS = It->modifiesRegister(X86::EFLAGS, TRI);
-        if (ReadsEFLAGS) {
-          if (!Consumer && !ModifiesEFLAGS) {
-            X86::CondCode OldCC = X86::getCondFromMI(*It);
-            if (OldCC != X86::COND_INVALID &&
-                (OldCC == X86::COND_E || OldCC == X86::COND_NE) &&
-                (It->getOpcode() == X86::JCC_1 ||
-                 X86::isCMOVCC(It->getOpcode()))) {
-              Consumer = &*It;
-              ConsumerCC = OldCC;
-              IsCMOV = X86::isCMOVCC(It->getOpcode());
-              ++It;
-              continue;
-            }
-          }
-          if (Consumer && !FlagsRedefinedAfterConsumer)
-            Clean = false;
-          break;
-        }
-        if (ModifiesEFLAGS) {
-          if (Consumer)
-            FlagsRedefinedAfterConsumer = true;
-          else {
-            Clean = false;
-            break;
-          }
-        }
-        if (It->readsRegister(DiscReg, TRI)) {
-          Clean = false;
-          break;
-        }
-        ++It;
-      }
-      if (Clean && Consumer) {
-        // testb $1, %disc sets ZF iff the discriminant bit is zero, i.e. iff
-        // CF was clear. je/cmove therefore corresponds to jae/cmovae (CF clear)
-        // and jne/cmovne to jb/cmovb (CF set).
-        X86::CondCode NewCC = (ConsumerCC == X86::COND_E) ? X86::COND_AE
-                                                          : X86::COND_B;
-        const MCInstrDesc &Desc = Consumer->getDesc();
-        int CondOpIdx = X86::getCondSrcNoFromDesc(Desc);
-        if (CondOpIdx >= 0)
-          Consumer->getOperand(CondOpIdx + Desc.getNumDefs()).setImm(NewCC);
-        LLVM_DEBUG(dbgs() << "Herbception: folded setb/test into "
-                          << (IsCMOV ? "cmov" : "j")
-                          << (ConsumerCC == X86::COND_E ? "ae" : "b") << '\n');
-        CmpInstr.eraseFromParent();
-        // Only erase the setb if it writes to a virtual register.
-        // Physical registers may be used elsewhere.
-        if (DiscReg.isVirtual())
-          SetB->eraseFromParent();
-        return true;
-      }
-    }
-  }
 
   // The following code tries to remove the comparison by re-using EFLAGS
   // from earlier instructions.

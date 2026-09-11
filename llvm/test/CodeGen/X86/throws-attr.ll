@@ -31,7 +31,9 @@ entry:
   ret { i64, i1 } %r
 }
 
-; The caller reads the discriminant from CF right after the call (setb).
+; The caller reads the discriminant from CF right after the call. The test of
+; the materialized register folds into a direct use of CF once the call's stack
+; adjustment is resolved, so both targets branch on the callee's carry-out.
 define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-LABEL: call_and_select:
 ; CHECK:       # %bb.0:
@@ -43,10 +45,9 @@ define i64 @call_and_select(i64 %x) #1 {
 ; CHECK-NEXT:    retq
 ; CHECK32-LABEL: call_and_select:
 ; CHECK32:       # %bb.0:
+; CHECK32:         subl $12, %esp
 ; CHECK32:         calll ret_error@PLT
-; CHECK32-NOT:     setb
-; CHECK32-NOT:     testb
-; CHECK32:         jae .LBB2_2
+; CHECK32-NEXT:    jae .LBB2_2
 ; CHECK32-NEXT:  # %bb.1:
 ; CHECK32-NEXT:    xorl %edx, %edx
 ; CHECK32-NEXT:    movl $100, %eax
@@ -65,8 +66,7 @@ attributes #0 = { throws }
 attributes #1 = { nounwind }
 
 ; Herbception (throws): branch on carry flag. When the discriminant is used
-; only for a branch, the backend folds setb + test + jcc into a single jcc
-; on CF (jae/jb), eliminating the setb.
+; only for a branch, the setb + test + jcc collapses into a single jcc on CF.
 declare void @capture(i32) #3
 define void @call_and_branch() #1 {
 ; CHECK-LABEL: call_and_branch:
@@ -83,6 +83,7 @@ define void @call_and_branch() #1 {
 ; CHECK-NEXT:    retq
 ; CHECK32-LABEL: call_and_branch:
 ; CHECK32:       # %bb.0:
+; CHECK32:         subl $12, %esp
 ; CHECK32:         calll ret_error@PLT
 ; CHECK32-NEXT:    jae .LBB3_2
 ; CHECK32-NEXT:  # %bb.1: # %err

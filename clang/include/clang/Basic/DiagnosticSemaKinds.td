@@ -8829,6 +8829,10 @@ def err_return_failure_std_error_type : Error<
 def err_return_failure_type_not_trivially_copyable : Error<
   "the 'return_failure{...}' error type %0 must be trivially copyable (matching C "
   "behavior): the error value flows through the {T, i1} ABI slot by value">;
+def err_return_failure_type_too_large : Error<
+  "the 'return_failure{...}' error type %0 may not be larger than "
+  "2 * sizeof(uintptr_t) (%1 bytes); the error travels in the same registers as "
+  "the failure discriminant">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'return_failure{...}'">;
 def err_herbceptions_try_requires_operand : Error<
@@ -13761,16 +13765,13 @@ def err_hlsl_missing_semantic_annotation : Error<
   "function or patch constant function">;
 def note_hlsl_semantic_used_here : Note<"%0 used here">;
 def err_hlsl_unknown_semantic : Error<"unknown HLSL semantic %0">;
-def err_hlsl_semantic_output_not_supported
-    : Error<"semantic %0 does not support output">;
 def err_hlsl_semantic_indexing_not_supported
     : Error<"semantic %0 does not allow indexing">;
 def err_hlsl_init_priority_unsupported : Error<
   "initializer priorities are not supported in HLSL">;
 def err_hlsl_semantic_index_overlap : Error<"semantic index overlap %0">;
 def err_hlsl_semantic_unsupported_iotype_for_stage
-    : Error<"semantic %0 is unsupported in %2 shaders as %1, requires one of "
-            "the following: %3">;
+    : Error<"semantic %0 is not supported in %1 shader %2">;
 def err_hlsl_semantic_partial_explicit_indexing
     : Error<"partial explicit stage input location assignment via "
             "vk::location(X) unsupported">;

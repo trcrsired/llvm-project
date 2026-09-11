@@ -51,6 +51,7 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <optional>
@@ -1213,10 +1214,28 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
         CGM.getDataLayout().getTypeAllocSize(ErrorType) >
             CGM.getDataLayout().getTypeAllocSize(RetTy))
       RetTy = ErrorType;
-    llvm::StructType *StructTy = llvm::StructType::get(
-        getLLVMContext(),
-        {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
-    retInfo = ABIArgInfo::getDirect(StructTy);
+    // A payload the target would return indirectly must not be bitwise
+    // transported through registers: that detaches the object from its own
+    // storage, so a short std::string keeps a pointer into the frame that
+    // built it and the caller reads freed stack once that frame is gone.
+    //
+    // Leave the ABI's indirect classification alone in that case. The payload
+    // is then constructed straight into the caller's object through a
+    // 'throws_sret' pointer and only {E, i1} is returned, which is what keeps
+    // RVO and location-dependent objects intact. The error travels in
+    // registers, so it has to fit the register-return budget (two GPRs).
+    //
+    // A payload whose union with the error does fit keeps the previous
+    // {union(T, E), i1} register return, so small trivially-copyable returns
+    // carry on coming back in RAX+RDX.
+    const uint64_t RegBudget = 2 * CGM.getDataLayout().getPointerSize();
+    if (!retInfo.isIndirect() ||
+        CGM.getDataLayout().getTypeAllocSize(RetTy) <= RegBudget) {
+      llvm::StructType *StructTy = llvm::StructType::get(
+          getLLVMContext(),
+          {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
+      retInfo = ABIArgInfo::getDirect(StructTy);
+    }
   }
 
   for (auto &I : FI->arguments())
@@ -2167,6 +2186,19 @@ llvm::FunctionType *CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     break;
 
   case ABIArgInfo::Indirect:
+    // A herbception payload built in caller storage still has to hand back
+    // the error and the discriminant, so the return is {E, i1} rather than
+    // the void an ordinary indirect return would produce.
+    if (FI.hasThrowsSretReturn()) {
+      resultType = llvm::StructType::get(
+          getLLVMContext(),
+          {FI.getHerbceptionErrorType(),
+           llvm::Type::getInt1Ty(getLLVMContext())});
+      break;
+    }
+    resultType = llvm::Type::getVoidTy(getLLVMContext());
+    break;
+
   case ABIArgInfo::Ignore:
     resultType = llvm::Type::getVoidTy(getLLVMContext());
     break;
@@ -3211,9 +3243,19 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   // Attach attributes to sret.
   if (IRFunctionArgs.hasSRetArg()) {
     llvm::AttrBuilder &SRETAttrs = ArgAttrs[IRFunctionArgs.getSRetArgNo()];
-    SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
-    SRETAttrs.addAttribute(llvm::Attribute::Writable);
-    SRETAttrs.addAttribute(llvm::Attribute::DeadOnUnwind);
+    if (FI.hasThrowsSretReturn()) {
+      // The storage is the caller's object, which is why this is
+      // 'throws_sret' and not 'sret': the function still returns {E, i1}, so
+      // the verifier's "sret must return void" rule must not apply. The
+      // callee writes the payload only on success, so it is not
+      // dead_on_unwind either.
+      SRETAttrs.addThrowsSretAttr(getTypes().ConvertTypeForMem(RetTy));
+      SRETAttrs.addAttribute(llvm::Attribute::Writable);
+    } else {
+      SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
+      SRETAttrs.addAttribute(llvm::Attribute::Writable);
+      SRETAttrs.addAttribute(llvm::Attribute::DeadOnUnwind);
+    }
     hasUsedSRet = true;
     if (RetAI.getInReg())
       SRETAttrs.addAttribute(llvm::Attribute::InReg);
@@ -4578,11 +4620,43 @@ void CodeGenFunction::EmitFunctionEpilog(
       break;
     }
     }
+
+    // Herbception (throws): the payload was constructed directly in the
+    // caller's object, so the caller learns it succeeded from the
+    // discriminant rather than from the returned value. What comes back is
+    // {E, i1}: the error, which only holds anything on the failure path, and
+    // the discriminant. The error is read out of the payload slot, where the
+    // failure path stored it.
+    if (FI.hasThrowsSretReturn()) {
+      llvm::Type *ErrTy = FI.getHerbceptionErrorType();
+      auto *StructTy = llvm::StructType::get(
+          getLLVMContext(),
+          {ErrTy, llvm::Type::getInt1Ty(getLLVMContext())});
+      RV = llvm::PoisonValue::get(StructTy);
+      RV = Builder.CreateInsertValue(
+          RV, Builder.CreateLoad(ReturnValue.withElementType(ErrTy)), 0);
+      RV = Builder.CreateInsertValue(
+          RV, Builder.CreateLoad(HerbceptionDiscriminant), 1);
+    }
     break;
   }
 
   case ABIArgInfo::Extend:
   case ABIArgInfo::Direct:
+    // Herbception (throws): the payload slot holds only the payload, and the
+    // discriminant lives in its own slot. Build the ABI's {payload, i1}
+    // aggregate from those two in their own types. The generic path below
+    // would coerce the whole struct out of a payload-sized temp, reading the
+    // discriminant from bytes that were never initialized.
+    if (FI.hasThrowsReturn()) {
+      auto *StructTy = cast<llvm::StructType>(RetAI.getCoerceToType());
+      RV = llvm::PoisonValue::get(StructTy);
+      RV = Builder.CreateInsertValue(RV, Builder.CreateLoad(ReturnValue), 0);
+      RV = Builder.CreateInsertValue(
+          RV, Builder.CreateLoad(HerbceptionDiscriminant), 1);
+      break;
+    }
+
     if (RetAI.getCoerceToType() == ConvertType(RetTy) &&
         RetAI.getDirectOffset() == 0) {
       // The internal return value temp always will have pointer-to-return-type
@@ -4692,15 +4766,6 @@ void CodeGenFunction::EmitFunctionEpilog(
 
   llvm::Instruction *Ret;
   if (RV) {
-    // Herbception (throws): read the discriminant from its slot. Plain
-    // `return` leaves it false; `throw throws` / failure stores true.
-    if (FI.hasThrowsReturn()) {
-      assert(isa<llvm::StructType>(RV->getType()) &&
-             RV->getType()->getStructNumElements() == 2 &&
-             "throws return must be a {T, i1} struct");
-      llvm::Value *Disc = Builder.CreateLoad(HerbceptionDiscriminant);
-      RV = Builder.CreateInsertValue(
-          RV, Disc, RV->getType()->getStructNumElements() - 1);    }
     if (CurFuncDecl && CurFuncDecl->hasAttr<CmseNSEntryAttr>()) {
       // For certain return types, clear padding bits, as they may reveal
       // sensitive information.
@@ -7007,7 +7072,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     if (!HerbceptionCatchScopes.empty()) {
       llvm::BasicBlock *OkBB = createBasicBlock("herb.catch.ok");
       llvm::BasicBlock *ErrBB = createBasicBlock("herb.catch.err");
-      Builder.CreateCondBr(Disc, ErrBB, OkBB);
+      // The error path hands off to the catch handler and leaves this frame;
+      // mark it unlikely so the success path stays the fall-through.
+      Builder.CreateCondBr(Disc, ErrBB, OkBB,
+                           llvm::MDBuilder(getLLVMContext())
+                               .createBranchWeights(1, 1000));
 
       // Error path: store the error value into the handler's error slot and
       // branch to the handler block, running cleanups (including those of the
@@ -7047,7 +7116,10 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       if (CurFD && CurFD->isMain()) {
         llvm::BasicBlock *OkBB = createBasicBlock("herb.main.ok");
         llvm::BasicBlock *TrapBB = createBasicBlock("herb.main.trap");
-        Builder.CreateCondBr(Disc, TrapBB, OkBB);
+        // Trapping on an escaped error is the cold path.
+        Builder.CreateCondBr(Disc, TrapBB, OkBB,
+                             llvm::MDBuilder(getLLVMContext())
+                                 .createBranchWeights(1, 1000));
         EmitBlock(TrapBB);
         EmitTrapCall(llvm::Intrinsic::trap);
         Builder.CreateUnreachable();
@@ -7066,7 +7138,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
              "throws function has no return value slot");
       llvm::BasicBlock *OkBB = createBasicBlock("herb.autoprop.ok");
       llvm::BasicBlock *ErrBB = createBasicBlock("herb.autoprop.err");
-      Builder.CreateCondBr(Disc, ErrBB, OkBB);
+      // Auto-propagation returns the error to this frame's caller; mark it
+      // unlikely so the success path stays the fall-through.
+      Builder.CreateCondBr(Disc, ErrBB, OkBB,
+                           llvm::MDBuilder(getLLVMContext())
+                               .createBranchWeights(1, 1000));
       EmitBlock(ErrBB);
       {
         RunCleanupsScope CleanupScope(*this);
