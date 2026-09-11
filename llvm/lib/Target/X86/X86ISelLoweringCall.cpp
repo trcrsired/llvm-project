@@ -713,7 +713,17 @@ bool X86TargetLowering::CanLowerReturn(
   // The standard Win64 sret rule (types >8 bytes → pointer) must not apply
   // to throws functions because the CF-based propagation mechanism requires
   // the payload in registers.
-  if (MF.getFunction().hasFnAttribute(Attribute::Throws) &&
+  //
+  // The discriminant is recognised from the operand flag rather than from
+  // MF's function attribute: this same routine decides the call side, where
+  // MF is the caller and need not itself be a throws function.  Using the
+  // attribute here would let a non-throws caller disagree with a throws callee
+  // about the same signature -- the caller would demand an sret pointer for a
+  // payload the callee returns in registers.
+  auto IsThrowsOperand = [](const ISD::OutputArg &Out) {
+    return Out.Flags.isThrows();
+  };
+  if (llvm::any_of(Outs, IsThrowsOperand) &&
       Subtarget.isCallingConvWin64(CallConv)) {
     for (const ISD::OutputArg &Out : Outs) {
       if (Out.Flags.isThrows())
@@ -825,17 +835,38 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, *DAG.getContext());
 
+  // The herbception (throws) discriminant travels in the carry flag, so it
+  // must be kept out of the return-value allocation entirely.  If it is left
+  // in, it consumes a slot in the very small return register file and makes
+  // payloads that would otherwise fit fail to allocate.
+  //
   // The frontend coerces trivially-copyable ≤16-byte types to i128 for
   // throws functions on Win64, which ComputeValueTypes decomposes into
   // two i64 leaves assignable to RAX and RDX via RetCC_X86Common.
-  CCInfo.AnalyzeReturn(Outs, RetCC_X86);
+  SDValue ThrowsDiscriminant;
+  const SmallVectorImpl<ISD::OutputArg> *RetArgOuts = &Outs;
+  const SmallVectorImpl<SDValue> *RetArgVals = &OutVals;
+  SmallVector<ISD::OutputArg, 4> NonThrowsOuts;
+  SmallVector<SDValue, 4> NonThrowsVals;
+  if (MF.getFunction().hasFnAttribute(Attribute::Throws)) {
+    NonThrowsOuts.reserve(Outs.size());
+    NonThrowsVals.reserve(OutVals.size());
+    for (unsigned I = 0, E = Outs.size(); I != E; ++I) {
+      if (Outs[I].Flags.isThrows()) {
+        ThrowsDiscriminant = OutVals[I];
+        continue;
+      }
+      NonThrowsOuts.push_back(Outs[I]);
+      NonThrowsVals.push_back(OutVals[I]);
+    }
+    RetArgOuts = &NonThrowsOuts;
+    RetArgVals = &NonThrowsVals;
+  }
+
+  CCInfo.AnalyzeReturn(*RetArgOuts, RetCC_X86);
 
   SmallVector<std::pair<Register, SDValue>, 4> RetVals;
-  // If this function returns the throws (herbception) discriminant, it is
-  // carried in the carry flag (CF) instead of a return register.
-  SDValue ThrowsDiscriminant;
-  for (unsigned I = 0, OutsIndex = 0, E = RVLocs.size(); I != E;
-       ++I, ++OutsIndex) {
+  for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
     CCValAssign &VA = RVLocs[I];
     assert(VA.isRegLoc() && "Can only return in registers!");
 
@@ -843,13 +874,7 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     if (ShouldDisableCalleeSavedRegister)
       MF.getRegInfo().disableCalleeSavedRegister(VA.getLocReg());
 
-    if (Outs[OutsIndex].Flags.isThrows()) {
-      // The throws discriminant is returned via the carry flag.
-      ThrowsDiscriminant = OutVals[OutsIndex];
-      continue;
-    }
-
-    SDValue ValToCopy = OutVals[OutsIndex];
+    SDValue ValToCopy = (*RetArgVals)[I];
     EVT ValVT = ValToCopy.getValueType();
 
     // Promote values to the appropriate types.
@@ -1242,16 +1267,26 @@ SDValue X86TargetLowering::LowerCallResult(
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
                  *DAG.getContext());
 
+  // The herbception (throws) discriminant travels in the carry flag, so it
+  // must be kept out of the result-value allocation for the same reason it is
+  // kept out of the return-value allocation: otherwise it consumes a slot in
+  // the small return register file. That would make the caller demand an sret
+  // pointer for a payload the callee returns in registers.
+  //
   // The frontend coerces trivially-copyable ≤16-byte types to i128 for
   // throws functions on Win64, which ComputeValueTypes decomposes into
   // two i64 leaves assignable to RAX+RDX via RetCC_X86Common.
-  CCInfo.AnalyzeCallResult(Ins, RetCC_X86);
+  SmallVector<ISD::InputArg, 4> NonThrowsIns;
+  NonThrowsIns.reserve(Ins.size());
+  for (const ISD::InputArg &In : Ins)
+    if (!In.Flags.isThrows())
+      NonThrowsIns.push_back(In);
+  CCInfo.AnalyzeCallResult(NonThrowsIns, RetCC_X86);
 
   // Copy all of the result registers out of their specified physreg.
-  for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
-    CCValAssign &VA = RVLocs[I];
-    EVT CopyVT = VA.getLocVT();
-
+  // LocIdx indexes the allocated locations, which skip the discriminant; I
+  // indexes Ins, which still contains it.
+  for (unsigned I = 0, LocIdx = 0, E = Ins.size(); I != E; ++I) {
     // Herbception (throws): the discriminant was materialized from the carry
     // flag into a virtual register right after the call (before CALLSEQ_END
     // could clobber EFLAGS); read it back into a value of the register type
@@ -1265,6 +1300,9 @@ SDValue X86TargetLowering::LowerCallResult(
       InVals.push_back(DAG.getNode(ISD::ZERO_EXTEND, dl, Ins[I].VT, Disc));
       continue;
     }
+
+    CCValAssign &VA = RVLocs[LocIdx];
+    EVT CopyVT = VA.getLocVT();
 
     // In some calling conventions we need to remove the used registers
     // from the register mask.
@@ -1306,8 +1344,8 @@ SDValue X86TargetLowering::LowerCallResult(
     if (VA.needsCustom()) {
       assert(VA.getValVT() == MVT::v64i1 &&
              "Currently the only custom case is when we split v64i1 to 2 regs");
-      Val =
-          getv64i1Argument(VA, RVLocs[++I], Chain, DAG, dl, Subtarget, &InGlue);
+      Val = getv64i1Argument(VA, RVLocs[++LocIdx], Chain, DAG, dl, Subtarget,
+                             &InGlue);
     } else {
       Chain =
           X87Result
@@ -1339,6 +1377,7 @@ SDValue X86TargetLowering::LowerCallResult(
       Val = DAG.getBitcast(VA.getValVT(), Val);
 
     InVals.push_back(Val);
+    ++LocIdx;
   }
 
   return Chain;

@@ -99,24 +99,21 @@ Attribute Attribute::get(LLVMContext &Context, Attribute::AttrKind Kind,
          "Not an enum or int attribute");
 
   LLVMContextImpl *pImpl = Context.pImpl;
-  FoldingSetNodeID ID;
-  ID.AddInteger(Kind);
-  if (IsIntAttr)
-    ID.AddInteger(Val);
-  else
+  if (!IsIntAttr) {
     assert(Val == 0 && "Value must be zero for enum attributes");
+    EnumAttributeImpl *&PA = pImpl->EnumAttrs[Kind - Attribute::FirstEnumAttr];
+    if (!PA)
+      PA = new (pImpl->Alloc) EnumAttributeImpl(Kind);
+    return Attribute(PA);
+  }
 
   FoldingSetInsertToken Token;
-  AttributeImpl *PA = pImpl->AttrsSet.lookup(ID, Token);
-
+  IntAttributeImpl *PA = pImpl->IntAttrs.lookup({Kind, Val}, Token);
   if (!PA) {
     // If we didn't find any existing attributes of the same shape then create a
     // new one and insert it.
-    if (!IsIntAttr)
-      PA = new (pImpl->Alloc) EnumAttributeImpl(Kind);
-    else
-      PA = new (pImpl->Alloc) IntAttributeImpl(Kind, Val);
-    pImpl->AttrsSet.insert(PA, Token);
+    PA = new (pImpl->Alloc) IntAttributeImpl(Kind, Val);
+    pImpl->IntAttrs.insert(PA, Token);
   }
 
   // Return the Attribute that we found or created.
@@ -125,13 +122,8 @@ Attribute Attribute::get(LLVMContext &Context, Attribute::AttrKind Kind,
 
 Attribute Attribute::get(LLVMContext &Context, StringRef Kind, StringRef Val) {
   LLVMContextImpl *pImpl = Context.pImpl;
-  FoldingSetNodeID ID;
-  ID.AddString(Kind);
-  if (!Val.empty()) ID.AddString(Val);
-
   FoldingSetInsertToken Token;
-  AttributeImpl *PA = pImpl->AttrsSet.lookup(ID, Token);
-
+  StringAttributeImpl *PA = pImpl->StringAttrs.lookup({Kind, Val}, Token);
   if (!PA) {
     // If we didn't find any existing attributes of the same shape then create a
     // new one and insert it.
@@ -139,7 +131,7 @@ Attribute Attribute::get(LLVMContext &Context, StringRef Kind, StringRef Val) {
         pImpl->Alloc.Allocate(StringAttributeImpl::totalSizeToAlloc(Kind, Val),
                               alignof(StringAttributeImpl));
     PA = new (Mem) StringAttributeImpl(Kind, Val);
-    pImpl->AttrsSet.insert(PA, Token);
+    pImpl->StringAttrs.insert(PA, Token);
   }
 
   // Return the Attribute that we found or created.
@@ -150,18 +142,13 @@ Attribute Attribute::get(LLVMContext &Context, Attribute::AttrKind Kind,
                          Type *Ty) {
   assert(Attribute::isTypeAttrKind(Kind) && "Not a type attribute");
   LLVMContextImpl *pImpl = Context.pImpl;
-  FoldingSetNodeID ID;
-  ID.AddInteger(Kind);
-  ID.AddPointer(Ty);
-
   FoldingSetInsertToken Token;
-  AttributeImpl *PA = pImpl->AttrsSet.lookup(ID, Token);
-
+  TypeAttributeImpl *PA = pImpl->TypeAttrs.lookup({Kind, Ty}, Token);
   if (!PA) {
     // If we didn't find any existing attributes of the same shape then create a
     // new one and insert it.
     PA = new (pImpl->Alloc) TypeAttributeImpl(Kind, Ty);
-    pImpl->AttrsSet.insert(PA, Token);
+    pImpl->TypeAttrs.insert(PA, Token);
   }
 
   // Return the Attribute that we found or created.
@@ -259,6 +246,10 @@ Attribute Attribute::getWithByValType(LLVMContext &Context, Type *Ty) {
 
 Attribute Attribute::getWithStructRetType(LLVMContext &Context, Type *Ty) {
   return get(Context, StructRet, Ty);
+}
+
+Attribute Attribute::getWithThrowsSretType(LLVMContext &Context, Type *Ty) {
+  return get(Context, ThrowsSret, Ty);
 }
 
 Attribute Attribute::getWithByRefType(LLVMContext &Context, Type *Ty) {
@@ -778,10 +769,24 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
 
 bool Attribute::hasParentContext(LLVMContext &C) const {
   assert(isValid() && "invalid Attribute doesn't refer to any context");
+  LLVMContextImpl *pI = C.pImpl;
+  FoldingSetInsertToken Token;
+  if (pImpl->isEnumAttribute())
+    return pI->EnumAttrs[pImpl->getKindAsEnum() - FirstEnumAttr] == pImpl;
+  if (pImpl->isIntAttribute())
+    return pI->IntAttrs.lookup({pImpl->getKindAsEnum(), pImpl->getValueAsInt()},
+                               Token) == pImpl;
+  if (pImpl->isStringAttribute())
+    return pI->StringAttrs.lookup(
+               {pImpl->getKindAsString(), pImpl->getValueAsString()}, Token) ==
+           pImpl;
+  if (pImpl->isTypeAttribute())
+    return pI->TypeAttrs.lookup(
+               {pImpl->getKindAsEnum(), pImpl->getValueAsType()}, Token) ==
+           pImpl;
   FoldingSetNodeID ID;
   pImpl->Profile(ID);
-  FoldingSetInsertToken Token;
-  return C.pImpl->AttrsSet.lookup(ID, Token) == pImpl;
+  return pI->AttrsSet.lookup(ID, Token) == pImpl;
 }
 
 int Attribute::cmpKind(Attribute A) const {
@@ -810,6 +815,7 @@ enum AttributeProperty {
   IntersectMin = (2 << 3),
   IntersectCustom = (3 << 3),
   IntersectPropertyMask = (3 << 3),
+  ABIAttr = (1 << 5),
 };
 
 #define GET_ATTR_PROP_TABLE
@@ -836,6 +842,10 @@ bool Attribute::canUseAsParamAttr(AttrKind Kind) {
 
 bool Attribute::canUseAsRetAttr(AttrKind Kind) {
   return hasAttributeProperty(Kind, AttributeProperty::RetAttr);
+}
+
+bool Attribute::isABIAttr(AttrKind Kind) {
+  return hasAttributeProperty(Kind, AttributeProperty::ABIAttr);
 }
 
 static bool hasIntersectProperty(Attribute::AttrKind Kind,
@@ -1218,6 +1228,10 @@ Type *AttributeSet::getByValType() const {
 
 Type *AttributeSet::getStructRetType() const {
   return SetNode ? SetNode->getAttributeType(Attribute::StructRet) : nullptr;
+}
+
+Type *AttributeSet::getThrowsSretType() const {
+  return SetNode ? SetNode->getAttributeType(Attribute::ThrowsSret) : nullptr;
 }
 
 Type *AttributeSet::getPreallocatedType() const {
@@ -1971,6 +1985,10 @@ Type *AttributeList::getParamStructRetType(unsigned Index) const {
   return getAttributes(Index + FirstArgIndex).getStructRetType();
 }
 
+Type *AttributeList::getParamThrowsSretType(unsigned Index) const {
+  return getAttributes(Index + FirstArgIndex).getThrowsSretType();
+}
+
 Type *AttributeList::getParamByRefType(unsigned Index) const {
   return getAttributes(Index + FirstArgIndex).getByRefType();
 }
@@ -2317,6 +2335,10 @@ AttrBuilder &AttrBuilder::addStructRetAttr(Type *Ty) {
   return addTypeAttr(Attribute::StructRet, Ty);
 }
 
+AttrBuilder &AttrBuilder::addThrowsSretAttr(Type *Ty) {
+  return addTypeAttr(Attribute::ThrowsSret, Ty);
+}
+
 AttrBuilder &AttrBuilder::addByRefAttr(Type *Ty) {
   return addTypeAttr(Attribute::ByRef, Ty);
 }
@@ -2500,6 +2522,7 @@ AttributeMask AttributeFuncs::typeIncompatible(Type *Ty, AttributeSet AS,
           .addAttribute(Attribute::InAlloca)
           .addAttribute(Attribute::ByVal)
           .addAttribute(Attribute::StructRet)
+          .addAttribute(Attribute::ThrowsSret)
           .addAttribute(Attribute::ByRef)
           .addAttribute(Attribute::ElementType)
           .addAttribute(Attribute::AllocatedPointer);

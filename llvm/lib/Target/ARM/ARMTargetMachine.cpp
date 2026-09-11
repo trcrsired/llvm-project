@@ -115,6 +115,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeARMTarget() {
   initializeARMSLSHardeningPass(Registry);
   initializeMVELaneInterleavingPass(Registry);
   initializeARMFixCortexA57AES1742098Pass(Registry);
+  initializeARMHerbceptionsFoldPass(Registry);
   initializeARMDAGToDAGISelLegacyPass(Registry);
   initializeMachineKCFILegacyPass(Registry);
 }
@@ -533,6 +534,14 @@ void ARMPassConfig::addPreRegAlloc() {
 
     if (!DisableA15SDOptimization)
       addPass(createA15SDOptimizerPass());
+
+    // Fold the throws discriminant materialisation onto live CPSR before
+    // register allocation, so the scratch register it occupies is available to
+    // the allocator. Unlike X86 this does not have to wait for prolog/epilog
+    // insertion: ARM's call-frame adjustment is emitted with the
+    // non-flag-setting ADD/SUB forms, so it cannot clobber the carry the fold
+    // depends on.
+    addPass(createARMHerbceptionsFoldPass());
   }
 }
 

@@ -1362,6 +1362,10 @@ MachineInstr *X86InstrInfo::convertToThreeAddressWithLEA(unsigned MIOpc,
       Ins2Idx = LIS->InsertMachineInstrInMaps(*InsMI2);
     SlotIndex NewIdx = LIS->ReplaceMachineInstrInMaps(MI, *NewMI);
     SlotIndex ExtIdx = LIS->InsertMachineInstrInMaps(*ExtMI);
+
+    // Drop the dead EFLAGS def MI had; the replacement does not define EFLAGS.
+    LIS->removePhysRegDefAt(X86::EFLAGS, NewIdx.getRegSlot());
+
     LIS->getInterval(InRegLEA);
     LIS->getInterval(OutRegLEA);
     if (InRegLEA2)
@@ -2042,7 +2046,11 @@ MachineInstr *X86InstrInfo::convertToThreeAddress(MachineInstr &MI,
   MBB.insert(MI.getIterator(), NewMI); // Insert the new inst
 
   if (LIS) {
+    // The replacement does not define EFLAGS; drop the dead EFLAGS def MI had.
+    SlotIndex Idx = LIS->getInstructionIndex(MI);
     LIS->ReplaceMachineInstrInMaps(MI, *NewMI);
+
+    LIS->removePhysRegDefAt(X86::EFLAGS, Idx.getRegSlot());
     if (SrcReg)
       LIS->getInterval(SrcReg);
     if (SrcReg2)
@@ -5473,115 +5481,6 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
   }
   }
 
-  // Herbception (throws): the post-call discriminant is materialized with a
-  // HERB_SETCCr (pseudo setb, glued directly to the call) and typically reaches
-  // a conditional branch through a TEST8ri $1 round-trip:
-  //   %disc = herb_setb implicit EFLAGS
-  //   ...                          // must not clobber EFLAGS
-  //   testb $1, %disc
-  //   jcc eq/ne
-  // When EFLAGS survives untouched from the HERB_SETCCr to the branch, replace
-  // the branch with a direct jc/jae on CF and erase the HERB_SETCCr/TEST8ri
-  // pair.
-  if (CmpInstr.getOpcode() == X86::TEST8ri && CmpValue == 0 &&
-      CmpInstr.getOperand(1).isImm() && CmpInstr.getOperand(1).getImm() == 1 &&
-      CmpInstr.getOperand(0).isReg()) {
-    const TargetRegisterInfo *TRI = &getRegisterInfo();
-    Register DiscReg = CmpInstr.getOperand(0).getReg();
-    MachineInstr *SetB =
-        DiscReg.isVirtual() ? MRI->getVRegDef(DiscReg) : nullptr;
-    MachineBasicBlock *MBB = CmpInstr.getParent();
-    if (SetB && SetB->getOpcode() == X86::HERB_SETCCr &&
-        SetB->getParent() == MBB) {
-      bool Clean = true;
-      // The TEST must be the only non-debug user of the discriminant.
-      for (MachineInstr &U : MRI->use_nodbg_instructions(DiscReg))
-        if (&U != &CmpInstr) {
-          Clean = false;
-          break;
-        }
-      // Nothing between the SETCCr and the branch may clobber EFLAGS or
-      // touch the discriminant register. This fold turns the branch into a
-      // direct jb/jae on live CF and erases the HERB_SETCCr, so while the
-      // TEST8ri reads the register rather than the flags, the rewritten
-      // consumer would read live CF: any EFLAGS modifier in between (an
-      // ALU op, or ADJCALLSTACKUP lowering to an add) would corrupt the
-      // discriminant and must disqualify the fold.
-      for (MachineBasicBlock::iterator It =
-               std::next(MachineBasicBlock::iterator(SetB));
-           Clean && It != MachineBasicBlock::iterator(CmpInstr); ++It) {
-        if (It->modifiesRegister(X86::EFLAGS, TRI))
-          Clean = false;
-        else if (It->readsRegister(DiscReg, TRI))
-          Clean = false;
-      }
-      // Look for a single EFLAGS consumer (JCC or CMOV with E/NE condition)
-      // that reads the TEST's flags.  After the consumer, an EFLAGS modifier
-      // resets flag state, so subsequent EFLAGS readers observe the new flags
-      // and are harmless.
-      MachineInstr *Consumer = nullptr;
-      X86::CondCode ConsumerCC = X86::COND_INVALID;
-      bool IsCMOV = false;
-      bool FlagsRedefinedAfterConsumer = false;
-      for (MachineBasicBlock::iterator It =
-               std::next(MachineBasicBlock::iterator(CmpInstr));
-           Clean && It != MBB->end();) {
-        bool ReadsEFLAGS = It->readsRegister(X86::EFLAGS, TRI);
-        bool ModifiesEFLAGS = It->modifiesRegister(X86::EFLAGS, TRI);
-        if (ReadsEFLAGS) {
-          if (!Consumer && !ModifiesEFLAGS) {
-            X86::CondCode OldCC = X86::getCondFromMI(*It);
-            if (OldCC != X86::COND_INVALID &&
-                (OldCC == X86::COND_E || OldCC == X86::COND_NE) &&
-                (It->getOpcode() == X86::JCC_1 ||
-                 X86::isCMOVCC(It->getOpcode()))) {
-              Consumer = &*It;
-              ConsumerCC = OldCC;
-              IsCMOV = X86::isCMOVCC(It->getOpcode());
-              ++It;
-              continue;
-            }
-          }
-          if (Consumer && !FlagsRedefinedAfterConsumer)
-            Clean = false;
-          break;
-        }
-        if (ModifiesEFLAGS) {
-          if (Consumer)
-            FlagsRedefinedAfterConsumer = true;
-          else {
-            // A flag clobber between the TEST and the consumer would sit
-            // between the call and the rewritten jb/jae on live CF, so it
-            // is not harmless.
-            Clean = false;
-            break;
-          }
-        }
-        if (It->readsRegister(DiscReg, TRI)) {
-          Clean = false;
-          break;
-        }
-        ++It;
-      }
-      if (Clean && Consumer) {
-        // testb $1, %disc sets ZF iff the discriminant bit is zero, i.e. iff
-        // CF was clear. je/cmove therefore corresponds to jae/cmovae (CF clear)
-        // and jne/cmovne to jb/cmovb (CF set).
-        X86::CondCode NewCC = (ConsumerCC == X86::COND_E) ? X86::COND_AE
-                                                          : X86::COND_B;
-        const MCInstrDesc &Desc = Consumer->getDesc();
-        int CondOpIdx = X86::getCondSrcNoFromDesc(Desc);
-        if (CondOpIdx >= 0)
-          Consumer->getOperand(CondOpIdx + Desc.getNumDefs()).setImm(NewCC);
-        LLVM_DEBUG(dbgs() << "Herbception: folded setb/test into "
-                          << (IsCMOV ? "cmov" : "j")
-                          << (ConsumerCC == X86::COND_E ? "ae" : "b") << '\n');
-        CmpInstr.eraseFromParent();
-        SetB->eraseFromParent();
-        return true;
-      }
-    }
-  }
 
   // The following code tries to remove the comparison by re-using EFLAGS
   // from earlier instructions.

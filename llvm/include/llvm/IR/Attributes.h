@@ -132,6 +132,7 @@ public:
     TombstoneKey,          ///< Use as Tombstone key for DenseMap of AttrKind
   };
 
+  static const unsigned NumEnumAttrKinds = LastEnumAttr - FirstEnumAttr + 1;
   static const unsigned NumIntAttrKinds = LastIntAttr - FirstIntAttr + 1;
   static const unsigned NumTypeAttrKinds = LastTypeAttr - FirstTypeAttr + 1;
 
@@ -160,6 +161,9 @@ public:
   LLVM_ABI static bool intersectWithAnd(AttrKind Kind);
   LLVM_ABI static bool intersectWithMin(AttrKind Kind);
   LLVM_ABI static bool intersectWithCustom(AttrKind Kind);
+
+  /// Whether this is an ABI attribute (for returns or arguments).
+  LLVM_ABI static bool isABIAttr(AttrKind Kind);
 
 private:
   AttributeImpl *pImpl = nullptr;
@@ -205,6 +209,8 @@ public:
   LLVM_ABI static Attribute getWithByValType(LLVMContext &Context, Type *Ty);
   LLVM_ABI static Attribute getWithStructRetType(LLVMContext &Context,
                                                  Type *Ty);
+  LLVM_ABI static Attribute getWithThrowsSretType(LLVMContext &Context,
+                                                  Type *Ty);
   LLVM_ABI static Attribute getWithByRefType(LLVMContext &Context, Type *Ty);
   LLVM_ABI static Attribute getWithPreallocatedType(LLVMContext &Context,
                                                     Type *Ty);
@@ -495,6 +501,7 @@ public:
   LLVM_ABI uint64_t getDereferenceableOrNullBytes() const;
   LLVM_ABI Type *getByValType() const;
   LLVM_ABI Type *getStructRetType() const;
+  LLVM_ABI Type *getThrowsSretType() const;
   LLVM_ABI Type *getByRefType() const;
   LLVM_ABI Type *getPreallocatedType() const;
   LLVM_ABI Type *getInAllocaType() const;
@@ -982,6 +989,9 @@ public:
   /// Return the sret type for the specified function parameter.
   LLVM_ABI Type *getParamStructRetType(unsigned ArgNo) const;
 
+  /// Return the throws_sret type for the specified function parameter.
+  LLVM_ABI Type *getParamThrowsSretType(unsigned ArgNo) const;
+
   /// Return the byref type for the specified function parameter.
   LLVM_ABI Type *getParamByRefType(unsigned ArgNo) const;
 
@@ -1232,6 +1242,11 @@ public:
   /// Retrieve the sret type.
   Type *getStructRetType() const { return getTypeAttr(Attribute::StructRet); }
 
+  /// Retrieve the throws_sret type.
+  Type *getThrowsSretType() const {
+    return getTypeAttr(Attribute::ThrowsSret);
+  }
+
   /// Retrieve the byref type.
   Type *getByRefType() const { return getTypeAttr(Attribute::ByRef); }
 
@@ -1304,6 +1319,9 @@ public:
 
   /// This turns a sret type into the form used internally in Attribute.
   LLVM_ABI AttrBuilder &addStructRetAttr(Type *Ty);
+
+  /// This turns a throws_sret type into the form used internally in Attribute.
+  LLVM_ABI AttrBuilder &addThrowsSretAttr(Type *Ty);
 
   /// This turns a byref type into the form used internally in Attribute.
   LLVM_ABI AttrBuilder &addByRefAttr(Type *Ty);

@@ -705,6 +705,39 @@ void CodeGenFunction::EmitCXXTryStmt(const CXXTryStmt &S) {
 static void emitCatchDispatchBlock(CodeGenFunction &CGF,
                                    EHCatchScope &catchScope);
 
+namespace {
+/// Destroys a herbception catch variable, unless a bare `throw throws;` moved
+/// its error out first.
+///
+/// The test is a runtime flag rather than a compile-time decision: one handler
+/// can rethrow on one path and swallow on another, and only the rethrow paths
+/// transfer the error onwards (leaving nothing in the handler's copy to
+/// destroy). Destroying it after a move-out would run a destructor on an object
+/// whose value now lives somewhere else.
+struct HerbceptionCatchVarDestroy final : EHScopeStack::Cleanup {
+  HerbceptionCatchVarDestroy(Address Flag, Address Addr, QualType Ty,
+                             CodeGenFunction::Destroyer *D)
+      : Flag(Flag), Addr(Addr), Ty(Ty), D(D) {}
+
+  Address Flag;
+  Address Addr;
+  QualType Ty;
+  CodeGenFunction::Destroyer *D;
+
+  void Emit(CodeGenFunction &CGF, Flags) override {
+    llvm::BasicBlock *RunBB = CGF.createBasicBlock("herb.catchvar.dtor");
+    llvm::BasicBlock *SkipBB = CGF.createBasicBlock("herb.catchvar.dead");
+    llvm::Value *Alive = CGF.Builder.CreateFlagLoad(
+        Flag.emitRawPointer(CGF), "herb.catchvar.alive");
+    CGF.Builder.CreateCondBr(Alive, RunBB, SkipBB);
+
+    CGF.EmitBlock(RunBB);
+    CGF.emitDestroy(Addr, Ty, D, /*useEHCleanupForArray=*/false);
+    CGF.EmitBlock(SkipBB);
+  }
+};
+} // namespace
+
 void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
   // Continuation block, reached after the try block succeeds or a handler
   // completes.
@@ -959,6 +992,21 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
   // the handler body.
   for (auto &H : Handlers) {
     EmitBlock(H.Block);
+
+    // The error has been caught, so from here on it is handled. The try block's
+    // error path left the function's discriminant set, and the handler's normal
+    // exits -- a return, a break or goto out, or falling through to the code
+    // after the try -- all report the function's result without touching it
+    // again. Leaving it set made every such exit claim failure to the caller,
+    // which for a non-throws caller is a trap and for a throws caller is a
+    // spurious propagation. A handler that propagates instead re-sets it on the
+    // throw path, so clearing here is only about the paths that swallow it.
+    //
+    // Only a throws function has the discriminant; `catch throws` is also
+    // allowed in a plain function, which has none.
+    if (HerbceptionDiscriminant.isValid())
+      Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
+
     RunCleanupsScope CatchScope(*this);
     if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
       // Herbception catch: bind the exception variable directly from the error
@@ -984,7 +1032,33 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
       }
       auto *I = Builder.CreateStore(ErrVal, Addr);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
-      EmitAutoVarCleanups(var);
+
+      // Register the destructor, but through the cleanup that lets a bare
+      // `throw throws;` move the error out without destroying it. The error type
+      // is a compiler-fabricated value, so the C++ destructor is the only
+      // cleanup that can apply; anything else keeps the usual path.
+      QualType::DestructionKind DK = VD->needsDestruction(getContext());
+      Address Flag = Address::invalid();
+      if (DK == QualType::DK_cxx_destructor) {
+        Flag = CreateDefaultAlignTempAlloca(ConvertType(getContext().BoolTy),
+                                            "herb.catchvar.alive");
+        Builder.CreateStore(Builder.getTrue(), Flag);
+        EHStack.pushCleanup<HerbceptionCatchVarDestroy>(
+            NormalAndEHCleanup, Flag, Addr, VD->getType(), getDestroyer(DK));
+      } else {
+        EmitAutoVarCleanups(var);
+      }
+      // `throw throws;` inside this body rethrows the error bound here, which
+      // moves it out and clears the flag.
+      SaveAndRestore<const VarDecl *> SaveCatchVar(HerbceptionCurrentCatchVar,
+                                                   H.Stmt->getExceptionDecl());
+      SaveAndRestore<Address> SaveCatchVarFlag(HerbceptionCurrentCatchVarFlag,
+                                               Flag);
+      EmitStmt(H.Stmt->getHandlerBlock());
+      CatchScope.ForceCleanup();
+      if (HaveInsertPoint())
+        Builder.CreateBr(ContBB);
+      continue;
     }
     EmitStmt(H.Stmt->getHandlerBlock());
     CatchScope.ForceCleanup();

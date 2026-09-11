@@ -2260,6 +2260,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::StrictFP;
   case bitc::ATTR_KIND_STRUCT_RET:
     return Attribute::StructRet;
+  case bitc::ATTR_KIND_THROWS_SRET:
+    return Attribute::ThrowsSret;
   case bitc::ATTR_KIND_SANITIZE_ADDRESS:
     return Attribute::SanitizeAddress;
   case bitc::ATTR_KIND_SANITIZE_HWADDRESS:
@@ -2452,6 +2454,8 @@ Error BitcodeReader::parseAttributeGroupBlock() {
             B.addByValAttr(nullptr);
           else if (Kind == Attribute::StructRet)
             B.addStructRetAttr(nullptr);
+          else if (Kind == Attribute::ThrowsSret)
+            B.addThrowsSretAttr(nullptr);
           else if (Kind == Attribute::InAlloca)
             B.addInAllocaAttr(nullptr);
           else if (Kind == Attribute::UWTable)
@@ -4396,8 +4400,9 @@ Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
   // argument's pointee type. There should be no opaque pointers where the byval
   // type is implicit.
   for (unsigned i = 0; i != Func->arg_size(); ++i) {
-    for (Attribute::AttrKind Kind : {Attribute::ByVal, Attribute::StructRet,
-                                     Attribute::InAlloca}) {
+    for (Attribute::AttrKind Kind :
+         {Attribute::ByVal, Attribute::StructRet, Attribute::ThrowsSret,
+          Attribute::InAlloca}) {
       if (!Func->hasParamAttribute(i, Kind))
         continue;
 
@@ -4418,6 +4423,9 @@ Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
         break;
       case Attribute::StructRet:
         NewAttr = Attribute::getWithStructRetType(Context, PtrEltTy);
+        break;
+      case Attribute::ThrowsSret:
+        NewAttr = Attribute::getWithThrowsSretType(Context, PtrEltTy);
         break;
       case Attribute::InAlloca:
         NewAttr = Attribute::getWithInAllocaType(Context, PtrEltTy);
@@ -4972,8 +4980,9 @@ Error BitcodeReader::propagateAttributeTypes(CallBase *CB,
                                              ArrayRef<unsigned> ArgTyIDs) {
   AttributeList Attrs = CB->getAttributes();
   for (unsigned i = 0; i != CB->arg_size(); ++i) {
-    for (Attribute::AttrKind Kind : {Attribute::ByVal, Attribute::StructRet,
-                                     Attribute::InAlloca}) {
+    for (Attribute::AttrKind Kind :
+         {Attribute::ByVal, Attribute::StructRet, Attribute::ThrowsSret,
+          Attribute::InAlloca}) {
       if (!Attrs.hasParamAttr(i, Kind) ||
           Attrs.getParamAttr(i, Kind).getValueAsType())
         continue;
@@ -4989,6 +4998,9 @@ Error BitcodeReader::propagateAttributeTypes(CallBase *CB,
         break;
       case Attribute::StructRet:
         NewAttr = Attribute::getWithStructRetType(Context, PtrEltTy);
+        break;
+      case Attribute::ThrowsSret:
+        NewAttr = Attribute::getWithThrowsSretType(Context, PtrEltTy);
         break;
       case Attribute::InAlloca:
         NewAttr = Attribute::getWithInAllocaType(Context, PtrEltTy);
@@ -6407,8 +6419,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
       const DataLayout &DL = TheModule->getDataLayout();
       unsigned AS = Record.size() == 5 ? Record[4] : DL.getAllocaAddrSpace();
 
-      SmallPtrSet<Type *, 4> Visited;
-      if (!Align && !Ty->isSized(&Visited))
+      if (!Align && !Ty->isSized())
         return error("alloca of unsized type");
       if (!Align)
         Align = DL.getPrefTypeAlign(Ty);
@@ -6453,8 +6464,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
       MaybeAlign Align;
       if (Error Err = parseAlignmentValue(Record[OpNum], Align))
         return Err;
-      SmallPtrSet<Type *, 4> Visited;
-      if (!Align && !Ty->isSized(&Visited))
+      if (!Align && !Ty->isSized())
         return error("load of unsized type");
       if (!Align)
         Align = TheModule->getDataLayout().getABITypeAlign(Ty);
@@ -6539,8 +6549,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
       MaybeAlign Align;
       if (Error Err = parseAlignmentValue(Record[OpNum], Align))
         return Err;
-      SmallPtrSet<Type *, 4> Visited;
-      if (!Align && !Val->getType()->isSized(&Visited))
+      if (!Align && !Val->getType()->isSized())
         return error("store of unsized type");
       if (!Align)
         Align = TheModule->getDataLayout().getABITypeAlign(Val->getType());
