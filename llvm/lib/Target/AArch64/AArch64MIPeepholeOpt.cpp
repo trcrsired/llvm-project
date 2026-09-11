@@ -138,6 +138,7 @@ private:
   bool visitORR(MachineInstr &MI);
   bool visitCSEL(MachineInstr &MI);
   bool visitHERB_CSET(MachineInstr &MI);
+  bool visitHERB_CSETTest(MachineInstr &MI);
   bool visitINSERT(MachineInstr &MI);
   bool visitINSviGPR(MachineInstr &MI, unsigned Opc);
   bool visitINSvi64lane(MachineInstr &MI);
@@ -376,7 +377,7 @@ bool AArch64MIPeepholeOptImpl::visitCSEL(MachineInstr &MI) {
 }
 
 bool AArch64MIPeepholeOptImpl::visitHERB_CSET(MachineInstr &MI) {
-  // Herbception (throws): fold HERB_CSET + CBZ/CBNZ/TBZ/TBNZ into B.cc/B.cs.
+  // Herbceptions (throws): fold HERB_CSET + CBZ/CBNZ/TBZ/TBNZ into B.cc/B.cs.
   // HERB_CSET produces 1 if NZCV.C is set, else 0.
   // CBZ/TBZ bit 0 branch if the value is zero -> branch if C is clear -> B.cc.
   // CBNZ/TBNZ bit 0 branch if non-zero -> branch if C is set   -> B.cs.
@@ -441,6 +442,107 @@ bool AArch64MIPeepholeOptImpl::visitHERB_CSET(MachineInstr &MI) {
 
   // Erase MI (the HERB_CSET). The run loop iterator is already past MI.
   MI.eraseFromParent();
+  return true;
+}
+
+bool AArch64MIPeepholeOptImpl::visitHERB_CSETTest(MachineInstr &MI) {
+  // Herbceptions (throws): fold a discriminated select, i.e.
+  //
+  //   %disc = HERB_CSET implicit $nzcv
+  //   %bit  = ANDS %disc, #1, implicit-def $nzcv   ; tst %disc, #1
+  //   %sel  = CSEL/CSINC/CSINV/CSNEG ..., cc, implicit $nzcv
+  //
+  // into a conditional select reading live NZCV.C directly, dropping the test
+  // and, when nothing else needs it, the flag materialisation too. This mirrors
+  // visitHERB_CSET above, which handles the same discriminant feeding a branch
+  // rather than a select.
+  //
+  // MI is the ANDS rather than the HERB_CSET so that erasing it (and the
+  // HERB_CSET before it) never invalidates the run loop's iterator, which
+  // points at the ANDS while the HERB_CSET is being visited.
+  bool Is64 = MI.getOpcode() == AArch64::ANDSXri;
+  unsigned RegSize = Is64 ? 64 : 32;
+
+  // Only a test of bit 0 is the discriminant. Any other mask means a different
+  // value is being selected on.
+  if (!MI.getOperand(2).isImm() ||
+      AArch64_AM::decodeLogicalImmediate(MI.getOperand(2).getImm(), RegSize) !=
+          1)
+    return false;
+
+  Register DiscReg = MI.getOperand(1).getReg();
+  MachineInstr *CSet = MRI->getUniqueVRegDef(DiscReg);
+  if (!CSet || CSet->getParent() != MI.getParent() ||
+      CSet->getOpcode() !=
+          (Is64 ? AArch64::HERB_CSETXr : AArch64::HERB_CSETWr))
+    return false;
+
+  // The test is there for its flags alone: the select reads them implicitly and
+  // never the tested value, so the test's result has to be dead for it to be
+  // removable. The discriminant itself may have other uses - try(expr)
+  // propagation keeps it to return as the caller's own discriminant, which is
+  // the shape that actually occurs in practice - so the cset is only erased
+  // below if nothing else reads it, and otherwise stays to feed those uses.
+  if (!MRI->use_nodbg_empty(MI.getOperand(0).getReg()))
+    return false;
+
+  const TargetRegisterInfo &TRI = TII->getRegisterInfo();
+  MachineBasicBlock &MBB = *MI.getParent();
+
+  // Nothing may redefine NZCV between the cset and the test.
+  for (auto It = std::next(CSet->getIterator()); It != MI.getIterator(); ++It)
+    if (It->modifiesRegister(AArch64::NZCV, &TRI))
+      return false;
+
+  // The test is the only definition of the flags the select reads, and the
+  // fold removes it, so the select has to be their only reader: any other
+  // instruction that tests them would quietly start testing whatever NZCV the
+  // call left behind.
+  MachineInstr *Sel = nullptr;
+  for (auto It = std::next(MI.getIterator()); It != MBB.end(); ++It) {
+    if (It->modifiesRegister(AArch64::NZCV, &TRI))
+      break;
+    if (It->readsRegister(AArch64::NZCV, &TRI)) {
+      if (Sel)
+        return false;
+      Sel = &*It;
+    }
+  }
+  if (!Sel)
+    return false;
+
+  switch (Sel->getOpcode()) {
+  default:
+    return false;
+  case AArch64::CSELWr:
+  case AArch64::CSELXr:
+  case AArch64::CSINCWr:
+  case AArch64::CSINCXr:
+  case AArch64::CSINVWr:
+  case AArch64::CSINVXr:
+  case AArch64::CSNEGWr:
+  case AArch64::CSNEGXr:
+    break;
+  }
+
+  unsigned CondOp = Sel->getNumExplicitOperands() - 1;
+  if (!Sel->getOperand(CondOp).isImm())
+    return false;
+  AArch64CC::CondCode CC =
+      static_cast<AArch64CC::CondCode>(Sel->getOperand(CondOp).getImm());
+  if (CC != AArch64CC::EQ && CC != AArch64CC::NE)
+    return false;
+
+  // The test sets Z iff bit 0 of the discriminant is clear, i.e. iff the carry
+  // the callee returned is clear, so EQ becomes LO and NE becomes HS.
+  Sel->getOperand(CondOp).setImm(CC == AArch64CC::NE ? AArch64CC::HS
+                                                     : AArch64CC::LO);
+
+  LLVM_DEBUG(dbgs() << "Herbceptions: folded discriminant select\n");
+  MI.eraseFromParent();
+  // Only now that the test is gone can the discriminant be dead.
+  if (MRI->use_nodbg_empty(DiscReg))
+    CSet->eraseFromParent();
   return true;
 }
 
@@ -1060,6 +1162,10 @@ bool AArch64MIPeepholeOptImpl::run(MachineFunction &MF) {
       case AArch64::ANDSXrr:
         Changed |= trySplitLogicalImm<uint64_t>(
             AArch64::ANDXri, MI, SplitStrategy::Intersect, AArch64::ANDSXri);
+        break;
+      case AArch64::ANDSWri:
+      case AArch64::ANDSXri:
+        Changed |= visitHERB_CSETTest(MI);
         break;
       case AArch64::EORWrr:
         Changed |= trySplitLogicalImm<uint32_t>(AArch64::EORWri, MI,

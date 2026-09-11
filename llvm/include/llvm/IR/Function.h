@@ -479,6 +479,11 @@ public:
     return AttributeSets.getParamStructRetType(ArgNo);
   }
 
+  /// Extract the throws_sret type for a parameter.
+  Type *getParamThrowsSretType(unsigned ArgNo) const {
+    return AttributeSets.getParamThrowsSretType(ArgNo);
+  }
+
   /// Extract the inalloca type for a parameter.
   Type *getParamInAllocaType(unsigned ArgNo) const {
     return AttributeSets.getParamInAllocaType(ArgNo);
@@ -673,6 +678,13 @@ public:
   bool hasStructRetAttr() const {
     return AttributeSets.hasParamAttr(0, Attribute::StructRet) ||
            AttributeSets.hasParamAttr(1, Attribute::StructRet);
+  }
+
+  /// Determine if the function is marked as returning its payload through a
+  /// throws_sret pointer.
+  bool hasThrowsSretAttr() const {
+    return AttributeSets.hasParamAttr(0, Attribute::ThrowsSret) ||
+           AttributeSets.hasParamAttr(1, Attribute::ThrowsSret);
   }
 
   /// Determine if the parameter or return value is marked with NoAlias

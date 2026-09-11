@@ -832,6 +832,7 @@ enum AttributeKindCodes {
   ATTR_KIND_NOIPA = 109,
   ATTR_KIND_NOFREEOBJ = 110,
   ATTR_KIND_THROWS = 111,
+  ATTR_KIND_THROWS_SRET = 112,
 };
 
 enum ComdatSelectionKindCodes {

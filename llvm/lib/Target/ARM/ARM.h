@@ -58,6 +58,7 @@ FunctionPass *createARMSLSHardeningPass();
 FunctionPass *createARMIndirectThunks();
 Pass *createMVELaneInterleavingPass();
 FunctionPass *createARMFixCortexA57AES1742098Pass();
+FunctionPass *createARMHerbceptionsFoldPass();
 
 void LowerARMMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
                                   ARMAsmPrinter &AP);
@@ -69,6 +70,7 @@ void initializeARMConstantIslandsPass(PassRegistry &);
 void initializeARMDAGToDAGISelLegacyPass(PassRegistry &);
 void initializeARMExpandPseudoPass(PassRegistry &);
 void initializeARMFixCortexA57AES1742098Pass(PassRegistry &);
+void initializeARMHerbceptionsFoldPass(PassRegistry &);
 void initializeARMLoadStoreOptLegacyPass(PassRegistry &);
 void initializeARMLowOverheadLoopsPass(PassRegistry &);
 void initializeARMParallelDSPPass(PassRegistry &);

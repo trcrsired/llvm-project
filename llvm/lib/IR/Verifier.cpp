@@ -712,6 +712,10 @@ void Verifier::visitGlobalValue(const GlobalValue &GV) {
 }
 
 void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
+  // Target-specific global variable checks. Done first because this function
+  // returns early for a global without an initializer.
+  verifyAMDGPUGlobalVariable(*this, GV);
+
   Type *GVType = GV.getValueType();
 
   if (MaybeAlign A = GV.getAlign()) {
@@ -2217,11 +2221,12 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
   AttrCount += Attrs.hasAttribute(Attribute::Preallocated);
   AttrCount += Attrs.hasAttribute(Attribute::StructRet) ||
                Attrs.hasAttribute(Attribute::InReg);
+  AttrCount += Attrs.hasAttribute(Attribute::ThrowsSret);
   AttrCount += Attrs.hasAttribute(Attribute::Nest);
   AttrCount += Attrs.hasAttribute(Attribute::ByRef);
   Check(AttrCount <= 1,
         "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', "
-        "'byref', and 'sret' are incompatible!",
+        "'byref', 'sret', and 'throws_sret' are incompatible!",
         V);
 
   Check(!(Attrs.hasAttribute(Attribute::InAlloca) &&
@@ -2234,6 +2239,12 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
           Attrs.hasAttribute(Attribute::Returned)),
         "Attributes "
         "'sret and returned' are incompatible!",
+        V);
+
+  Check(!(Attrs.hasAttribute(Attribute::ThrowsSret) &&
+          Attrs.hasAttribute(Attribute::Returned)),
+        "Attributes "
+        "'throws_sret and returned' are incompatible!",
         V);
 
   Check(!(Attrs.hasAttribute(Attribute::ZExt) &&
@@ -2292,8 +2303,7 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
     }
     if (Attrs.hasAttribute(Attribute::ByVal)) {
       Type *ByValTy = Attrs.getByValType();
-      SmallPtrSet<Type *, 4> Visited;
-      Check(ByValTy->isSized(&Visited),
+      Check(ByValTy->isSized(),
             "Attribute 'byval' does not support unsized types!", V);
       // Check if it is or contains a target extension type that disallows being
       // used on the stack.
@@ -2303,24 +2313,21 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
             "huge 'byval' arguments are unsupported", V);
     }
     if (Attrs.hasAttribute(Attribute::ByRef)) {
-      SmallPtrSet<Type *, 4> Visited;
-      Check(Attrs.getByRefType()->isSized(&Visited),
+      Check(Attrs.getByRefType()->isSized(),
             "Attribute 'byref' does not support unsized types!", V);
       Check(DL.getTypeAllocSize(Attrs.getByRefType()).getKnownMinValue() <
                 (1ULL << 32),
             "huge 'byref' arguments are unsupported", V);
     }
     if (Attrs.hasAttribute(Attribute::InAlloca)) {
-      SmallPtrSet<Type *, 4> Visited;
-      Check(Attrs.getInAllocaType()->isSized(&Visited),
+      Check(Attrs.getInAllocaType()->isSized(),
             "Attribute 'inalloca' does not support unsized types!", V);
       Check(DL.getTypeAllocSize(Attrs.getInAllocaType()).getKnownMinValue() <
                 (1ULL << 32),
             "huge 'inalloca' arguments are unsupported", V);
     }
     if (Attrs.hasAttribute(Attribute::Preallocated)) {
-      SmallPtrSet<Type *, 4> Visited;
-      Check(Attrs.getPreallocatedType()->isSized(&Visited),
+      Check(Attrs.getPreallocatedType()->isSized(),
             "Attribute 'preallocated' does not support unsized types!", V);
       Check(
           DL.getTypeAllocSize(Attrs.getPreallocatedType()).getKnownMinValue() <
@@ -2386,6 +2393,7 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
   bool SawNest = false;
   bool SawReturned = false;
   bool SawSRet = false;
+  bool SawThrowsSRet = false;
   bool SawSwiftSelf = false;
   bool SawSwiftAsync = false;
   bool SawSwiftError = false;
@@ -2448,6 +2456,13 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
       Check(i == 0 || i == 1,
             "Attribute 'sret' is not on first or second parameter!", V);
       SawSRet = true;
+    }
+
+    if (ArgAttrs.hasAttribute(Attribute::ThrowsSret)) {
+      Check(!SawThrowsSRet, "Cannot have multiple 'throws_sret' parameters!", V);
+      Check(i == 0 || i == 1,
+            "Attribute 'throws_sret' is not on first or second parameter!", V);
+      SawThrowsSRet = true;
     }
 
     if (ArgAttrs.hasAttribute(Attribute::SwiftSelf)) {
@@ -3020,6 +3035,9 @@ void Verifier::verifyStatepoint(const CallBase &Call) {
       AttributeSet ArgAttrs = Attrs.getParamAttrs(5 + i);
       Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
             "Attribute 'sret' cannot be used for vararg call arguments!", Call);
+      Check(!ArgAttrs.hasAttribute(Attribute::ThrowsSret),
+            "Attribute 'throws_sret' cannot be used for vararg call arguments!",
+            Call);
     }
   }
 
@@ -3223,6 +3241,8 @@ void Verifier::visitFunction(const Function &F) {
   case CallingConv::AMDGPU_PS:
   case CallingConv::AMDGPU_CS:
     Check(!F.hasStructRetAttr(), "Calling convention does not allow sret", &F);
+    Check(!F.hasThrowsSretAttr(),
+          "Calling convention does not allow throws_sret", &F);
     if (F.getCallingConv() != CallingConv::SPIR_KERNEL) {
       const unsigned StackAS = DL.getAllocaAddrSpace();
       unsigned i = 0;
@@ -4134,10 +4154,15 @@ void Verifier::visitCallBase(CallBase &Call) {
 
       // Statepoint intrinsic is vararg but the wrapped function may be not.
       // Allow sret here and check the wrapped function in verifyStatepoint.
-      if (Call.getIntrinsicID() != Intrinsic::experimental_gc_statepoint)
+      if (Call.getIntrinsicID() != Intrinsic::experimental_gc_statepoint) {
         Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
               "Attribute 'sret' cannot be used for vararg call arguments!",
               Call);
+        Check(!ArgAttrs.hasAttribute(Attribute::ThrowsSret),
+              "Attribute 'throws_sret' cannot be used for vararg call "
+              "arguments!",
+              Call);
+      }
 
       if (ArgAttrs.hasAttribute(Attribute::InAlloca))
         Check(Idx == Call.arg_size() - 1,
@@ -4284,10 +4309,10 @@ void Verifier::verifyTailCCMustTailAttrs(const AttrBuilder &Attrs,
 
 static AttrBuilder getParameterABIAttributes(LLVMContext& C, unsigned I, AttributeList Attrs) {
   static const Attribute::AttrKind ABIAttrs[] = {
-      Attribute::StructRet,  Attribute::ByVal,          Attribute::InAlloca,
-      Attribute::InReg,      Attribute::StackAlignment, Attribute::SwiftSelf,
-      Attribute::SwiftAsync, Attribute::SwiftError,     Attribute::Preallocated,
-      Attribute::ByRef};
+      Attribute::StructRet,  Attribute::ThrowsSret,    Attribute::ByVal,
+      Attribute::InAlloca,   Attribute::InReg,         Attribute::StackAlignment,
+      Attribute::SwiftSelf,  Attribute::SwiftAsync,    Attribute::SwiftError,
+      Attribute::Preallocated, Attribute::ByRef};
   AttrBuilder Copy(C);
   for (auto AK : ABIAttrs) {
     Attribute Attr = Attrs.getParamAttrs(I).getAttribute(AK);
@@ -4317,6 +4342,18 @@ void Verifier::verifyMustTailCall(CallInst &CI) {
   // - The calling conventions of the caller and callee must match.
   Check(F->getCallingConv() == CI.getCallingConv(),
         "cannot guarantee tail call due to mismatched calling conv", &CI);
+
+  // - The caller and callee must agree on whether the herbception (throws)
+  //   convention is in use. It decides whether the return discriminant travels
+  //   in the carry flag or in an ordinary return register, so a 'throws' caller
+  //   that tail-called a plain function of the same signature would return a
+  //   discriminant its caller reads from a flag the callee never set. 'throws'
+  //   is a function attribute rather than a parameter one, so the ABI attribute
+  //   comparison below does not cover it.
+  Check(F->hasFnAttribute(Attribute::Throws) ==
+            CI.hasFnAttr(Attribute::Throws),
+        "cannot guarantee tail call due to mismatched 'throws' attributes",
+        &CI);
 
   // - The call must immediately precede a :ref:`ret <i_ret>` instruction.
   // - The ret instruction must return the value produced by the call or void.
@@ -4833,8 +4870,7 @@ void Verifier::visitAllocaInst(AllocaInst &AI) {
           "Non-logical alloca disallowed for this module.");
 
   Type *Ty = AI.getAllocatedType();
-  SmallPtrSet<Type*, 4> Visited;
-  Check(Ty->isSized(&Visited), "Cannot allocate unsized type", &AI);
+  Check(Ty->isSized(), "Cannot allocate unsized type", &AI);
   // Check if it's a target extension type that disallows being used on the
   // stack.
   Check(!Ty->containsNonLocalTargetExtType(),

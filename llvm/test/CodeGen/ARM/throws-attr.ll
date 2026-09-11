@@ -1,7 +1,7 @@
 ; RUN: llc -mtriple=armv7-unknown-linux-gnueabihf < %s | FileCheck %s
 ; RUN: llc -mtriple=thumbv7-unknown-linux-gnueabihf < %s | FileCheck %s --check-prefix=CHECK-THUMB
 
-; A function with the throws (herbception) attribute returns its value with a
+; A function with the throws (herbceptions) attribute returns its value with a
 ; discriminant. On ARM the discriminant is carried in the CPSR carry flag (C
 ; bit) instead of a return register.
 
@@ -31,18 +31,18 @@ entry:
   ret { i32, i1 } %r
 }
 
-; The caller reads the discriminant from CPSR.C right after the call (adcs).
+; The caller selects on the discriminant straight off CPSR.C: the mov/adcs
+; materialisation and its compare fold into the select's own condition.
 define i32 @call_and_select(i32 %x) #1 {
 ; CHECK-LABEL: call_and_select:
 ; CHECK:       @ %bb.0:
 ; CHECK:         bl ret_error
-; CHECK-NEXT:    mov r1, #0
-; CHECK-NEXT:    adcs r1, r1, #0
+; CHECK-NEXT:    movwhs r0, #100
 ; CHECK-THUMB-LABEL: call_and_select:
 ; CHECK-THUMB:       @ %bb.0:
 ; CHECK-THUMB:         bl ret_error
-; CHECK-THUMB-NEXT:    mov.w r1, #0
-; CHECK-THUMB-NEXT:    adcs r1, r1, #0
+; CHECK-THUMB-NEXT:    it hs
+; CHECK-THUMB-NEXT:    movhs r0, #100
 entry:
   %c = call { i32, i1 } @ret_error(i32 %x)
   %val = extractvalue { i32, i1 } %c, 0
