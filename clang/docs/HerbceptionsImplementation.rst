@@ -438,12 +438,16 @@ scope around the try block, so calls to ``noexcept(false)`` functions inside
 become ``invoke``\ s into a landing pad. The handler block
 (``herb.legacy.convert``) fabricates the ``std::error``
 (``EmitErrorValueExpr`` + ``EmitCxaExceptionPtr`` in ``CGStmt.cpp``) and
-routes it to the handler. Personality-dependent thrown-pointer extraction:
-
-* Itanium / SjLj: ``__cxa_get_exception_ptr(exn.slot)``.
-* MSVC: ``llvm.eh.exceptionpointer`` from the funclet ``catchpad`` (the
-  handler body is rewritten into a ``catchret`` form).
-* Wasm: ``wasm.get.exception`` (object already stored in ``exn.slot``).
+routes it to the handler. The operand passed to
+``__cxa_error_code_itanium_exception_ptr`` is the ``_Unwind_Exception*`` in
+``exn.slot`` on every non-MSVC personality (the landing pad result on
+Itanium / SjLj; ``wasm.get.exception``'s store on Wasm — both are
+``&__cxa_exception::unwindHeader``). ``__cxa_get_exception_ptr`` is not
+usable on Wasm: the conversion handler is a single catch-all catchpad, for
+which ``WasmEHPrepare`` skips the personality call, so ``adjustedPtr`` is
+never populated. The runtime entry point derives the thrown object pointer,
+including dependent-exception resolution. On MSVC the minting entry point
+reads the exception itself and takes no argument.
 
 Whole-function conversion
 -------------------------

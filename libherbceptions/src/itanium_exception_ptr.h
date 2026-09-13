@@ -191,6 +191,13 @@ inline constexpr ::std::uint64_t cxa_eh_vendor_mask{0xFFFFFFFFFFFFFF00ULL};
 inline constexpr ::std::uint64_t gnu_ccpp_eh_class{0x474E5543432B2B00ULL};
 inline constexpr ::std::uint64_t clang_cxx_eh_class{0x434C4E47432B2B00ULL};
 
+// Mirror of the runtimes' __cxa_eh_globals (the public type is opaque);
+// layout stable since the ABI's inception.
+struct itanium_cxa_eh_globals {
+  void *caughtExceptions;
+  unsigned int uncaughtExceptions;
+};
+
 enum class itanium_cxa_eh_flavor { foreign, gcc, clang };
 
 inline itanium_cxa_eh_flavor
@@ -208,6 +215,14 @@ classify_itanium_cxa_eh(_Unwind_Exception const *uh) noexcept {
 } // namespace
 
 #ifdef _LIBCPPABI_VERSION
+
+namespace __cxxabiv1 {
+// libc++abi's public <cxxabi.h> does not declare __cxa_get_globals; it is
+// an extern "C" ABI entry point returning the opaque __cxa_eh_globals.
+// This declaration matches the one in libc++abi's private cxa_exception.h.
+struct __cxa_eh_globals;
+extern "C" __cxa_eh_globals *__cxa_get_globals();
+} // namespace __cxxabiv1
 
 namespace {
 
@@ -332,8 +347,35 @@ inline void fail_fast_for_none_cxx_eh(void *eh) noexcept {
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
-  fail_fast_for_none_cxx_eh(eh);
-  return reinterpret_cast<::std::size_t>(eh);
+  // eh is the _Unwind_Exception* the catch machinery delivered to the
+  // compiler-fabricated conversion site -- the landing pad's exn value on
+  // Itanium, wasm.get.exception on Wasm (both are
+  // &__cxa_exception::unwindHeader) -- NOT the thrown object pointer.
+  if (eh == nullptr) {
+    ::std::abort();
+  }
+  auto *uh{static_cast<_Unwind_Exception *>(eh)};
+  // Refuse to mint a code for foreign EH so no foreign exception can
+  // ever enter this domain. Dependent exceptions (rethrown
+  // std::exception_ptr) stamp the same vendor class with the low byte
+  // set, which the mask compare correctly treats as native.
+  if (itanium_cxa_eh_flavor::foreign == classify_itanium_cxa_eh(uh)) {
+    ::std::abort();
+  }
+  void *thrown{static_cast<void *>(uh + 1)};
+  if ((uh->exception_class & ~cxa_eh_vendor_mask) != 0) {
+    // Dependent exception: the code names the primary's thrown object.
+    thrown = (static_cast<itanium_cxa_dependent_exception *>(thrown) - 1)
+                 ->primaryException;
+  }
+#if defined(_LIBCPPABI_VERSION) || defined(__GLIBCXX__)
+  // The conversion catches the exception without __cxa_begin_catch; retire
+  // the count __cxa_throw added so std::uncaught_exceptions() stays
+  // accurate. do_throw_dynamic_exception re-adds it on rethrow.
+  reinterpret_cast<itanium_cxa_eh_globals *>(::__cxxabiv1::__cxa_get_globals())
+      ->uncaughtExceptions -= 1;
+#endif
+  return reinterpret_cast<::std::size_t>(thrown);
 }
 
 extern "C" __HERBCEPTIONS_API ::std::size_t

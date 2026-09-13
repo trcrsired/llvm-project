@@ -907,14 +907,24 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     // In the funclet model (MSVC), the catch-all dispatch inserted a catchpad
     // as the first instruction of this block; the exception pointer is derived
     // from that token. (Wasm also uses funclet pads, but it stores the
-    // exception in exn.slot via wasm.get.exception at the shared catch.start,
-    // and the handler blocks do not begin with a catchpad.)
+    // _Unwind_Exception* in exn.slot via wasm.get.exception at the shared
+    // catch.start, and the handler blocks do not begin with a catchpad.)
     SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
+    llvm::CatchPadInst *CPI = nullptr;
     if (EHPersonality::get(*this).isMSVCXXPersonality()) {
       llvm::Instruction *First = &*LegacyConvertBB->begin();
-      if (auto *CPI = dyn_cast<llvm::CatchPadInst>(First))
-        CurrentFuncletPad = CPI;
+      CPI = dyn_cast<llvm::CatchPadInst>(First);
+    } else if (EHPersonality::get(*this).isWasmPersonality()) {
+      // On wasm the shared catchpad lives in the catch.start block -- this
+      // handler block's single predecessor. Its token is needed here for the
+      // "funclet" operand bundles on the conversion calls and for the
+      // catchret that must mediate the exit from the funclet region.
+      if (llvm::BasicBlock *Pred = LegacyConvertBB->getSinglePredecessor())
+        if (auto It = Pred->getFirstNonPHIIt(); It != Pred->end())
+          CPI = dyn_cast<llvm::CatchPadInst>(&*It);
     }
+    if (CPI)
+      CurrentFuncletPad = CPI;
     RunCleanupsScope LegacyConvertScope(*this);
     const Expr *Conv = LegacyHandlerStmt->getLegacyExceptionErrorValue();
     EmitAnyExprToMem(Conv, LegacyErrorSlot, Qualifiers(),
@@ -922,6 +932,13 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
     LegacyConvertScope.ForceCleanup();
 
     // Route to the (first) std::error handler, running the try-block cleanups.
+    // A funclet region can only be left through a funclet terminator, so on
+    // funclet personalities jump through a catchret trampoline first.
+    if (CPI && HaveInsertPoint()) {
+      llvm::BasicBlock *TrampBB = createBasicBlock("herb.legacy.exit");
+      Builder.CreateCatchRet(CPI, TrampBB);
+      EmitBlock(TrampBB);
+    }
     EmitBranchThroughCleanup(LegacyHandlerDest);
   }
 
@@ -2054,14 +2071,24 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // In the funclet model (MSVC), the catch-all dispatch inserted a catchpad
   // as the first instruction of this block; the exception pointer is derived
   // from that token. (Wasm also uses funclet pads, but it stores the
-  // exception in exn.slot via wasm.get.exception at the shared catch.start,
-  // and the handler blocks do not begin with a catchpad.)
+  // _Unwind_Exception* in exn.slot via wasm.get.exception at the shared
+  // catch.start, and the handler blocks do not begin with a catchpad.)
   SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
+  llvm::CatchPadInst *CPI = nullptr;
   if (EHPersonality::get(*this).isMSVCXXPersonality()) {
     llvm::Instruction *First = &*HerbceptionLegacyConvertBB->begin();
-    if (auto *CPI = dyn_cast<llvm::CatchPadInst>(First))
-      CurrentFuncletPad = CPI;
+    CPI = dyn_cast<llvm::CatchPadInst>(First);
+  } else if (EHPersonality::get(*this).isWasmPersonality()) {
+    // On wasm the shared catchpad lives in the catch.start block -- this
+    // block's single predecessor. Its token is needed for the "funclet"
+    // operand bundles on the conversion calls and for the catchret that must
+    // mediate the exit from the funclet region.
+    if (llvm::BasicBlock *Pred = HerbceptionLegacyConvertBB->getSinglePredecessor())
+      if (auto It = Pred->getFirstNonPHIIt(); It != Pred->end())
+        CPI = dyn_cast<llvm::CatchPadInst>(&*It);
   }
+  if (CPI)
+    CurrentFuncletPad = CPI;
 
   // Fabricate the std::error from the caught legacy exception and route it to
   // the throws return path (discriminant set, error stored in the payload).
@@ -2071,23 +2098,18 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
 
   EmitHerbceptionThrow(Conv, FD->getLocation());
 
-  // On the funclet model (MSVC), the branch that EmitHerbceptionThrow emitted
-  // to the return block must be a catchret out of the catchpad (a plain
-  // branch out of a funclet region is invalid funclet IR and miscompiles).
-  // Replace the final unconditional branch with a catchret.
-  if (EHPersonality::get(*this).isMSVCXXPersonality()) {
+  // On the funclet model (MSVC and wasm), the branch that
+  // EmitHerbceptionThrow emitted to the return block must be a catchret out
+  // of the catchpad (a plain branch out of a funclet region is invalid
+  // funclet IR and miscompiles). Replace the final unconditional branch with
+  // a catchret.
+  if (CPI) {
     llvm::BasicBlock *BB = HerbceptionLegacyConvertBB;
     llvm::Instruction *Term = BB->getTerminator();
     if (auto *Br = dyn_cast<llvm::UncondBrInst>(Term)) {
-      llvm::CatchPadInst *CPI = nullptr;
-      for (llvm::Instruction &I : *BB)
-        if ((CPI = dyn_cast<llvm::CatchPadInst>(&I)))
-          break;
-      if (CPI) {
-        llvm::BasicBlock *Dest = Br->getSuccessor(0);
-        Br->eraseFromParent();
-        llvm::CatchReturnInst::Create(CPI, Dest, BB);
-      }
+      llvm::BasicBlock *Dest = Br->getSuccessor(0);
+      Br->eraseFromParent();
+      llvm::CatchReturnInst::Create(CPI, Dest, BB);
     }
   }
 
