@@ -1263,7 +1263,7 @@ findOrCreateImplicitExternCFunction(Sema &S, StringRef Name, QualType RetTy,
   FunctionDecl *FD = FunctionDecl::Create(
       C, Parent, Loc, Loc, DeclarationName(&II), FnTy,
       /*TInfo=*/nullptr, SC_Extern, S.getCurFPFeatures().isFPConstrained(),
-      /*isInlineSpecified=*/false, /*hasBody=*/false,
+      /*isInlineSpecified=*/false, /*hasWrittenPrototype=*/true,
       ConstexprSpecKind::Unspecified);
   FD->setImplicit();
 
@@ -1328,9 +1328,9 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
     return ExprError();
 
   // __cxa_error_code_itanium_exception_ptr(void *) / (no args, msvc): mint
-  // the code from the caught thrown-object pointer, refcounting it. The
-  // operand lowers to __cxa_get_exception_ptr / llvm.eh.exceptionpointer /
-  // wasm.get.exception per personality.
+  // the code from the caught exception, refcounting it. The operand lowers
+  // to the _Unwind_Exception* in exn.slot (Itanium landing pad result /
+  // wasm.get.exception alike) or llvm.eh.exceptionpointer per personality.
   SmallVector<QualType, 1> CodeParamTys;
   SmallVector<Expr *, 1> CodeArgs;
   Expr *CxaOperand = new (Context) CXXCxaExceptionExpr(Context.VoidPtrTy, Loc);

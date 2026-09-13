@@ -264,13 +264,6 @@ inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
   return itanium_cxa_try_catch(exc_ti, obj, kind, &unused);
 }
 
-// Mirror of the runtimes' __cxa_eh_globals (libstdc++ keeps the public type
-// opaque); layout stable since the ABI's inception.
-struct itanium_cxa_eh_globals {
-  void *caughtExceptions;
-  unsigned int uncaughtExceptions;
-};
-
 constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
         [](::std::size_t cd) noexcept {

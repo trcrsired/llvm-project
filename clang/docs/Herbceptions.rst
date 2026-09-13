@@ -586,8 +586,10 @@ A ``throws`` function that can call ``noexcept(false)`` functions is wrapped
 in a whole-function catch-all EH scope. Calls to ``noexcept(false)``
 functions inside it become ``invoke``\ s into a landing pad whose handler
 fabricates the ``std::error`` (via the ``libherbceptions`` exception-ptr ABI
-symbols and ``__cxa_get_exception_ptr`` / ``llvm.eh.exceptionpointer`` /
-``wasm.get.exception``) and routes it to the throws return path. The same
+symbols and the ``_Unwind_Exception*`` in ``exn.slot`` — the landing pad
+result on Itanium / SjLj, ``wasm.get.exception`` on Wasm; on MSVC the ABI
+entry point reads the funclet state itself) and routes it to the throws
+return path. The same
 conversion is applied inside a ``try { } catch throws(std::error)`` block.
 
 A default ``return_failure{E}`` function pushes a terminate landing pad

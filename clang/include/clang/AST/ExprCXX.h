@@ -1330,12 +1330,14 @@ public:
   }
 };
 
-/// Represents the thrown object pointer of a legacy C++ exception being
+/// Represents the _Unwind_Exception* of a legacy C++ exception being
 /// converted to a herbception error value. It is a magic expression, only
 /// valid inside the conversion block that catches a legacy exception: CodeGen
-/// lowers it to `__cxa_get_exception_ptr(getExceptionFromSlot())` and treats
-/// the result as the `code` of the fabricated `std::error` (whose domain is
-/// `error_domain<std::cxa_exception_code>`).
+/// lowers it to `getExceptionFromSlot()` (the landing pad result on Itanium /
+/// SjLj, wasm.get.exception's store on Wasm) and hands it to
+/// `__cxa_error_code_*_exception_ptr`, which derives the thrown object
+/// pointer that becomes the `code` of the fabricated `std::error` (whose
+/// domain is `error_domain<std::cxa_exception_code>`).
 class CXXCxaExceptionExpr : public Expr {
   friend class ASTStmtReader;
 
