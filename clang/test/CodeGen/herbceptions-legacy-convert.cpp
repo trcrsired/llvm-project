@@ -31,8 +31,8 @@ extern "C" void *__cxa_error_domain_itanium_exception_ptr() noexcept;
 // ITANIUM: herb.legacy.convert:
 // ITANIUM-NOT: @_ZNSt12error_domainI
 // ITANIUM: call ptr @__cxa_error_domain_itanium_exception_ptr()
-// ITANIUM: %[[THROWN:[a-z0-9.]+]] = call ptr @__cxa_get_exception_ptr(ptr %exn)
-// ITANIUM: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %[[THROWN]])
+// ITANIUM: %[[EXN:[a-z0-9.]+]] = load ptr, ptr %exn.slot
+// ITANIUM: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %[[EXN]])
 // ITANIUM: landingpad { ptr, i32 }
 // ITANIUM:         catch ptr null
 // ITANIUM: br label %herb.legacy.convert
@@ -60,7 +60,8 @@ void bar() {
 // MSVC: call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token
 // MSVC: br label %catch.throws
 
-// Wasm uses funclet EH with wasm.get.exception storing the object in exn.slot.
+// Wasm uses funclet EH with wasm.get.exception storing the
+// _Unwind_Exception* in exn.slot.
 // WASM: define void @_Z3barv() {{.*}} personality ptr @__gxx_wasm_personality_v0 {
 // WASM: invoke void @_Z3foov()
 // WASM:         to label %invoke.cont unwind label %catch.dispatch
@@ -72,12 +73,12 @@ void bar() {
 // WASM: load ptr, ptr %exn.slot
 // WASM: call {{.*}}i32 @__cxa_error_code_itanium_exception_ptr(ptr
 
-// SjLj uses a landingpad plus __cxa_get_exception_ptr.
+// SjLj uses a landingpad; exn.slot holds the _Unwind_Exception*.
 // SJLJ: define dso_local void @_Z3barv() {{.*}} personality ptr @__gxx_personality_sj0 {
 // SJLJ: invoke void @_Z3foov()
 // SJLJ: herb.legacy.convert:
 // SJLJ: call ptr @__cxa_error_domain_itanium_exception_ptr()
-// SJLJ: call ptr @__cxa_get_exception_ptr(ptr %exn)
-// SJLJ: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr
+// SJLJ: %[[EXN:[a-z0-9.]+]] = load ptr, ptr %exn.slot
+// SJLJ: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %[[EXN]])
 
 // ITANIUM: attributes #[[ATTR]] = { {{.*}} }

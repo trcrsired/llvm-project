@@ -2069,15 +2069,19 @@ RValue CodeGenFunction::EmitErrorValueExpr(const CXXErrorValueExpr *E) {
 
 llvm::Value *
 CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
-  // The thrown object pointer of the currently-caught legacy C++ exception,
-  // used as the `code` of the fabricated std::error. This is personality-
-  // dependent:
-  //   - Itanium / SjLj: __cxa_get_exception_ptr(exn) returns the adjusted
-  //     thrown object pointer (exn.slot is populated by the landing pad).
+  // The _Unwind_Exception* of the currently-caught legacy C++ exception,
+  // handed to __cxa_error_code_*_exception_ptr, which derives the thrown
+  // object pointer from it (including dependent-exception resolution). This
+  // is personality-dependent:
+  //   - Itanium / SjLj / Wasm: exn.slot holds the _Unwind_Exception*. On
+  //     Itanium it is the landing pad result; on Wasm, wasm.get.exception at
+  //     the shared catch.start yields what __builtin_wasm_throw was passed,
+  //     which is again &__cxa_exception::unwindHeader. __cxa_get_exception_ptr
+  //     is NOT usable here: the conversion handler is a single catch-all
+  //     catchpad, for which WasmEHPrepare skips the personality call, so
+  //     adjustedPtr is never populated.
   //   - MSVC (funclet pads): the exception pointer is obtained from the
   //     catchpad token via llvm.eh.exceptionpointer.
-  //   - Wasm: wasm.get.exception at the shared catch.start already stored the
-  //     thrown object pointer in exn.slot, so it is used directly.
   llvm::Value *Obj = nullptr;
   const EHPersonality &Personality = EHPersonality::get(*this);
   if (Personality.isMSVCXXPersonality()) {
@@ -2085,16 +2089,11 @@ CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
         CGM.getIntrinsic(llvm::Intrinsic::eh_exceptionpointer, Int8PtrTy);
     assert(CurrentFuncletPad && "legacy conversion outside a funclet catchpad");
     Obj = Builder.CreateCall(GetExnFn, CurrentFuncletPad);
-  } else if (Personality.isWasmPersonality()) {
-    Obj = getExceptionFromSlot();
   } else {
-    llvm::FunctionCallee Fn = CGM.CreateRuntimeFunction(
-        llvm::FunctionType::get(Int8PtrTy, Int8PtrTy, /*isVarArg=*/false),
-        "__cxa_get_exception_ptr");
-    Obj = EmitNounwindRuntimeCall(Fn, getExceptionFromSlot());
+    Obj = getExceptionFromSlot();
   }
-  // The code slot is size_t, so the pointer is returned as its integer
-  // representation.
+  // The operand's AST type is void*; the cast folds to a no-op when the
+  // source is already a pointer.
   return Builder.CreatePtrToInt(Obj, ConvertType(E->getType()));
 }
 
