@@ -7897,7 +7897,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Handle exception personalities
   Arg *A = Args.getLastArg(
       options::OPT_fsjlj_exceptions, options::OPT_fseh_exceptions,
-      options::OPT_fdwarf_exceptions, options::OPT_fwasm_exceptions);
+      options::OPT_fdwarf_exceptions, options::OPT_fwasm_exceptions,
+      options::OPT_femscripten_exceptions);
   if (A) {
     const Option &Opt = A->getOption();
     if (Opt.matches(options::OPT_fsjlj_exceptions))
@@ -7908,6 +7909,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-exception-model=dwarf");
     if (Opt.matches(options::OPT_fwasm_exceptions))
       CmdArgs.push_back("-exception-model=wasm");
+    if (Opt.matches(options::OPT_femscripten_exceptions))
+      CmdArgs.push_back("-exception-model=emscripten");
   } else {
     switch (TC.GetExceptionModel(Args)) {
     default:
