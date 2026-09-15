@@ -2063,8 +2063,14 @@ int TargetLoweringBase::IntrinsicIDToISD(Intrinsic::ID ID) const {
     return ISD::FLOG2;
   case Intrinsic::log10:
     return ISD::FLOG10;
+  case Intrinsic::modf:
+    return ISD::FMODF;
   case Intrinsic::sin:
     return ISD::FSIN;
+  case Intrinsic::sincos:
+    return ISD::FSINCOS;
+  case Intrinsic::sincospi:
+    return ISD::FSINCOSPI;
   case Intrinsic::sinh:
     return ISD::FSINH;
   case Intrinsic::tan:
