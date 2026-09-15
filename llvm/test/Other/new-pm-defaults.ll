@@ -269,6 +269,7 @@
 ; CHECK-O-NEXT: Running pass: MergeICmpsPass
 ; CHECK-O-NEXT: Running pass: ExpandMemCmpPass
 ; CHECK-O-NEXT: Running pass: TailCallElimPass
+; CHECK-O-NEXT: Running pass: HerbceptionsLegacyEHFoldPass
 ; CHECK-O-NEXT: Running pass: SimplifyCFGPass
 ; CHECK-DEFAULT-NEXT: Running pass: AllocToken
 ; CHECK-EP-OPTIMIZER-LAST: Running pass: NoOpModulePass
