@@ -1810,10 +1810,14 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
     if (!HerbceptionCatchScopes.empty()) {
       Scope = &HerbceptionCatchScopes.back();
       Dst = Scope->ErrorSlot;
-    } else {
-      assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
-             "herbception rethrow outside a throws function");
+    } else if (CurFnInfo && CurFnInfo->hasThrowsReturn()) {
       Dst = ReturnValue;
+    } else {
+      // A bare `throw throws` in the last `catch throws` handler of a plain
+      // (non-throws) function has nowhere to send the error: the remaining
+      // handler chain is exhausted and the function has no error channel.
+      CGM.getDiags().Report(Loc, diag::err_throw_throws_no_catch_handler);
+      return;
     }
 
     // A move, not a copy: the error's own width is transferred, leaving any

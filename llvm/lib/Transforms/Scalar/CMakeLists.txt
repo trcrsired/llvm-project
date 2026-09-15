@@ -20,6 +20,7 @@ add_llvm_component_library(LLVMScalarOpts
   GVN.cpp
   GVNHoist.cpp
   GVNSink.cpp
+  HerbceptionsLegacyEHFold.cpp
   IVUsersPrinter.cpp
   InductiveRangeCheckElimination.cpp
   IndVarSimplify.cpp

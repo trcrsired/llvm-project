@@ -100,6 +100,7 @@
 #include "llvm/Transforms/Scalar/ExpandMemCmp.h"
 #include "llvm/Transforms/Scalar/Float2Int.h"
 #include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Scalar/HerbceptionsLegacyEHFold.h"
 #include "llvm/Transforms/Scalar/IndVarSimplify.h"
 #include "llvm/Transforms/Scalar/InferAlignment.h"
 #include "llvm/Transforms/Scalar/InstSimplifyPass.h"
@@ -279,6 +280,12 @@ static cl::opt<bool>
 static cl::opt<bool> EnableMergeICmps(
     "enable-mergeicmps", cl::init(true), cl::Hidden,
     cl::desc("Enable MergeICmps pass in the optimization pipeline"));
+
+static cl::opt<bool> EnableHerbceptionsLegacyEHFold(
+    "enable-herbceptions-legacy-eh-fold", cl::init(true), cl::Hidden,
+    cl::desc("Fold legacy throws that provably reach only the "
+             "legacy->std::error herbceptions conversion into direct "
+             "conversion calls"));
 
 static cl::opt<bool> EnableConstraintElimination(
     "enable-constraint-elimination", cl::init(true), cl::Hidden,
@@ -1675,6 +1682,16 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
   // Try to annotate calls that were created during optimization.
   OptimizePM.addPass(
       TailCallElimPass(/*UpdateFunctionEntryCount=*/isInstrumentedPGOUse()));
+
+  // Fold legacy throws that provably unwind into a compiler-generated
+  // legacy->std::error herbceptions conversion into direct conversion calls,
+  // eliminating the runtime unwind. Runs late, after inlining has exposed
+  // the throw-to-conversion shape, and right before the final SimplifyCFG
+  // so the bypassed EH dispatch is cleaned up. This also runs in the
+  // ThinLTO post-link pipeline, so -flto=thin builds fold throws whose
+  // conversion site only becomes visible at link time.
+  if (EnableHerbceptionsLegacyEHFold)
+    OptimizePM.addPass(HerbceptionsLegacyEHFoldPass());
 
   // LoopSink (and other loop passes since the last simplifyCFG) might have
   // resulted in single-entry-single-exit or empty blocks. Clean up the CFG.

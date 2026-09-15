@@ -92,6 +92,18 @@ void __cdecl __ExceptionPtrCopy(void *, void const *) noexcept
 #endif
         ;
 
+void __cdecl __ExceptionPtrCopyException(void *, void const *,
+                                         void const *) noexcept
+#if defined(__clang__) || defined(__GNUC__)
+#if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
+    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
+    __asm__("?__ExceptionPtrCopyException@@YAXPAXPBX1@Z")
+#else
+    __asm__("?__ExceptionPtrCopyException@@YAXPEAXPEBX1@Z")
+#endif
+#endif
+        ;
+
 } // namespace std::error_domains::__details
 
 namespace {
@@ -737,6 +749,29 @@ __cxa_error_code_msvc_exception_ptr_clone(void const* src) noexcept {
    void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
       __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
   ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, src);
+  return reinterpret_cast<::std::size_t>(ehptr_storage);
+}
+
+// Called by compiler-generated code (herbceptions-legacy-eh-fold) for a `throw`
+// whose unwind edge provably reaches only the legacy->std::error conversion
+// site: no exception is ever raised, so there is no in-flight record for
+// __ExceptionPtrCurrentException to capture. Instead the exception_ptr box
+// is fabricated straight from the throw arguments -- the same pair
+// _CxxThrowException would pack into the record (object, _ThrowInfo*).
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__cxa_error_code_msvc_exception_ptr_direct(void const *obj,
+                                           void const *throwinfo) noexcept {
+  error_domain_msvc_eh_ptr *ehptr_storage =
+      static_cast<error_domain_msvc_eh_ptr *>(
+          ::std::error_domains::__herbceptions_detail::
+              __malloc_or_heap_alloc_or_die(
+                  sizeof(error_domain_msvc_eh_ptr)));
+  // __ExceptionPtrCopyException releases whatever ep already holds, so the
+  // fresh box must start as a valid empty exception_ptr.
+  ehptr_storage->rec = nullptr;
+  ehptr_storage->ref = nullptr;
+  ::std::error_domains::__details::__ExceptionPtrCopyException(
+      ehptr_storage, obj, throwinfo);
   return reinterpret_cast<::std::size_t>(ehptr_storage);
 }
 
