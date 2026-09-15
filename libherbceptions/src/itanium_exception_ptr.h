@@ -384,3 +384,34 @@ __cxa_error_code_itanium_exception_ptr_clone(void *eh) noexcept {
   __itanium_cxa_increment_exception_refcount(eh);
   return reinterpret_cast<::std::size_t>(eh);
 }
+
+#if !defined(_LIBCPPABI_VERSION)
+namespace __cxxabiv1 {
+// libc++abi declares this in <cxxabi.h>; libstdc++ exports the symbol for
+// exception_ptr support but does not declare it in the public header.
+extern "C" void *__cxa_init_primary_exception(
+    void *, ::std::type_info *,
+    decltype(itanium_cxa_exception::exceptionDestructor)) noexcept;
+} // namespace __cxxabiv1
+#endif
+
+// Called by compiler-generated code (herbceptions-legacy-eh-fold) for a `throw`
+// whose unwind edge provably reaches only the legacy->std::error conversion
+// site: no exception is ever raised, so there is no in-flight
+// _Unwind_Exception for __cxa_error_code_itanium_exception_ptr to unwrap.
+// Instead this performs __cxa_throw's header initialization on the thrown
+// object -- same vendor class stamp, type, destructor, handlers and flight
+// reference -- without touching uncaughtExceptions and without raising.
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__cxa_error_code_itanium_exception_ptr_direct(void *eh, void *tinfo,
+                                              void *dtor) noexcept {
+  if (eh == nullptr) {
+    ::std::abort();
+  }
+  ::__cxxabiv1::__cxa_init_primary_exception(
+      eh, static_cast<::std::type_info *>(tinfo),
+      reinterpret_cast<decltype(itanium_cxa_exception::exceptionDestructor)>(
+          dtor));
+  __itanium_cxa_increment_exception_refcount(eh);
+  return reinterpret_cast<::std::size_t>(eh);
+}

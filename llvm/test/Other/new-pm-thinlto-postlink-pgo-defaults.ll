@@ -185,6 +185,7 @@
 ; CHECK-O-NEXT: Running pass: MergeICmpsPass
 ; CHECK-O-NEXT: Running pass: ExpandMemCmpPass
 ; CHECK-O-NEXT: Running pass: TailCallElimPass
+; CHECK-O-NEXT: Running pass: HerbceptionsLegacyEHFoldPass
 ; CHECK-O-NEXT: Running pass: SimplifyCFGPass
 ; CHECK-O-NEXT: Running pass: AllocTokenPass
 ; CHECK-O-NEXT: Running pass: GlobalDCEPass

@@ -204,6 +204,7 @@
 ; CHECK-POSTLINK-O-NEXT: Running pass: MergeICmpsPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: ExpandMemCmpPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: TailCallElimPass
+; CHECK-POSTLINK-O-NEXT: Running pass: HerbceptionsLegacyEHFoldPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: SimplifyCFGPass
 ; CHECK-POSTLINK-O-NEXT: Running pass: AllocTokenPass
 ; CHECK-POST-EP-OPT-LAST-NEXT: Running pass: NoOpModulePass

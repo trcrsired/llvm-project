@@ -573,6 +573,14 @@ void DeadArgumentEliminationPass::surveyFunction(const Function &F) {
     }
   }
 
+  // The last element of a `throws` (herbception) function's {T, i1} return
+  // is the failure discriminant delivered through the carry flag; it is part
+  // of the calling convention even when no caller inspects it. Stripping it
+  // would make the backend treat the real last payload element as the
+  // discriminant instead.
+  if (RetCount != 0 && F.hasFnAttribute(Attribute::Throws))
+    RetValLiveness[RetCount - 1] = Live;
+
   // Now we've inspected all callers, record the liveness of our return values.
   for (unsigned Ri = 0; Ri != RetCount; ++Ri)
     markValue(createRet(&F, Ri), RetValLiveness[Ri], MaybeLiveRetUses[Ri]);
