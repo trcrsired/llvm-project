@@ -551,6 +551,56 @@ the ``ret``).
 conventions but serve as explicit, named entry points for the expanded
 register set.
 
+Middle-end: folding legacy throws into conversions
+==================================================
+
+``HerbceptionsLegacyEHFoldPass``
+(``llvm/lib/Transforms/Scalar/HerbceptionsLegacyEHFold.cpp``, pipeline name
+``herbceptions-legacy-eh-fold``) eliminates the actual unwind for a legacy
+throw whose exception is only ever observed through the compiler-generated
+legacy->``std::error`` conversion. Instead of invoking
+``__cxa_throw`` / ``_CxxThrowException`` and letting the runtime unwind into
+the conversion landing pad / catchswitch, the invoke is replaced by:
+
+* a call to ``__cxa_error_domain_{itanium,msvc}_exception_ptr()`` to mint
+  the ``std::error`` domain, and
+* a call to ``__cxa_error_code_{itanium,msvc}_exception_ptr_direct(...)``
+  (see `Runtime: libherbceptions`_), a libherbceptions entry point that
+  fabricates the same boxed exception identity the in-flight-exception
+  conversion would produce — Itanium calls
+  ``__cxa_init_primary_exception`` and retains the exception object;
+  MSVC builds a valid empty ``exception_ptr`` buffer and uses the
+  ``__ExceptionPtrCreate`` / ``__ExceptionPtrCopyException`` boxing
+  machinery — then
+* a normal branch to the conversion continuation, with merge ``phi``\ s
+  carrying the domain/code values for any other (non-foldable) edges that
+  still reach the shared conversion block.
+
+The pass runs at every non-``O0`` level in
+``buildModuleOptimizationPipeline``, right after ``TailCallElimPass`` and
+before the final ``SimplifyCFGPass`` (which then removes the bypassed EH
+dispatch). Because the module optimization pipeline is also the ThinLTO
+post-link pipeline, ``-flto=thin`` builds fold throws whose conversion
+site only becomes visible at link time. It can be disabled with
+``-mllvm -enable-herbceptions-legacy-eh-fold=false``.
+
+Safety: the fold fires only when the unwind path provably reaches a
+compiler-generated conversion dispatch — catch-all / ``catch(...)-only``
+pads feeding the conversion calls — and no real typed catch, cleanup,
+``catchswitch`` sibling or resume can observe the exception. Constructor
+(or other callee) failure edges sharing the conversion block keep their
+landing pad; MSVC rethrows (``_CxxThrowException(null, null)``) and throws
+unwinding to the caller are rejected. Ordinary legacy EH is never
+rewritten, so ``std::current_exception()`` and in-flight-exception
+observation semantics are preserved on untouched paths.
+
+``DeadArgumentElimination`` preserves the trailing ``i1`` return element
+of every ``throws`` function: the discriminant is part of the target
+calling convention (carry flag on X86/AArch64/ARM) and is consumed
+implicitly by the backend even when no IR caller extracts it, so ordinary
+dead-return-value elimination must not strip it when LTO internalizes a
+``throws`` function.
+
 Linker: LTO ODR checking
 ========================
 
@@ -617,7 +667,10 @@ Runtime: libherbceptions
   ``parse.cpp``, plus the legacy-EH bridges ``itanium_exception_ptr.cpp`` /
   ``msvc_exception_ptr.cpp`` (which own the
   ``__cxa_error_domain_*_exception_ptr`` / ``__cxa_error_code_*_exception_ptr``
-  symbols consumed directly by compiler-fabricated code), shared query
+  symbols consumed directly by compiler-fabricated code, and the
+  ``__cxa_error_code_*_exception_ptr_direct`` variants used by
+  `Middle-end: folding legacy throws into conversions`_ to fabricate the
+  boxed exception identity without an in-flight exception), shared query
   helpers (``simple_query_information_common.h``,
   ``__malloc_or_heap_alloc_temp_buffer.h``), the NTSTATUS tables
   (``ntkernel.h``, ``nt_message_table.hpp``, ``nt_errc_map.hpp``) and an
@@ -662,6 +715,13 @@ round-trip), backend tests
 throws-attr.ll`` plus the x86 frame-pointer/CFI variants
 (``throws-cfi-fp.ll``, ``throws-cfi-no-fp.ll``), and the TableGen test
 ``llvm/test/TableGen/callingconv-ifthrows.td``.
+
+``llvm/test/Transforms/HerbceptionsLegacyEHFold/`` covers the legacy-throw
+folding pass (``itanium.ll``, ``msvc.ll``, ``wasm.ll`` for the per-ABI
+transforms and rejection cases, ``pipeline.ll`` for pipeline placement and
+the ``-enable-herbceptions-legacy-eh-fold`` toggle), and
+``llvm/test/Transforms/DeadArgElim/throws-discriminant.ll`` covers the
+discriminant-preservation fix.
 
 Known limitations
 =================
