@@ -414,15 +414,25 @@ statements containing ``CXXCatchThrowsStmt`` handlers to
 ``EmitHerbceptionCatchTry``. Traditional clauses (typed and ``catch(...)``)
 may interleave with them: they are pushed as one regular ``EHCatchScope``
 (legacy stream, relative order), while the herbception handlers each get a
-handler block (``catch.throws``) and an error slot (``herb.error``) pushed
-on ``HerbceptionCatchScopes`` (so bare calls inside the try body route to
-them). Herbception errors scan the herbception handlers in order; legacy
-exceptions match only the traditional clauses; the exception-ptr
-auto-conversion catch-all is installed only when no traditional clause
-competes for the legacy stream. While a traditional handler body runs, its
-"next herbception handler" scope is active, so ``throw throws`` there chains
-forward. Cleanups (including the caught variable's destructor, which runs
-the domain's ``do_cleanup``) execute exactly once. Funclet-based
+handler block (``catch.throws``) and an error slot (``herb.error``).
+Herbception errors scan the herbception handlers in declaration order, so
+only the *first* handler's scope is pushed on ``HerbceptionCatchScopes``
+around the try body (so bare calls inside it route to it). While a
+``catch throws`` handler body runs, the *next* herbception handler's scope
+is on top: a ``throw throws`` or a failing bare throws call inside it chains
+forward through the remaining ``catch throws`` handlers in order, and only
+when none remain does the error leave for the enclosing route. A legacy
+exception thrown inside a ``catch throws`` body is likewise claimed by the
+next herbception handler first, through a catch-all conversion scope
+(``herb.legacy.chain``); only when no herbception handler remains does it
+enter the next traditional route, which here is the try's still-live
+traditional catch scope. Legacy exceptions thrown inside the try body match
+only the traditional clauses; the exception-ptr auto-conversion catch-all
+is installed only when no traditional clause competes for the legacy
+stream. While a traditional handler body runs, its "next herbception
+handler" scope is active, so ``throw throws`` there chains forward.
+Cleanups (including the caught variable's destructor, which runs the
+domain's ``do_cleanup``) execute exactly once. Funclet-based
 personalities keep the handler inside the proper funclet region.
 
 Legacy C++ EH interop
