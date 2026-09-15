@@ -316,6 +316,14 @@ inline constexpr void __simple_query_information_common(
     */
     ::std::io_scatter_t __scatters[2];
     ::std::size_t __scatterlen{};
+    /*
+    __numbuf must outlive the cookfun call below: a scatter points into it,
+    so scoping it to the case block would leave a dangling pointer.
+    */
+    alignas(char32_t) char unsigned
+        __numbuf[__format_decimal_value_max_size_with_brackets<
+                     ::std::uint_least32_t> *
+                 sizeof(char32_t)];
     switch (query) {
     case ::std::error_query_information::name: {
       *__scatters =
@@ -326,10 +334,6 @@ inline constexpr void __simple_query_information_common(
     case ::std::error_query_information::message:
       [[fallthrough]];
     case ::std::error_query_information::name_message: {
-      alignas(char32_t) char unsigned
-          __numbuf[__format_decimal_value_max_size_with_brackets<
-                       ::std::uint_least32_t> *
-                   sizeof(char32_t)];
       __scatterlen = 0u;
       if (::std::error_query_information::name_message == query) {
         *__scatters =
@@ -351,6 +355,14 @@ inline constexpr void __simple_query_information_common(
             __compute_max_buffer_size_for_simple_query() *
         sizeof(char32_t)};
     alignas(char32_t) char unsigned __buffer[__errno_max_bytes];
+    /*
+    __numbuf must outlive the cookfun call below: a scatter points into it,
+    so scoping it to the case block would leave a dangling pointer.
+    */
+    alignas(char32_t) char unsigned
+        __numbuf[__format_decimal_value_max_size_with_brackets<
+                     ::std::uint_least32_t> *
+                 sizeof(char32_t)];
     switch (query) {
     case ::std::error_query_information::name: {
       *__scatters =
@@ -361,10 +373,6 @@ inline constexpr void __simple_query_information_common(
     case ::std::error_query_information::message:
       [[fallthrough]];
     case ::std::error_query_information::name_message: {
-      alignas(char32_t) char unsigned
-          __numbuf[__format_decimal_value_max_size_with_brackets<
-                       ::std::uint_least32_t> *
-                   sizeof(char32_t)];
       if (::std::error_query_information::name_message == query) {
         *__scatters =
             __simple_query_information_common_message(encoding, which_errc);
