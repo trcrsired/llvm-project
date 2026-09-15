@@ -155,6 +155,16 @@ constinit ::std::error_domain_singleton win32_error_domain{
             */
             ::std::io_scatter_t scatters[2];
             ::std::size_t scatterlen{};
+            /*
+            __numbuf must outlive the cookfun call below: a scatter points
+            into it, so scoping it to the case block would leave a dangling
+            pointer.
+            */
+            alignas(char32_t) char unsigned
+                __numbuf[::std::error_domains::__herbceptions_detail::
+                             __format_hex_value_max_size_with_brackets<
+                                 ::std::uint_least32_t> *
+                         sizeof(char32_t)];
             switch (query) {
             case ::std::error_query_information::name: {
               *scatters = win32_name(encoding);
@@ -164,11 +174,6 @@ constinit ::std::error_domain_singleton win32_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned
-                  __numbuf[::std::error_domains::__herbceptions_detail::
-                               __format_hex_value_max_size_with_brackets<
-                                   ::std::uint_least32_t> *
-                           sizeof(char32_t)];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = win32_name_message(encoding);

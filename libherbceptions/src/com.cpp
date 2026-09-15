@@ -176,6 +176,17 @@ constinit ::std::error_domain_singleton com_error_domain{
             */
             ::std::io_scatter_t scatters[2];
             ::std::size_t scatterlen{};
+            constexpr ::std::size_t bufbytes{
+                ::std::error_domains::__herbceptions_detail::
+                    __format_hex_value_max_size_with_brackets<
+                        ::std::uint_least32_t> *
+                sizeof(char32_t)};
+            /*
+            __numbuf must outlive the cookfun call below: a scatter points
+            into it, so scoping it to the case block would leave a dangling
+            pointer.
+            */
+            alignas(char32_t) char unsigned __numbuf[bufbytes];
             switch (query) {
             case ::std::error_query_information::name: {
               *scatters = com_name_message_range(encoding, 1u, 3u);
@@ -185,12 +196,6 @@ constinit ::std::error_domain_singleton com_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              constexpr ::std::size_t bufbytes{
-                  ::std::error_domains::__herbceptions_detail::
-                      __format_hex_value_max_size_with_brackets<
-                          ::std::uint_least32_t> *
-                  sizeof(char32_t)};
-              alignas(char32_t) char unsigned __numbuf[bufbytes];
               scatterlen = 0u;
               if (::std::error_query_information::name_message == query) {
                 *scatters = com_name_message_range(encoding, 0u, 5u);
@@ -205,6 +210,20 @@ constinit ::std::error_domain_singleton com_error_domain{
           } else {
             ::std::io_scatter_t scatters[2];
             ::std::size_t scatterlen{};
+            /*
+            __numbuf and buffer must outlive the cookfun call below:
+            scatters point into them, so scoping them to the case block
+            would leave dangling pointers.
+            */
+            alignas(char32_t) char unsigned
+                __numbuf[::std::error_domains::__herbceptions_detail::
+                             __format_hex_value_max_size_with_brackets<
+                                 ::std::uint_least32_t> *
+                         sizeof(char32_t)];
+            alignas(char32_t) char unsigned
+                buffer[::std::error_domains::__herbceptions_detail::
+                           __nt_max_message_size *
+                       sizeof(char32_t)];
             switch (query) {
             case ::std::error_query_information::name:
               *scatters = com_name_message_range(encoding, 1u, 3u);
@@ -213,11 +232,6 @@ constinit ::std::error_domain_singleton com_error_domain{
             case ::std::error_query_information::message:
               [[fallthrough]];
             case ::std::error_query_information::name_message: {
-              alignas(char32_t) char unsigned
-                  __numbuf[::std::error_domains::__herbceptions_detail::
-                               __format_hex_value_max_size_with_brackets<
-                                   ::std::uint_least32_t> *
-                           sizeof(char32_t)];
               if (::std::error_query_information::name_message == query) {
                 *scatters = com_name_message_range(encoding, 0u, 5u);
                 ++scatterlen;
@@ -235,10 +249,6 @@ constinit ::std::error_domain_singleton com_error_domain{
                   char unsigned const *from_first{
                       reinterpret_cast<char unsigned const *>(msg.base)};
                   char unsigned const *from_last{from_first + msg.len};
-                  alignas(char32_t) char unsigned
-                      buffer[::std::error_domains::__herbceptions_detail::
-                                 __nt_max_message_size *
-                             sizeof(char32_t)];
                   switch (encoding) {
 #ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
                   case ::std::error_reporter_encoding::utfebcdic: {
