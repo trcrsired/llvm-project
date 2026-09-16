@@ -763,7 +763,10 @@ __cxa_error_code_msvc_exception_ptr_clone(void const* src) noexcept {
 // __ExceptionPtrCurrentException to capture. Instead the exception_ptr box
 // is fabricated straight from the throw arguments -- the same pair
 // _CxxThrowException would pack into the record (object, _ThrowInfo*).
-extern "C" __HERBCEPTIONS_API ::std::size_t
+// `retain` keeps the symbol in llvm.used so ThinLTO cannot internalize
+// and drop it: the pass's reference is only created at post-link, after
+// symbol resolution has already run.
+extern "C" __HERBCEPTIONS_API __attribute__((retain)) ::std::size_t
 __cxa_error_code_msvc_exception_ptr_direct(void const *obj,
                                            void const *throwinfo) noexcept {
   error_domain_msvc_eh_ptr *ehptr_storage =

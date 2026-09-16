@@ -402,7 +402,10 @@ extern "C" void *__cxa_init_primary_exception(
 // Instead this performs __cxa_throw's header initialization on the thrown
 // object -- same vendor class stamp, type, destructor, handlers and flight
 // reference -- without touching uncaughtExceptions and without raising.
-extern "C" __HERBCEPTIONS_API ::std::size_t
+// `retain` keeps the symbol in llvm.used so ThinLTO cannot internalize and
+// drop it: the pass's reference is only created at post-link, after symbol
+// resolution has already decided what each module may keep external.
+extern "C" __HERBCEPTIONS_API __attribute__((retain)) ::std::size_t
 __cxa_error_code_itanium_exception_ptr_direct(void *eh, void *tinfo,
                                               void *dtor) noexcept {
   if (eh == nullptr) {

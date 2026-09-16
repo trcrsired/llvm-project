@@ -183,6 +183,7 @@
 ; CHECK-EXT: Running pass: {{.*}}::Bye
 ; CHECK-EP-OPT-EARLY-NEXT: Running pass: NoOpModulePass
 ; CHECK-EP-OPT-LAST-NEXT: Running pass: NoOpModulePass
+; CHECK-O-NEXT: Running pass: HerbceptionsLegacyEHFoldPass on foo
 ; CHECK-O-NEXT:          Running pass: AnnotationRemarksPass on foo
 ; CHECK-O-NEXT: Running pass: LowerCommentStringPass
 ; CHECK-O-NEXT: Running pass: CanonicalizeAliasesPass

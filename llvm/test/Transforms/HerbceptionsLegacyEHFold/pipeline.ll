@@ -1,12 +1,15 @@
 ; The pass runs in the default optimization pipeline at every non-O0 level,
-; including the ThinLTO post-link pipeline (so -flto=thin builds fold
-; throws whose conversion site only becomes visible at link time), and can
-; be disabled with -enable-herbceptions-legacy-eh-fold=false.
+; in the ThinLTO pre-link pipeline (so -flto=thin compiles fold throws while
+; the conversion helpers are still plain call sites and cannot be dissolved
+; by post-link importing/inlining), and in the ThinLTO post-link pipeline.
+; It can be disabled with -enable-herbceptions-legacy-eh-fold=false.
 ;
 ; RUN: opt -passes='default<O1>' -S < %s | FileCheck %s
 ; RUN: opt -passes='default<O2>' -S < %s | FileCheck %s
 ; RUN: opt -passes='default<O3>' -S < %s | FileCheck %s
+; RUN: opt -passes='thinlto-pre-link<O2>' -S < %s | FileCheck %s
 ; RUN: opt -passes='thinlto<O2>' -S < %s | FileCheck %s
+; RUN: opt -enable-herbceptions-legacy-eh-fold=false -passes='thinlto-pre-link<O2>' -S < %s | FileCheck %s --check-prefix=DISABLED
 ; RUN: opt -enable-herbceptions-legacy-eh-fold=false -passes='default<O3>' -S < %s | FileCheck %s --check-prefix=DISABLED
 
 target triple = "x86_64-unknown-linux-gnu"

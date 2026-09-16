@@ -579,10 +579,18 @@ the conversion landing pad / catchswitch, the invoke is replaced by:
 The pass runs at every non-``O0`` level in
 ``buildModuleOptimizationPipeline``, right after ``TailCallElimPass`` and
 before the final ``SimplifyCFGPass`` (which then removes the bypassed EH
-dispatch). Because the module optimization pipeline is also the ThinLTO
-post-link pipeline, ``-flto=thin`` builds fold throws whose conversion
-site only becomes visible at link time. It can be disabled with
-``-mllvm -enable-herbceptions-legacy-eh-fold=false``.
+dispatch), and additionally at the end of the ThinLTO *pre-link*
+pipeline. Pre-link placement matters: once the helpers live in a bitcode
+archive, ThinLTO import can inline them into the pad and dissolve the
+recognizable conversion calls, so ``-flto=thin`` must fold while the
+calls are still pristine. The pass also remains in the ThinLTO post-link
+pipeline for sites that only appear at link time. It can be disabled
+with ``-mllvm -enable-herbceptions-legacy-eh-fold=false``.
+
+When the fold happens post-link it can create a reference to
+``__cxa_error_code_*_exception_ptr_direct`` after ThinLTO symbol
+resolution has run; the runtime therefore marks the ``_direct`` helpers
+``retain`` so the index cannot internalize and drop them.
 
 Safety: the fold fires only when the unwind path provably reaches a
 compiler-generated conversion dispatch — catch-all / ``catch(...)-only``

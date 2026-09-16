@@ -1948,6 +1948,15 @@ PassBuilder::buildThinLTOPreLinkDefaultPipeline(OptimizationLevel Level) {
   invokeOptimizerLastEPCallbacks(MPM, Level,
                                  /*Phase=*/ThinOrFullLTOPhase::ThinLTOPreLink);
 
+  // Fold legacy throws that provably unwind into a compiler-generated
+  // legacy->std::error herbceptions conversion. This must happen in
+  // pre-link, while the conversion helpers are still plain call sites:
+  // at post-link the helpers are imported and may be inlined, which
+  // dissolves the recognizable conversion chain.
+  if (EnableHerbceptionsLegacyEHFold)
+    MPM.addPass(createModuleToFunctionPassAdaptor(
+        HerbceptionsLegacyEHFoldPass()));
+
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
 
