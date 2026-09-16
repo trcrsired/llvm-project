@@ -18,12 +18,12 @@ target triple = "x86_64-unknown-linux-gnu"
 
 ; CHECK-LABEL: define {{.*}} @foo
 ; CHECK-NOT: __cxa_throw
-; CHECK: call i64 @__cxa_error_code_itanium_exception_ptr_direct(
+; CHECK: call i64 @__cxa_error_code_itanium_exception_ptr(i64 2,
 ; CHECK: ret
 ;
 ; DISABLED-LABEL: define {{.*}} @foo
 ; DISABLED: invoke void @__cxa_throw
-; DISABLED-NOT: exception_ptr_direct
+; DISABLED-NOT: exception_ptr(i64 2
 ; DISABLED: ret
 define dso_local { { ptr, i64 }, i1 } @foo() personality ptr @__gxx_personality_v0 {
 entry:
@@ -39,7 +39,7 @@ throw.lpad:
           catch ptr null
   %exn = extractvalue { ptr, i32 } %lp, 0
   %dom = tail call ptr @__cxa_error_domain_itanium_exception_ptr()
-  %code = tail call i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %exn)
+  %code = tail call i64 @__cxa_error_code_itanium_exception_ptr(i64 1, ptr noundef %exn, ptr null, ptr null)
   %e0 = insertvalue { ptr, i64 } poison, ptr %dom, 0
   %e1 = insertvalue { ptr, i64 } %e0, i64 %code, 1
   %r0 = insertvalue { { ptr, i64 }, i1 } poison, { ptr, i64 } %e1, 0
@@ -51,4 +51,4 @@ declare ptr @__gxx_personality_v0(...)
 declare ptr @__cxa_allocate_exception(i64)
 declare void @__cxa_throw(ptr, ptr, ptr)
 declare ptr @__cxa_error_domain_itanium_exception_ptr()
-declare i64 @__cxa_error_code_itanium_exception_ptr(ptr)
+declare i64 @__cxa_error_code_itanium_exception_ptr(i64, ptr, ptr, ptr)

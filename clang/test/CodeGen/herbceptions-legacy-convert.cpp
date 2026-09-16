@@ -22,7 +22,7 @@ struct exception_ptr;
 
 extern void foo();
 extern "C" unsigned long long
-__cxa_error_code_itanium_exception_ptr(void *);
+__cxa_error_code_itanium_exception_ptr(__SIZE_TYPE__, void *, void *, void *);
 extern "C" void *__cxa_error_domain_itanium_exception_ptr() noexcept;
 
 // ITANIUM: define dso_local void @_Z3barv() #[[ATTR:[0-9]+]] personality ptr @__gxx_personality_v0 {
@@ -32,7 +32,7 @@ extern "C" void *__cxa_error_domain_itanium_exception_ptr() noexcept;
 // ITANIUM-NOT: @_ZNSt12error_domainI
 // ITANIUM: call ptr @__cxa_error_domain_itanium_exception_ptr()
 // ITANIUM: %[[EXN:[a-z0-9.]+]] = load ptr, ptr %exn.slot
-// ITANIUM: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %[[EXN]])
+// ITANIUM: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(i64 noundef 1, ptr noundef %[[EXN]], ptr noundef null, ptr noundef null)
 // ITANIUM: landingpad { ptr, i32 }
 // ITANIUM:         catch ptr null
 // ITANIUM: br label %herb.legacy.convert
@@ -57,7 +57,7 @@ void bar() {
 // MSVC: catchpad within
 // MSVC-NOT: call ptr @llvm.eh.exceptionpointer
 // MSVC: call ptr @__cxa_error_domain_msvc_exception_ptr() [ "funclet"(token
-// MSVC: call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token
+// MSVC: call i64 @__cxa_error_code_msvc_exception_ptr(i64 noundef 1, ptr noundef null, ptr noundef null) [ "funclet"(token
 // MSVC: br label %catch.throws
 
 // Wasm uses funclet EH with wasm.get.exception storing the
@@ -71,7 +71,7 @@ void bar() {
 // WASM: herb.legacy.convert:
 // WASM: call ptr @__cxa_error_domain_itanium_exception_ptr()
 // WASM: load ptr, ptr %exn.slot
-// WASM: call {{.*}}i32 @__cxa_error_code_itanium_exception_ptr(ptr
+// WASM: call {{.*}}i32 @__cxa_error_code_itanium_exception_ptr(i32 noundef 1, ptr
 
 // SjLj uses a landingpad; exn.slot holds the _Unwind_Exception*.
 // SJLJ: define dso_local void @_Z3barv() {{.*}} personality ptr @__gxx_personality_sj0 {
@@ -79,6 +79,6 @@ void bar() {
 // SJLJ: herb.legacy.convert:
 // SJLJ: call ptr @__cxa_error_domain_itanium_exception_ptr()
 // SJLJ: %[[EXN:[a-z0-9.]+]] = load ptr, ptr %exn.slot
-// SJLJ: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %[[EXN]])
+// SJLJ: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(i64 noundef 1, ptr noundef %[[EXN]], ptr noundef null, ptr noundef null)
 
 // ITANIUM: attributes #[[ATTR]] = { {{.*}} }

@@ -345,15 +345,54 @@ inline void fail_fast_for_none_cxx_eh(void *eh) noexcept {
 
 } // namespace
 
+#if !defined(_LIBCPPABI_VERSION)
+namespace __cxxabiv1 {
+// libc++abi declares this in <cxxabi.h>; libstdc++ exports the symbol for
+// exception_ptr support and declares it in its internal
+// bits/cxxabi_init_exception.h returning __cxa_refcounted_exception*, so
+// the declaration must match when that header leaks in.
+class __cxa_refcounted_exception;
+extern "C" __cxa_refcounted_exception *__cxa_init_primary_exception(
+    void *, ::std::type_info *,
+    decltype(itanium_cxa_exception::exceptionDestructor)) noexcept;
+} // namespace __cxxabiv1
+#endif
+
 extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
-  // eh is the _Unwind_Exception* the catch machinery delivered to the
-  // compiler-fabricated conversion site -- the landing pad's exn value on
-  // Itanium, wasm.get.exception on Wasm (both are
-  // &__cxa_exception::unwindHeader) -- NOT the thrown object pointer.
+__cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
+                                       void *tinfo, void *dtor) noexcept {
   if (eh == nullptr) {
     ::std::abort();
   }
+  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_direct) {
+    // Emitted by the herbceptions-legacy-eh-fold pass for a `throw` whose
+    // unwind edge provably reaches only the legacy->std::error conversion
+    // site: no exception is ever raised, so there is no in-flight
+    // _Unwind_Exception to unwrap. eh/tinfo/dtor are the __cxa_throw
+    // operands; this performs __cxa_throw's header initialization -- same
+    // vendor class stamp, type, destructor, handlers and flight
+    // reference -- without touching uncaughtExceptions and without
+    // raising.
+    ::__cxxabiv1::__cxa_init_primary_exception(
+        eh, static_cast<::std::type_info *>(tinfo),
+        reinterpret_cast<decltype(itanium_cxa_exception::exceptionDestructor)>(
+            dtor));
+    __itanium_cxa_increment_exception_refcount(eh);
+    return reinterpret_cast<::std::size_t>(eh);
+  }
+  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_clone) {
+    // eh is an existing exception code; retain and return it.
+    fail_fast_for_none_cxx_eh(eh);
+    __itanium_cxa_increment_exception_refcount(eh);
+    return reinterpret_cast<::std::size_t>(eh);
+  }
+  if (flags != ::std::error_domains::__cxa_error_exception_ptr_flag_none) {
+    ::std::abort();
+  }
+  // flag_none: eh is the _Unwind_Exception* the catch machinery delivered
+  // to the compiler-fabricated conversion site -- the landing pad's exn
+  // value on Itanium, wasm.get.exception on Wasm (both are
+  // &__cxa_exception::unwindHeader) -- NOT the thrown object pointer.
   auto *uh{static_cast<_Unwind_Exception *>(eh)};
   // Refuse to mint a code for foreign EH so no foreign exception can
   // ever enter this domain. Dependent exceptions (rethrown
@@ -376,45 +415,4 @@ __cxa_error_code_itanium_exception_ptr(void *eh) noexcept {
       ->uncaughtExceptions -= 1;
 #endif
   return reinterpret_cast<::std::size_t>(thrown);
-}
-
-extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_itanium_exception_ptr_clone(void *eh) noexcept {
-  fail_fast_for_none_cxx_eh(eh);
-  __itanium_cxa_increment_exception_refcount(eh);
-  return reinterpret_cast<::std::size_t>(eh);
-}
-
-#if !defined(_LIBCPPABI_VERSION)
-namespace __cxxabiv1 {
-// libc++abi declares this in <cxxabi.h>; libstdc++ exports the symbol for
-// exception_ptr support but does not declare it in the public header.
-extern "C" void *__cxa_init_primary_exception(
-    void *, ::std::type_info *,
-    decltype(itanium_cxa_exception::exceptionDestructor)) noexcept;
-} // namespace __cxxabiv1
-#endif
-
-// Called by compiler-generated code (herbceptions-legacy-eh-fold) for a `throw`
-// whose unwind edge provably reaches only the legacy->std::error conversion
-// site: no exception is ever raised, so there is no in-flight
-// _Unwind_Exception for __cxa_error_code_itanium_exception_ptr to unwrap.
-// Instead this performs __cxa_throw's header initialization on the thrown
-// object -- same vendor class stamp, type, destructor, handlers and flight
-// reference -- without touching uncaughtExceptions and without raising.
-// `retain` keeps the symbol in llvm.used so ThinLTO cannot internalize and
-// drop it: the pass's reference is only created at post-link, after symbol
-// resolution has already decided what each module may keep external.
-extern "C" __HERBCEPTIONS_API __attribute__((retain)) ::std::size_t
-__cxa_error_code_itanium_exception_ptr_direct(void *eh, void *tinfo,
-                                              void *dtor) noexcept {
-  if (eh == nullptr) {
-    ::std::abort();
-  }
-  ::__cxxabiv1::__cxa_init_primary_exception(
-      eh, static_cast<::std::type_info *>(tinfo),
-      reinterpret_cast<decltype(itanium_cxa_exception::exceptionDestructor)>(
-          dtor));
-  __itanium_cxa_increment_exception_refcount(eh);
-  return reinterpret_cast<::std::size_t>(eh);
 }

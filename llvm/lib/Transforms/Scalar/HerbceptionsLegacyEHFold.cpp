@@ -9,10 +9,11 @@
 // Under -fherbceptions, a legacy C++ throw (__cxa_throw / _CxxThrowException)
 // whose unwind edge provably reaches only the compiler-generated
 // legacy-to-std::error conversion site can be folded into a direct conversion
-// call: the libherbceptions __cxa_error_code_*_exception_ptr_direct entry
-// points produce the same error code the catch-site conversion would, without
-// ever raising the exception. This removes the unwind edge, the EH dispatch
-// (catchswitch/landingpad) hop, and the funclet crossing.
+// call: the same libherbceptions __cxa_error_code_*_exception_ptr entry point
+// the site already calls, invoked with the "direct" flag so it mints the same
+// error code without ever raising the exception. This removes the unwind
+// edge, the EH dispatch (catchswitch/landingpad) hop, and the funclet
+// crossing.
 //
 // The fold is only legal when conversion is the *only* possible outcome of
 // the throw's unwind edge:
@@ -68,14 +69,19 @@ constexpr StringLiteral MsvcDomainFnName =
     "__cxa_error_domain_msvc_exception_ptr";
 constexpr StringLiteral MsvcCodeFnName =
     "__cxa_error_code_msvc_exception_ptr";
-constexpr StringLiteral MsvcDirectFnName =
-    "__cxa_error_code_msvc_exception_ptr_direct";
 constexpr StringLiteral ItaniumDomainFnName =
     "__cxa_error_domain_itanium_exception_ptr";
 constexpr StringLiteral ItaniumCodeFnName =
     "__cxa_error_code_itanium_exception_ptr";
-constexpr StringLiteral ItaniumDirectFnName =
-    "__cxa_error_code_itanium_exception_ptr_direct";
+
+/// First parameter of __cxa_error_code_*_exception_ptr: 1 selects the
+/// legacy in-flight conversion (__cxa_error_exception_ptr_flag_none) and
+/// 2 the direct mode (__cxa_error_exception_ptr_flag_direct) emitted by
+/// this pass. The folded call reuses the ordinary conversion entry
+/// point, so the reference already exists wherever a conversion site
+/// exists.
+constexpr uint64_t InFlightFlag = 1;
+constexpr uint64_t DirectFlag = 2;
 
 enum class ThrowABI { Itanium, MSVC };
 
@@ -124,6 +130,16 @@ static bool isNamedCall(Instruction &I, StringRef Name, CallBase *&Out) {
   return true;
 }
 
+/// The conversion call carries the in-flight flag (1) in its first
+/// parameter; clone (0) and direct (2) calls are not the conversion.
+static bool isConversionCodeCall(Instruction &I, StringRef Name,
+                                 CallBase *&Out) {
+  if (!isNamedCall(I, Name, Out) || Out->arg_size() == 0)
+    return false;
+  auto *Flag = dyn_cast<ConstantInt>(Out->getArgOperand(0));
+  return Flag && Flag->getZExtValue() == InFlightFlag;
+}
+
 /// Instructions allowed on the conversion path: EH glue, the conversion
 /// calls, and pure plumbing feeding the code call. Anything else means the
 /// dispatch does real work the fold would skip.
@@ -143,7 +159,7 @@ static bool isAllowedConvInst(Instruction &I, ThrowABI ABI,
       ConvInsts.insert(Match);
       return true;
     }
-    if (isNamedCall(I, CodeName, Match)) {
+    if (isConversionCodeCall(I, CodeName, Match)) {
       if (CodeCall)
         return false;
       CodeCall = Match;
@@ -198,14 +214,20 @@ followFuncletExit(BasicBlock *Cont, SmallPtrSetImpl<Instruction *> &ConvInsts,
   }
 }
 
-/// The code call's argument, when it has one, must be computed inside the
+/// The code call's exception operand must be computed inside the
 /// conversion dispatch (e.g. the landingpad/wasm.get.exception exn value);
-/// anything else means the value being converted is not the exception this
-/// edge delivers.
-static bool codeCallArgIsConvLocal(const ConvSite &Site) {
-  if (Site.CodeCall->arg_empty())
-    return true;
-  auto *I = dyn_cast<Instruction>(Site.CodeCall->getArgOperand(0));
+/// anything else means the value being converted is not the exception
+/// this edge delivers. The operand is the second parameter, after the
+/// flags word; the MSVC conversion passes null pointers instead (it reads
+/// the current exception itself).
+static bool codeCallArgIsConvLocal(const ConvSite &Site, ThrowABI ABI) {
+  if (ABI == ThrowABI::MSVC)
+    return Site.CodeCall->arg_size() == 3 &&
+           isNullConstant(Site.CodeCall->getArgOperand(1)) &&
+           isNullConstant(Site.CodeCall->getArgOperand(2));
+  if (Site.CodeCall->arg_size() != 4)
+    return false;
+  auto *I = dyn_cast<Instruction>(Site.CodeCall->getArgOperand(1));
   return I && Site.ConvInsts.contains(I);
 }
 
@@ -266,7 +288,7 @@ static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
         if (Site.DomainCall)
           return false;
         Site.DomainCall = Match;
-      } else if (isNamedCall(*Inv, CodeName, Match)) {
+      } else if (isConversionCodeCall(*Inv, CodeName, Match)) {
         if (Site.CodeCall)
           return false;
         Site.CodeCall = Match;
@@ -289,7 +311,7 @@ static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
   Site.ContBB = followFuncletExit(Site.ContBB, Site.ConvInsts,
                                   TrampolineVisited, LastTrampoline);
   Site.ChainEndBB = LastTrampoline;
-  if (!Site.ContBB || Site.ContBB->isEHPad() || !codeCallArgIsConvLocal(Site))
+  if (!Site.ContBB || Site.ContBB->isEHPad() || !codeCallArgIsConvLocal(Site, ABI))
     return false;
   return true;
 }
@@ -321,7 +343,7 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
       CallBase *M = nullptr;
       if (isNamedCall(I, ItaniumDomainFnName, M))
         DomainCall = M;
-      else if (isNamedCall(I, ItaniumCodeFnName, M))
+      else if (isConversionCodeCall(I, ItaniumCodeFnName, M))
         CodeCall = M;
     }
 
@@ -352,7 +374,7 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
       Site.CodeCall = CodeCall;
       Site.ConvBB = BB;
       Site.SplitBefore = After;
-      if (!codeCallArgIsConvLocal(Site))
+      if (!codeCallArgIsConvLocal(Site, ThrowABI::Itanium))
         return false;
       return true;
     }
@@ -387,26 +409,6 @@ static bool crossingValuesFoldable(const ConvSite &Site) {
           return false;
   }
   return true;
-}
-
-static FunctionCallee getDirectFn(Module &M, ThrowABI ABI, Type *CodeRetTy,
-                                  LLVMContext &Ctx) {
-  Type *PtrTy = PointerType::getUnqual(Ctx);
-  bool IsMSVC = ABI == ThrowABI::MSVC;
-  FunctionType *FTy =
-      IsMSVC ? FunctionType::get(CodeRetTy, {PtrTy, PtrTy}, false)
-             : FunctionType::get(CodeRetTy, {PtrTy, PtrTy, PtrTy}, false);
-  FunctionCallee FC =
-      M.getOrInsertFunction(IsMSVC ? MsvcDirectFnName : ItaniumDirectFnName,
-                            FTy);
-  auto *F = cast<Function>(FC.getCallee());
-  // libherbceptions is a DLL on Windows targets.
-  if (M.getTargetTriple().isOSWindows() &&
-      F->getDLLStorageClass() == GlobalValue::DefaultStorageClass)
-    F->setDLLStorageClass(GlobalValue::DLLImportStorageClass);
-  if (!F->doesNotThrow())
-    F->setDoesNotThrow();
-  return FC;
 }
 
 } // end anonymous namespace
@@ -633,13 +635,22 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &FAM) {
       }
     }
 
-    SmallVector<Value *, 3> Args;
+    // The folded call reuses the ordinary conversion entry point with
+    // the direct flag: the flag word first, then the throw's own
+    // operands (obj, tinfo, dtor / obj, throwinfo).
+    FunctionType *CodeFTy = Site.CodeCall->getFunctionType();
+    SmallVector<Value *, 4> Args;
+    Args.push_back(ConstantInt::get(CodeFTy->getParamType(0), DirectFlag));
     for (Use &U : II->args())
       Args.push_back(U.get());
-    FunctionCallee Direct =
-        getDirectFn(*F.getParent(), WS.ABI, Site.CodeCall->getType(),
-                    F.getContext());
-    CallInst *Code = B.CreateCall(Direct, Args, Bundles, "herb.code");
+    CallInst *Code = B.CreateCall(CodeFTy, Site.CodeCall->getCalledOperand(),
+                                  Args, Bundles, "herb.code");
+    Code->setCallingConv(Site.CodeCall->getCallingConv());
+    // The libherbceptions entry point is noexcept; marking the shared decl
+    // also lets later passes drop the conversion invoke's dead unwind edge.
+    if (Function *CodeFn =
+            dyn_cast<Function>(Site.CodeCall->getCalledOperand()))
+      CodeFn->setDoesNotThrow();
 
     B.CreateBr(ContBB);
     BasicBlock *NormalDest = II->getNormalDest();

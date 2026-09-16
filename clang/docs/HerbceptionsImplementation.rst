@@ -564,13 +564,15 @@ the conversion landing pad / catchswitch, the invoke is replaced by:
 
 * a call to ``__cxa_error_domain_{itanium,msvc}_exception_ptr()`` to mint
   the ``std::error`` domain, and
-* a call to ``__cxa_error_code_{itanium,msvc}_exception_ptr_direct(...)``
-  (see `Runtime: libherbceptions`_), a libherbceptions entry point that
-  fabricates the same boxed exception identity the in-flight-exception
-  conversion would produce — Itanium calls
-  ``__cxa_init_primary_exception`` and retains the exception object;
-  MSVC builds a valid empty ``exception_ptr`` buffer and uses the
-  ``__ExceptionPtrCreate`` / ``__ExceptionPtrCopyException`` boxing
+* a call to ``__cxa_error_code_{itanium,msvc}_exception_ptr(flags, ...)``
+  with ``flags == 2`` (``__cxa_error_exception_ptr_flag_direct``; see
+  `Runtime: libherbceptions`_). The single entry point takes a ``size_t``
+  flags word first — ``0`` clone, ``1`` in-flight conversion, ``2``
+  direct — and in direct mode fabricates the same boxed exception
+  identity the in-flight-exception conversion would produce — Itanium
+  calls ``__cxa_init_primary_exception`` and retains the exception
+  object; MSVC builds a valid empty ``exception_ptr`` buffer and uses
+  the ``__ExceptionPtrCreate`` / ``__ExceptionPtrCopyException`` boxing
   machinery — then
 * a normal branch to the conversion continuation, with merge ``phi``\ s
   carrying the domain/code values for any other (non-foldable) edges that
@@ -587,10 +589,11 @@ calls are still pristine. The pass also remains in the ThinLTO post-link
 pipeline for sites that only appear at link time. It can be disabled
 with ``-mllvm -enable-herbceptions-legacy-eh-fold=false``.
 
-When the fold happens post-link it can create a reference to
-``__cxa_error_code_*_exception_ptr_direct`` after ThinLTO symbol
-resolution has run; the runtime therefore marks the ``_direct`` helpers
-``retain`` so the index cannot internalize and drop them.
+Because the folded call reuses the very
+``__cxa_error_code_*_exception_ptr`` symbol every conversion site already
+references, ThinLTO symbol resolution always sees it live — no new
+symbol is introduced after resolution, so nothing needs to be retained
+specially.
 
 Safety: the fold fires only when the unwind path provably reaches a
 compiler-generated conversion dispatch — catch-all / ``catch(...)-only``
@@ -675,8 +678,9 @@ Runtime: libherbceptions
   ``parse.cpp``, plus the legacy-EH bridges ``itanium_exception_ptr.cpp`` /
   ``msvc_exception_ptr.cpp`` (which own the
   ``__cxa_error_domain_*_exception_ptr`` / ``__cxa_error_code_*_exception_ptr``
-  symbols consumed directly by compiler-fabricated code, and the
-  ``__cxa_error_code_*_exception_ptr_direct`` variants used by
+  symbols consumed directly by compiler-fabricated code; the code entry
+  points take a ``size_t`` flags word (``0`` clone, ``1`` in-flight
+  conversion, ``2`` direct — the last emitted by
   `Middle-end: folding legacy throws into conversions`_ to fabricate the
   boxed exception identity without an in-flight exception), shared query
   helpers (``simple_query_information_common.h``,
