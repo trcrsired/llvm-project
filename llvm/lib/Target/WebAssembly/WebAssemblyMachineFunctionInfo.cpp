@@ -18,6 +18,7 @@
 #include "WebAssemblySubtarget.h"
 #include "WebAssemblyUtilities.h"
 #include "llvm/CodeGen/Analysis.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
 
@@ -66,7 +67,8 @@ void llvm::computeSignatureVTs(const FunctionType *Ty,
                                SmallVectorImpl<MVT> &Results) {
   computeLegalValueVTs(ContextFunc, TM, Ty->getReturnType(), Results);
 
-  MVT PtrVT = MVT::getIntegerVT(TM.createDataLayout().getPointerSizeInBits());
+  const DataLayout &DL = ContextFunc.getParent()->getDataLayout();
+  MVT PtrVT = MVT::getIntegerVT(DL.getPointerSizeInBits());
   // Herbception (throws) functions return an extra discriminant value. Allow
   // the {T, i1} return to be lowered as two wasm results instead of demoting
   // to sret.
@@ -95,7 +97,7 @@ void llvm::computeSignatureVTs(const FunctionType *Ty,
 
   if (TargetFunc && (TargetFunc->getCallingConv() == CallingConv::Swift ||
                      TargetFunc->getCallingConv() == CallingConv::SwiftTail)) {
-    MVT PtrVT = MVT::getIntegerVT(TM.createDataLayout().getPointerSizeInBits());
+    MVT PtrVT = MVT::getIntegerVT(DL.getPointerSizeInBits());
     bool HasSwiftErrorArg = false;
     bool HasSwiftSelfArg = false;
     bool HasSwiftAsyncArg = false;
