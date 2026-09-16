@@ -81,8 +81,10 @@ enum class ThrowABI { Itanium, MSVC };
 /// A validated conversion dispatch reached by a foldable throw edge.
 struct ConvSite {
   /// The conversion calls; their results are what downstream code consumes.
-  CallInst *DomainCall = nullptr;
-  CallInst *CodeCall = nullptr;
+  /// Funclet personalities emit them as calls or invokes depending on
+  /// whether the frontend marked the callee nounwind.
+  CallBase *DomainCall = nullptr;
+  CallBase *CodeCall = nullptr;
   /// The block folded edges branch to. For the funclet model this is the
   /// (possibly trampolined) catchret continuation. For the landingpad model
   /// this is produced by splitting the conversion block after the calls.
@@ -101,15 +103,15 @@ static bool isNullConstant(Value *V) {
   return C && C->isNullValue();
 }
 
-/// True if I is a call to the named function; records it in Out.
-static bool isNamedCall(Instruction &I, StringRef Name, CallInst *&Out) {
-  auto *CI = dyn_cast<CallInst>(&I);
-  if (!CI)
+/// True if I is a call/invoke to the named function; records it in Out.
+static bool isNamedCall(Instruction &I, StringRef Name, CallBase *&Out) {
+  if (!isa<CallInst, InvokeInst>(I))
     return false;
-  Function *F = CI->getCalledFunction();
+  auto *CB = cast<CallBase>(&I);
+  Function *F = CB->getCalledFunction();
   if (!F || F->getName() != Name)
     return false;
-  Out = CI;
+  Out = CB;
   return true;
 }
 
@@ -117,14 +119,14 @@ static bool isNamedCall(Instruction &I, StringRef Name, CallInst *&Out) {
 /// calls, and pure plumbing feeding the code call. Anything else means the
 /// dispatch does real work the fold would skip.
 static bool isAllowedConvInst(Instruction &I, ThrowABI ABI,
-                              CallInst *&DomainCall, CallInst *&CodeCall,
+                              CallBase *&DomainCall, CallBase *&CodeCall,
                               SmallPtrSetImpl<Instruction *> &ConvInsts) {
-  if (isa<CallInst>(I)) {
+  if (isa<CallInst, InvokeInst>(I)) {
     StringRef DomName =
         ABI == ThrowABI::MSVC ? MsvcDomainFnName : ItaniumDomainFnName;
     StringRef CodeName =
         ABI == ThrowABI::MSVC ? MsvcCodeFnName : ItaniumCodeFnName;
-    CallInst *Match = nullptr;
+    CallBase *Match = nullptr;
     if (isNamedCall(I, DomName, Match)) {
       if (DomainCall)
         return false;
@@ -157,16 +159,11 @@ static bool isAllowedConvInst(Instruction &I, ThrowABI ABI,
   return false;
 }
 
-/// Follow the funclet exit chain from the conversion pad: catchret to the
-/// continuation, allowing only empty cleanup trampolines in between.
+/// From the catchret's successor, follow any empty cleanup trampolines to
+/// the real continuation block.
 static BasicBlock *
-followFuncletExit(BasicBlock *PadBB, SmallPtrSetImpl<Instruction *> &ConvInsts,
+followFuncletExit(BasicBlock *Cont, SmallPtrSetImpl<Instruction *> &ConvInsts,
                   SmallPtrSetImpl<BasicBlock *> &Visited) {
-  auto *CRI = dyn_cast<CatchReturnInst>(PadBB->getTerminator());
-  if (!CRI)
-    return nullptr;
-  ConvInsts.insert(CRI);
-  BasicBlock *Cont = CRI->getSuccessor();
   while (true) {
     if (!Visited.insert(Cont).second)
       return nullptr;
@@ -200,7 +197,10 @@ static bool codeCallArgIsConvLocal(const ConvSite &Site) {
 }
 
 /// Funclet model (MSVC and wasm): the invoke unwinds to a catchswitch whose
-/// single handler is a catch-all pad holding the conversion calls.
+/// single handler is a catch-all pad. The conversion calls may be spread over
+/// a chain of blocks because the frontend emits them as invokes (each with
+/// its own unwind edge to the next enclosing funclet) whenever the callee is
+/// not marked nounwind.
 static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
                                    ConvSite &Site) {
   BasicBlock *UnwindDest = II.getUnwindDest();
@@ -220,15 +220,59 @@ static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
     if (!isNullConstant(Arg.get()))
       return false;
 
-  for (Instruction &I : *PadBB)
-    if (!isAllowedConvInst(I, ABI, Site.DomainCall, Site.CodeCall,
-                           Site.ConvInsts))
+  StringRef DomName =
+      ABI == ThrowABI::MSVC ? MsvcDomainFnName : ItaniumDomainFnName;
+  StringRef CodeName =
+      ABI == ThrowABI::MSVC ? MsvcCodeFnName : ItaniumCodeFnName;
+
+  // Walk the conversion chain: glue instructions plus at most the domain and
+  // code calls per block, linked by invoke normal edges, unconditional
+  // branches, and finally a catchret to the continuation.
+  BasicBlock *BB = PadBB;
+  SmallPtrSet<BasicBlock *, 8> Visited{PadBB};
+  for (unsigned Depth = 0; Depth != 16; ++Depth) {
+    for (Instruction &I : *BB) {
+      if (I.isTerminator())
+        break;
+      if (!isAllowedConvInst(I, ABI, Site.DomainCall, Site.CodeCall,
+                             Site.ConvInsts))
+        return false;
+    }
+    Instruction *TI = BB->getTerminator();
+    if (auto *CRI = dyn_cast<CatchReturnInst>(TI)) {
+      Site.ConvInsts.insert(CRI);
+      Site.ContBB = CRI->getSuccessor();
+      break;
+    }
+    if (auto *BI = dyn_cast<UncondBrInst>(TI)) {
+      BB = BI->getSuccessor(0);
+    } else if (auto *Inv = dyn_cast<InvokeInst>(TI)) {
+      CallBase *Match = nullptr;
+      if (isNamedCall(*Inv, DomName, Match)) {
+        if (Site.DomainCall)
+          return false;
+        Site.DomainCall = Match;
+      } else if (isNamedCall(*Inv, CodeName, Match)) {
+        if (Site.CodeCall)
+          return false;
+        Site.CodeCall = Match;
+      } else {
+        return false;
+      }
+      Site.ConvInsts.insert(Inv);
+      BB = Inv->getNormalDest();
+    } else {
       return false;
-  if (!Site.DomainCall || !Site.CodeCall)
+    }
+    if (!Visited.insert(BB).second)
+      return false;
+  }
+  if (!Site.DomainCall || !Site.CodeCall || !Site.ContBB)
     return false;
 
-  SmallPtrSet<BasicBlock *, 8> Visited{PadBB};
-  Site.ContBB = followFuncletExit(PadBB, Site.ConvInsts, Visited);
+  SmallPtrSet<BasicBlock *, 8> TrampolineVisited;
+  Site.ContBB = followFuncletExit(Site.ContBB, Site.ConvInsts,
+                                  TrampolineVisited);
   if (!Site.ContBB || Site.ContBB->isEHPad() || !codeCallArgIsConvLocal(Site))
     return false;
   return true;
@@ -256,9 +300,9 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
       return false;
 
     // Does this block hold the conversion call pair?
-    CallInst *DomainCall = nullptr, *CodeCall = nullptr;
+    CallBase *DomainCall = nullptr, *CodeCall = nullptr;
     for (Instruction &I : *BB) {
-      CallInst *M = nullptr;
+      CallBase *M = nullptr;
       if (isNamedCall(I, ItaniumDomainFnName, M))
         DomainCall = M;
       else if (isNamedCall(I, ItaniumCodeFnName, M))
@@ -276,7 +320,7 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
         return false;
       Site.ConvInsts.insert(DomainCall);
       Site.ConvInsts.insert(CodeCall);
-      CallInst *DupD = DomainCall, *DupC = CodeCall;
+      CallBase *DupD = DomainCall, *DupC = CodeCall;
       for (Instruction &I : *BB) {
         if (&I == After)
           break;
@@ -297,7 +341,7 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
 
     // Intermediate block: everything must be pure plumbing with a single
     // unconditional exit.
-    CallInst *IgnoredD = nullptr, *IgnoredC = nullptr;
+    CallBase *IgnoredD = nullptr, *IgnoredC = nullptr;
     for (Instruction &I : *BB) {
       if (isa<UncondBrInst>(I))
         continue;
@@ -454,10 +498,10 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
     PHINode *PN = nullptr;
     SmallVector<PHINode *, 2> EdgePhis;
   };
-  DenseMap<CallInst *, Merge> Merges;
+  DenseMap<CallBase *, Merge> Merges;
   for (FoldableSite &WS : Worklist) {
     ConvSite &Site = WS.Site;
-    for (CallInst *OrigCall : {Site.DomainCall, Site.CodeCall}) {
+    for (CallBase *OrigCall : {Site.DomainCall, Site.CodeCall}) {
       auto [It, Inserted] = Merges.try_emplace(OrigCall);
       if (!Inserted)
         continue;
@@ -505,9 +549,26 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
     SmallVector<OperandBundleDef, 1> Bundles;
     II->getOperandBundlesAsDefs(Bundles);
 
-    CallInst *Dom = B.CreateCall(
-        Site.DomainCall->getCalledFunction()->getFunctionType(),
-        Site.DomainCall->getCalledFunction(), {}, Bundles, "herb.dom");
+    // When the frontend emitted the domain conversion as an invoke, keep an
+    // unwind edge to the same destination so an unwinding callee still runs
+    // the same cleanups (the callee is noexcept in practice, making the edge
+    // dead). The direct code call is always nounwind, so it is a plain call.
+    BasicBlock *TailBB = SiteBB;
+    Value *Dom;
+    Function *DomFn = Site.DomainCall->getCalledFunction();
+    if (auto *DomInvoke = dyn_cast<InvokeInst>(Site.DomainCall)) {
+      BasicBlock *NextBB =
+          BasicBlock::Create(F.getContext(), SiteBB->getName() + ".herb.dom",
+                             &F);
+      Dom = B.CreateInvoke(FunctionCallee(DomFn->getFunctionType(), DomFn),
+                           NextBB, DomInvoke->getUnwindDest(), {}, Bundles,
+                           "herb.dom");
+      B.SetInsertPoint(NextBB);
+      TailBB = NextBB;
+    } else {
+      Dom = B.CreateCall(DomFn->getFunctionType(), DomFn, {}, Bundles,
+                         "herb.dom");
+    }
 
     SmallVector<Value *, 3> Args;
     for (Use &U : II->args())
@@ -523,13 +584,13 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
     NormalDest->removePredecessor(SiteBB);
 
     for (auto [OrigCall, NewVal] :
-         {std::pair<CallInst *, Value *>(Site.DomainCall, Dom),
-          std::pair<CallInst *, Value *>(Site.CodeCall, Code)}) {
+         {std::pair<CallBase *, Value *>(Site.DomainCall, Dom),
+          std::pair<CallBase *, Value *>(Site.CodeCall, Code)}) {
       Merge &M = Merges[OrigCall];
       if (M.PN)
-        M.PN->addIncoming(NewVal, SiteBB);
+        M.PN->addIncoming(NewVal, TailBB);
       for (PHINode *EdgePhi : M.EdgePhis)
-        EdgePhi->addIncoming(NewVal, SiteBB);
+        EdgePhi->addIncoming(NewVal, TailBB);
     }
   }
 
