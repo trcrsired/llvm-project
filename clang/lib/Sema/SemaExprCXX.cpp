@@ -1328,13 +1328,12 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
     return ExprError();
 
   // __cxa_error_code_{itanium,msvc}_exception_ptr(size_t flags, ...): mint
-  // the code from the caught exception, refcounting it. flags==1
-  // (__cxa_error_exception_ptr_flag_none) selects the in-flight
-  // conversion; the remaining parameters are unused here (the _direct
-  // flag reuses them for the folded __cxa_throw operands). The exception
-  // operand lowers to the _Unwind_Exception* in exn.slot (Itanium
-  // landing pad result / wasm.get.exception alike); MSVC reads the
-  // current exception itself, so it takes null pointers.
+  // the code from the caught exception, refcounting it. flags==1 selects
+  // the in-flight conversion; the remaining parameters are unused here
+  // (flags==2 reuses them for the folded __cxa_throw operands). The
+  // exception operand lowers to the _Unwind_Exception* in exn.slot
+  // (Itanium landing pad result / wasm.get.exception alike); MSVC reads
+  // the current exception itself, so it takes null pointers.
   QualType FlagsTy = Context.getSizeType();
   QualType VoidConstPtrTy = Context.getPointerType(Context.VoidTy.withConst());
   Expr *NoneFlag = IntegerLiteral::Create(

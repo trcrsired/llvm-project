@@ -740,27 +740,27 @@ __cxa_error_code_msvc_exception_ptr(::std::size_t flags, void const *a,
                                     void const *b) noexcept {
   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
       __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
-  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_direct) {
+  // The fresh box always starts as a valid empty exception_ptr:
+  // __ExceptionPtrCopyException releases whatever ep already holds, and a
+  // zeroed box stays well-formed for cleanup on every path.
+  __builtin_memset(ehptr_storage, 0, sizeof(error_domain_msvc_eh_ptr));
+  switch (flags) {
+  case 0:
+    // a is an existing exception_ptr box; copy it into the fresh box.
+    ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, a);
+    return reinterpret_cast<::std::size_t>(ehptr_storage);
+  case 1:
+    break;
+  case 2:
     // Emitted by the herbceptions-legacy-eh-fold pass for a `throw` whose
     // unwind edge provably reaches only the legacy->std::error conversion
     // site: no exception is ever raised, so there is no in-flight record
     // for __ExceptionPtrCurrentException to capture. a/b are the
     // _CxxThrowException operands (object, _ThrowInfo*).
-    // __ExceptionPtrCopyException releases whatever ep already holds, so
-    // the fresh box must start as a valid empty exception_ptr.
-    auto *box{static_cast<error_domain_msvc_eh_ptr *>(ehptr_storage)};
-    box->rec = nullptr;
-    box->ref = nullptr;
     ::std::error_domains::__details::__ExceptionPtrCopyException(
         ehptr_storage, a, b);
     return reinterpret_cast<::std::size_t>(ehptr_storage);
-  }
-  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_clone) {
-    // a is an existing exception_ptr box; copy it into the fresh box.
-    ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, a);
-    return reinterpret_cast<::std::size_t>(ehptr_storage);
-  }
-  if (flags != ::std::error_domains::__cxa_error_exception_ptr_flag_none) {
+  default:
     ::std::abort();
   }
   ::std::error_domains::__details::__ExceptionPtrCurrentException(
