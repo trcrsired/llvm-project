@@ -565,10 +565,10 @@ the conversion landing pad / catchswitch, the invoke is replaced by:
 * a call to ``__cxa_error_domain_{itanium,msvc}_exception_ptr()`` to mint
   the ``std::error`` domain, and
 * a call to ``__cxa_error_code_{itanium,msvc}_exception_ptr(flags, ...)``
-  with ``flags == 2`` (``__cxa_error_exception_ptr_flag_direct``; see
-  `Runtime: libherbceptions`_). The single entry point takes a ``size_t``
-  flags word first — ``0`` clone, ``1`` in-flight conversion, ``2``
-  direct — and in direct mode fabricates the same boxed exception
+  with ``flags == 2`` (see `Runtime: libherbceptions`_). The single entry
+  point takes a ``size_t`` flags word first — ``0`` clone, ``1``
+  in-flight conversion, ``2`` direct — and in direct mode fabricates the
+  same boxed exception
   identity the in-flight-exception conversion would produce — Itanium
   calls ``__cxa_init_primary_exception`` and retains the exception
   object; MSVC builds a valid empty ``exception_ptr`` buffer and uses

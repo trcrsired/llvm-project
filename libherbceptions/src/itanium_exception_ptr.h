@@ -364,7 +364,15 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
   if (eh == nullptr) {
     ::std::abort();
   }
-  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_direct) {
+  switch (flags) {
+  case 0:
+    // eh is an existing exception code; retain and return it.
+    fail_fast_for_none_cxx_eh(eh);
+    __itanium_cxa_increment_exception_refcount(eh);
+    return reinterpret_cast<::std::size_t>(eh);
+  case 1:
+    break;
+  case 2:
     // Emitted by the herbceptions-legacy-eh-fold pass for a `throw` whose
     // unwind edge provably reaches only the legacy->std::error conversion
     // site: no exception is ever raised, so there is no in-flight
@@ -379,17 +387,10 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
             dtor));
     __itanium_cxa_increment_exception_refcount(eh);
     return reinterpret_cast<::std::size_t>(eh);
-  }
-  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_clone) {
-    // eh is an existing exception code; retain and return it.
-    fail_fast_for_none_cxx_eh(eh);
-    __itanium_cxa_increment_exception_refcount(eh);
-    return reinterpret_cast<::std::size_t>(eh);
-  }
-  if (flags != ::std::error_domains::__cxa_error_exception_ptr_flag_none) {
+  default:
     ::std::abort();
   }
-  // flag_none: eh is the _Unwind_Exception* the catch machinery delivered
+  // flags==1: eh is the _Unwind_Exception* the catch machinery delivered
   // to the compiler-fabricated conversion site -- the landing pad's exn
   // value on Itanium, wasm.get.exception on Wasm (both are
   // &__cxa_exception::unwindHeader) -- NOT the thrown object pointer.
