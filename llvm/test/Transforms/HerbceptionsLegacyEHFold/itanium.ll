@@ -19,10 +19,11 @@ entry:
           to label %ctor.ok unwind label %ctor.fail
 
 ctor.ok:
-; The throw becomes a direct conversion and a plain branch; no unwind.
+; The throw becomes a direct conversion (flags==2) and a plain branch;
+; no unwind.
 ; CHECK-NOT: __cxa_throw
 ; CHECK: %[[DOM:.*]] = call ptr @__cxa_error_domain_itanium_exception_ptr()
-; CHECK: %[[CODE:.*]] = call i64 @__cxa_error_code_itanium_exception_ptr_direct(ptr %obj, ptr @_ZTISt13runtime_error, ptr @_ZNSt13runtime_errorD1Ev)
+; CHECK: %[[CODE:.*]] = call i64 @__cxa_error_code_itanium_exception_ptr(i64 2, ptr %obj, ptr @_ZTISt13runtime_error, ptr @_ZNSt13runtime_errorD1Ev)
 ; CHECK: br label %[[CONT:.*]]
   invoke void @__cxa_throw(ptr nonnull %obj, ptr nonnull @_ZTISt13runtime_error, ptr nonnull @_ZNSt13runtime_errorD1Ev)
           to label %dead unwind label %throw.lpad
@@ -30,9 +31,10 @@ ctor.ok:
 dead:
   unreachable
 
-; Ctor-failure path still converts the in-flight exception the slow way.
+; Ctor-failure path still converts the in-flight exception the slow way
+; (flags==1).
 ; CHECK: landingpad
-; CHECK: call i64 @__cxa_error_code_itanium_exception_ptr(
+; CHECK: call i64 @__cxa_error_code_itanium_exception_ptr(i64 1,
 ; CHECK: [[CONT]]:
 ; CHECK: phi ptr {{.*}}%[[DOM]]
 ; CHECK: phi i64 {{.*}}%[[CODE]]
@@ -51,7 +53,7 @@ conv:
   %exn.agg = phi { ptr, i32 } [ %lp1, %throw.lpad ], [ %lp0, %ctor.fail ]
   %exn = extractvalue { ptr, i32 } %exn.agg, 0
   %dom = tail call ptr @__cxa_error_domain_itanium_exception_ptr()
-  %code = tail call i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %exn)
+  %code = tail call i64 @__cxa_error_code_itanium_exception_ptr(i64 1, ptr noundef %exn, ptr null, ptr null)
   %e0 = insertvalue { ptr, i64 } poison, ptr %dom, 0
   %e1 = insertvalue { ptr, i64 } %e0, i64 %code, 1
   %r0 = insertvalue { { ptr, i64 }, i1 } poison, { ptr, i64 } %e1, 0
@@ -62,7 +64,7 @@ conv:
 ; A throw whose exception is observed by a real catch must not be folded.
 ; CHECK-LABEL: define {{.*}} @real_catch
 ; CHECK: invoke void @__cxa_throw
-; CHECK-NOT: exception_ptr_direct
+; CHECK-NOT: exception_ptr(i64 2
 define i32 @real_catch() personality ptr @__gxx_personality_v0 {
   %obj = tail call ptr @__cxa_allocate_exception(i64 4)
   invoke void @__cxa_throw(ptr %obj, ptr @_ZTIi, ptr null)
@@ -81,7 +83,7 @@ dead:
 ; A throw unwinding to caller (cleanup + resume) must not be folded.
 ; CHECK-LABEL: define {{.*}} @to_caller
 ; CHECK: invoke void @__cxa_throw
-; CHECK-NOT: exception_ptr_direct
+; CHECK-NOT: exception_ptr(i64 2
 define void @to_caller() personality ptr @__gxx_personality_v0 {
   %obj = tail call ptr @__cxa_allocate_exception(i64 4)
   invoke void @__cxa_throw(ptr %obj, ptr @_ZTIi, ptr null)
@@ -98,7 +100,7 @@ dead:
 ; folded even if the catch-all conversion path also exists.
 ; CHECK-LABEL: define {{.*}} @typed_sibling
 ; CHECK: invoke void @__cxa_throw
-; CHECK-NOT: exception_ptr_direct
+; CHECK-NOT: exception_ptr(i64 2
 ; CHECK: ret i32
 define i32 @typed_sibling() personality ptr @__gxx_personality_v0 {
   %obj = tail call ptr @__cxa_allocate_exception(i64 4)
@@ -110,7 +112,7 @@ lpad:
           catch ptr null
   %exn = extractvalue { ptr, i32 } %lp, 0
   %dom = tail call ptr @__cxa_error_domain_itanium_exception_ptr()
-  %code = tail call i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef %exn)
+  %code = tail call i64 @__cxa_error_code_itanium_exception_ptr(i64 1, ptr noundef %exn, ptr null, ptr null)
   ret i32 0
 dead:
   unreachable
@@ -125,4 +127,4 @@ declare void @__cxa_end_catch()
 declare void @_ZNSt13runtime_errorC1EPKc(ptr, ptr)
 declare void @_ZNSt13runtime_errorD1Ev(ptr)
 declare ptr @__cxa_error_domain_itanium_exception_ptr()
-declare i64 @__cxa_error_code_itanium_exception_ptr(ptr)
+declare i64 @__cxa_error_code_itanium_exception_ptr(i64, ptr, ptr, ptr)

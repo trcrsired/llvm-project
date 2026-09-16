@@ -736,9 +736,33 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
 } // namespace
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_msvc_exception_ptr() noexcept {
+__cxa_error_code_msvc_exception_ptr(::std::size_t flags, void const *a,
+                                    void const *b) noexcept {
   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
       __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
+  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_direct) {
+    // Emitted by the herbceptions-legacy-eh-fold pass for a `throw` whose
+    // unwind edge provably reaches only the legacy->std::error conversion
+    // site: no exception is ever raised, so there is no in-flight record
+    // for __ExceptionPtrCurrentException to capture. a/b are the
+    // _CxxThrowException operands (object, _ThrowInfo*).
+    // __ExceptionPtrCopyException releases whatever ep already holds, so
+    // the fresh box must start as a valid empty exception_ptr.
+    auto *box{static_cast<error_domain_msvc_eh_ptr *>(ehptr_storage)};
+    box->rec = nullptr;
+    box->ref = nullptr;
+    ::std::error_domains::__details::__ExceptionPtrCopyException(
+        ehptr_storage, a, b);
+    return reinterpret_cast<::std::size_t>(ehptr_storage);
+  }
+  if (flags == ::std::error_domains::__cxa_error_exception_ptr_flag_clone) {
+    // a is an existing exception_ptr box; copy it into the fresh box.
+    ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, a);
+    return reinterpret_cast<::std::size_t>(ehptr_storage);
+  }
+  if (flags != ::std::error_domains::__cxa_error_exception_ptr_flag_none) {
+    ::std::abort();
+  }
   ::std::error_domains::__details::__ExceptionPtrCurrentException(
       ehptr_storage);
   return reinterpret_cast<::std::size_t>(ehptr_storage);
@@ -747,37 +771,6 @@ __cxa_error_code_msvc_exception_ptr() noexcept {
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_msvc_exception_ptr() noexcept {
   return __builtin_addressof(msvc_exception_ptr_domain);
-}
-
-extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_msvc_exception_ptr_clone(void const* src) noexcept {
-   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
-      __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
-  ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, src);
-  return reinterpret_cast<::std::size_t>(ehptr_storage);
-}
-
-// Called by compiler-generated code (herbceptions-legacy-eh-fold) for a `throw`
-// whose unwind edge provably reaches only the legacy->std::error conversion
-// site: no exception is ever raised, so there is no in-flight record for
-// __ExceptionPtrCurrentException to capture. Instead the exception_ptr box
-// is fabricated straight from the throw arguments -- the same pair
-// _CxxThrowException would pack into the record (object, _ThrowInfo*).
-extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_msvc_exception_ptr_direct(void const *obj,
-                                           void const *throwinfo) noexcept {
-  error_domain_msvc_eh_ptr *ehptr_storage =
-      static_cast<error_domain_msvc_eh_ptr *>(
-          ::std::error_domains::__herbceptions_detail::
-              __malloc_or_heap_alloc_or_die(
-                  sizeof(error_domain_msvc_eh_ptr)));
-  // __ExceptionPtrCopyException releases whatever ep already holds, so the
-  // fresh box must start as a valid empty exception_ptr.
-  ehptr_storage->rec = nullptr;
-  ehptr_storage->ref = nullptr;
-  ::std::error_domains::__details::__ExceptionPtrCopyException(
-      ehptr_storage, obj, throwinfo);
-  return reinterpret_cast<::std::size_t>(ehptr_storage);
 }
 
 #endif

@@ -20,8 +20,8 @@ entry:
 
 ctor.ok:
 ; The folded path keeps the domain helper's unwind edge (the exception
-; could still escape if the domain call itself throws) but replaces the
-; legacy code conversion with the direct helper in a new block.
+; could still escape if the domain call itself throws) but converts the
+; throw directly (flags==2) in a new block.
 ; CHECK-NOT: __cxa_throw
 ; CHECK: %[[DOM:.*]] = invoke ptr @__cxa_error_domain_itanium_exception_ptr()
 ; CHECK-NEXT: to label %[[DOMOK:.*]] unwind label %[[UNW:.*]]
@@ -36,7 +36,7 @@ dead:
 ; CHECK: catchswitch
 ; CHECK: catchpad
 ; CHECK: invoke ptr @__cxa_error_domain_itanium_exception_ptr() [ "funclet"
-; CHECK: invoke i32 @__cxa_error_code_itanium_exception_ptr(
+; CHECK: call i32 @__cxa_error_code_itanium_exception_ptr(i32 1,
 ; CHECK: catchret
 ; CHECK: cont:
 ; CHECK: phi ptr {{.*}}%[[DOM]]
@@ -44,7 +44,7 @@ dead:
 ;
 ; The new folded block is appended at the end of the function.
 ; CHECK: [[DOMOK]]:
-; CHECK: %herb.code = call i32 @__cxa_error_code_itanium_exception_ptr_direct(ptr %obj, ptr @_ZTISt13runtime_error, ptr @_ZNSt13runtime_errorD1Ev)
+; CHECK: %herb.code = call i32 @__cxa_error_code_itanium_exception_ptr(i32 2, ptr %obj, ptr @_ZTISt13runtime_error, ptr @_ZNSt13runtime_errorD1Ev)
 ; CHECK: br label %cont
 cs:
   %cswtok = catchswitch within none [label %pad] unwind label %unwind
@@ -57,7 +57,7 @@ pad:
           to label %code.bb unwind label %unwind
 
 code.bb:
-  %code = invoke i32 @__cxa_error_code_itanium_exception_ptr(ptr noundef %exn) [ "funclet"(token %cp) ]
+  %code = invoke i32 @__cxa_error_code_itanium_exception_ptr(i32 1, ptr noundef %exn, ptr null, ptr null) [ "funclet"(token %cp) ]
           to label %ret.bb unwind label %unwind
 
 ret.bb:
@@ -89,4 +89,4 @@ declare void @_ZNSt13runtime_errorD1Ev(ptr)
 declare ptr @llvm.wasm.get.exception(token)
 declare i32 @llvm.wasm.get.ehselector(token)
 declare ptr @__cxa_error_domain_itanium_exception_ptr()
-declare i32 @__cxa_error_code_itanium_exception_ptr(ptr)
+declare i32 @__cxa_error_code_itanium_exception_ptr(i32, ptr, ptr, ptr)
