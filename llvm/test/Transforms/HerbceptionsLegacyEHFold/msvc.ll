@@ -17,7 +17,7 @@ entry:
 ; CHECK-NOT: _CxxThrowException
 ; CHECK-NOT: catchswitch
 ; CHECK: %[[DOM:.*]] = call ptr @__cxa_error_domain_msvc_exception_ptr()
-; CHECK: %[[CODE:.*]] = call i64 @__cxa_error_code_msvc_exception_ptr_direct(ptr %obj, ptr @"_TI2?AVruntime_error@std@@")
+; CHECK: %[[CODE:.*]] = call i64 @__cxa_error_code_msvc_exception_ptr(i64 2, ptr %obj, ptr @"_TI2?AVruntime_error@std@@")
 ; CHECK: br label %[[CONT:.*]]
 ; CHECK: [[CONT]]:
 ; CHECK: ret
@@ -33,7 +33,7 @@ cs:
 pad:
   %cp = catchpad within %cswtok [ptr null, i32 0, ptr null]
   %dom = call ptr @__cxa_error_domain_msvc_exception_ptr() [ "funclet"(token %cp) ]
-  %code = call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token %cp) ]
+  %code = call i64 @__cxa_error_code_msvc_exception_ptr(i64 1, ptr null, ptr null) [ "funclet"(token %cp) ]
   catchret from %cp to label %cont
 
 cont:
@@ -47,7 +47,7 @@ cont:
 ; A catchswitch with a sibling handler must not be folded.
 ; CHECK-LABEL: define {{.*}} @typed_sibling
 ; CHECK: invoke void @_CxxThrowException
-; CHECK-NOT: exception_ptr_direct
+; CHECK-NOT: exception_ptr(i64 2
 ; CHECK: ret
 define i32 @typed_sibling() personality ptr @__CxxFrameHandler3 {
 entry:
@@ -64,7 +64,7 @@ cs:
 pad:
   %cp = catchpad within %cswtok [ptr null, i32 0, ptr null]
   %dom = call ptr @__cxa_error_domain_msvc_exception_ptr() [ "funclet"(token %cp) ]
-  %code = call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token %cp) ]
+  %code = call i64 @__cxa_error_code_msvc_exception_ptr(i64 1, ptr null, ptr null) [ "funclet"(token %cp) ]
   catchret from %cp to label %cont
 
 other:
@@ -79,7 +79,7 @@ cont:
 ; throw and must not be folded.
 ; CHECK-LABEL: define {{.*}} @rethrow
 ; CHECK: invoke void @_CxxThrowException
-; CHECK-NOT: exception_ptr_direct
+; CHECK-NOT: exception_ptr(i64 2
 ; CHECK: ret
 define i32 @rethrow() personality ptr @__CxxFrameHandler3 {
 entry:
@@ -95,7 +95,7 @@ cs:
 pad:
   %cp = catchpad within %cswtok [ptr null, i32 0, ptr null]
   %dom = call ptr @__cxa_error_domain_msvc_exception_ptr() [ "funclet"(token %cp) ]
-  %code = call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token %cp) ]
+  %code = call i64 @__cxa_error_code_msvc_exception_ptr(i64 1, ptr null, ptr null) [ "funclet"(token %cp) ]
   catchret from %cp to label %cont
 
 cont:
@@ -108,7 +108,7 @@ cont:
 ; folded site. The rethrow invoke keeps the pad alive so the phi survives.
 ; CHECK-LABEL: define {{.*}} @edge_phi
 ; CHECK: %[[DOM:.*]] = call ptr @__cxa_error_domain_msvc_exception_ptr()
-; CHECK: %[[CODE:.*]] = call i64 @__cxa_error_code_msvc_exception_ptr_direct(ptr %obj, ptr @"_TI2?AVruntime_error@std@@")
+; CHECK: %[[CODE:.*]] = call i64 @__cxa_error_code_msvc_exception_ptr(i64 2, ptr %obj, ptr @"_TI2?AVruntime_error@std@@")
 ; CHECK: br label %[[CONT:.*]]
 ; CHECK: invoke void @_CxxThrowException(ptr null, ptr null)
 ; CHECK: [[CONT]]:
@@ -137,7 +137,7 @@ cs:
 pad:
   %cp = catchpad within %cswtok [ptr null, i32 0, ptr null]
   %dom = call ptr @__cxa_error_domain_msvc_exception_ptr() [ "funclet"(token %cp) ]
-  %code = call i64 @__cxa_error_code_msvc_exception_ptr() [ "funclet"(token %cp) ]
+  %code = call i64 @__cxa_error_code_msvc_exception_ptr(i64 1, ptr null, ptr null) [ "funclet"(token %cp) ]
   catchret from %cp to label %cont
 
 cont:
@@ -155,4 +155,4 @@ cont:
 declare void @__CxxFrameHandler3(...)
 declare void @_CxxThrowException(ptr, ptr)
 declare ptr @__cxa_error_domain_msvc_exception_ptr()
-declare i64 @__cxa_error_code_msvc_exception_ptr()
+declare i64 @__cxa_error_code_msvc_exception_ptr(i64, ptr, ptr)

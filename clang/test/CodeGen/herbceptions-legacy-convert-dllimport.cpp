@@ -19,9 +19,9 @@ extern void foo();
 
 // On MSVC, the msvc-prefixed ABI symbols must be dllimport.
 // MSVC: declare dllimport ptr @__cxa_error_domain_msvc_exception_ptr()
-// MSVC: declare dllimport i64 @__cxa_error_code_msvc_exception_ptr()
+// MSVC: declare dllimport i64 @__cxa_error_code_msvc_exception_ptr(i64 noundef, ptr noundef, ptr noundef)
 // MSVC-NOT: declare ptr @__cxa_error_domain_itanium_exception_ptr()
-// MSVC-NOT: declare i64 @__cxa_error_code_itanium_exception_ptr()
+// MSVC-NOT: declare i64 @__cxa_error_code_itanium_exception_ptr(
 void bar() {
   try {
     foo();
@@ -34,7 +34,7 @@ void bar() {
 // MINGW: declare dllimport ptr @__cxa_error_domain_itanium_exception_ptr()
 // MINGW: declare dllimport i64 @__cxa_error_code_itanium_exception_ptr(
 // MINGW-NOT: declare ptr @__cxa_error_domain_msvc_exception_ptr()
-// MINGW-NOT: declare i64 @__cxa_error_code_msvc_exception_ptr()
+// MINGW-NOT: declare i64 @__cxa_error_code_msvc_exception_ptr(
 void baz() {
   try {
     foo();
@@ -45,7 +45,7 @@ void baz() {
 
 // On Linux (non-Windows), no dllimport on the declarations.
 // ITANIUM: declare ptr @__cxa_error_domain_itanium_exception_ptr() #{{[0-9]+}}
-// ITANIUM: declare i64 @__cxa_error_code_itanium_exception_ptr(ptr noundef) #{{[0-9]+}}
+// ITANIUM: declare i64 @__cxa_error_code_itanium_exception_ptr(i64 noundef, ptr noundef, ptr noundef, ptr noundef) #{{[0-9]+}}
 void qux() {
   try {
     foo();

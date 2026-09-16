@@ -1327,16 +1327,32 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
   if (DomainCall.isInvalid())
     return ExprError();
 
-  // __cxa_error_code_itanium_exception_ptr(void *) / (no args, msvc): mint
-  // the code from the caught exception, refcounting it. The operand lowers
-  // to the _Unwind_Exception* in exn.slot (Itanium landing pad result /
-  // wasm.get.exception alike) or llvm.eh.exceptionpointer per personality.
-  SmallVector<QualType, 1> CodeParamTys;
-  SmallVector<Expr *, 1> CodeArgs;
-  Expr *CxaOperand = new (Context) CXXCxaExceptionExpr(Context.VoidPtrTy, Loc);
-  if (!IsMSVC) {
-    CodeParamTys.push_back(Context.VoidPtrTy);
+  // __cxa_error_code_{itanium,msvc}_exception_ptr(size_t flags, ...): mint
+  // the code from the caught exception, refcounting it. flags==1
+  // (__cxa_error_exception_ptr_flag_none) selects the in-flight
+  // conversion; the remaining parameters are unused here (the _direct
+  // flag reuses them for the folded __cxa_throw operands). The exception
+  // operand lowers to the _Unwind_Exception* in exn.slot (Itanium
+  // landing pad result / wasm.get.exception alike); MSVC reads the
+  // current exception itself, so it takes null pointers.
+  QualType FlagsTy = Context.getSizeType();
+  QualType VoidConstPtrTy = Context.getPointerType(Context.VoidTy.withConst());
+  Expr *NoneFlag = IntegerLiteral::Create(
+      Context, llvm::APInt(Context.getIntWidth(FlagsTy), 1), FlagsTy, Loc);
+  Expr *NullPtr = new (Context) CXXNullPtrLiteralExpr(Context.NullPtrTy, Loc);
+  Expr *NullPtr2 = new (Context) CXXNullPtrLiteralExpr(Context.NullPtrTy, Loc);
+  SmallVector<QualType, 4> CodeParamTys{FlagsTy};
+  SmallVector<Expr *, 4> CodeArgs{NoneFlag};
+  Expr *CxaOperand =
+      new (Context) CXXCxaExceptionExpr(Context.VoidPtrTy, Loc);
+  if (IsMSVC) {
+    CodeParamTys.append({VoidConstPtrTy, VoidConstPtrTy});
+    CodeArgs.append({NullPtr, NullPtr2});
+  } else {
+    CodeParamTys.append({Context.VoidPtrTy, Context.VoidPtrTy,
+                         Context.VoidPtrTy});
     CodeArgs.push_back(CxaOperand);
+    CodeArgs.append({NullPtr, NullPtr2});
   }
   FunctionDecl *CodeFn = findOrCreateImplicitExternCFunction(
       *this,

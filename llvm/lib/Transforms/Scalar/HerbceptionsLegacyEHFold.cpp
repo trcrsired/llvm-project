@@ -9,10 +9,11 @@
 // Under -fherbceptions, a legacy C++ throw (__cxa_throw / _CxxThrowException)
 // whose unwind edge provably reaches only the compiler-generated
 // legacy-to-std::error conversion site can be folded into a direct conversion
-// call: the libherbceptions __cxa_error_code_*_exception_ptr_direct entry
-// points produce the same error code the catch-site conversion would, without
-// ever raising the exception. This removes the unwind edge, the EH dispatch
-// (catchswitch/landingpad) hop, and the funclet crossing.
+// call: the same libherbceptions __cxa_error_code_*_exception_ptr entry point
+// the site already calls, invoked with the "direct" flag so it mints the same
+// error code without ever raising the exception. This removes the unwind
+// edge, the EH dispatch (catchswitch/landingpad) hop, and the funclet
+// crossing.
 //
 // The fold is only legal when conversion is the *only* possible outcome of
 // the throw's unwind edge:
@@ -45,6 +46,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/EHPersonalities.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
@@ -67,14 +69,19 @@ constexpr StringLiteral MsvcDomainFnName =
     "__cxa_error_domain_msvc_exception_ptr";
 constexpr StringLiteral MsvcCodeFnName =
     "__cxa_error_code_msvc_exception_ptr";
-constexpr StringLiteral MsvcDirectFnName =
-    "__cxa_error_code_msvc_exception_ptr_direct";
 constexpr StringLiteral ItaniumDomainFnName =
     "__cxa_error_domain_itanium_exception_ptr";
 constexpr StringLiteral ItaniumCodeFnName =
     "__cxa_error_code_itanium_exception_ptr";
-constexpr StringLiteral ItaniumDirectFnName =
-    "__cxa_error_code_itanium_exception_ptr_direct";
+
+/// First parameter of __cxa_error_code_*_exception_ptr: 1 selects the
+/// legacy in-flight conversion (__cxa_error_exception_ptr_flag_none) and
+/// 2 the direct mode (__cxa_error_exception_ptr_flag_direct) emitted by
+/// this pass. The folded call reuses the ordinary conversion entry
+/// point, so the reference already exists wherever a conversion site
+/// exists.
+constexpr uint64_t InFlightFlag = 1;
+constexpr uint64_t DirectFlag = 2;
 
 enum class ThrowABI { Itanium, MSVC };
 
@@ -82,13 +89,21 @@ enum class ThrowABI { Itanium, MSVC };
 struct ConvSite {
   /// The conversion calls; their results are what downstream code consumes.
   /// Funclet personalities emit them as calls or invokes depending on
-  /// whether the frontend marked the callee nounwind.
+  /// whether the frontend marked the callee nounwind. DomainCall may be
+  /// null when the domain helper was inlined (under LTO it folds to a load
+  /// of the domain singleton, which folded edges then share through the
+  /// continuation block); the code call is required since it produces the
+  /// error code the folded edge must supply.
   CallBase *DomainCall = nullptr;
   CallBase *CodeCall = nullptr;
   /// The block folded edges branch to. For the funclet model this is the
   /// (possibly trampolined) catchret continuation. For the landingpad model
   /// this is produced by splitting the conversion block after the calls.
   BasicBlock *ContBB = nullptr;
+  /// Funclet model only: the conversion chain block whose edge enters
+  /// ContBB (the catchret block, or the last cleanup trampoline). Other
+  /// phis in ContBB reuse this edge's incoming value on the folded edge.
+  BasicBlock *ChainEndBB = nullptr;
   /// Landingpad model only: the conversion block and the instruction to
   /// split it before.
   BasicBlock *ConvBB = nullptr;
@@ -115,6 +130,16 @@ static bool isNamedCall(Instruction &I, StringRef Name, CallBase *&Out) {
   return true;
 }
 
+/// The conversion call carries the in-flight flag (1) in its first
+/// parameter; clone (0) and direct (2) calls are not the conversion.
+static bool isConversionCodeCall(Instruction &I, StringRef Name,
+                                 CallBase *&Out) {
+  if (!isNamedCall(I, Name, Out) || Out->arg_size() == 0)
+    return false;
+  auto *Flag = dyn_cast<ConstantInt>(Out->getArgOperand(0));
+  return Flag && Flag->getZExtValue() == InFlightFlag;
+}
+
 /// Instructions allowed on the conversion path: EH glue, the conversion
 /// calls, and pure plumbing feeding the code call. Anything else means the
 /// dispatch does real work the fold would skip.
@@ -134,7 +159,7 @@ static bool isAllowedConvInst(Instruction &I, ThrowABI ABI,
       ConvInsts.insert(Match);
       return true;
     }
-    if (isNamedCall(I, CodeName, Match)) {
+    if (isConversionCodeCall(I, CodeName, Match)) {
       if (CodeCall)
         return false;
       CodeCall = Match;
@@ -160,10 +185,13 @@ static bool isAllowedConvInst(Instruction &I, ThrowABI ABI,
 }
 
 /// From the catchret's successor, follow any empty cleanup trampolines to
-/// the real continuation block.
+/// the real continuation block. LastBB is set to the last trampoline seen
+/// (or left untouched when there are none), which is the block whose edge
+/// actually enters the continuation.
 static BasicBlock *
 followFuncletExit(BasicBlock *Cont, SmallPtrSetImpl<Instruction *> &ConvInsts,
-                  SmallPtrSetImpl<BasicBlock *> &Visited) {
+                  SmallPtrSetImpl<BasicBlock *> &Visited,
+                  BasicBlock *&LastBB) {
   while (true) {
     if (!Visited.insert(Cont).second)
       return nullptr;
@@ -181,18 +209,25 @@ followFuncletExit(BasicBlock *Cont, SmallPtrSetImpl<Instruction *> &ConvInsts,
         return nullptr;
     for (Instruction &I : *Cont)
       ConvInsts.insert(&I);
+    LastBB = Cont;
     Cont = CLRI->getUnwindDest();
   }
 }
 
-/// The code call's argument, when it has one, must be computed inside the
+/// The code call's exception operand must be computed inside the
 /// conversion dispatch (e.g. the landingpad/wasm.get.exception exn value);
-/// anything else means the value being converted is not the exception this
-/// edge delivers.
-static bool codeCallArgIsConvLocal(const ConvSite &Site) {
-  if (Site.CodeCall->arg_empty())
-    return true;
-  auto *I = dyn_cast<Instruction>(Site.CodeCall->getArgOperand(0));
+/// anything else means the value being converted is not the exception
+/// this edge delivers. The operand is the second parameter, after the
+/// flags word; the MSVC conversion passes null pointers instead (it reads
+/// the current exception itself).
+static bool codeCallArgIsConvLocal(const ConvSite &Site, ThrowABI ABI) {
+  if (ABI == ThrowABI::MSVC)
+    return Site.CodeCall->arg_size() == 3 &&
+           isNullConstant(Site.CodeCall->getArgOperand(1)) &&
+           isNullConstant(Site.CodeCall->getArgOperand(2));
+  if (Site.CodeCall->arg_size() != 4)
+    return false;
+  auto *I = dyn_cast<Instruction>(Site.CodeCall->getArgOperand(1));
   return I && Site.ConvInsts.contains(I);
 }
 
@@ -242,6 +277,7 @@ static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
     if (auto *CRI = dyn_cast<CatchReturnInst>(TI)) {
       Site.ConvInsts.insert(CRI);
       Site.ContBB = CRI->getSuccessor();
+      Site.ChainEndBB = BB;
       break;
     }
     if (auto *BI = dyn_cast<UncondBrInst>(TI)) {
@@ -252,7 +288,7 @@ static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
         if (Site.DomainCall)
           return false;
         Site.DomainCall = Match;
-      } else if (isNamedCall(*Inv, CodeName, Match)) {
+      } else if (isConversionCodeCall(*Inv, CodeName, Match)) {
         if (Site.CodeCall)
           return false;
         Site.CodeCall = Match;
@@ -267,13 +303,15 @@ static bool matchFuncletConversion(InvokeInst &II, ThrowABI ABI,
     if (!Visited.insert(BB).second)
       return false;
   }
-  if (!Site.DomainCall || !Site.CodeCall || !Site.ContBB)
+  if (!Site.CodeCall || !Site.ContBB)
     return false;
 
   SmallPtrSet<BasicBlock *, 8> TrampolineVisited;
+  BasicBlock *LastTrampoline = Site.ChainEndBB;
   Site.ContBB = followFuncletExit(Site.ContBB, Site.ConvInsts,
-                                  TrampolineVisited);
-  if (!Site.ContBB || Site.ContBB->isEHPad() || !codeCallArgIsConvLocal(Site))
+                                  TrampolineVisited, LastTrampoline);
+  Site.ChainEndBB = LastTrampoline;
+  if (!Site.ContBB || Site.ContBB->isEHPad() || !codeCallArgIsConvLocal(Site, ABI))
     return false;
   return true;
 }
@@ -305,20 +343,22 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
       CallBase *M = nullptr;
       if (isNamedCall(I, ItaniumDomainFnName, M))
         DomainCall = M;
-      else if (isNamedCall(I, ItaniumCodeFnName, M))
+      else if (isConversionCodeCall(I, ItaniumCodeFnName, M))
         CodeCall = M;
     }
 
-    if (DomainCall && CodeCall) {
+    if (CodeCall) {
       // Split point is just past the later call; everything before it is
-      // bypassed by folded edges and must be conversion plumbing. The two
+      // bypassed by folded edges and must be conversion plumbing. The
       // calls themselves are skipped in the check (they seeded the match).
-      Instruction *After = DomainCall->comesBefore(CodeCall)
-                               ? CodeCall->getNextNode()
-                               : DomainCall->getNextNode();
+      CallBase *LastCall =
+          DomainCall && !DomainCall->comesBefore(CodeCall) ? DomainCall
+                                                           : CodeCall;
+      Instruction *After = LastCall->getNextNode();
       if (!After)
         return false;
-      Site.ConvInsts.insert(DomainCall);
+      if (DomainCall)
+        Site.ConvInsts.insert(DomainCall);
       Site.ConvInsts.insert(CodeCall);
       CallBase *DupD = DomainCall, *DupC = CodeCall;
       for (Instruction &I : *BB) {
@@ -334,7 +374,7 @@ static bool matchLandingpadConversion(InvokeInst &II, ConvSite &Site) {
       Site.CodeCall = CodeCall;
       Site.ConvBB = BB;
       Site.SplitBefore = After;
-      if (!codeCallArgIsConvLocal(Site))
+      if (!codeCallArgIsConvLocal(Site, ThrowABI::Itanium))
         return false;
       return true;
     }
@@ -371,30 +411,10 @@ static bool crossingValuesFoldable(const ConvSite &Site) {
   return true;
 }
 
-static FunctionCallee getDirectFn(Module &M, ThrowABI ABI, Type *CodeRetTy,
-                                  LLVMContext &Ctx) {
-  Type *PtrTy = PointerType::getUnqual(Ctx);
-  bool IsMSVC = ABI == ThrowABI::MSVC;
-  FunctionType *FTy =
-      IsMSVC ? FunctionType::get(CodeRetTy, {PtrTy, PtrTy}, false)
-             : FunctionType::get(CodeRetTy, {PtrTy, PtrTy, PtrTy}, false);
-  FunctionCallee FC =
-      M.getOrInsertFunction(IsMSVC ? MsvcDirectFnName : ItaniumDirectFnName,
-                            FTy);
-  auto *F = cast<Function>(FC.getCallee());
-  // libherbceptions is a DLL on Windows targets.
-  if (M.getTargetTriple().isOSWindows() &&
-      F->getDLLStorageClass() == GlobalValue::DefaultStorageClass)
-    F->setDLLStorageClass(GlobalValue::DLLImportStorageClass);
-  if (!F->doesNotThrow())
-    F->setDoesNotThrow();
-  return FC;
-}
-
 } // end anonymous namespace
 
 PreservedAnalyses
-HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
+HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &FAM) {
   if (F.isDeclaration() || !F.hasPersonalityFn())
     return PreservedAnalyses::all();
 
@@ -472,6 +492,44 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
   if (Worklist.empty())
     return PreservedAnalyses::all();
 
+  // Every phi in the continuation gains an incoming on the folded edge.
+  // Conversion-call results are supplied by the replacement calls; any
+  // other value the phi takes on the conversion-chain edge must dominate
+  // the throw site so it can be reused there.
+  DominatorTree *DT = nullptr;
+  for (auto It = Worklist.begin(); It != Worklist.end();) {
+    ConvSite &Site = It->Site;
+    if (!Site.ChainEndBB) {
+      ++It;
+      continue;
+    }
+    bool Ok = true;
+    for (PHINode &PN : Site.ContBB->phis()) {
+      int Idx = PN.getBasicBlockIndex(Site.ChainEndBB);
+      if (Idx < 0) {
+        Ok = false;
+        break;
+      }
+      Value *V = PN.getIncomingValue(Idx);
+      if (V == Site.DomainCall || V == Site.CodeCall)
+        continue;
+      if (auto *I = dyn_cast<Instruction>(V)) {
+        if (!DT)
+          DT = &FAM.getResult<DominatorTreeAnalysis>(F);
+        if (!DT->dominates(I, It->II)) {
+          Ok = false;
+          break;
+        }
+      }
+    }
+    if (!Ok)
+      It = Worklist.erase(It);
+    else
+      ++It;
+  }
+  if (Worklist.empty())
+    return PreservedAnalyses::all();
+
   // Landingpad model: split each conversion block after its calls once.
   DenseMap<BasicBlock *, BasicBlock *> ConvBBToCont;
   for (FoldableSite &WS : Worklist) {
@@ -502,6 +560,8 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
   for (FoldableSite &WS : Worklist) {
     ConvSite &Site = WS.Site;
     for (CallBase *OrigCall : {Site.DomainCall, Site.CodeCall}) {
+      if (!OrigCall)
+        continue;
       auto [It, Inserted] = Merges.try_emplace(OrigCall);
       if (!Inserted)
         continue;
@@ -552,31 +612,45 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
     // When the frontend emitted the domain conversion as an invoke, keep an
     // unwind edge to the same destination so an unwinding callee still runs
     // the same cleanups (the callee is noexcept in practice, making the edge
-    // dead). The direct code call is always nounwind, so it is a plain call.
+    // dead). When the domain helper was inlined away there is nothing to
+    // emit: the domain value is produced in the continuation and shared by
+    // every incoming edge. The direct code call is always nounwind, so it
+    // is a plain call.
     BasicBlock *TailBB = SiteBB;
-    Value *Dom;
-    Function *DomFn = Site.DomainCall->getCalledFunction();
-    if (auto *DomInvoke = dyn_cast<InvokeInst>(Site.DomainCall)) {
-      BasicBlock *NextBB =
-          BasicBlock::Create(F.getContext(), SiteBB->getName() + ".herb.dom",
-                             &F);
-      Dom = B.CreateInvoke(FunctionCallee(DomFn->getFunctionType(), DomFn),
-                           NextBB, DomInvoke->getUnwindDest(), {}, Bundles,
+    Value *Dom = nullptr;
+    if (CallBase *DomainCall = Site.DomainCall) {
+      Function *DomFn = DomainCall->getCalledFunction();
+      if (auto *DomInvoke = dyn_cast<InvokeInst>(DomainCall)) {
+        BasicBlock *NextBB =
+            BasicBlock::Create(F.getContext(), SiteBB->getName() + ".herb.dom",
+                               &F);
+        Dom = B.CreateInvoke(FunctionCallee(DomFn->getFunctionType(), DomFn),
+                             NextBB, DomInvoke->getUnwindDest(), {}, Bundles,
+                             "herb.dom");
+        B.SetInsertPoint(NextBB);
+        TailBB = NextBB;
+      } else {
+        Dom = B.CreateCall(DomFn->getFunctionType(), DomFn, {}, Bundles,
                            "herb.dom");
-      B.SetInsertPoint(NextBB);
-      TailBB = NextBB;
-    } else {
-      Dom = B.CreateCall(DomFn->getFunctionType(), DomFn, {}, Bundles,
-                         "herb.dom");
+      }
     }
 
-    SmallVector<Value *, 3> Args;
+    // The folded call reuses the ordinary conversion entry point with
+    // the direct flag: the flag word first, then the throw's own
+    // operands (obj, tinfo, dtor / obj, throwinfo).
+    FunctionType *CodeFTy = Site.CodeCall->getFunctionType();
+    SmallVector<Value *, 4> Args;
+    Args.push_back(ConstantInt::get(CodeFTy->getParamType(0), DirectFlag));
     for (Use &U : II->args())
       Args.push_back(U.get());
-    FunctionCallee Direct =
-        getDirectFn(*F.getParent(), WS.ABI, Site.CodeCall->getType(),
-                    F.getContext());
-    CallInst *Code = B.CreateCall(Direct, Args, Bundles, "herb.code");
+    CallInst *Code = B.CreateCall(CodeFTy, Site.CodeCall->getCalledOperand(),
+                                  Args, Bundles, "herb.code");
+    Code->setCallingConv(Site.CodeCall->getCallingConv());
+    // The libherbceptions entry point is noexcept; marking the shared decl
+    // also lets later passes drop the conversion invoke's dead unwind edge.
+    if (Function *CodeFn =
+            dyn_cast<Function>(Site.CodeCall->getCalledOperand()))
+      CodeFn->setDoesNotThrow();
 
     B.CreateBr(ContBB);
     BasicBlock *NormalDest = II->getNormalDest();
@@ -586,12 +660,22 @@ HerbceptionsLegacyEHFoldPass::run(Function &F, FunctionAnalysisManager &) {
     for (auto [OrigCall, NewVal] :
          {std::pair<CallBase *, Value *>(Site.DomainCall, Dom),
           std::pair<CallBase *, Value *>(Site.CodeCall, Code)}) {
+      if (!OrigCall)
+        continue;
       Merge &M = Merges[OrigCall];
       if (M.PN)
         M.PN->addIncoming(NewVal, TailBB);
       for (PHINode *EdgePhi : M.EdgePhis)
         EdgePhi->addIncoming(NewVal, TailBB);
     }
+
+    // Other phis in the continuation reuse the value the conversion-chain
+    // edge supplied (validated to dominate the throw site above).
+    if (Site.ChainEndBB)
+      for (PHINode &PN : ContBB->phis())
+        if (PN.getBasicBlockIndex(TailBB) < 0)
+          PN.addIncoming(PN.getIncomingValueForBlock(Site.ChainEndBB),
+                         TailBB);
   }
 
   // Folded edges may have left the dispatch and the invoke's normal
