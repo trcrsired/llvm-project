@@ -250,7 +250,12 @@ try_get_cpp_exception_with_mangled_name(EXCEPTION_RECORD const &ehrec,
 inline char const *
 try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
   auto this_ptr{
-      try_get_cpp_exception_with_mangled_name(ehrec, ".?AVexception@stdext@@")};
+      try_get_cpp_exception_with_mangled_name(ehrec, ".?AVexception@std@@")};
+  if (this_ptr == nullptr) {
+    // Older MSVC STLs kept the exception base in stdext.
+    this_ptr = try_get_cpp_exception_with_mangled_name(
+        ehrec, ".?AVexception@stdext@@");
+  }
   if (this_ptr == nullptr)
     return nullptr;
   return get_msvc_exception_what(this_ptr);
