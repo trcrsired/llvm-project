@@ -223,15 +223,15 @@ public:
           MlirModule, LLVMCtx, C.getLangOpts().OpenMP, mlirSaveTempsOutFile,
           &CI.getVirtualFileSystem());
 
+      LLVMModule->setDataLayout(C.getTargetInfo().getDataLayoutString());
       propagateThrowsAttributes(*LLVMModule);
 
       if (linkInModules(*LLVMModule))
         return;
 
       BackendAction BEAction = getBackendActionFromOutputType(Action);
-      emitBackendOutput(
-          CI, CI.getCodeGenOpts(), C.getTargetInfo().getDataLayoutString(),
-          LLVMModule.get(), BEAction, FS, std::move(OutputStream));
+      emitBackendOutput(CI, CI.getCodeGenOpts(), LLVMModule.get(), BEAction, FS,
+                        std::move(OutputStream));
       break;
     }
     }
