@@ -1377,6 +1377,10 @@ void TypePrinter::printTypeOfBefore(const TypeOfType *T, raw_ostream &OS) {
 void TypePrinter::printTypeOfAfter(const TypeOfType *T, raw_ostream &OS) {}
 
 void TypePrinter::printDecltypeBefore(const DecltypeType *T, raw_ostream &OS) {
+  if (Policy.ResolveDecltype && T->isSugared()) {
+    printBefore(T->desugar(), OS);
+    return;
+  }
   OS << "decltype(";
   if (const Expr *E = T->getUnderlyingExpr()) {
     PrintingPolicy ExprPolicy = Policy;
@@ -1402,7 +1406,10 @@ void TypePrinter::printPackIndexingBefore(const PackIndexingType *T,
 void TypePrinter::printPackIndexingAfter(const PackIndexingType *T,
                                          raw_ostream &OS) {}
 
-void TypePrinter::printDecltypeAfter(const DecltypeType *T, raw_ostream &OS) {}
+void TypePrinter::printDecltypeAfter(const DecltypeType *T, raw_ostream &OS) {
+  if (Policy.ResolveDecltype && T->isSugared())
+    printAfter(T->desugar(), OS);
+}
 
 void TypePrinter::printUnaryTransformBefore(const UnaryTransformType *T,
                                             raw_ostream &OS) {
