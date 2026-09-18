@@ -75,11 +75,9 @@ constexpr StringLiteral ItaniumCodeFnName =
     "__cxa_error_code_itanium_exception_ptr";
 
 /// First parameter of __cxa_error_code_*_exception_ptr: 1 selects the
-/// legacy in-flight conversion (__cxa_error_exception_ptr_flag_none) and
-/// 2 the direct mode (__cxa_error_exception_ptr_flag_direct) emitted by
-/// this pass. The folded call reuses the ordinary conversion entry
-/// point, so the reference already exists wherever a conversion site
-/// exists.
+/// legacy in-flight conversion and 2 the direct mode emitted by this
+/// pass. The folded call reuses the ordinary conversion entry point, so
+/// the reference already exists wherever a conversion site exists.
 constexpr uint64_t InFlightFlag = 1;
 constexpr uint64_t DirectFlag = 2;
 

@@ -45,6 +45,7 @@
 #include "clang/AST/ComparisonCategories.h"
 #include "clang/AST/CurrentSourceLocExprScope.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/IgnoreExpr.h"
 #include "clang/AST/InferAlloc.h"
 #include "clang/AST/OSLog.h"
 #include "clang/AST/OptionalDiagnostic.h"
@@ -9010,15 +9011,24 @@ public:
     return DerivedSuccess(Result, E);
   }
 
+  /// Strip the implicit nodes (temporary binding, materialization,
+  /// cleanups, casts, parens) that may wrap the call operand of a
+  /// `try(expr)`/`catch fails(expr)` expression.
+  static const Expr *skipHerbceptionOperandWrappers(const Expr *E) {
+    return IgnoreExprNodes(E, IgnoreParensSingleStep,
+                           IgnoreImplicitSingleStep);
+  }
+
   /// Evaluate a herbception `catch fails(expr)`: call the fails{E} function;
   /// if it fails, build the N2289 aggregate {union{T value; E error}; bool
   /// failed} with .failed=1/.error=E, else .failed=0/.value=T.
   bool VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {
     APValue Result, ErrorVal;
     APValue *ErrorPtr = &ErrorVal;
-    if (!handleCallExpr(cast<CallExpr>(E->getSubExpr()->IgnoreParenImpCasts()),
-                        Result, nullptr, ErrorPtr))
-      return false;
+    const auto *Call =
+        dyn_cast<CallExpr>(skipHerbceptionOperandWrappers(E->getSubExpr()));
+    if (!Call || !handleCallExpr(Call, Result, nullptr, ErrorPtr))
+      return Error(E);
 
     // Build the catch-fails aggregate {union{T value; E error}; bool failed}.
     const RecordDecl *RD = E->getType()->getAsRecordDecl();
@@ -9064,9 +9074,10 @@ public:
   bool VisitCXXTryExpr(const CXXTryExpr *E) {
     APValue Result, ErrorVal;
     APValue *ErrorPtr = &ErrorVal;
-    if (!handleCallExpr(cast<CallExpr>(E->getSubExpr()->IgnoreParenImpCasts()),
-                        Result, nullptr, ErrorPtr))
-      return false;
+    const auto *Call =
+        dyn_cast<CallExpr>(skipHerbceptionOperandWrappers(E->getSubExpr()));
+    if (!Call || !handleCallExpr(Call, Result, nullptr, ErrorPtr))
+      return Error(E);
     if (!ErrorPtr->hasValue())
       return DerivedSuccess(Result, E);
     // Auto-propagate: store the error into EvalInfo so the enclosing statement
