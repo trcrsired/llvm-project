@@ -7004,7 +7004,14 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
             PopCleanupBlock();
           return GetUndefRValue(RetTy);
         }
-        RValue ret = convertTempToRValue(SRetPtr, RetTy, SourceLocation());
+        // In the discriminant-only mode the throws_sret slot is typed as
+        // union{T,E}; the payload occupies its low bytes. Read the payload
+        // through the payload's own type, not the union.
+        Address PayloadPtr =
+            CallInfo.hasThrowsDiscOnlyReturn()
+                ? SRetPtr.withElementType(getTypes().ConvertTypeForMem(RetTy))
+                : SRetPtr;
+        RValue ret = convertTempToRValue(PayloadPtr, RetTy, SourceLocation());
         if (NeedSRetLifetimeEnd)
           PopCleanupBlock();
         return ret;

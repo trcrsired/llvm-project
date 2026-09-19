@@ -2211,6 +2211,15 @@ def TrivialABI : InheritableAttr {
   let SimpleHandler = 1;
 }
 
+def HerbceptionsCXXStdError : InheritableAttr {
+  let Spellings = [GNU<"herbceptions_cxx_std_error">,
+                   CXX11<"gnu", "herbceptions_cxx_std_error">,
+                   C23<"gnu", "herbceptions_cxx_std_error">];
+  let Subjects = SubjectList<[Struct], ErrorDiag>;
+  let Documentation = [HerbceptionsCXXStdErrorDocs];
+  let SimpleHandler = 1;
+}
+
 def MaxFieldAlignment : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
