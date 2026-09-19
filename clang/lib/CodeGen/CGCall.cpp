@@ -1223,6 +1223,38 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
         CGM.getDataLayout().getTypeAllocSize(ErrorType) >
             CGM.getDataLayout().getTypeAllocSize(RetTy))
       RetTy = ErrorType;
+    // On WebAssembly the discriminant cannot ride a flags register and the
+    // default ABI has no multi-value calling convention, so the discriminant
+    // becomes the function's sole i1 return value while the union{T,E}
+    // payload travels through a 'throws_sret' pointer to caller storage.
+    //
+    // This is only safe when a caller-provided destination slot is always
+    // large enough to hold the error: void returns and non-aggregate
+    // payloads never forward a too-small slot into the callee, and
+    // aggregates are only eligible when T is at least as large as E. A
+    // smaller aggregate keeps the {union(T, E), i1} return below so that
+    // guaranteed copy elision can still forward the destination object.
+    //
+    // (A future wasm_multivalue calling convention could instead carry the
+    // discriminant as a second result next to the payload; that would be a
+    // different mode selected here.)
+    if (CGM.getTriple().isWasm()) {
+      QualType ASTResultTy = FI->getReturnType();
+      bool SlotAlwaysHoldsError =
+          ASTResultTy->isVoidType() || !isAggregateTypeForABI(ASTResultTy) ||
+          !ErrorType ||
+          CGM.getDataLayout().getTypeAllocSize(ErrorType) <=
+              CGM.getDataLayout().getTypeAllocSize(ConvertType(ASTResultTy));
+      if (SlotAlwaysHoldsError) {
+        if (!retInfo.isIndirect())
+          retInfo = ABIArgInfo::getIndirect(
+              CharUnits::fromQuantity(
+                  CGM.getDataLayout().getABITypeAlign(RetTy).value()),
+              CGM.getDataLayout().getAllocaAddrSpace(), /*ByVal=*/false);
+        FI->setThrowsDiscOnlyReturn();
+        FI->setHerbceptionSlotType(RetTy);
+      }
+    }
     // A payload the target would return indirectly must not be bitwise
     // transported through registers: that detaches the object from its own
     // storage, so a short std::string keeps a pointer into the frame that
@@ -1238,8 +1270,9 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
     // {union(T, E), i1} register return, so small trivially-copyable returns
     // carry on coming back in RAX+RDX.
     const uint64_t RegBudget = 2 * CGM.getDataLayout().getPointerSize();
-    if (!retInfo.isIndirect() ||
-        CGM.getDataLayout().getTypeAllocSize(RetTy) <= RegBudget) {
+    if (!FI->hasThrowsDiscOnlyReturn() &&
+        (!retInfo.isIndirect() ||
+         CGM.getDataLayout().getTypeAllocSize(RetTy) <= RegBudget)) {
       llvm::StructType *StructTy = llvm::StructType::get(
           getLLVMContext(),
           {RetTy, llvm::Type::getInt1Ty(getLLVMContext())});
@@ -1283,6 +1316,7 @@ CGFunctionInfo *CGFunctionInfo::create(
   FI->ReturnsRetained = info.getProducesResult();
   FI->HasThrowsReturn = HasThrowsReturn;
   FI->HerbceptionErrorType = ErrorType;
+  FI->ThrowsDiscOnlyReturn = false;
   FI->NoCallerSavedRegs = info.getNoCallerSavedRegs();
   FI->NoCfCheck = info.getNoCfCheck();
   FI->Required = required;
@@ -2195,6 +2229,12 @@ llvm::FunctionType *CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
     break;
 
   case ABIArgInfo::Indirect:
+    if (FI.hasThrowsDiscOnlyReturn()) {
+      // The discriminant is the only thing that comes back; the union{T,E}
+      // payload travels through the throws_sret parameter.
+      resultType = llvm::Type::getInt1Ty(getLLVMContext());
+      break;
+    }
     // A herbception payload built in caller storage still has to hand back
     // the error and the discriminant, so the return is {E, i1} rather than
     // the void an ordinary indirect return would produce.
@@ -3254,11 +3294,14 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     llvm::AttrBuilder &SRETAttrs = ArgAttrs[IRFunctionArgs.getSRetArgNo()];
     if (FI.hasThrowsSretReturn()) {
       // The storage is the caller's object, which is why this is
-      // 'throws_sret' and not 'sret': the function still returns {E, i1}, so
-      // the verifier's "sret must return void" rule must not apply. The
-      // callee writes the payload only on success, so it is not
-      // dead_on_unwind either.
-      SRETAttrs.addThrowsSretAttr(getTypes().ConvertTypeForMem(RetTy));
+      // 'throws_sret' and not 'sret': the function still returns {E, i1} (or
+      // just i1 in the discriminant-only mode), so the verifier's "sret must
+      // return void" rule must not apply. The callee writes the payload only
+      // on success, so it is not dead_on_unwind either.
+      SRETAttrs.addThrowsSretAttr(
+          FI.hasThrowsDiscOnlyReturn()
+              ? FI.getHerbceptionSlotType()
+              : getTypes().ConvertTypeForMem(RetTy));
       SRETAttrs.addAttribute(llvm::Attribute::Writable);
     } else {
       SRETAttrs.addStructRetAttr(getTypes().ConvertTypeForMem(RetTy));
@@ -4604,39 +4647,48 @@ void CodeGenFunction::EmitFunctionEpilog(
     auto AI = CurFn->arg_begin();
     if (RetAI.isSRetAfterThis())
       ++AI;
-    switch (getEvaluationKind(RetTy)) {
-    case TEK_Complex: {
-      ComplexPairTy RT =
-          EmitLoadOfComplex(MakeAddrLValue(ReturnValue, RetTy), EndLoc);
-      EmitStoreOfComplex(RT, MakeNaturalAlignAddrLValue(&*AI, RetTy),
-                         /*isInit*/ true);
-      break;
-    }
-    case TEK_Aggregate:
-      // Do nothing; aggregates get evaluated directly into the destination.
-      break;
-    case TEK_Scalar: {
-      LValueBaseInfo BaseInfo;
-      TBAAAccessInfo TBAAInfo;
-      CharUnits Alignment =
-          CGM.getNaturalTypeAlignment(RetTy, &BaseInfo, &TBAAInfo);
-      Address ArgAddr(&*AI, ConvertType(RetTy), Alignment);
-      LValue ArgVal =
-          LValue::MakeAddr(ArgAddr, RetTy, getContext(), BaseInfo, TBAAInfo);
-      EmitStoreOfScalar(
-          EmitLoadOfScalar(MakeAddrLValue(ReturnValue, RetTy), EndLoc), ArgVal,
-          /*isInit*/ true);
-      break;
-    }
+    // In the discriminant-only herbception mode ReturnValue already is the
+    // throws_sret argument (typed union{T,E}), so nothing needs copying back.
+    if (!FI.hasThrowsDiscOnlyReturn()) {
+      switch (getEvaluationKind(RetTy)) {
+      case TEK_Complex: {
+        ComplexPairTy RT =
+            EmitLoadOfComplex(MakeAddrLValue(ReturnValue, RetTy), EndLoc);
+        EmitStoreOfComplex(RT, MakeNaturalAlignAddrLValue(&*AI, RetTy),
+                           /*isInit*/ true);
+        break;
+      }
+      case TEK_Aggregate:
+        // Do nothing; aggregates get evaluated directly into the
+        // destination.
+        break;
+      case TEK_Scalar: {
+        LValueBaseInfo BaseInfo;
+        TBAAAccessInfo TBAAInfo;
+        CharUnits Alignment =
+            CGM.getNaturalTypeAlignment(RetTy, &BaseInfo, &TBAAInfo);
+        Address ArgAddr(&*AI, ConvertType(RetTy), Alignment);
+        LValue ArgVal =
+            LValue::MakeAddr(ArgAddr, RetTy, getContext(), BaseInfo, TBAAInfo);
+        EmitStoreOfScalar(
+            EmitLoadOfScalar(MakeAddrLValue(ReturnValue, RetTy), EndLoc),
+            ArgVal, /*isInit*/ true);
+        break;
+      }
+      }
     }
 
     // Herbception (throws): the payload was constructed directly in the
     // caller's object, so the caller learns it succeeded from the
-    // discriminant rather than from the returned value. What comes back is
-    // {E, i1}: the error, which only holds anything on the failure path, and
-    // the discriminant. The error is read out of the payload slot, where the
-    // failure path stored it.
-    if (FI.hasThrowsSretReturn()) {
+    // discriminant rather than from the returned value.
+    if (FI.hasThrowsDiscOnlyReturn()) {
+      // Only the discriminant comes back; the error (or payload on success)
+      // already sits in the throws_sret storage.
+      RV = Builder.CreateLoad(HerbceptionDiscriminant);
+    } else if (FI.hasThrowsSretReturn()) {
+      // What comes back is {E, i1}: the error, which only holds anything on
+      // the failure path, and the discriminant. The error is read out of the
+      // payload slot, where the failure path stored it.
       llvm::Type *ErrTy = FI.getHerbceptionErrorType();
       auto *StructTy = llvm::StructType::get(
           getLLVMContext(),
@@ -5961,19 +6013,42 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     // would be de-allocated before the call. These cases both guarantee that
     // there will be an incoming SRet argument of the correct type.
     if ((IsVirtualFunctionPointerThunk || IsMustTail) && RetAI.isIndirect()) {
-      SRetPtr = makeNaturalAddressForPointer(CurFn->arg_begin() +
-                                                 IRFunctionArgs.getSRetArgNo(),
-                                             RetTy, CharUnits::fromQuantity(1));
-    } else if (!ReturnValue.isNull()) {
+      if (CallInfo.hasThrowsDiscOnlyReturn())
+        SRetPtr = Address(&*(CurFn->arg_begin() + IRFunctionArgs.getSRetArgNo()),
+                          CallInfo.getHerbceptionSlotType(),
+                          CharUnits::fromQuantity(1));
+      else
+        SRetPtr =
+            makeNaturalAddressForPointer(CurFn->arg_begin() +
+                                             IRFunctionArgs.getSRetArgNo(),
+                                         RetTy, CharUnits::fromQuantity(1));
+    } else if (!ReturnValue.isNull() &&
+               // In the discriminant-only herbception mode the callee may
+               // write the error into the slot, so a destination slot smaller
+               // than the union{T,E} slot cannot be forwarded. (For a void
+               // throws call -- e.g. a throws constructor -- the forwarded
+               // slot is the destination object itself, which may be smaller
+               // than E.)
+               (!CallInfo.hasThrowsDiscOnlyReturn() ||
+                CGM.getDataLayout().getTypeStoreSize(
+                    CallInfo.getHerbceptionSlotType()) <=
+                    CGM.getDataLayout().getTypeStoreSize(
+                        ReturnValue.getAddress().getElementType()))) {
       SRetPtr = ReturnValue.getAddress();
     } else {
-      SRetPtr = CreateMemTempWithoutCast(RetTy, "tmp");
+      SRetPtr =
+          CallInfo.hasThrowsDiscOnlyReturn()
+              ? CreateDefaultAlignTempAlloca(CallInfo.getHerbceptionSlotType(),
+                                             "tmp")
+              : CreateMemTempWithoutCast(RetTy, "tmp");
       if (HaveInsertPoint() && ReturnValue.isUnused()) {
         NeedSRetLifetimeEnd = EmitLifetimeStart(SRetPtr.getBasePointer());
         if (NeedSRetLifetimeEnd)
           SRetAlloca = SRetPtr;
       }
     }
+    if (CallInfo.hasThrowsDiscOnlyReturn())
+      SRetPtr = SRetPtr.withElementType(CallInfo.getHerbceptionSlotType());
     if (IRFunctionArgs.hasSRetArg()) {
       // A mismatch between the allocated return value's AS and the target's
       // chosen IndirectAS can happen e.g. when passing the this pointer through
@@ -6920,6 +6995,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
       case ABIArgInfo::InAlloca:
       case ABIArgInfo::Indirect: {
+        // A void throws function's throws_sret buffer holds only the error;
+        // there is no payload to materialize.
+        if (RetTy->isVoidType() && CallInfo.hasThrowsDiscOnlyReturn()) {
+          if (NeedSRetLifetimeEnd)
+            PopCleanupBlock();
+          return GetUndefRValue(RetTy);
+        }
         RValue ret = convertTempToRValue(SRetPtr, RetTy, SourceLocation());
         if (NeedSRetLifetimeEnd)
           PopCleanupBlock();
@@ -7069,12 +7151,26 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // is set), and calls with a plain (non-{T,i1}) return are untouched. A
   // throws return is specifically `{T, i1}` — the discriminant is a single
   // bit — so an arbitrary two-field struct (e.g. an iovec-style status like
-  // {size_t, size_t}) is not treated as a throws call.
-  if (!InHerbceptionOperand && isa<llvm::StructType>(CI->getType()) &&
-      CI->getType()->getStructNumElements() == 2 &&
-      cast<llvm::StructType>(CI->getType())->getElementType(1)->isIntegerTy(1)) {
-    llvm::Value *Payload = Builder.CreateExtractValue(CI, 0);
-    llvm::Value *Disc = Builder.CreateExtractValue(CI, 1);
+  // {size_t, size_t}) is not treated as a throws call. In the
+  // discriminant-only mode the call result is the i1 itself, and the error
+  // (on failure) or payload (on success) sits in the throws_sret buffer.
+  if (!InHerbceptionOperand &&
+      (CallInfo.hasThrowsDiscOnlyReturn() ||
+       (isa<llvm::StructType>(CI->getType()) &&
+        CI->getType()->getStructNumElements() == 2 &&
+        cast<llvm::StructType>(CI->getType())
+            ->getElementType(1)
+            ->isIntegerTy(1)))) {
+    llvm::Value *Payload;
+    llvm::Value *Disc;
+    if (CallInfo.hasThrowsDiscOnlyReturn()) {
+      Disc = CI;
+      Payload = Builder.CreateLoad(
+          SRetPtr.withElementType(CallInfo.getHerbceptionErrorType()));
+    } else {
+      Payload = Builder.CreateExtractValue(CI, 0);
+      Disc = Builder.CreateExtractValue(CI, 1);
+    }
 
     if (!HerbceptionCatchScopes.empty()) {
       llvm::BasicBlock *OkBB = createBasicBlock("herb.catch.ok");
@@ -7153,10 +7249,17 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       EmitBlock(ErrBB);
       {
         RunCleanupsScope CleanupScope(*this);
-        if (Payload->getType() != this->ReturnValue.getElementType())
-          Payload = Builder.CreateBitCast(
-              Payload, this->ReturnValue.getElementType());
-        auto *I = Builder.CreateStore(Payload, this->ReturnValue);
+        Address Dst = this->ReturnValue;
+        if (Payload->getType() != Dst.getElementType()) {
+          if (llvm::CastInst::isBitCastable(Payload->getType(),
+                                            Dst.getElementType()))
+            Payload = Builder.CreateBitCast(Payload, Dst.getElementType());
+          else
+            // Aggregate types cannot be bitcast, so retype the slot instead:
+            // the error occupies its low bytes either way.
+            Dst = Dst.withElementType(Payload->getType());
+        }
+        auto *I = Builder.CreateStore(Payload, Dst);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
         Builder.CreateStore(Disc, HerbceptionDiscriminant);
         CleanupScope.ForceCleanup();

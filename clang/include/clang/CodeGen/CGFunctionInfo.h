@@ -650,6 +650,20 @@ class CGFunctionInfo final
   /// function.
   llvm::Type *HerbceptionErrorType = nullptr;
 
+  /// Whether a herbception (throws/fails) function's only return value is the
+  /// discriminant (an i1) while the union{T,E} payload travels through a
+  /// 'throws_sret' parameter. WebAssembly uses this lowering since it has
+  /// neither a flags register to carry the discriminant out-of-band nor a
+  /// multi-value calling convention in its default ABI. (A future
+  /// wasm_multivalue convention could instead return {T, i1} as two
+  /// results.)
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned ThrowsDiscOnlyReturn : 1;
+
+  /// The LLVM type of the union{T,E} slot pointed at by the 'throws_sret'
+  /// parameter when ThrowsDiscOnlyReturn is set; null otherwise.
+  llvm::Type *HerbceptionSlotType = nullptr;
+
   /// Whether this function saved caller registers.
   LLVM_PREFERRED_TYPE(bool)
   unsigned NoCallerSavedRegs : 1;
@@ -766,6 +780,19 @@ public:
   bool hasThrowsSretReturn() const {
     return HasThrowsReturn && getReturnInfo().getKind() == ABIArgInfo::Indirect;
   }
+
+  /// Whether the herbception discriminant is the function's sole return
+  /// value (an i1) while the union{T,E} payload travels through a
+  /// 'throws_sret' parameter. Used by WebAssembly, which lacks both a flags
+  /// register for the out-of-band discriminant and a multi-value calling
+  /// convention in its default ABI.
+  bool hasThrowsDiscOnlyReturn() const { return ThrowsDiscOnlyReturn; }
+  void setThrowsDiscOnlyReturn(bool V = true) { ThrowsDiscOnlyReturn = V; }
+
+  /// The LLVM type of the union{T,E} slot a 'throws_sret' parameter points
+  /// at when hasThrowsDiscOnlyReturn() is true; null otherwise.
+  llvm::Type *getHerbceptionSlotType() const { return HerbceptionSlotType; }
+  void setHerbceptionSlotType(llvm::Type *T) { HerbceptionSlotType = T; }
 
   /// The LLVM type of the error value carried by a herbception function, or
   /// null for a normal function.
