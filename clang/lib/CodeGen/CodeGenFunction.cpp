@@ -1248,9 +1248,26 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 
   if (RetTy->isVoidType()) {
     // Void type; nothing to return, unless this is a herbception (throws)
-    // function: the return type is {E, i1}, so the payload slot holds the
-    // error value (std::error / E).
-    if (CurFnInfo->hasThrowsReturn()) {
+    // function: the return type is {E, i1} (or just i1 in the
+    // discriminant-only mode), so the payload slot holds the error value
+    // (std::error / E).
+    if (CurFnInfo->hasThrowsDiscOnlyReturn()) {
+      // The union{E} slot is the throws_sret argument itself.
+      auto AI = CurFn->arg_begin();
+      if (CurFnInfo->getReturnInfo().isSRetAfterThis())
+        ++AI;
+      ReturnValue =
+          Address(&*AI, CurFnInfo->getHerbceptionSlotType(),
+                  CurFnInfo->getReturnInfo().getIndirectAlign(), KnownNonNull);
+      HerbceptionDiscriminant =
+          CreateIRTempWithoutCast(getContext().BoolTy, "herbception.disc");
+      Builder.CreateStore(Builder.getFalse(), HerbceptionDiscriminant);
+      if (auto *Alloca = dyn_cast<llvm::AllocaInst>(
+              HerbceptionDiscriminant.emitRawPointer(*this)))
+        Alloca->setMetadata(
+            llvm::LLVMContext::MD_coro_outside_frame,
+            llvm::MDNode::get(CGM.getLLVMContext(), {}));
+    } else if (CurFnInfo->hasThrowsReturn()) {
       ReturnValue =
           CreateDefaultAlignTempAlloca(CurFnInfo->getHerbceptionErrorType(),
                                        "retval");
@@ -1283,9 +1300,18 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     auto AI = CurFn->arg_begin();
     if (CurFnInfo->getReturnInfo().isSRetAfterThis())
       ++AI;
-    ReturnValue = makeNaturalAddressForPointer(
-        &*AI, RetTy, CurFnInfo->getReturnInfo().getIndirectAlign(), false,
-        nullptr, nullptr, KnownNonNull);
+    if (CurFnInfo->hasThrowsDiscOnlyReturn()) {
+      // Herbception (throws): the throws_sret slot is union{T,E}, which is
+      // larger than T when the payload is a small scalar, so it cannot be
+      // typed as T.
+      ReturnValue =
+          Address(&*AI, CurFnInfo->getHerbceptionSlotType(),
+                  CurFnInfo->getReturnInfo().getIndirectAlign(), KnownNonNull);
+    } else {
+      ReturnValue = makeNaturalAddressForPointer(
+          &*AI, RetTy, CurFnInfo->getReturnInfo().getIndirectAlign(), false,
+          nullptr, nullptr, KnownNonNull);
+    }
     if (!CurFnInfo->getReturnInfo().getIndirectByVal()) {
       ReturnValuePointer =
           CreateDefaultAlignTempAlloca(ReturnValue.getType(), "result.ptr");
