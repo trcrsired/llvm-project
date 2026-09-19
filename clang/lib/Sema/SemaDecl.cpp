@@ -19417,6 +19417,15 @@ void Sema::ActOnTagFinishDefinition(Scope *S, Decl *TagD,
       RD->completeDefinition();
   }
 
+  // A struct tagged 'herbceptions_cxx_std_error' is the C FFI representation
+  // of std::error; verify the layout eagerly so mismatches are diagnosed at
+  // the definition rather than at some distant 'throw throws'.
+  if (auto *RD = dyn_cast<RecordDecl>(Tag);
+      RD && RD->hasAttr<HerbceptionsCXXStdErrorAttr>() &&
+      !RD->isInvalidDecl() && !isCXXStdErrorLayout(RD))
+    Diag(RD->getLocation(), diag::err_herbceptions_cxx_std_error_layout)
+        << RD;
+
   if (auto *RD = dyn_cast<CXXRecordDecl>(Tag)) {
     FieldCollector->FinishClass();
     if (RD->hasAttr<SYCLSpecialClassAttr>()) {

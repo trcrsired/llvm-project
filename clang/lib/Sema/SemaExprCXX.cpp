@@ -1114,6 +1114,25 @@ DeclRefExpr *Sema::BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
                           /*TemplateArgs=*/nullptr);
 }
 
+/// Whether \p RD has the std::error ABI layout ({pointer, uintptr_t-sized
+/// integer}) required of types marked 'herbceptions_cxx_std_error'.
+bool Sema::isCXXStdErrorLayout(const RecordDecl *RD) {
+  if (!RD->isStruct() || RD->isUnion() || !RD->isCompleteDefinition())
+    return false;
+  auto It = RD->field_begin();
+  if (It == RD->field_end() || !(*It)->getType()->isPointerType())
+    return false;
+  ++It;
+  if (It == RD->field_end())
+    return false;
+  QualType F2Ty = (*It)->getType();
+  if (!F2Ty->isIntegerType() ||
+      Context.getTypeSize(F2Ty) != Context.getTypeSize(Context.VoidPtrTy))
+    return false;
+  ++It;
+  return It == RD->field_end();
+}
+
 /// Build the compiler-fabricated `std::error` value for `throw throws e`.
 ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   QualType T = Operand->getType();
@@ -1132,33 +1151,18 @@ ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
     }
   }
 
-  // FFI boundary: if the operand is the global struct cxx_std_error
-  // ({void*, uintptr_t}), use it directly without going through
-  // error_domain<T>::domain()/code(). This allows throwing a C-produced error
-  // value returned from an extern "C" function declared
-  // return_failure{struct cxx_std_error}.
+  // FFI boundary: if the operand is a struct marked
+  // 'herbceptions_cxx_std_error' ({void*, uintptr_t}), use it directly
+  // without going through error_domain<T>::domain()/code(). This allows
+  // throwing a C-produced error value returned from an extern "C" function
+  // declared return_failure{struct ...}.
   if (const auto *RT = T->getAsRecordDecl()) {
-    if (RT->isStruct() && !RT->isUnion() && RT->getName() == "cxx_std_error") {
-      // Must be at global scope (not nested in another namespace/scope).
-      const DeclContext *DC = RT->getDeclContext();
-      if (DC->isTranslationUnit()) {
-        auto Fields = RT->fields();
-        auto It = Fields.begin();
-        if (It != Fields.end()) {
-          FieldDecl *F1 = *It;
-          ++It;
-          if (It != Fields.end()) {
-            FieldDecl *F2 = *It;
-            ++It;
-            if (It == Fields.end() && F1->getType()->isPointerType() &&
-                F2->getType()->isIntegerType() &&
-                Context.getTypeSize(F2->getType()) ==
-                    Context.getTypeSize(Context.VoidPtrTy)) {
-              return Operand;
-            }
-          }
-        }
+    if (RT->hasAttr<HerbceptionsCXXStdErrorAttr>()) {
+      if (!isCXXStdErrorLayout(RT)) {
+        Diag(Loc, diag::err_herbceptions_cxx_std_error_layout) << T;
+        return ExprError();
       }
+      return Operand;
     }
   }
 
