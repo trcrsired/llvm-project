@@ -2124,6 +2124,40 @@ static const CallExpr *getHerbceptionWrappedCall(const Expr *Sub) {
   return cast<CallExpr>(Sub);
 }
 
+/// The LLVM error type of the throws/fails function invoked by \p Call.
+/// Mirrors getHerbceptionErrorType in CGCall.cpp, but recovers the function
+/// type from the call expression rather than a CGFunctionInfo.
+static llvm::Type *getHerbceptionCallErrorType(CodeGenFunction &CGF,
+                                               const CallExpr *Call) {
+  QualType Ty = Call->getCallee()->getType();
+  if (Ty->isPointerType() || Ty->isMemberPointerType())
+    Ty = Ty->getPointeeType();
+  const auto *FTP = Ty->getAs<FunctionProtoType>();
+  if (!FTP || !FTP->hasThrowsSpec())
+    return nullptr;
+  if (FTP->getExceptionSpecType() == EST_ThrowsTyped)
+    return CGF.getTypes().ConvertType(FTP->getExceptionType(0));
+  // throws: implicit std::error = {void*, size_t}.
+  llvm::Type *VoidPtrTy = CGF.CGM.VoidPtrTy;
+  llvm::Type *SizeTy =
+      CGF.CGM.getDataLayout().getIntPtrType(CGF.getLLVMContext());
+  return llvm::StructType::get(CGF.getLLVMContext(), {VoidPtrTy, SizeTy});
+}
+
+/// Whether \p CB is a call whose herbception discriminant is the sole i1
+/// result, with the union{T,E} payload behind a 'throws_sret' argument.
+/// Returns the throws_sret argument index via \p SretArgNo.
+static bool isDiscOnlyThrowsCall(llvm::CallBase *CB, unsigned &SretArgNo) {
+  if (!CB->getType()->isIntegerTy(1))
+    return false;
+  for (unsigned I = 0, N = std::min<unsigned>(CB->arg_size(), 2); I != N; ++I)
+    if (CB->paramHasAttr(I, llvm::Attribute::ThrowsSret)) {
+      SretArgNo = I;
+      return true;
+    }
+  return false;
+}
+
 RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
          "herbception try outside a throws function");
@@ -2141,26 +2175,58 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
   }
   assert(CallOrInvoke && "throws call did not produce a call instruction");
-  assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
-         CallOrInvoke->getType()->getStructNumElements() == 2 &&
-         "throws call must return {T, i1}");
 
-  llvm::Value *Success = Builder.CreateExtractValue(CallOrInvoke, 0);
-  llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+  // The call returns {T, i1} in the usual lowering. In the
+  // discriminant-only mode it returns just the i1 discriminant and the
+  // union{T,E} payload sits behind the throws_sret argument.
+  unsigned SretArgNo = ~0u;
+  const bool DiscOnly = isDiscOnlyThrowsCall(CallOrInvoke, SretArgNo);
+  assert((DiscOnly ||
+          (isa<llvm::StructType>(CallOrInvoke->getType()) &&
+           CallOrInvoke->getType()->getStructNumElements() == 2)) &&
+         "throws call must return {T, i1} or a discriminant i1");
+
+  llvm::Value *Success;
+  llvm::Value *Disc;
+  if (DiscOnly) {
+    Disc = CallOrInvoke;
+  } else {
+    Success = Builder.CreateExtractValue(CallOrInvoke, 0);
+    Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+    for (unsigned I = 0, N = std::min<unsigned>(CallOrInvoke->arg_size(), 2);
+         I != N; ++I)
+      if (CallOrInvoke->paramHasAttr(I, llvm::Attribute::ThrowsSret)) {
+        SretArgNo = I;
+        break;
+      }
+  }
 
   // A payload the ABI returns indirectly is built straight into storage the
   // callee was handed, and what comes back in the aggregate is then the error
   // on both paths: element 0 is not the payload. Read the success value back
   // out of that storage instead, exactly as EmitHerbceptionCatchReturnFailure
-  // does for the same call shape.
-  bool PayloadIsIndirect =
-      CallOrInvoke->arg_size() > 0 &&
-      CallOrInvoke->paramHasAttr(0, llvm::Attribute::ThrowsSret);
+  // does for the same call shape. In the discriminant-only mode the buffer
+  // likewise holds the error on failure and the payload on success.
+  bool PayloadIsIndirect = SretArgNo != ~0u;
   Address IndirectPayload = Address::invalid();
-  if (PayloadIsIndirect)
-    IndirectPayload = Address(CallOrInvoke->getArgOperand(0),
-                              getTypes().ConvertTypeForMem(CallTy),
-                              CGM.getNaturalTypeAlignment(CallTy));
+  if (PayloadIsIndirect) {
+    llvm::Type *PayloadEltTy =
+        CallTy->isVoidType()
+            ? CallOrInvoke->getParamThrowsSretType(SretArgNo)
+            : getTypes().ConvertTypeForMem(CallTy);
+    CharUnits PayloadAlign =
+        CallTy->isVoidType()
+            ? CharUnits::fromQuantity(
+                  CGM.getDataLayout().getABITypeAlign(PayloadEltTy).value())
+            : CGM.getNaturalTypeAlignment(CallTy);
+    IndirectPayload = Address(CallOrInvoke->getArgOperand(SretArgNo),
+                              PayloadEltTy, PayloadAlign);
+    if (DiscOnly)
+      // The error path needs the error value, which the callee wrote into
+      // the low bytes of the union slot.
+      Success = Builder.CreateLoad(IndirectPayload.withElementType(
+          getHerbceptionCallErrorType(*this, Call)));
+  }
 
   // The payload slot is sized to hold the larger of the callee's success type
   // and its error type (a union). On success it holds the value; on error it
@@ -2371,22 +2437,53 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
     EmitCallExpr(Call, ReturnValueSlot(), &CallOrInvoke);
   }
   assert(CallOrInvoke && "throws call did not produce a call instruction");
-  assert(isa<llvm::StructType>(CallOrInvoke->getType()) &&
-         CallOrInvoke->getType()->getStructNumElements() == 2 &&
-         "throws call must return {T, i1}");
 
-  llvm::Value *Slot = Builder.CreateExtractValue(CallOrInvoke, 0);
-  llvm::Value *Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+  // The call returns {T, i1} in the usual lowering. In the
+  // discriminant-only mode it returns just the i1 discriminant and the
+  // union{T,E} payload sits behind the throws_sret argument.
+  unsigned SretArgNo = ~0u;
+  const bool DiscOnly = isDiscOnlyThrowsCall(CallOrInvoke, SretArgNo);
+  assert((DiscOnly ||
+          (isa<llvm::StructType>(CallOrInvoke->getType()) &&
+           CallOrInvoke->getType()->getStructNumElements() == 2)) &&
+         "throws call must return {T, i1} or a discriminant i1");
+
+  llvm::Value *Slot;
+  llvm::Value *Disc;
+  if (DiscOnly) {
+    Disc = CallOrInvoke;
+    Slot = nullptr;
+  } else {
+    Slot = Builder.CreateExtractValue(CallOrInvoke, 0);
+    Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
+    for (unsigned I = 0, N = std::min<unsigned>(CallOrInvoke->arg_size(), 2);
+         I != N; ++I)
+      if (CallOrInvoke->paramHasAttr(I, llvm::Attribute::ThrowsSret)) {
+        SretArgNo = I;
+        break;
+      }
+  }
 
   // The ABI return is {slot, i1}. A payload that fits the register budget
   // shares the slot with the error, so on the failure path the first element
   // is the error and on the success path it is the payload. A payload too
   // large for that budget is built in caller storage instead, and the first
   // element holds the error alone: the payload has to be read back out of the
-  // storage the callee was given, not out of the returned aggregate.
-  bool PayloadIsIndirect =
-      CallOrInvoke->arg_size() > 0 &&
-      CallOrInvoke->paramHasAttr(0, llvm::Attribute::ThrowsSret);
+  // storage the callee was given, not out of the returned aggregate. In the
+  // discriminant-only mode the same storage holds error-or-payload and only
+  // the i1 comes back.
+  bool PayloadIsIndirect = SretArgNo != ~0u;
+  if (DiscOnly)
+    // The error occupies the low bytes of the union slot.
+    Slot = Builder.CreateLoad(
+        Address(CallOrInvoke->getArgOperand(SretArgNo),
+                CallOrInvoke->getParamThrowsSretType(SretArgNo),
+                CharUnits::fromQuantity(
+                    CGM.getDataLayout()
+                        .getABITypeAlign(
+                            CallOrInvoke->getParamThrowsSretType(SretArgNo))
+                        .value()))
+            .withElementType(getHerbceptionCallErrorType(*this, Call)));
 
   // Build the catch-fails value. C++: either{T, E} with .positive/.left/.right;
   // C (N2289): struct { union { T value; E error; }; bool failed; }.
@@ -2485,11 +2582,20 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
   StoreField("failed", Disc);
   if (PayloadIsIndirect) {
     // The payload was built directly into storage the callee was handed, so
-    // read it back from there; only the error comes back in the aggregate.
+    // read it back from there; only the error comes back in the aggregate
+    // (or, in the discriminant-only mode, the i1 alone does).
     QualType PayloadTy = Call->getType();
-    Address PayloadSrc(CallOrInvoke->getArgOperand(0),
-                       getTypes().ConvertTypeForMem(PayloadTy),
-                       CGM.getNaturalTypeAlignment(PayloadTy));
+    llvm::Type *PayloadEltTy =
+        PayloadTy->isVoidType()
+            ? CallOrInvoke->getParamThrowsSretType(SretArgNo)
+            : getTypes().ConvertTypeForMem(PayloadTy);
+    CharUnits PayloadAlign =
+        PayloadTy->isVoidType()
+            ? CharUnits::fromQuantity(
+                  CGM.getDataLayout().getABITypeAlign(PayloadEltTy).value())
+            : CGM.getNaturalTypeAlignment(PayloadTy);
+    Address PayloadSrc(CallOrInvoke->getArgOperand(SretArgNo), PayloadEltTy,
+                       PayloadAlign);
     StoreField("value", Builder.CreateLoad(PayloadSrc));
   } else {
     StoreField("value", Slot);

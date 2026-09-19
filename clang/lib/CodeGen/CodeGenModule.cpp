@@ -3775,11 +3775,12 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   // where substantial code, including the libstdc++ dylib, was compiled with
   // GCC and does not actually return "this".
   if (!IsThunk && getCXXABI().HasThisReturn(GD) &&
-      !(getTriple().isiOS() && getTriple().isOSVersionLT(6))) {
-    assert(!F->arg_empty() &&
-           F->arg_begin()->getType()
-             ->canLosslesslyBitCastTo(F->getReturnType()) &&
-           "unexpected this return");
+      !(getTriple().isiOS() && getTriple().isOSVersionLT(6)) &&
+      // Herbception: a `throws` constructor returns the error discriminant
+      // union instead of 'this', so 'this' is not returned. (Herbception
+      // exception specifications are not permitted on destructors.)
+      !F->arg_empty() &&
+      F->arg_begin()->getType()->canLosslesslyBitCastTo(F->getReturnType())) {
     F->addParamAttr(0, llvm::Attribute::Returned);
   }
 
