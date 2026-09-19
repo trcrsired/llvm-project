@@ -10780,3 +10780,24 @@ void example2() {
 ```
   }];
 }
+
+def HerbceptionsCXXStdErrorDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+``[[gnu::herbceptions_cxx_std_error]]`` marks a C-compatible struct as having
+the ``std::error`` ABI layout for herbceptions: exactly two fields, a pointer
+followed by an integer of pointer width (``{void const *, uintptr_t}``).
+A value of a type marked this way can be passed to ``throw throws`` directly
+without going through ``std::error_domain<T>`` -- it is already the
+fabricated error representation. This is the FFI boundary that lets errors
+produced by C (or other languages) propagate through C++ ``throws`` channels,
+e.g. an ``extern "C"`` function declared ``return_failure{struct err}``.
+
+```c
+struct [[gnu::herbceptions_cxx_std_error]] c_error {
+  const void *domain;
+  uintptr_t code;
+};
+```
+  }];
+}

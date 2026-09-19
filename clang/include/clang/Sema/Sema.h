@@ -8592,6 +8592,10 @@ public:
   /// Look up the std::error_domain<T> class template specialization for \p T.
   /// Returns the record decl or null if there is no such specialization.
   CXXRecordDecl *lookupErrorDomain(SourceLocation Loc, QualType T);
+  /// Whether \p RD has the std::error ABI layout required of types marked
+  /// 'herbceptions_cxx_std_error': exactly two fields, a pointer followed by
+  /// an integer of pointer width.
+  bool isCXXStdErrorLayout(const RecordDecl *RD);
   /// Build a DeclRefExpr referring to the static member function \p Fn.
   DeclRefExpr *BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
                                                SourceLocation Loc);
