@@ -4206,7 +4206,9 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
         T.consumeClose();
         if (!ThrowsExpr.isInvalid()) {
           ExceptionSpecificationType ThrowsType = EST_BasicThrows;
-          Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+          ThrowsExpr = Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+          if (ThrowsType == EST_DependentThrows && !ThrowsExpr.isInvalid())
+            NoexceptExpr = ThrowsExpr;
           SpecificationRange = SourceRange(KwLoc, T.getCloseLocation());
           return tryParseNoexceptAfterThrows(ThrowsType);
         }
@@ -4299,8 +4301,11 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
             Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
         ExprResult ThrowsExpr = ParseConstantExpressionInExprEvalContext();
         T.consumeClose();
-        if (!ThrowsExpr.isInvalid())
-          Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+        if (!ThrowsExpr.isInvalid()) {
+          ThrowsExpr = Actions.ActOnThrowsSpec(ThrowsExpr.get(), ThrowsType);
+          if (ThrowsType == EST_DependentThrows && !ThrowsExpr.isInvalid())
+            NoexceptExpr = ThrowsExpr;
+        }
       }
       (void)ThrowsLoc;
       return ThrowsType;

@@ -3898,8 +3898,13 @@ StringRef FunctionType::getNameForCallConv(CallingConv CC) {
 
 void FunctionProtoType::ExceptionSpecInfo::instantiate() {
   assert(Type == EST_Uninstantiated);
-  NoexceptExpr =
-      cast<FunctionProtoType>(SourceTemplate->getType())->getNoexceptExpr();
+  auto *SourceFPT = cast<FunctionProtoType>(SourceTemplate->getType());
+  if (SourceFPT->getExceptionSpecType() == EST_DependentThrows) {
+    NoexceptExpr = SourceFPT->getThrowsExpr();
+    Type = EST_DependentThrows;
+    return;
+  }
+  NoexceptExpr = SourceFPT->getNoexceptExpr();
   Type = EST_DependentNoexcept;
 }
 
@@ -3985,9 +3990,10 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
     }
   }
   // Fill in the Expr * in the exception specification if present.
-  else if (isComputedNoexcept(getExceptionSpecType())) {
+  else if (hasStoredSpecExpr(getExceptionSpecType())) {
     assert(epi.ExceptionSpec.NoexceptExpr && "computed noexcept with no expr");
-    assert((getExceptionSpecType() == EST_DependentNoexcept) ==
+    assert((getExceptionSpecType() == EST_DependentNoexcept ||
+            getExceptionSpecType() == EST_DependentThrows) ==
            epi.ExceptionSpec.NoexceptExpr->isValueDependent());
 
     // Store the noexcept expression and context.
@@ -4017,7 +4023,8 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
   // then it's a dependent type. This only happens in C++17 onwards.
   if (isCanonicalUnqualified()) {
     if (getExceptionSpecType() == EST_Dynamic ||
-        getExceptionSpecType() == EST_DependentNoexcept) {
+        getExceptionSpecType() == EST_DependentNoexcept ||
+        getExceptionSpecType() == EST_DependentThrows) {
       assert(hasDependentExceptionSpec() && "type should not be canonical");
       addDependence(TypeDependence::DependentInstantiation);
     }
@@ -4078,6 +4085,8 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
 bool FunctionProtoType::hasDependentExceptionSpec() const {
   if (Expr *NE = getNoexceptExpr())
     return NE->isValueDependent();
+  if (Expr *TE = getThrowsExpr())
+    return TE->isValueDependent();
   for (QualType ET : exceptions())
     // A pack expansion with a non-dependent pattern is still dependent,
     // because we don't know whether the pattern is in the exception spec
@@ -4090,6 +4099,8 @@ bool FunctionProtoType::hasDependentExceptionSpec() const {
 bool FunctionProtoType::hasInstantiationDependentExceptionSpec() const {
   if (Expr *NE = getNoexceptExpr())
     return NE->isInstantiationDependent();
+  if (Expr *TE = getThrowsExpr())
+    return TE->isInstantiationDependent();
   for (QualType ET : exceptions())
     if (ET->isInstantiationDependentType())
       return true;
@@ -4135,6 +4146,7 @@ CanThrowResult FunctionProtoType::canThrow() const {
 
   case EST_Uninstantiated:
   case EST_DependentNoexcept:
+  case EST_DependentThrows:
     return CT_Dependent;
   }
 
@@ -4191,7 +4203,7 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
       epi.ExceptionSpec.Type == EST_ThrowsTyped) {
     for (QualType Ex : epi.ExceptionSpec.Exceptions)
       ID.AddPointer(Ex.getAsOpaquePtr());
-  } else if (isComputedNoexcept(epi.ExceptionSpec.Type)) {
+  } else if (hasStoredSpecExpr(epi.ExceptionSpec.Type)) {
     // getFunctionTypeInternal compares noexcept expressions after the lookup,
     // so the key only needs their canonical form.
     epi.ExceptionSpec.NoexceptExpr->Profile(ID, Context, /*Canonical=*/true);

@@ -241,6 +241,7 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
     return;
   // A herbception 'throws'/'fails{E}' spec implies noexcept(true): the call
   // cannot propagate a traditional C++ exception.
+  case EST_DependentThrows:
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
   case EST_BasicThrowsFalse:
@@ -19812,6 +19813,10 @@ bool Sema::checkThisInStaticMemberFunctionExceptionSpec(CXXMethodDecl *Method) {
   case EST_ThrowsTyped:
     break;
 
+  case EST_DependentThrows:
+    if (!Finder.TraverseStmt(Proto->getThrowsExpr()))
+      return true;
+    [[fallthrough]];
   case EST_DependentNoexcept:
   case EST_NoexceptFalse:
   case EST_NoexceptTrue:
@@ -19958,13 +19963,14 @@ void Sema::checkExceptionSpecification(
     return;
   }
 
-  if (isComputedNoexcept(EST)) {
+  if (hasStoredSpecExpr(EST)) {
     assert((NoexceptExpr->isTypeDependent() ||
             NoexceptExpr->getType()->getCanonicalTypeUnqualified() ==
             Context.BoolTy) &&
            "Parser should have made sure that the expression is boolean");
     if (IsTopLevel && DiagnoseUnexpandedParameterPack(NoexceptExpr)) {
-      ESI.Type = EST_BasicNoexcept;
+      ESI.Type =
+          EST == EST_DependentThrows ? EST_BasicThrows : EST_BasicNoexcept;
       return;
     }
 

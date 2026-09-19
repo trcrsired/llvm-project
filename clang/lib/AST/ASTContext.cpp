@@ -5062,7 +5062,7 @@ static bool isCanonicalExceptionSpecification(
 
   // A noexcept(expr) specification is (possibly) canonical if expr is
   // value-dependent.
-  if (ESI.Type == EST_DependentNoexcept)
+  if (ESI.Type == EST_DependentNoexcept || ESI.Type == EST_DependentThrows)
     return true;
 
   // A dynamic exception specification is canonical if it only contains pack
@@ -5195,6 +5195,7 @@ QualType ASTContext::getFunctionTypeInternal(
         break;
 
       case EST_DependentNoexcept:
+      case EST_DependentThrows:
         llvm_unreachable("dependent noexcept is already canonical");
       }
     } else {
@@ -14469,7 +14470,8 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
   // since it's not actually part of the canonical type. And this should never
   // happen in C++17, because it would mean we were computing the composite
   // pointer type of dependent types, which should never happen.
-  if (EST1 == EST_DependentNoexcept || EST2 == EST_DependentNoexcept) {
+  if (EST1 == EST_DependentNoexcept || EST2 == EST_DependentNoexcept ||
+      EST1 == EST_DependentThrows || EST2 == EST_DependentThrows) {
     assert(AcceptDependent &&
            "computing composite pointer type of dependent types");
     return FunctionProtoType::ExceptionSpecInfo();
@@ -14483,6 +14485,7 @@ ASTContext::mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
   case EST_MSAny:
   case EST_BasicNoexcept:
   case EST_DependentNoexcept:
+  case EST_DependentThrows:
   case EST_NoexceptFalse:
   case EST_NoexceptTrue:
   case EST_NoThrow:
