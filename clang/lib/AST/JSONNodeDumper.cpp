@@ -695,6 +695,7 @@ void JSONNodeDumper::VisitFunctionProtoType(const FunctionProtoType *T) {
   // the debugger, which is not a use case we worry about for the JSON dumping
   // feature.
   case EST_DependentNoexcept:
+  case EST_DependentThrows:
   case EST_Unevaluated:
   case EST_Uninstantiated:
   case EST_Unparsed:

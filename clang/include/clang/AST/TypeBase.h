@@ -5635,6 +5635,7 @@ private:
       return {NumExceptions, 0, 0};
 
     case EST_DependentNoexcept:
+    case EST_DependentThrows:
     case EST_NoexceptFalse:
     case EST_NoexceptTrue:
       return {0, 1, 0};
@@ -5729,7 +5730,8 @@ public:
 
   /// Return whether this function has a herbception (throws/fails) spec.
   bool hasThrowsSpec() const {
-    return getExceptionSpecType() == EST_BasicThrows ||
+    return getExceptionSpecType() == EST_DependentThrows ||
+           getExceptionSpecType() == EST_BasicThrows ||
            getExceptionSpecType() == EST_BasicThrowsTrue ||
            getExceptionSpecType() == EST_BasicThrowsFalse ||
            getExceptionSpecType() == EST_ThrowsTyped;
@@ -5764,6 +5766,8 @@ public:
       Result.Exceptions = exceptions();
     } else if (isComputedNoexcept(Result.Type)) {
       Result.NoexceptExpr = getNoexceptExpr();
+    } else if (Result.Type == EST_DependentThrows) {
+      Result.NoexceptExpr = getThrowsExpr();
     } else if (Result.Type == EST_Uninstantiated) {
       Result.SourceDecl = getExceptionSpecDecl();
       Result.SourceTemplate = getExceptionSpecTemplate();
@@ -5792,6 +5796,14 @@ public:
   /// if there is none (because the exception spec is not of this form).
   Expr *getNoexceptExpr() const {
     if (!isComputedNoexcept(getExceptionSpecType()))
+      return nullptr;
+    return *getTrailingObjects<Expr *>();
+  }
+
+  /// Return the expression inside a dependent throws(expression), or a null
+  /// pointer if there is none.
+  Expr *getThrowsExpr() const {
+    if (getExceptionSpecType() != EST_DependentThrows)
       return nullptr;
     return *getTrailingObjects<Expr *>();
   }

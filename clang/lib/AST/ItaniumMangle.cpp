@@ -3778,6 +3778,9 @@ void CXXNameMangler::mangleType(const FunctionProtoType *T) {
       Out << "DO";
       mangleExpression(T->getNoexceptExpr());
       Out << "E";
+    } else if (T->getExceptionSpecType() == EST_DependentThrows) {
+      // Herbception throws specs are not part of the mangled name in this
+      // ABI, matching the non-dependent throws encoding.
     } else {
       assert(T->getExceptionSpecType() == EST_Dynamic);
       Out << "Dw";

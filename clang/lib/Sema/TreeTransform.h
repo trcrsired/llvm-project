@@ -6939,8 +6939,8 @@ bool TreeTransform<Derived>::TransformExceptionSpec(
     SmallVectorImpl<QualType> &Exceptions, bool &Changed) {
   assert(ESI.Type != EST_Uninstantiated && ESI.Type != EST_Unevaluated);
 
-  // Instantiate a dynamic noexcept expression, if any.
-  if (isComputedNoexcept(ESI.Type)) {
+  // Instantiate a dependent noexcept or throws expression, if any.
+  if (hasStoredSpecExpr(ESI.Type)) {
     // Update this scrope because ContextDecl in Sema will be used in
     // TransformExpr.
     auto *Method = dyn_cast_if_present<CXXMethodDecl>(ESI.SourceTemplate);
@@ -6955,8 +6955,12 @@ bool TreeTransform<Derived>::TransformExceptionSpec(
       return true;
 
     ExceptionSpecificationType EST = ESI.Type;
-    NoexceptExpr =
-        getSema().ActOnNoexceptSpec(NoexceptExpr.get(), EST);
+    if (EST == EST_DependentThrows)
+      NoexceptExpr =
+          getSema().ActOnThrowsSpec(NoexceptExpr.get(), EST);
+    else
+      NoexceptExpr =
+          getSema().ActOnNoexceptSpec(NoexceptExpr.get(), EST);
     if (NoexceptExpr.isInvalid())
       return true;
 
