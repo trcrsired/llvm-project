@@ -30,6 +30,7 @@ enum ExceptionSpecificationType {
   EST_Unevaluated,       ///< not evaluated yet, for special member function
   EST_Uninstantiated,    ///< not instantiated yet
   EST_Unparsed,          ///< not parsed yet
+  EST_DependentThrows,   ///< throws(expression), value-dependent
   EST_BasicThrows,       ///< throws (herbception): implicit std::error
   EST_BasicThrowsTrue,   ///< throws(true): can fail, implicit std::error
   EST_BasicThrowsFalse,  ///< throws(false): cannot fail, implicit std::error
@@ -63,10 +64,18 @@ inline bool isExplicitThrowExceptionSpec(ExceptionSpecificationType ESpecType) {
 /// spec. Such specs are part of the canonical function type (they change the
 /// calling convention), so they are only compatible with an identical spec.
 inline bool hasHerbceptionExceptionSpec(ExceptionSpecificationType ESpecType) {
-  return ESpecType == EST_BasicThrows ||
+  return ESpecType == EST_DependentThrows ||
+         ESpecType == EST_BasicThrows ||
          ESpecType == EST_BasicThrowsTrue ||
          ESpecType == EST_BasicThrowsFalse ||
          ESpecType == EST_ThrowsTyped;
+}
+
+/// Whether this exception specification stores a spec Expr * in the function
+/// prototype's trailing objects: computed noexcept(expr) or dependent
+/// throws(expr).
+inline bool hasStoredSpecExpr(ExceptionSpecificationType ESpecType) {
+  return isComputedNoexcept(ESpecType) || ESpecType == EST_DependentThrows;
 }
 
 /// Possible results from evaluation of a noexcept expression.
