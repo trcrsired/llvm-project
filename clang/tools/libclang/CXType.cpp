@@ -821,6 +821,7 @@ getExternalExceptionSpecificationKind(ExceptionSpecificationType EST) {
     return CXCursor_ExceptionSpecificationKind_Uninstantiated;
   case EST_Unparsed:
     return CXCursor_ExceptionSpecificationKind_Unparsed;
+  case EST_DependentThrows:
   case EST_BasicThrows:
   case EST_BasicThrowsTrue:
   case EST_BasicThrowsFalse:
