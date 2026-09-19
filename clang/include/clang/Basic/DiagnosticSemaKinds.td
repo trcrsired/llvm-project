@@ -8802,6 +8802,10 @@ def err_throw_throws_rethrow_outside_catch : Error<
   "bare 'throw throws' (rethrow) is only allowed inside a 'catch throws' block">;
 def err_throw_throws_no_error_domain : Error<
   "'throw throws' operand type %0 has no std::error_domain specialization">;
+def err_herbceptions_cxx_std_error_layout : Error<
+  "%0 marked 'herbceptions_cxx_std_error' must have the std::error ABI "
+  "layout: exactly two fields, a pointer followed by an integer of pointer "
+  "width">;
 
 def err_throw_throws_no_catch_handler : Error<
   "'throw throws' in a plain (non-'throws') function must be inside a "
