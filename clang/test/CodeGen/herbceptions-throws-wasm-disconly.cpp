@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -std=c++20 -triple wasm32-unknown-wasip1 -fherbceptions -emit-llvm %s -o %t.w32.ll
 // RUN: FileCheck --input-file=%t.w32.ll --check-prefix=WASM %s
+// RUN: llvm-as < %t.w32.ll -o /dev/null
 // RUN: %clang_cc1 -std=c++20 -triple wasm64-unknown-wasip1 -fherbceptions -emit-llvm %s -o %t.w64.ll
 // RUN: FileCheck --input-file=%t.w64.ll --check-prefix=WASM64 %s
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fherbceptions -emit-llvm %s -o %t.x86.ll
@@ -95,6 +96,26 @@ struct Foo {
 // X86: ret { { ptr, i64 }, i1 }
 int caller_scalar(int v) throws {
   return try(f_scalar(v));
+}
+
+// A bool payload is stored as i8 in the union slot but is an i1 value: the
+// caller must run the usual load conversion (icmp ne), not br on the i8.
+// WASM-LABEL: define i1 @_Z13f_bool_calleri(
+// WASM: %call = call i1 @_Z6f_booli(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
+// WASM: br i1 %call, label %try.err, label %try.ok
+// WASM: try.ok:
+// WASM: load i8, ptr %tmp
+// WASM: icmp ne i8 %{{.*}}, 0
+// WASM-NOT: br i8
+// WASM: ret i1
+bool f_bool(int v) throws {
+  if (v < 0) throw throws std::my_errc{v};
+  return v > 0;
+}
+int f_bool_caller(int v) throws {
+  if (try(f_bool(v)))
+    return 1;
+  return 0;
 }
 
 // WASM-LABEL: define i1 @_Z11caller_ctori(

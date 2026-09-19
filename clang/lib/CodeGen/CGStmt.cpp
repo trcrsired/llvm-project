@@ -2383,8 +2383,14 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     return RValue::getIgnored();
 
   if (getEvaluationKind(CallTy) == TEK_Scalar) {
+    // EmitLoadOfScalar rather than a raw load: the in-memory payload type
+    // differs from the scalar value type for bool (i8 in memory, i1 as a
+    // value) and _BitInt, so the load needs the usual load conversion.
     llvm::Value *SuccessValue =
-        PayloadIsIndirect ? Builder.CreateLoad(IndirectPayload) : Success;
+        PayloadIsIndirect
+            ? EmitLoadOfScalar(IndirectPayload, /*Volatile=*/false, CallTy,
+                               E->getExprLoc())
+            : Success;
     if (PayloadTy == ConvertType(CallTy))
       return RValue::get(SuccessValue);
     // The payload is wider than the scalar success value; reinterpret it
