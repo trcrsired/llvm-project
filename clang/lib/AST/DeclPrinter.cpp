@@ -816,6 +816,13 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
           Proto += FT->getExceptionType(I).getAsString(SubPolicy);
         }
       Proto += ")";
+    } else if (FT && FT->getExceptionSpecType() == EST_DependentThrows) {
+      Proto += " throws(";
+      llvm::raw_string_ostream EOut(Proto);
+      if (FT->getThrowsExpr())
+        FT->getThrowsExpr()->printPretty(EOut, nullptr, SubPolicy,
+                                         Indentation, "\n", &Context);
+      Proto += ")";
     } else if (FT && FT->hasBasicThrowsSpec()) {
       if (FT->getExceptionSpecType() == EST_BasicThrowsTrue)
         Proto += " throws(true)";

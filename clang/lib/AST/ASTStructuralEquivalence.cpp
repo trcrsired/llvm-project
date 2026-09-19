@@ -888,6 +888,10 @@ static bool IsEquivalentExceptionSpec(StructuralEquivalenceContext &Context,
     if (!IsStructurallyEquivalent(Context, Proto1->getNoexceptExpr(),
                                   Proto2->getNoexceptExpr()))
       return false;
+  } else if (Spec1 == EST_DependentThrows) {
+    if (!IsStructurallyEquivalent(Context, Proto1->getThrowsExpr(),
+                                  Proto2->getThrowsExpr()))
+      return false;
   }
 
   return true;

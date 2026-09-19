@@ -127,7 +127,7 @@ ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
 
   if (ThrowsExpr->isTypeDependent() ||
       ThrowsExpr->containsUnexpandedParameterPack()) {
-    EST = EST_BasicThrows;
+    EST = EST_DependentThrows;
     return ThrowsExpr;
   }
 
@@ -139,13 +139,14 @@ ExprResult Sema::ActOnThrowsSpec(Expr *ThrowsExpr,
     return ExprError();
   }
   if (Converted.get()->isValueDependent()) {
-    EST = EST_BasicThrows;
+    EST = EST_DependentThrows;
     return Converted;
   }
+  // throws(true) is throws; throws(false) is noexcept.
   if (Result.getBoolValue())
-    EST = EST_BasicThrowsTrue;
+    EST = EST_BasicThrows;
   else
-    EST = EST_BasicThrowsFalse;
+    EST = EST_BasicNoexcept;
   return Converted;
 }
 
@@ -415,7 +416,7 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
 
   // For dependent noexcept, we can't just take the expression from the old
   // prototype. It likely contains references to the old prototype's parameters.
-  if (ESI.Type == EST_DependentNoexcept) {
+  if (ESI.Type == EST_DependentNoexcept || ESI.Type == EST_DependentThrows) {
     New->setInvalidDecl();
   } else {
     // Update the type of the function with the appropriate exception
@@ -429,7 +430,8 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
     DiagID = diag::ext_missing_exception_specification;
     ReturnValueOnError = false;
   } else if (New->isReplaceableGlobalAllocationFunction() &&
-             ESI.Type != EST_DependentNoexcept) {
+             ESI.Type != EST_DependentNoexcept &&
+             ESI.Type != EST_DependentThrows) {
     // Allow missing exception specifications in redeclarations as an extension,
     // when declaring a replaceable global allocation function.
     DiagID = diag::ext_missing_exception_specification;
@@ -485,6 +487,12 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
     break;
   case EST_NoThrow:
     OS <<"__attribute__((nothrow))";
+    break;
+  case EST_DependentThrows:
+    OS << "throws(";
+    assert(OldProto->getThrowsExpr() != nullptr && "Expected non-null Expr");
+    OldProto->getThrowsExpr()->printPretty(OS, nullptr, getPrintingPolicy());
+    OS << ")";
     break;
   case EST_BasicThrows:
     OS << "throws";
@@ -658,6 +666,16 @@ static bool CheckEquivalentExceptionSpecImpl(
     }
 
     if (Success && OldTypes.size() == NewTypes.size())
+      return false;
+  }
+
+  // Dependent throws(expr) specs are compatible when their expressions are
+  // equivalent; instantiation will catch any real mismatch.
+  if (OldEST == EST_DependentThrows && NewEST == EST_DependentThrows) {
+    llvm::FoldingSetNodeID OldFSN, NewFSN;
+    Old->getThrowsExpr()->Profile(OldFSN, S.Context, true);
+    New->getThrowsExpr()->Profile(NewFSN, S.Context, true);
+    if (OldFSN == NewFSN)
       return false;
   }
 
@@ -872,6 +890,10 @@ bool Sema::CheckExceptionSpecSubset(
   bool SuperHerb = hasHerbceptionExceptionSpec(SuperEST);
   bool SubHerb = hasHerbceptionExceptionSpec(SubEST);
   if (SuperHerb || SubHerb) {
+    // If either side is a dependent throws(expr), defer: the check is
+    // re-evaluated after instantiation.
+    if (SuperEST == EST_DependentThrows || SubEST == EST_DependentThrows)
+      return false;
     if (SuperHerb && SubHerb) {
       if ((SuperEST == EST_BasicThrows ||
             SuperEST == EST_BasicThrowsTrue ||
@@ -1118,6 +1140,8 @@ static CanThrowResult canSubStmtsThrow(Sema &Self, const Stmt *S) {
 static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
                                    QualType E) {
   ExceptionSpecificationType EST = FT->getExceptionSpecType();
+  if (EST == EST_DependentThrows)
+    return E.isNull();
   if (EST == EST_BasicThrows || EST == EST_BasicThrowsTrue)
     return E.isNull();
   if (EST == EST_BasicThrowsFalse)
