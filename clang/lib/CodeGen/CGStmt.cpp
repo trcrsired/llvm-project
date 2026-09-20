@@ -2159,8 +2159,11 @@ static bool isDiscOnlyThrowsCall(llvm::CallBase *CB, unsigned &SretArgNo) {
 }
 
 RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
-  assert(CurFnInfo && CurFnInfo->hasThrowsReturn() &&
-         "herbception try outside a throws function");
+  // A try() can appear in a non-throws function through a default argument
+  // (which is emitted in the caller's context): there the error path follows
+  // the bare-call rule -- an enclosing `catch throws` handler takes it, main()
+  // traps, and anywhere else is rejected by Sema.
+  assert(CurFnInfo);
 
   const CallExpr *Call = getHerbceptionWrappedCall(E->getSubExpr());
   QualType CallTy = Call->getType();
@@ -2303,36 +2306,38 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   {
     RunCleanupsScope CleanupScope(*this);
 
-    // If this is a `fails{E}` call being auto-propagated into a `throws`
-    // function, the E error payload must first be converted to std::error via
-    // error_domain<E>::domain() and error_domain<E>::code(e).
-    if (E->getErrorDomain()) {
-      llvm::Value *StdErr = EmitFailsErrorToStdError(E, Success);
-      if (StdErr) {
-        llvm::Value *Coerced = CoerceToSlot(StdErr, ReturnValue);
+    if (CurFnInfo->hasThrowsReturn()) {
+      // If this is a `fails{E}` call being auto-propagated into a `throws`
+      // function, the E error payload must first be converted to std::error via
+      // error_domain<E>::domain() and error_domain<E>::code(e).
+      if (E->getErrorDomain()) {
+        llvm::Value *StdErr = EmitFailsErrorToStdError(E, Success);
+        if (StdErr) {
+          llvm::Value *Coerced = CoerceToSlot(StdErr, ReturnValue);
+          auto *I = Builder.CreateStore(Coerced, ReturnValue);
+          addInstToCurrentSourceAtom(I, I->getValueOperand());
+        }
+      } else if (FnRetTy->isVoidType()) {
+        // A void throws function's return slot holds the error value
+        // (std::error / E); store the payload into it on the error path.
+        llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
+        auto *I = Builder.CreateStore(Coerced, ReturnValue);
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
+      } else if (getEvaluationKind(CallTy) == TEK_Scalar) {
+        auto *I = Builder.CreateStore(Success, ReturnValue);
+        addInstToCurrentSourceAtom(I, I->getValueOperand());
+      } else if (getEvaluationKind(CallTy) == TEK_Complex) {
+        EmitComplexExprIntoLValue(Call, MakeAddrLValue(ReturnValue, CallTy),
+                                  /*isInit*/ true);
+      } else {
+        // Aggregate success value: the {T, i1} payload already holds it, so
+        // store it into the return slot instead of re-calling.
+        llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
         auto *I = Builder.CreateStore(Coerced, ReturnValue);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
       }
-    } else if (FnRetTy->isVoidType()) {
-      // A void throws function's return slot holds the error value
-      // (std::error / E); store the payload into it on the error path.
-      llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
-      auto *I = Builder.CreateStore(Coerced, ReturnValue);
-      addInstToCurrentSourceAtom(I, I->getValueOperand());
-    } else if (getEvaluationKind(CallTy) == TEK_Scalar) {
-      auto *I = Builder.CreateStore(Success, ReturnValue);
-      addInstToCurrentSourceAtom(I, I->getValueOperand());
-    } else if (getEvaluationKind(CallTy) == TEK_Complex) {
-      EmitComplexExprIntoLValue(Call, MakeAddrLValue(ReturnValue, CallTy),
-                                /*isInit*/ true);
-    } else {
-      // Aggregate success value: the {T, i1} payload already holds it, so
-      // store it into the return slot instead of re-calling.
-      llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
-      auto *I = Builder.CreateStore(Coerced, ReturnValue);
-      addInstToCurrentSourceAtom(I, I->getValueOperand());
+      Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
     }
-    Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
 
     if (!HerbceptionCatchScopes.empty()) {
       const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
@@ -2352,9 +2357,23 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
       addInstToCurrentSourceAtom(I, I->getValueOperand());
       CleanupScope.ForceCleanup();
       EmitBranchThroughCleanup(Scope.Handler);
-    } else {
+    } else if (CurFnInfo->hasThrowsReturn()) {
       CleanupScope.ForceCleanup();
       EmitBranchThroughCleanup(ReturnBlock);
+    } else {
+      // try() in a non-throws function follows the bare-call rule: the error
+      // traps in main(); anywhere else Sema has already rejected it, so this
+      // is only a defensive diagnostic.
+      const FunctionDecl *CurFD =
+          dyn_cast_or_null<FunctionDecl>(CurFuncDecl);
+      if (CurFD && CurFD->isMain()) {
+        EmitTrapCall(llvm::Intrinsic::trap);
+        Builder.CreateUnreachable();
+      } else {
+        CGM.getDiags().Report(E->getExprLoc(),
+                              diag::err_herbceptions_non_throws_call_throws);
+        Builder.CreateUnreachable();
+      }
     }
   }
 
@@ -2373,9 +2392,12 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     // and storing the payload here would overflow it. The error always fits,
     // and defining the slot from it is all this needs to do. The value the try
     // expression actually produces is materialised below.
-    llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
-    auto *I = Builder.CreateStore(Coerced, ReturnValue);
-    addInstToCurrentSourceAtom(I, I->getValueOperand());
+    // In a non-throws function there is no return slot to mirror into.
+    if (CurFnInfo->hasThrowsReturn()) {
+      llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
+      auto *I = Builder.CreateStore(Coerced, ReturnValue);
+      addInstToCurrentSourceAtom(I, I->getValueOperand());
+    }
   }
 
   // A statement-level call has no value to materialize.
