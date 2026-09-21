@@ -161,6 +161,57 @@ def RetCC_AArch64_AAPCS : CallingConv<[
            CCAssignToReg<[P0, P1, P2, P3]>>
 ]>;
 
+// AArch64-Arm64EC return-value convention for throws (herbception)
+// functions, mirroring RetCC_X86_Win64_C_Throws.
+//
+// The x64 ABI returns scalars of only 1, 2, 4 or 8 bytes in registers and
+// pushes anything larger to sret.  Herbception expands the budget to 16
+// bytes so that union{T,E} payloads (std::span, std::string_view,
+// std::error) come back in registers on the EC side: x0:x1, which an
+// entry thunk maps to rax:rdx.  The i1 discriminant is carried in NZCV.C;
+// it is parked on w8 here as a nominal slot (the backend reads/writes the
+// flag and never copies w8) so it can never collide with a payload
+// register.  Empty payloads decompose to zero leaves and consume no
+// registers.
+def RetCC_AArch64_Arm64EC_Throws : CallingConv<[
+  CCIfType<[iPTR], CCBitConvertToType<i64>>,
+  CCIfType<[v2f32], CCBitConvertToType<v2i32>>,
+  CCIfType<[v2f64, v4f32], CCBitConvertToType<v2i64>>,
+
+  // The throws discriminant rides NZCV.C; park its leaf on w8 so it never
+  // consumes or collides with a payload return register.
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i1, i8, i16],
+                                        CCPromoteToType<i32>>>,
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i32], CCAssignToReg<[W8]>>>,
+
+  CCIfType<[i1, i8, i16], CCPromoteToType<i32>>,
+  CCIfType<[i32], CCAssignToReg<[W0, W1]>>,
+  CCIfType<[i64], CCAssignToReg<[X0, X1]>>,
+  CCIfType<[f16, bf16], CCAssignToReg<[H0, H1]>>,
+  CCIfType<[f32], CCAssignToReg<[S0, S1]>>,
+  CCIfType<[f64], CCAssignToReg<[D0, D1]>>,
+  CCIfType<[f128, v16i8, v8i16, v4i32, v2i64, v8f16, v4f32, v2f64],
+           CCAssignToReg<[Q0, Q1]>>,
+
+  // Beyond the 16-byte register budget, fall back to the normal AAPCS
+  // rules (x2..x7/stack). Unreachable for well-formed throws returns --
+  // the frontend uses throws_sret -- but keeps analysis total when this
+  // table is reached from a throws caller's MachineFunction for an
+  // ordinary callee.
+  CCDelegateTo<RetCC_AArch64_AAPCS>
+]>;
+
+// Root AArch64 return-value convention: throws (herbception) functions on
+// ARM64EC use the expanded EC return convention; everything else uses the
+// normal AAPCS return rules.
+let Entry = 1 in
+def RetCC_AArch64 : CallingConv<[
+  CCIfSubtarget<"isWindowsArm64EC()",
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+         CCDelegateTo<RetCC_AArch64_Arm64EC_Throws>>>,
+  CCDelegateTo<RetCC_AArch64_AAPCS>
+]>;
+
 let Entry = 1 in
 def CC_AArch64_Win64PCS : CallingConv<!listconcat(
   [

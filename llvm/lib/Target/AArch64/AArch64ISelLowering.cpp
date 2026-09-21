@@ -9342,7 +9342,7 @@ CCAssignFn *
 AArch64TargetLowering::CCAssignFnForReturn(CallingConv::ID CC) const {
   switch (CC) {
   default:
-    return RetCC_AArch64_AAPCS;
+    return RetCC_AArch64;
   case CallingConv::ARM64EC_Thunk_X64:
     return RetCC_AArch64_Arm64EC_Thunk;
   case CallingConv::CFGuard_Check:

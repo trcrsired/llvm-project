@@ -13,6 +13,14 @@
 //===----------------------------------------------------------------------===//
 // Xtensa return value
 def RetCC_Xtensa : CallingConv<[
+  // Herbception (throws): the success/failure discriminant is returned in
+  // a4, the register immediately after the a2:a3 payload (matching the
+  // RISC-V/LoongArch register model; Xtensa has no condition flags and its
+  // boolean registers cannot be written from integer values).
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i1, i8, i16],
+                                        CCPromoteToType<i32>>>,
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i32], CCAssignToReg<[A4]>>>,
+
   // First two return values go in a2, a3, a4, a5
   CCIfType<[i32], CCAssignToReg<[A2, A3, A4, A5]>>,
   CCIfType<[f32], CCAssignToReg<[A2, A3, A4, A5]>>,
@@ -28,6 +36,13 @@ def CSR_Xtensa : CalleeSavedRegs<(add A0, A12, A13, A14, A15)>;
 //===----------------------------------------------------------------------===//
 // Xtensa return value for 8 registers window
 def RetCCW8_Xtensa : CallingConv<[
+  // Herbception (throws): the success/failure discriminant is returned in
+  // a12 in the caller's register window view, which is the same physical
+  // register as the callee's a4 (window rotation by 8).
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i1, i8, i16],
+                                        CCPromoteToType<i32>>>,
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i32], CCAssignToReg<[A12]>>>,
+
   //First two return values go in a10, a11, a12, a13
   CCIfType<[i32], CCAssignToReg<[A10, A11, A12, A13]>>,
   CCIfType<[i64], CCAssignToRegWithShadow<[A10, A12], [A11, A13]>>
