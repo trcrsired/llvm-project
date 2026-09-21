@@ -430,6 +430,11 @@ using TargetRegisterClass = MCRegisterClass;
     SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                       SmallVectorImpl<SDValue> &InVals) const override;
 
+    /// MIPS returns the throws (herbception) discriminant in $a0, the
+    /// return register immediately after the $v0:$v1 payload (matching the
+    /// RISC-V/LoongArch model; MIPS has no condition flags).
+    bool supportThrowsCC() const override { return true; }
+
     bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                         bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,

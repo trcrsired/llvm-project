@@ -80,6 +80,12 @@ public:
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 
+  /// Xtensa returns the throws (herbception) discriminant in a4 (call0 ABI)
+  /// -- callee a4 / caller a12 under the windowed ABI. Xtensa has no
+  /// condition flags; its Boolean registers cannot be written from integer
+  /// values, so the discriminant uses the next return register.
+  bool supportThrowsCC() const override { return true; }
+
   bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                       bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,

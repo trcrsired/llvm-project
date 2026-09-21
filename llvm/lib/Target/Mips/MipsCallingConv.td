@@ -85,6 +85,12 @@ def RetCC_MipsO32 : CallingConv<[
   // Promote i1/i8/i16 return values to i32.
   CCIfType<[i1, i8, i16], CCPromoteToType<i32>>,
 
+  // Herbception (throws): the success/failure discriminant is returned in
+  // $a0, the register immediately after the $v0:$v1 payload. This mirrors
+  // the RISC-V/LoongArch convention (an extra return register for the
+  // discriminant) and must precede the generic i32 rule.
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i32], CCAssignToReg<[A0]>>>,
+
   // i32 are returned in registers V0, V1, A0, A1, unless the original return
   // type was a vector of floats.
   CCIfOrigArgWasNotVectorFloat<CCIfType<[i32],
@@ -197,6 +203,13 @@ def RetCC_MipsN : CallingConv<[
   CCIfSubtargetNot<"isLittle()",
       CCIfType<[i8, i16, i32, i64],
           CCIfInReg<CCPromoteToUpperBitsInType<i64>>>>,
+
+  // Herbception (throws): the success/failure discriminant is returned in
+  // $a0, the register immediately after the $v0:$v1 payload, matching the
+  // RISC-V/LoongArch register model. Must precede the generic i64 rule.
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i1, i8, i16, i32],
+                                        CCPromoteToType<i64>>>,
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i64], CCAssignToReg<[A0_64]>>>,
 
   // i64 are returned in registers V0_64, V1_64
   CCIfType<[i64], CCAssignToReg<[V0_64, V1_64]>>,

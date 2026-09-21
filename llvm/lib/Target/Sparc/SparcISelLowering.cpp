@@ -281,11 +281,23 @@ SparcTargetLowering::LowerReturn_32(SDValue Chain, CallingConv::ID CallConv,
   // Make room for the return address offset.
   RetOps.push_back(SDValue());
 
+  // Herbception (throws): the success/failure discriminant is the last
+  // return value and is carried in the integer condition-code carry flag
+  // (%icc.c on v8, %xcc.c on v9), not in a return register. It is compared
+  // against zero, glued to the return instruction below.
+  SDValue ThrowsDiscriminant;
+
   // Copy the result values into the output registers.
   for (unsigned i = 0, realRVLocIdx = 0;
        i != RVLocs.size();
        ++i, ++realRVLocIdx) {
     CCValAssign &VA = RVLocs[i];
+
+    if (Outs[realRVLocIdx].Flags.isThrows()) {
+      ThrowsDiscriminant = OutVals[realRVLocIdx];
+      continue;
+    }
+
     assert(VA.isRegLoc() && "Can only return in registers!");
 
     SDValue Arg = OutVals[realRVLocIdx];
@@ -340,6 +352,16 @@ SparcTargetLowering::LowerReturn_32(SDValue Chain, CallingConv::ID CallConv,
   RetOps[0] = Chain;  // Update chain.
   RetOps[1] = DAG.getConstant(RetAddrOffset, DL, MVT::i32);
 
+  // Herbception (throws): set the carry flag from the discriminant with a
+  // compare against zero (subcc %g0, disc, %g0). The compare is glued to the
+  // return instruction so that nothing can be scheduled between the flag
+  // write and the ret/retl.
+  if (ThrowsDiscriminant.getNode()) {
+    SDValue Disc = DAG.getZExtOrTrunc(ThrowsDiscriminant, DL, MVT::i32);
+    Glue = DAG.getNode(SPISD::CMPICC, DL, MVT::Glue,
+                       DAG.getConstant(0, DL, MVT::i32), Disc);
+  }
+
   // Add the glue if we have it.
   if (Glue.getNode())
     RetOps.push_back(Glue);
@@ -372,9 +394,20 @@ SparcTargetLowering::LowerReturn_64(SDValue Chain, CallingConv::ID CallConv,
   // The return address is always %i7+8 with the 64-bit ABI.
   RetOps.push_back(DAG.getConstant(8, DL, MVT::i32));
 
+  // Herbception (throws): the success/failure discriminant is the last
+  // return value and is carried in the integer condition-code carry flag
+  // (%icc.c / %xcc.c), not in a return register.
+  SDValue ThrowsDiscriminant;
+
   // Copy the result values into the output registers.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
     CCValAssign &VA = RVLocs[i];
+
+    if (Outs[i].Flags.isThrows()) {
+      ThrowsDiscriminant = OutVals[i];
+      continue;
+    }
+
     assert(VA.isRegLoc() && "Can only return in registers!");
     SDValue OutVal = OutVals[i];
 
@@ -418,6 +451,15 @@ SparcTargetLowering::LowerReturn_64(SDValue Chain, CallingConv::ID CallConv,
   }
 
   RetOps[0] = Chain;  // Update chain.
+
+  // Herbception (throws): set the carry flag from the discriminant with a
+  // compare against zero, glued to the return instruction so that nothing
+  // can be scheduled between the flag write and the ret.
+  if (ThrowsDiscriminant.getNode()) {
+    SDValue Disc = DAG.getZExtOrTrunc(ThrowsDiscriminant, DL, MVT::i32);
+    Glue = DAG.getNode(SPISD::CMPICC, DL, MVT::Glue,
+                       DAG.getConstant(0, DL, MVT::i32), Disc);
+  }
 
   // Add the flag if we have it.
   if (Glue.getNode())
@@ -1175,8 +1217,23 @@ SparcTargetLowering::LowerCall_32(TargetLowering::CallLoweringInfo &CLI,
 
   RVInfo.AnalyzeCallResult(Ins, RetCC_Sparc32);
 
+  // Herbception (throws): the discriminant is the last return value and is
+  // carried in the carry flag (%icc.c), read right after the call.
+  bool IsThrows = !Ins.empty() && Ins.back().Flags.isThrows();
+
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
+    if (IsThrows && i == RVLocs.size() - 1) {
+      // Materialize the carry flag: 1 if carry set (error), 0 otherwise.
+      SDValue Disc = DAG.getNode(SPISD::SELECT_ICC, dl, MVT::i32,
+                                 DAG.getConstant(1, dl, MVT::i32),
+                                 DAG.getConstant(0, dl, MVT::i32),
+                                 DAG.getConstant(SPCC::ICC_CS, dl, MVT::i32),
+                                 InGlue);
+      InVals.push_back(
+          DAG.getZExtOrTrunc(Disc, dl, RVLocs[i].getValVT()));
+      continue;
+    }
     assert(RVLocs[i].isRegLoc() && "Can only return in registers!");
     if (RVLocs[i].getLocVT() == MVT::v2i32) {
       SDValue Vec = DAG.getNode(ISD::UNDEF, dl, MVT::v2i32);
@@ -1508,9 +1565,24 @@ SparcTargetLowering::LowerCall_64(TargetLowering::CallLoweringInfo &CLI,
 
   RVInfo.AnalyzeCallResult(CLI.Ins, RetCC_Sparc64);
 
+  // Herbception (throws): the discriminant is the last return value and is
+  // carried in the carry flag (%icc.c / %xcc.c), read right after the call.
+  bool IsThrows = !CLI.Ins.empty() && CLI.Ins.back().Flags.isThrows();
+
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
     CCValAssign &VA = RVLocs[i];
+    if (IsThrows && i == RVLocs.size() - 1) {
+      // Materialize the carry flag: 1 if carry set (error), 0 otherwise.
+      SDValue Disc = DAG.getNode(SPISD::SELECT_ICC, DL, MVT::i32,
+                                 DAG.getConstant(1, DL, MVT::i32),
+                                 DAG.getConstant(0, DL, MVT::i32),
+                                 DAG.getConstant(SPCC::ICC_CS, DL, MVT::i32),
+                                 InGlue);
+      InVals.push_back(
+          DAG.getZExtOrTrunc(Disc, DL, VA.getValVT()));
+      continue;
+    }
     assert(VA.isRegLoc() && "Can only return in registers!");
     unsigned Reg = toCallerWindow(VA.getLocReg());
 
@@ -2623,6 +2695,79 @@ static SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG,
   SDValue Dest = Op.getOperand(4);
   SDLoc dl(Op);
   unsigned Opc, SPCC = ~0U;
+
+  // Herbception (throws): a call-site discriminant is materialized by
+  // SELECT_ICC(1, 0, cond, flag) glued to the call. A branch on it folds
+  // into a direct conditional branch on the condition codes, giving the
+  // "conditional branch immediately after the call" form.
+  {
+    // The materialized bit is 0 or 1; a branch may compare it against
+    // either constant in either operand position (eq/ne are symmetric).
+    // The branch tests the select's condition directly except when it is
+    // equivalent to "disc == 0" / "disc != 1", which inverts it.
+    // Unwrap truncate/and-1 wrappers, but only while each is single-use:
+    // folding is only safe if the select dies afterwards — a surviving
+    // select would share the flag glue with the new branch, forking the
+    // glued sequence.
+    auto UnwrapDisc = [](SDValue V) {
+      while ((V.getOpcode() == ISD::TRUNCATE ||
+              (V.getOpcode() == ISD::AND &&
+               isOneConstant(V.getOperand(1)))) &&
+             V->hasOneUse())
+        V = V.getOperand(0);
+      return V;
+    };
+    SDValue Disc = UnwrapDisc(LHS), Cmp = RHS;
+    if (Disc.getOpcode() != SPISD::SELECT_ICC) {
+      Disc = UnwrapDisc(RHS);
+      Cmp = LHS;
+    }
+    if (Disc.getOpcode() == SPISD::SELECT_ICC && Disc->hasOneUse() &&
+        isOneConstant(Disc.getOperand(0)) &&
+        isNullConstant(Disc.getOperand(1)) &&
+        (CC == ISD::SETEQ || CC == ISD::SETNE) &&
+        (isNullConstant(Cmp) || isOneConstant(Cmp))) {
+      SDValue Flag = Disc.getOperand(3);
+      SDNode *FlagN = Flag.getNode();
+      // The flag producer is inside the call's glued sequence. The branch's
+      // chain operand must therefore point inside that sequence: Op's own
+      // chain typically merges pending vreg copies of the call results, which
+      // read the sequence's data outputs — using it would make the sequence
+      // depend on its own users (a scheduling cycle). The pending chain is
+      // instead merged into the chain operand of Op's users (the fallthrough
+      // branch), keeping those copies reachable.
+      SDValue BrChain =
+          FlagN->getNumOperands() &&
+                  FlagN->getOperand(0).getValueType() == MVT::Other
+              ? FlagN->getOperand(0)
+              : SDValue();
+      if (BrChain.getNode() && !Op->use_empty() &&
+          Op.getNode() != DAG.getRoot().getNode()) {
+        unsigned C =
+            cast<ConstantSDNode>(Disc.getOperand(2))->getZExtValue();
+        if ((CC == ISD::SETEQ) == isNullConstant(Cmp))
+          C ^= 8;
+        SDValue Br = DAG.getNode(isV9 ? SPISD::BPICC : SPISD::BRICC, dl,
+                                 MVT::Other, BrChain, Dest,
+                                 DAG.getConstant(C, dl, MVT::i32), Flag);
+        SmallVector<SDNode *, 4> Users(Op->user_begin(), Op->user_end());
+        SmallVector<SDValue, 2> TFArgs = {Br, Chain};
+        for (SDNode *U : Users) {
+          SmallVector<SDValue, 8> Ops(U->op_begin(), U->op_end());
+          bool Changed = false;
+          for (SDValue &O : Ops)
+            if (O.getNode() == Op.getNode() &&
+                O.getValueType() == MVT::Other) {
+              O = DAG.getTokenFactor(dl, TFArgs);
+              Changed = true;
+            }
+          if (Changed)
+            DAG.UpdateNodeOperands(U, Ops);
+        }
+        return Br;
+      }
+    }
+  }
 
   // If this is a br_cc of a "setcc", and if the setcc got lowered into
   // an CMP[IF]CC/SELECT_[IF]CC pair, find the original compared values.

@@ -365,10 +365,18 @@ reference kind. The ``throws`` attribute
 kind ``ATTR_KIND_THROWS``) is added to the function and call site, and the
 function epilogue inserts the discriminant into the returned struct.
 
-When ``sizeof(union{T, E}) > 16`` (e.g. ``T`` is a 32-byte struct), the
-union must be passed by hidden sret pointer (``RDI`` on x86_64 SysV)
-rather than by value. The ``i1`` discriminant remains in CF -- the
-sret-pointer path is purely about the payload size.
+When the payload's ABI classification is indirect and
+``sizeof(union{T, E})`` exceeds the register-return budget (``2 *
+sizeof(void*)``), the union is not returned in registers: the payload is
+constructed into caller-provided storage through a hidden ``throws_sret``
+pointer parameter and the register return becomes ``{E, i1}`` -- the error
+value plus the discriminant. ``throws_sret`` (defined alongside ``sret``
+in ``llvm/IR/Attributes.td``) names the same hidden-pointer parameter as
+``sret`` but does not force the function's return type to ``void``, so
+``{E, i1}`` still comes back in registers. The discriminant selects the
+interpretation: flag set means the registers hold ``E``, flag clear means
+the payload is in the ``throws_sret`` buffer. The error type itself must
+fit the register-return budget; the implicit ``std::error`` always does.
 
 Call-site routing
 `````````````````
@@ -550,6 +558,117 @@ the ``ret``).
 ``llvm/lib/Target/X86/X86CallingConv.td``. They mirror the standard Win64
 conventions but serve as explicit, named entry points for the expanded
 register set.
+
+Additional target conventions
+-----------------------------
+
+The following discriminant carriers extend the convention to more
+targets. The general rule follows the existing split: ISAs with a usable
+condition-code carry a flag bit; flagless ISAs use the next fixed
+return register; WebAssembly uses a multivalue result. None of these have
+been validated on hardware.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Target
+     - Payload registers
+     - Discriminant carrier
+     - Caller test
+   * - MIPS (o32/n32/n64)
+     - ``$v0:$v1``
+     - ``$a0`` (next return register after the payload pair)
+     - ``bnez $a0`` / ``beqz $a0``
+   * - SPARC v8 / v9
+     - ``%o0:%o1``
+     - ``%icc.c`` / ``%xcc.c`` (carry bit)
+     - ``bcs`` / ``bcc``
+   * - Xtensa (call0 / windowed)
+     - ``a2:a3`` (call0); caller ``a10:a11`` = callee ``a2:a3`` (windowed)
+     - ``a4`` (call0); caller ``a12`` = callee ``a4`` (windowed)
+     - ``bnez a4`` / ``beqz a4``
+   * - ARM64EC
+     - ``x0:x1`` (mirrors ``rax:rdx``)
+     - NZCV.C inside EC code
+     - ``b.cs`` / ``b.cc``
+   * - PowerPC
+     - ``r3:r4``
+     - ``cr6.GT`` (failure) / ``cr6.EQ`` (success)
+     - ``bne cr6`` (failure) / ``beq cr6`` (success)
+
+**PowerPC.** ``r3:r4`` payload + ``cr6`` discriminant. The callee writes
+the field with ``cmpwi cr6, rDisc, 0`` glued before ``blr``, so a nonzero
+discriminant sets ``cr6.GT`` and a zero discriminant sets ``cr6.EQ``. The
+caller extracts ``cr6.GT`` as an ``i1`` (a ``crbitrc`` value), so selects
+and branches on the discriminant test the bit in place with
+``bne``/``beq``; GPR materialization (``setbc``/``mfocrf``) appears only
+if a consumer needs one.
+
+**Xtensa note.** ``b0``-``b15`` Boolean registers were considered as the
+flag-like carrier, but the ISA provides no integer-to-Boolean move:
+Boolean registers are written only by FP compares and Boolean logic ops.
+The convention therefore falls back to the RISC-V/LoongArch register
+model: ``a4`` in the call0 ABI, and under the windowed ABI the callee
+writes its ``a4`` which the caller observes as ``a12`` (callee ``aN``
+overlaps caller ``a(N+8)``).
+
+**ARM64EC note.** NZCV.C does not cross the x64<->EC thunk boundary:
+``__os_arm64x_dispatch_ret`` rebuilds the emulated x64 context and does
+not translate NZCV.C into EFLAGS.CF. ``throws`` is therefore only
+well-defined for calls that stay inside the EC world; crossing the
+boundary would need runtime/thunk support that does not exist today.
+
+``throws_sret`` and the register-return budget
+``````````````````````````````````````````````
+
+On all of these targets a ``throws_sret`` function returns ``{E, i1}``:
+the error value occupies the normal payload registers (``$v0:$v1``,
+``%o0:%o1``, ``a2:a3``, ``x0:x1``, ``r3:r4``) and the discriminant keeps
+its usual carrier. The payload goes through the ``throws_sret`` pointer,
+so the discriminant tells the caller whether the registers hold an error
+or the payload is in the buffer. A real error type is always within the
+two-register budget (``std::error`` is 8 bytes on 32-bit targets and 16
+bytes on 64-bit targets); on a 32-bit register-model target an
+over-budget ``{E, i1}`` cannot be formed and falls back to storing the
+whole union through the buffer.
+
+Conditional-branch adjacency
+````````````````````````````
+
+x86 and AArch64 keep the flag read glued to the call via dedicated
+pseudo-instructions (``HERB_SETCCr``, ``HERB_READ_CF``/``HERB_CSET``),
+and AArch64 additionally folds the flag read into a direct conditional
+branch in ``AArch64MIPeepholeOpt``. The new targets follow the same
+shape:
+
+* SPARC glues ``SELECT_ICC`` to the call, and ``LowerBR_CC`` folds a
+  branch on the materialized discriminant (in either operand order,
+  compared against 0 or 1) into a direct ``BRICC``/``BPICC`` on the
+  carry bit, giving ``call; bcs``-style code.
+* PowerPC extracts ``cr6.GT`` as an ``i1`` (``crbitrc``), so
+  ``select``/``br`` consumers emit ``isel``/``bc`` testing the bit in
+  place immediately after ``bl``.
+* MIPS and Xtensa use ordinary integer registers, so no flag-read
+  adjacency is needed.
+
+ARM64EC details
+```````````````
+
+Return: ``RetCC_AArch64_Arm64EC_Throws`` (dispatched by the
+``RetCC_AArch64`` wrapper when ``isWindowsArm64EC() && throws``) returns
+1, 2, 4, 8 and 16-byte payloads in ``x0:x1``/``w0:w1``/``d0:d1``/``q0:q1``
+and parks the discriminant on a nominal ``W8`` slot while NZCV.C carries
+the real value. Larger trivial payloads fall through to
+``RetCC_AArch64_AAPCS`` inside the same convention, so up to 32 bytes
+still return in ``x0:x3`` like plain AArch64.
+
+Arguments use the ordinary EC convention: a 16-byte aggregate is coerced
+to ``[2 x i64]`` and occupies ``x0:x1``-style slots, and empty records
+are ignored for ``throws`` functions (they do not consume an argument
+slot; ``AArch64ABIInfo::classifyArgumentType`` takes an ``IsThrows``
+flag for this). The MS ABI empty-argument slot is only skipped for
+``throws`` functions; ordinary arm64ec functions keep the standard
+Windows behavior.
 
 Middle-end: folding legacy throws into conversions
 ==================================================

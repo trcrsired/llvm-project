@@ -33,6 +33,14 @@ def CC_Sparc32 : CallingConv<[
 
 
 def RetCC_Sparc32 : CallingConv<[
+  // Herbception (throws): the success/failure discriminant is carried in
+  // the carry flag (%icc.c), not a register.  Park its leaf on a nominal
+  // register that the backend never copies to or from so it cannot collide
+  // with the %o0:%o1 payload.
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i1, i8, i16],
+                                        CCPromoteToType<i32>>>,
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i32], CCAssignToReg<[I5]>>>,
+
   CCIfType<[i32], CCAssignToReg<[I0, I1, I2, I3, I4, I5]>>,
   CCIfType<[f32], CCAssignToReg<[F0, F1, F2, F3]>>,
   CCIfType<[f64], CCAssignToReg<[D0, D1]>>,
@@ -126,6 +134,14 @@ def CC_Sparc64 : CallingConv<[
 ]>;
 
 def RetCC_Sparc64 : CallingConv<[
+  // Herbception (throws): the success/failure discriminant is carried in
+  // the carry flag (%icc.c / %xcc.c), not a register.  Park its leaf on a
+  // nominal register that the backend never copies to or from so it cannot
+  // collide with the %o0:%o1 payload.
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i1, i8, i16, i32],
+                                        CCPromoteToType<i64>>>,
+  CCIf<"ArgFlags.isThrows()", CCIfType<[i64], CCAssignToReg<[I5]>>>,
+
   // A single f32 return value always goes in %f0. The ABI doesn't specify what
   // happens to multiple f32 return values outside a struct.
   CCIfType<[f32], CCCustom<"RetCC_Sparc64_Half">>,
