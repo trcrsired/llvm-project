@@ -1,4 +1,4 @@
-// RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 // RUN: not %clang -std=c++20 -S -emit-llvm %s 2>&1 | FileCheck %s --check-prefix=DISABLED
 
 // Herbception (throws): a function declared 'throws' is lowered to a {T, i1}

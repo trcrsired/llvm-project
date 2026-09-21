@@ -4196,7 +4196,7 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
   // shortcut, use one AddInteger call instead of four for the next four
   // fields.
   assert(!(unsigned(epi.Variadic) & ~1) && !(unsigned(epi.RefQualifier) & ~3) &&
-         !(unsigned(epi.ExceptionSpec.Type) & ~15) &&
+         !(unsigned(epi.ExceptionSpec.Type) & ~31) &&
          "Values larger than expected.");
   ID.AddInteger(unsigned(epi.Variadic) + (epi.RefQualifier << 1) +
                 (epi.ExceptionSpec.Type << 3));

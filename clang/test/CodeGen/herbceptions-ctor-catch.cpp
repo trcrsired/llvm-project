@@ -1,4 +1,4 @@
-// RUN: %clang -std=c++26 -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -std=c++26 -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 
 // A constructor that throws a herbception inside a `try { } catch throws(...)`
 // block must route the error to the catch handler. Previously the switch in

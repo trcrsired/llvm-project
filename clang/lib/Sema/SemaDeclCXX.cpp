@@ -16564,6 +16564,21 @@ ExprResult Sema::BuildCXXConstructExpr(
   if (getLangOpts().CUDA && !CUDA().CheckCall(ConstructLoc, Constructor))
     return ExprError();
 
+  // Herbception: a constructor declared 'throws' returns the error through
+  // the herbception channel. Constructor calls are never wrapped in
+  // `try(expr)`; CodeGen auto-propagates the error in a throws function,
+  // traps it in main(), and routes it to an enclosing `catch throws`
+  // handler. Diagnose the remaining non-throws contexts here so
+  // -fsyntax-only catches them too. A dependent spec is decided when the
+  // construct is rebuilt at instantiation.
+  if (getLangOpts().HerbExceptions)
+    if (const auto *CtorFPT =
+            Constructor->getType()->getAs<FunctionProtoType>();
+        CtorFPT && CtorFPT->hasThrowsSpec() &&
+        CtorFPT->getExceptionSpecType() != EST_DependentThrows &&
+        diagnoseNonThrowsHerbceptionCall(ConstructLoc))
+      return ExprError();
+
   return CheckForImmediateInvocation(
       CXXConstructExpr::Create(
           Context, DeclInitType, ConstructLoc, Constructor, Elidable, ExprArgs,
