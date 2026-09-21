@@ -1,4 +1,4 @@
-// RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 
 // Herbceptions (throws): a payload that the ABI would return indirectly must not
 // be bitwise transported through registers -- that detaches the object from its

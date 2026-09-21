@@ -1,4 +1,4 @@
-// RUN: %clang -fherbceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -fherbceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 
 // Herbception `catch throws(E e) { ... }` block handler: a bare call to a
 // throws function inside the try block returns {T, i1}, and on failure the

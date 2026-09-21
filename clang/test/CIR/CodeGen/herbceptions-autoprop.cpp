@@ -1,4 +1,4 @@
-// RUN: %clang -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 
 // In C++, a bare call to a throws function inside a throws function
 // auto-propagates the error (no explicit try() needed).
