@@ -41,6 +41,6 @@ constexpr void use_try_templated() throws {
   (void)s;
 }
 
-void instantiate() {
+void instantiate() throws {
   use_try_templated<int>();
 }

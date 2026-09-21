@@ -7668,6 +7668,17 @@ PerformConstructorInitialization(Sema &S,
     }
     S.MarkFunctionReferenced(Loc, CalleeDecl);
 
+    // Herbception: see the matching check in BuildCXXConstructExpr - a
+    // constructor declared 'throws' propagates the error through the
+    // herbception channel, so a non-throws context is ill-formed.
+    if (S.getLangOpts().HerbExceptions)
+      if (const auto *CtorFPT =
+              CalleeDecl->getType()->getAs<FunctionProtoType>();
+          CtorFPT && CtorFPT->hasThrowsSpec() &&
+          CtorFPT->getExceptionSpecType() != EST_DependentThrows &&
+          S.diagnoseNonThrowsHerbceptionCall(Loc))
+        return ExprError();
+
     CurInit = S.CheckForImmediateInvocation(
         CXXTemporaryObjectExpr::Create(
             S.Context, CalleeDecl,

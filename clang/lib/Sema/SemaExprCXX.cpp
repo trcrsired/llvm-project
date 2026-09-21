@@ -881,22 +881,99 @@ static const Expr *skipHerbceptionTemporaryWrappers(const Expr *Ex) {
   }
 }
 
-/// Return whether \p Ex is a call to a function (or function template)
-/// declared with a herbception 'throws'/'fails{E}' spec.
-bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
+/// Return the function prototype of the callee of \p Ex if it is a call to a
+/// function (or function template), or null otherwise.
+const FunctionProtoType *Sema::getHerbceptionThrowsCallProto(const Expr *Ex) {
   const auto *Call =
       dyn_cast<CallExpr>(skipHerbceptionTemporaryWrappers(Ex));
   if (!Call)
+    return nullptr;
+
+  const Decl *Callee = Call->getCalleeDecl();
+  if (const auto *FTD = dyn_cast_or_null<FunctionTemplateDecl>(Callee))
+    Callee = FTD->getTemplatedDecl();
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
+    return FD->getType()->getAs<FunctionProtoType>();
+  return nullptr;
+}
+
+/// Return whether \p Ex is a call to a function (or function template)
+/// declared with a herbception 'throws'/'return_failure{E}' spec.
+bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
+  const FunctionProtoType *CalleeFPT = getHerbceptionThrowsCallProto(Ex);
+  return CalleeFPT && CalleeFPT->hasThrowsSpec();
+}
+
+/// A bare call to a throws/return_failure{E} function is only valid where
+/// the error can propagate (a throws/return_failure{E} function) or be
+/// routed (a `catch throws` handler, or main()'s trap). This is the Sema
+/// counterpart of CodeGen's bare-call check; anything CodeGen can still
+/// route, or that cannot be decided yet, is deferred:
+///   - `try { }` bodies: a `catch throws` handler is only known after the
+///     body, so routability is verified at CodeGen time;
+///   - catch clause bodies: errors may chain to sibling handlers;
+///   - `if constexpr` branches: the call may be discarded;
+///   - main(): an escaped error traps at runtime;
+///   - default arguments and other expressions evaluated in a different
+///     frame: the caller's context decides;
+///   - unevaluated operands: never emitted.
+bool Sema::diagnoseNonThrowsHerbceptionCall(SourceLocation Loc) {
+  const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true);
+  if (!CurFD || CurFD->getType().isNull())
+    return false;
+  const auto *CurFPT = CurFD->getType()->getAs<FunctionProtoType>();
+  if (!CurFPT || CurFPT->hasThrowsSpec())
     return false;
 
-  const FunctionProtoType *CalleeFPT = nullptr;
-  if (const Decl *Callee = Call->getCalleeDecl()) {
-    if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(Callee))
-      Callee = FTD->getTemplatedDecl();
-    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
-      CalleeFPT = FD->getType()->getAs<FunctionProtoType>();
+  // A spec that is not decided yet is re-checked when the call is rebuilt.
+  switch (CurFPT->getExceptionSpecType()) {
+  case EST_DependentThrows:
+  case EST_Uninstantiated:
+  case EST_Unevaluated:
+    return false;
+  default:
+    break;
   }
-  return CalleeFPT && CalleeFPT->hasThrowsSpec();
+
+  if (CurFD->isMain() || isUnevaluatedContext() ||
+      isCheckingDefaultArgumentOrInitializer() ||
+      HerbceptionTryBodyDepth > 0 || HerbceptionCatchClauseDepth > 0 ||
+      HerbceptionCatchDepth > 0 || HerbceptionIfConstexprDepth > 0)
+    return false;
+
+  // A default argument is evaluated in the caller's frame. While it is
+  // substituted the current context is the function owning the parameter,
+  // not the caller, so the caller's spec decides - defer.
+  if (!CodeSynthesisContexts.empty() &&
+      CodeSynthesisContexts.back().Kind ==
+          CodeSynthesisContext::DefaultFunctionArgumentInstantiation)
+    return false;
+
+  // While parsing, a function scope is pushed for each function body, so an
+  // empty stack means the expression is in a declaration context (a default
+  // argument or initializer) evaluated in some other frame. FunctionScopes
+  // is not maintained while instantiating, but the context is the function
+  // being instantiated, whose spec is decided.
+  if (!inTemplateInstantiation() && getFunctionScopes().empty())
+    return false;
+
+  // At parse time (there is no scope chain during instantiation) a `try { }`
+  // body or a parameter's default argument is also a deferred context. Stop
+  // at the innermost function body: a parameter scope reached through one is
+  // an outer frame (e.g. a lambda nested in a parameter list), while a
+  // parameter scope reached first means the expression itself is in a
+  // default argument, evaluated in the caller's frame.
+  for (const Scope *S = getCurScope(); S; S = S->getParent()) {
+    if (S->isTryScope())
+      return false;
+    if (S->isFunctionScope())
+      break;
+    if (S->isFunctionPrototypeScope())
+      return false;
+  }
+
+  Diag(Loc, diag::err_herbceptions_non_throws_call_throws);
+  return true;
 }
 
 ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
