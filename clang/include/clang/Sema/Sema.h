@@ -8674,8 +8674,22 @@ public:
   unsigned HerbceptionTryBodyDepth = 0;
 
   /// Return whether \p Ex is a call to a function (or function template)
-  /// declared with a herbception 'throws'/'fails{E}' spec.
+  /// declared with a herbception 'throws'/'return_failure{E}' spec.
   bool isHerbceptionThrowsCall(const Expr *Ex);
+
+  /// Return the function prototype of the callee of \p Ex if it is a call to
+  /// a function (or function template), or null otherwise. The expression is
+  /// unwrapped the same way isHerbceptionThrowsCall does.
+  const FunctionProtoType *getHerbceptionThrowsCallProto(const Expr *Ex);
+
+  /// Diagnose a bare call to a 'throws'/'return_failure{E}' function when
+  /// the enclosing context cannot propagate a herbception. Contexts that
+  /// CodeGen can still route or that are not decided yet (try bodies, catch
+  /// clauses, possibly discarded 'if constexpr' branches, default arguments
+  /// and other expressions evaluated in a different frame, unevaluated
+  /// operands, and main(), which traps) are left alone. \returns true when
+  /// the diagnostic was emitted.
+  bool diagnoseNonThrowsHerbceptionCall(SourceLocation Loc);
 
   /// CheckCXXThrowOperand - Validate the operand of a throw.
   bool CheckCXXThrowOperand(SourceLocation ThrowLoc, QualType ThrowTy, Expr *E);

@@ -27,7 +27,7 @@ struct BoolWrapper {
 inline constexpr void throwing() throws {}
 
 inline constexpr void outer() throws {
-  auto lam = [] {
+  auto lam = []() throws {
     if (BoolWrapper b{true}; b) {
       throwing();
     }

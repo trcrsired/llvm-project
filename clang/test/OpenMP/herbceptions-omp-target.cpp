@@ -1,3 +1,4 @@
+// REQUIRES: nvptx-registered-target, amdgpu-registered-target, staticanalyzer
 // RUN: %clang_cc1 -fopenmp -triple nvptx64 -fopenmp-is-target-device -std=c++26 -fherbceptions %s -verify -Wopenmp-target-exception -analyze
 // RUN: %clang_cc1 -fopenmp -triple amdgcn-amd-amdhsa -fopenmp-is-target-device -std=c++26 -fherbceptions %s -verify -Wopenmp-target-exception -analyze
 // expected-no-diagnostics

@@ -8592,6 +8592,11 @@ TreeTransform<Derived>::TransformIfStmt(IfStmt *S) {
   if (S->isConstexpr())
     ConstexprConditionValue = Cond.getKnownValue();
 
+  // Herbception: a still-dependent constexpr-if branch may be discarded, so
+  // defer context diagnostics while transforming it, like the parser does.
+  const bool MaybeDiscardedConstexprIf =
+      S->isConstexpr() && !ConstexprConditionValue;
+
   // Transform the "then" branch.
   StmtResult Then;
   if (!ConstexprConditionValue || *ConstexprConditionValue) {
@@ -8600,7 +8605,9 @@ TreeTransform<Derived>::TransformIfStmt(IfStmt *S) {
         nullptr, Sema::ExpressionEvaluationContextRecord::EK_Other,
         S->isNonNegatedConsteval());
 
+    getSema().HerbceptionIfConstexprDepth += MaybeDiscardedConstexprIf;
     Then = getDerived().TransformStmt(S->getThen());
+    getSema().HerbceptionIfConstexprDepth -= MaybeDiscardedConstexprIf;
     if (Then.isInvalid())
       return StmtError();
   } else {
@@ -8619,7 +8626,9 @@ TreeTransform<Derived>::TransformIfStmt(IfStmt *S) {
         nullptr, Sema::ExpressionEvaluationContextRecord::EK_Other,
         S->isNegatedConsteval());
 
+    getSema().HerbceptionIfConstexprDepth += MaybeDiscardedConstexprIf;
     Else = getDerived().TransformStmt(S->getElse());
+    getSema().HerbceptionIfConstexprDepth -= MaybeDiscardedConstexprIf;
     if (Else.isInvalid())
       return StmtError();
   } else if (S->getElse() && ConstexprConditionValue &&
@@ -9482,8 +9491,11 @@ TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
       return StmtError();
   }
 
-  // Transform the actual exception handler.
+  // Transform the actual exception handler. The parser tracks handler
+  // bodies with HerbceptionCatchDepth; do the same here.
+  ++getSema().HerbceptionCatchDepth;
   StmtResult Handler = getDerived().TransformStmt(S->getHandlerBlock());
+  --getSema().HerbceptionCatchDepth;
   if (Handler.isInvalid())
     return StmtError();
 
@@ -9497,12 +9509,17 @@ TreeTransform<Derived>::TransformCXXCatchThrowsStmt(CXXCatchThrowsStmt *S) {
 
 template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
+  // Herbception: mirror the parser's depth counters so bare throws-call
+  // checks know a `catch throws` handler may consume the error.
+  ++getSema().HerbceptionTryBodyDepth;
   // Transform the try block itself.
   StmtResult TryBlock = getDerived().TransformCompoundStmt(S->getTryBlock());
+  --getSema().HerbceptionTryBodyDepth;
   if (TryBlock.isInvalid())
     return StmtError();
 
   // Transform the handlers.
+  ++getSema().HerbceptionCatchClauseDepth;
   bool HandlerChanged = false;
   SmallVector<Stmt *, 8> Handlers;
   for (unsigned I = 0, N = S->getNumHandlers(); I != N; ++I) {
@@ -9511,12 +9528,15 @@ StmtResult TreeTransform<Derived>::TransformCXXTryStmt(CXXTryStmt *S) {
       Handler = getDerived().TransformCXXCatchThrowsStmt(CT);
     else
       Handler = getDerived().TransformCXXCatchStmt(S->getCatchHandler(I));
-    if (Handler.isInvalid())
+    if (Handler.isInvalid()) {
+      --getSema().HerbceptionCatchClauseDepth;
       return StmtError();
+    }
 
     HandlerChanged = HandlerChanged || Handler.get() != S->getHandler(I);
     Handlers.push_back(Handler.getAs<Stmt>());
   }
+  --getSema().HerbceptionCatchClauseDepth;
 
   // Herbception `try { } catch throws(...)` handlers use deterministic error
   // propagation, not traditional C++ EH. They are allowed even with

@@ -1,4 +1,4 @@
-// RUN: %clang -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 
 // Herbception `catch return_failure(expr)` with a payload that the ABI returns
 // indirectly. On Win64 a payload wider than the register budget is built in

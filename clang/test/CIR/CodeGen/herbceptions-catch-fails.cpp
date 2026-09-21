@@ -1,4 +1,4 @@
-// RUN: %clang -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
 
 // Herbception `catch return_failure(expr)`: the throws call returns {T, i1}, and the
 // expression builds the N2289 aggregate
