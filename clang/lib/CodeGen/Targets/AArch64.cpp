@@ -44,7 +44,8 @@ private:
   ABIArgInfo classifyReturnType(QualType RetTy, bool IsVariadicFn) const;
   ABIArgInfo classifyArgumentType(QualType RetTy, bool IsVariadicFn,
                                   bool IsNamedArg, unsigned CallingConvention,
-                                  unsigned &NSRN, unsigned &NPRN) const;
+                                  unsigned &NSRN, unsigned &NPRN,
+                                  bool IsThrows = false) const;
   llvm::Type *convertFixedToScalableVectorType(const VectorType *VT) const;
   ABIArgInfo coerceIllegalVector(QualType Ty, unsigned &NSRN,
                                  unsigned &NPRN) const;
@@ -78,7 +79,8 @@ private:
           !FI.isVariadic() || ArgNo < FI.getRequiredArgs().getNumRequiredArgs();
       ++ArgNo;
       it.info = classifyArgumentType(it.type, FI.isVariadic(), IsNamedArg,
-                                     FI.getCallingConvention(), NSRN, NPRN);
+                                     FI.getCallingConvention(), NSRN, NPRN,
+                                     FI.getHerbceptionErrorType() != nullptr);
     }
   }
 
@@ -371,8 +373,8 @@ ABIArgInfo AArch64ABIInfo::coerceAndExpandPureScalableAggregate(
 ABIArgInfo AArch64ABIInfo::classifyArgumentType(QualType Ty, bool IsVariadicFn,
                                                 bool IsNamedArg,
                                                 unsigned CallingConvention,
-                                                unsigned &NSRN,
-                                                unsigned &NPRN) const {
+                                                unsigned &NSRN, unsigned &NPRN,
+                                                bool IsThrows) const {
   Ty = useFirstFieldIfTransparentUnion(Ty);
 
   if (IsVariadicFn && getTarget().getTriple().isWindowsArm64EC()) {
@@ -456,6 +458,12 @@ ABIArgInfo AArch64ABIInfo::classifyArgumentType(QualType Ty, bool IsVariadicFn,
     // C++) are ignored. This isn't defined by any standard, so we copy GCC's
     // behaviour here.
     if (Size == 0)
+      return ABIArgInfo::getIgnore();
+
+    // Herbception (throws): on ARM64EC the expanded convention ignores empty
+    // records in throws functions so they do not consume an argument
+    // register slot.
+    if (IsThrows && getTarget().getTriple().isWindowsArm64EC())
       return ABIArgInfo::getIgnore();
   }
 

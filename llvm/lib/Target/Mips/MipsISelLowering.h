@@ -146,7 +146,7 @@ using TargetRegisterClass = MCRegisterClass;
     Register
     getExceptionPointerRegister(ExceptionHandling EH,
                                 const Constant *PersonalityFn) const override {
-      return ABI.IsN64() ? Mips::A0_64 : Mips::A0;
+      return ABI.getArgRegPtr(0);
     }
 
     /// If a physical register, this returns the register that receives the
@@ -154,7 +154,7 @@ using TargetRegisterClass = MCRegisterClass;
     Register
     getExceptionSelectorRegister(ExceptionHandling EH,
                                  const Constant *PersonalityFn) const override {
-      return ABI.IsN64() ? Mips::A1_64 : Mips::A1;
+      return ABI.getArgRegPtr(1);
     }
 
     bool isJumpTableRelative() const override {
@@ -430,6 +430,11 @@ using TargetRegisterClass = MCRegisterClass;
     SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                       SmallVectorImpl<SDValue> &InVals) const override;
 
+    /// MIPS returns the throws (herbception) discriminant in $a0, the
+    /// return register immediately after the $v0:$v1 payload (matching the
+    /// RISC-V/LoongArch model; MIPS has no condition flags).
+    bool supportThrowsCC() const override { return true; }
+
     bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                         bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
@@ -507,8 +512,6 @@ using TargetRegisterClass = MCRegisterClass;
     bool shouldInsertFencesForAtomic(const Instruction *I) const override {
       return true;
     }
-
-    int getCPURegisterIndex(StringRef Name) const;
 
     ArrayRef<MCPhysReg> getRoundingControlRegisters() const override;
 

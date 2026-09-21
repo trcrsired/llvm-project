@@ -108,6 +108,11 @@ namespace llvm {
     SDValue LowerCall_64(TargetLowering::CallLoweringInfo &CLI,
                          SmallVectorImpl<SDValue> &InVals) const;
 
+    /// SPARC returns the throws (herbception) discriminant in the integer
+    /// condition-code carry flag (%icc.c on v8, %xcc.c on v9), following the
+    /// same flag-channel model as x86 CF and AArch64 NZCV.C.
+    bool supportThrowsCC() const override { return true; }
+
     bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                         bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,

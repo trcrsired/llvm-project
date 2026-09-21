@@ -564,6 +564,30 @@ holds ``T``, on failure the error value. For the implicit ``std::error`` type
 ``{
   {ptr, i64}, i1 }``.
 
+Large or non-trivially-copyable payloads (``throws_sret``)
+----------------------------------------------------------
+
+When the payload's ABI classification is indirect and
+``sizeof(union{T, E})`` exceeds the register-return budget (two GPRs), the
+payload cannot travel through the register union: bitwise transport would
+detach the object from its storage (e.g. a short ``std::string`` would keep
+a pointer into the callee's frame). In that case the payload is constructed
+directly into caller-provided storage through a hidden ``throws_sret``
+pointer parameter -- the herbception counterpart of ``sret``, except that it
+does not force the return type to ``void`` -- and the register return
+carries only ``{E, i1}``:
+
+.. code-block:: llvm
+
+   ; C++: BigNonTrivial foo() throws;
+   define { E, i1 } @foo(ptr throws_sret(BigNonTrivial) %out, ...) #0
+
+The discriminant keeps its usual meaning: on error the registers hold the
+``E`` value; on success they are ignored and the payload sits in the
+``throws_sret`` buffer. The error itself therefore has to fit the
+register-return budget; the implicit ``std::error`` always does (8 bytes on
+32-bit targets, 16 bytes on 64-bit targets).
+
 Call-site lowering
 ------------------
 
@@ -630,6 +654,26 @@ the struct return:
      - Extra integer register (``$a2``)
      - ``li $a2, 0`` / ``li $a2, 1``
      - ``beqz $a2, success``
+   * - MIPS (o32/n32/n64)
+     - Extra integer register (``$a0``)
+     - ``li $a0, 0`` / ``li $a0, 1``
+     - ``beqz $a0, success``
+   * - SPARC v8 / v9
+     - Carry bit (``%icc.c`` / ``%xcc.c``)
+     - ``cmp %g0, 0`` / ``cmp %g0, 1``
+     - ``bcc`` / ``bcs``
+   * - Xtensa (call0 / windowed)
+     - Extra integer register (``a4``; caller reads ``a12`` windowed)
+     - ``movi a4, 0`` / ``movi a4, 1``
+     - ``beqz`` / ``bnez`` on the register
+   * - ARM64EC
+     - Carry flag (``C`` in NZCV), EC-internal calls only
+     - ``subs``-style set/clear
+     - ``cset`` / ``b.cs``
+   * - PowerPC
+     - ``cr6`` field (``cr6.GT`` = error, ``cr6.EQ`` = success)
+     - ``cmpwi cr6, rDisc, 0`` before ``blr``
+     - ``bc`` / ``isel`` on the ``cr6`` bit
    * - WebAssembly
      - Extra multivalue result
      - second result ``0`` / ``1``
