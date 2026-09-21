@@ -551,6 +551,60 @@ the ``ret``).
 conventions but serve as explicit, named entry points for the expanded
 register set.
 
+Proposed target conventions (not yet implemented)
+-------------------------------------------------
+
+The following discriminant carriers are **proposed designs** recorded here
+for later review; they are not implemented and none have been validated on
+hardware. The general rule follows the existing split: ISAs with a usable
+condition-code carry a flag bit; flagless ISAs use the next fixed
+return register; WebAssembly uses a multivalue result.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Target
+     - Payload registers
+     - Discriminant carrier
+     - Caller test
+   * - MIPS (o32/n32/n64)
+     - ``$v0:$v1``
+     - ``$a0`` (next return register after the payload pair)
+     - ``bnez $a0`` / ``beqz $a0``
+   * - SPARC v8 / v9
+     - ``%o0:%o1``
+     - ``%icc.c`` / ``%xcc.c`` (carry bit)
+     - ``bcs`` / ``bcc``
+   * - Xtensa (call0 / windowed)
+     - ``a2:a3`` (call0); caller ``a2:a3`` = callee ``a10:a11`` (windowed)
+     - ``a4`` (call0); callee ``a12`` = caller ``a4`` (windowed)
+     - ``bnez a4`` / ``beqz a4``
+   * - ARM64EC
+     - ``x0:x1`` (mirrors ``rax:rdx``)
+     - NZCV.C inside EC code
+     - ``b.cs`` / ``b.cc``
+   * - PowerPC (proposed)
+     - ``r3:r4``
+     - ``cr6.EQ``
+     - ``beq cr6`` (success) / ``bne cr6`` (failure)
+
+**PowerPC.** ``r3:r4`` payload + ``cr6.EQ`` discriminant. The callee
+writes the field with ``cmpwi cr6, rDisc, 0`` glued before ``blr``;
+the caller tests the EQ bit directly with ``beq``/``bne``.
+
+**Xtensa note.** ``b0``-``b15`` Boolean registers were considered as the
+flag-like carrier, but the ISA provides no integer-to-Boolean move:
+Boolean registers are written only by FP compares and Boolean logic ops.
+The proposal therefore falls back to the RISC-V/LoongArch register model
+(``a4`` in the call0 ABI; callee ``a12`` / caller ``a4`` under the
+windowed ABI).
+
+**ARM64EC note.** NZCV.C does not cross the x64<->EC thunk boundary:
+``__os_arm64x_dispatch_ret`` rebuilds the emulated x64 context and does
+not translate NZCV.C into EFLAGS.CF. ``throws`` is therefore only
+well-defined for calls that stay inside the EC world; crossing the
+boundary would need runtime/thunk support that does not exist today.
+
 Middle-end: folding legacy throws into conversions
 ==================================================
 
