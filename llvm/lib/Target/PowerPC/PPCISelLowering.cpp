@@ -5320,9 +5320,32 @@ SDValue PPCTargetLowering::LowerCallResult(
                ? RetCC_PPC_Cold
                : RetCC_PPC);
 
+  // Herbception (throws): the discriminant is the last return value and is
+  // carried in cr6, written by the callee with `cmpw(i) cr6, disc, 0` right
+  // before returning (cr6.GT set iff the call failed). Read it back
+  // immediately after the call with mfocrf.
+  bool IsThrows = !Ins.empty() && Ins.back().Flags.isThrows();
+
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0, e = RVLocs.size(); i != e; ++i) {
     CCValAssign &VA = RVLocs[i];
+
+    if (IsThrows && i == e - 1) {
+      // The discriminant lives in cr6.GT (error). Extract it as an i1 --
+      // i1 values live in crbitrc registers on PPC, so selects and
+      // branches on the discriminant test the CR bit in place. A GPR
+      // materialization (setbc / mfocrf+bit extract) only appears if a
+      // consumer actually needs the value in a GPR.
+      SDValue CRBit = SDValue(
+          DAG.getMachineNode(TargetOpcode::EXTRACT_SUBREG, dl, MVT::i1,
+                             DAG.getRegister(PPC::CR6, MVT::i32),
+                             DAG.getTargetConstant(PPC::sub_gt, dl, MVT::i32),
+                             InGlue),
+          0);
+      InVals.push_back(DAG.getZExtOrTrunc(CRBit, dl, VA.getValVT()));
+      continue;
+    }
+
     assert(VA.isRegLoc() && "Can only return in registers!");
 
     SDValue Val;
@@ -7907,9 +7930,20 @@ PPCTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   SDValue Glue;
   SmallVector<SDValue, 4> RetOps(1, Chain);
 
+  // Herbception (throws): the success/failure discriminant is the last
+  // return value and is carried in cr6, not in a return register. It is
+  // compared against zero, glued to the return instruction below.
+  SDValue ThrowsDiscriminant;
+
   // Copy the result values into the output registers.
   for (unsigned i = 0, RealResIdx = 0; i != RVLocs.size(); ++i, ++RealResIdx) {
     CCValAssign &VA = RVLocs[i];
+
+    if (Outs[RealResIdx].Flags.isThrows()) {
+      ThrowsDiscriminant = OutVals[RealResIdx];
+      continue;
+    }
+
     assert(VA.isRegLoc() && "Can only return in registers!");
 
     SDValue Arg = OutVals[RealResIdx];
@@ -7947,6 +7981,21 @@ PPCTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   }
 
   RetOps[0] = Chain;  // Update chain.
+
+  // Herbception (throws): write the discriminant into cr6 with
+  // `cmpwi cr6, disc, 0` (cr6.GT = error), glued to the return instruction
+  // so that nothing can be scheduled between the compare and the blr.
+  if (ThrowsDiscriminant.getNode()) {
+    SDValue Disc = DAG.getZExtOrTrunc(ThrowsDiscriminant, dl, MVT::i32);
+    SDValue Cmp =
+        SDValue(DAG.getMachineNode(PPC::CMPWI, dl, MVT::i32, Disc,
+                                   DAG.getTargetConstant(0, dl, MVT::i32)),
+                0);
+    SDValue CR6Reg = DAG.getRegister(PPC::CR6, MVT::i32);
+    Chain = DAG.getCopyToReg(Chain, dl, CR6Reg, Cmp, Glue);
+    Glue = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(PPC::CR6, MVT::i32));
+  }
 
   // Add the glue if we have it.
   if (Glue.getNode())

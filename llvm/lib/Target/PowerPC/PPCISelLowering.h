@@ -807,6 +807,11 @@ namespace llvm {
     SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                       SmallVectorImpl<SDValue> &InVals) const override;
 
+    /// PowerPC returns the throws (herbception) discriminant in cr6, written
+    /// by the callee with `cmpwi cr6, disc, 0` glued to the return
+    /// (cr6.GT = error) and read by the caller with mfocrf.
+    bool supportThrowsCC() const override { return true; }
+
     bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                         bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
