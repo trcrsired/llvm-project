@@ -6872,20 +6872,6 @@ static void DiagnosedUnqualifiedCallsToStdFunctions(Sema &S,
       << FixItHint::CreateInsertion(DRE->getLocation(), "std::");
 }
 
-/// Return the function prototype of the callee of \p E if it is a call to a
-/// throws/fails function, or null otherwise.
-static const FunctionProtoType *getHerbceptionCalleeProto(const Expr *E) {
-  const auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
-  if (!Call)
-    return nullptr;
-  const Decl *Callee = Call->getCalleeDecl();
-  if (const auto *FTD = dyn_cast_or_null<FunctionTemplateDecl>(Callee))
-    Callee = FTD->getTemplatedDecl();
-  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Callee))
-    return FD->getType()->getAs<FunctionProtoType>();
-  return nullptr;
-}
-
 ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                MultiExprArg ArgExprs, SourceLocation RParenLoc,
                                Expr *ExecConfig) {
@@ -6910,11 +6896,11 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     if (const auto *CE = dyn_cast<CallExpr>(Call.get()))
       DiagnosedUnqualifiedCallsToStdFunctions(*this, CE);
 
-    // Herbception (C++ only): a bare call to a throws/fails function inside a
-    // function declared 'throws'/'fails{...}' auto-propagates the error. This
-    // is only suppressed while parsing the operand of an explicit
-    // try(expr)/catch fails(expr). C code must always use try()/catch fails()
-    // explicitly, so this never applies in C.
+    // Herbception (C++ only): a bare call to a throws/return_failure{E}
+    // function inside a function declared 'throws'/'return_failure{E}'
+    // auto-propagates the error. This is only suppressed while parsing the
+    // operand of an explicit try(expr)/catch fails(expr). C code must always
+    // use try()/catch fails() explicitly, so this never applies in C.
     if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0) {
       if (const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true)) {
         // The current function decl can exist but not yet have a type while
@@ -6923,25 +6909,43 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
         if (const auto *CurFPT = CurFD->getType().isNull()
                                      ? nullptr
                                      : CurFD->getType()->getAs<FunctionProtoType>();
-            CurFPT && CurFPT->hasThrowsSpec() &&
-            isHerbceptionThrowsCall(Call.get())) {
-          SourceLocation CallLoc = Call.get()->getBeginLoc();
+            CurFPT) {
+          const FunctionProtoType *CalleeFPT =
+              getHerbceptionThrowsCallProto(Call.get());
+          const bool ThrowsCall = CalleeFPT && CalleeFPT->hasThrowsSpec();
 
-          // Inside a `catch throws(std::error)` handler the error slot holds a
-          // std::error. A bare call to a plain `fails{E2}` function would
-          // store its raw E2 payload there; require an explicit `try()` (which
-          // resolves std::error_domain<E2> and converts), C-style.
-          if (HerbceptionCatchDepth > 0 && CurFPT->hasReturnFailureSpec()) {
-            const FunctionProtoType *CalleeFPT =
-                getHerbceptionCalleeProto(Call.get());
-            if (CalleeFPT && CalleeFPT->hasReturnFailureSpec() &&
+          // A dependent throws(expr) spec is only resolved at instantiation,
+          // where the rebuilt call re-enters this function. Deciding now
+          // would bake a stale implicit try() (or a stale error) into the
+          // template pattern, which is then re-validated against the
+          // resolved spec and misfires when either side resolves to
+          // noexcept.
+          const bool SpecUndecided =
+              CurFPT->getExceptionSpecType() == EST_DependentThrows ||
+              (CalleeFPT &&
+               CalleeFPT->getExceptionSpecType() == EST_DependentThrows);
+
+          if (CurFPT->hasThrowsSpec() && ThrowsCall && !SpecUndecided) {
+            SourceLocation CallLoc = Call.get()->getBeginLoc();
+
+            // Inside a `catch throws(std::error)` handler the error slot
+            // holds a std::error. A bare call to a plain
+            // `return_failure{E2}` function would store its raw E2 payload
+            // there; require an explicit `try()` (which resolves
+            // std::error_domain<E2> and converts), C-style.
+            if (HerbceptionCatchDepth > 0 && CurFPT->hasReturnFailureSpec() &&
+                CalleeFPT->hasReturnFailureSpec() &&
                 !CalleeFPT->hasBasicThrowsSpec()) {
               Diag(CallLoc, diag::err_return_failure_call_in_catch_throws);
               return ExprError();
             }
-          }
 
-          Call = ActOnHerbceptionTry(CallLoc, Call.get());
+            Call = ActOnHerbceptionTry(CallLoc, Call.get());
+          } else if (ThrowsCall && !SpecUndecided &&
+                     diagnoseNonThrowsHerbceptionCall(
+                         Call.get()->getBeginLoc())) {
+            return ExprError();
+          }
         }
       }
     }

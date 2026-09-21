@@ -70,3 +70,49 @@ struct holder {
 
 static_assert(throws(holder<true>{}.m()), "holder<true>::m should be throws");
 static_assert(!throws(holder<false>{}.m()), "holder<false>::m should be noexcept");
+
+// A member of a class template calling another throws member through this->:
+// the implicit try() must be decided against the spec as resolved at
+// instantiation, not the dependent spec in the pattern.
+template <typename T>
+struct member_calls {
+  void callee() throws {}
+
+  // Dependent spec resolving to noexcept: calling a throws member is
+  // ill-formed, and the diagnostic must name the real problem rather than
+  // complain about a stale implicit try().
+  void run_noexcept() throws(sizeof(T) > 100) {
+    this->callee(); // expected-error {{call to 'throws' function in a non-'throws' function must be handled by an enclosing 'try { } catch throws' block, or mark the calling function as 'throws' so herbceptions can propagate}}
+  }
+
+  // Dependent spec resolving to throws: propagates.
+  void run_throws() throws(sizeof(T) >= 1) { this->callee(); }
+};
+
+// throws caller + dependent-spec callee resolving to noexcept: a plain call.
+template <typename T>
+struct member_dep_callee {
+  void maybe() throws(sizeof(T) > 100) {}
+  void run() throws { this->maybe(); }
+};
+
+// Member function template of a class template.
+template <typename T>
+struct member_fn_tmpl {
+  void callee() throws {}
+  template <typename I>
+  void run(I first, I last) throws { this->callee(); }
+};
+
+void use_member_calls() throws {
+  member_calls<int> mc;
+  mc.run_noexcept(); // expected-note {{in instantiation of member function 'member_calls<int>::run_noexcept' requested here}}
+  mc.run_throws();
+
+  member_dep_callee<int> mdc;
+  mdc.run();
+
+  member_fn_tmpl<int> mft;
+  int a[1] = {};
+  mft.run(a, a + 1);
+}
