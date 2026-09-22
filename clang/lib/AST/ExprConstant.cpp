@@ -9019,7 +9019,7 @@ public:
                            IgnoreImplicitSingleStep);
   }
 
-  /// Evaluate a herbception `catch fails(expr)`: call the fails{E} function;
+  /// Evaluate a herbception `catch fails(expr)`: call the return_failure{E} function;
   /// if it fails, build the N2289 aggregate {union{T value; E error}; bool
   /// failed} with .failed=1/.error=E, else .failed=0/.value=T.
   bool VisitCXXCatchReturnFailureExpr(const CXXCatchReturnFailureExpr *E) {

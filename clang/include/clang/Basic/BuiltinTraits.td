@@ -373,9 +373,9 @@ def RemoveCVRef : TransformTypeTrait {
   let StdName = "remove_cvref";
 }
 
-// Herbception: extract the error type E of a `fails{E}` function type, like
+// Herbception: extract the error type E of a `return_failure{E}` function type, like
 // invoke_result_t extracts a callable's return type. The result is E if the
-// argument is a function type (or pointer/reference to one) with a fails{E}
+// argument is a function type (or pointer/reference to one) with a return_failure{E}
 // spec, and void otherwise.
 def InvokeHerbceptionsFailsType : TransformTypeTrait {
   let Spelling = "__invoke_herbceptions_return_failure_t";
@@ -608,7 +608,7 @@ def IsNothrowConvertible : BinaryTrait {
 // implements (not the libc++/libstdc++ header-sugar names like
 // is_nothrow_default_constructible / is_nothrow_invocable, which belong in the
 // standard library). They test the `throws` channel (implicit std::error);
-// there are no `fails{E}` variants because fails{E} is a C-style feature
+// there are no `return_failure{E}` variants because return_failure{E} is a C-style feature
 // restricted to free functions.
 //
 //   __is_herbceptions_throws_*  tests whether the operation can propagate an
@@ -651,7 +651,7 @@ def IsHerbceptionsThrowsable : UnaryTrait {
 }
 
 // Whether F is a function type (or function pointer/reference) declared with a
-// `fails{E}` herbception spec, named to mirror invoke_result_t/invoke_return_t.
+// `return_failure{E}` herbception spec, named to mirror invoke_result_t/invoke_return_t.
 // To obtain the error type E, use __invoke_herbceptions_return_failure_t(F).
 def IsInvokeHerbceptionsFails : UnaryTrait {
   let Spelling = "__is_invoke_herbceptions_return_failure";

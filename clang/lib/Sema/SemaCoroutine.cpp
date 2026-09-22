@@ -705,7 +705,7 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
   if (!checkCoroutineContext(*this, KWLoc, Keyword))
     return false;
 
-  // Herbception `fails{E}` is a C-style feature restricted to free functions;
+  // Herbception `return_failure{E}` is a C-style feature restricted to free functions;
   // coroutines are not plain free functions, so reject a fails spec here.
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
     if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {

@@ -1945,7 +1945,7 @@ Parser::TryParseFunctionDeclarator(bool MayHaveTrailingReturnType) {
   }
 
   // Herbception exception-specification: 'throws' (implicit std::error) or
-  // 'fails{E}' (explicit error type).
+  // 'return_failure{E}' (explicit error type).
   if (Tok.isOneOf(tok::kw_throws, tok::kw_return_failure)) {
     ConsumeToken();
     if (Tok.is(tok::l_brace)) {

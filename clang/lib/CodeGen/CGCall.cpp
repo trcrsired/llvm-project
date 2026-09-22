@@ -244,7 +244,7 @@ using ExtParameterInfoList =
 ///
 /// For `throws` (C++), the implicit error type is `std::error`, a trivial
 /// 2-register struct {void*, size_t} hardcoded here (std::error is not wired
-/// into the AST yet). For `fails{E}`, the error type is the explicit E.
+/// into the AST yet). For `return_failure{E}`, the error type is the explicit E.
 static llvm::Type *getHerbceptionErrorType(CodeGenTypes &CGT,
                                            const FunctionProtoType *FTP) {
   if (!FTP || !FTP->hasThrowsSpec())
@@ -2362,7 +2362,7 @@ static void AddAttributesFromFunctionProtoType(ASTContext &Ctx,
     return;
 
   // A function that cannot throw a C++ exception is nounwind at the IR level.
-  // This includes herbception 'throws'/'fails{E}' functions, which fail via
+  // This includes herbception 'throws'/'return_failure{E}' functions, which fail via
   // the deterministic error channel (return value) rather than unwinding:
   // their canThrow() is CT_Deterministic, not CT_Can. Marking them nounwind
   // keeps calls to them plain calls (no invoke/landing-pad) so they do not
@@ -2932,7 +2932,7 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     FuncAttrs.addAttribute(llvm::Attribute::Throws);
     // Herbception `throws` implies noexcept by default: errors return through
     // the normal path, so the function must also be NoUnwind to keep
-    // mayThrow() false. An explicit `noexcept(false) fails{E}` can throw C++
+    // mayThrow() false. An explicit `noexcept(false) return_failure{E}` can throw C++
     // exceptions, so it does not get NoUnwind.
     const FunctionProtoType *proto =
         CalleeInfo.getCalleeFunctionProtoType();

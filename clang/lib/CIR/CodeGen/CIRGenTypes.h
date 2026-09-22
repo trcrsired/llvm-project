@@ -153,7 +153,7 @@ public:
 
   /// The IR type of the error value carried by a herbception throws/fails
   /// function, or null if \p ftp carries no herbception spec. For
-  /// ``fails{E}`` this is E; for bare ``throws`` it is the fabricated
+  /// ``return_failure{E}`` this is E; for bare ``throws`` it is the fabricated
   /// ``{void *, size_t}`` std::error.
   mlir::Type getHerbceptionErrorType(const clang::FunctionProtoType *ftp);
 

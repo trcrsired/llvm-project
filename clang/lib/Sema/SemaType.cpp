@@ -10381,8 +10381,8 @@ QualType Sema::BuildUnaryTransformType(QualType BaseType, UTTKind UKind,
     break;
   }
   case UnaryTransformType::InvokeHerbceptionsFailsType: {
-    // Extract the error type E of a `fails{E}` function type. void if the
-    // argument is not a function type with a fails{E} spec.
+    // Extract the error type E of a `return_failure{E}` function type. void if the
+    // argument is not a function type with a return_failure{E} spec.
     if (BaseType->isDependentType()) {
       Result = BaseType;
       break;
