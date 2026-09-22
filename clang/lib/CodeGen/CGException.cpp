@@ -569,7 +569,7 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
       CatchScope->setCatchAllHandler(0, getHerbceptionLegacyConvert());
     }
   } else if (Proto->getExceptionSpecType() == EST_ThrowsTyped) {
-    // A default `fails{E}` function implies noexcept(true): any legacy C++
+    // A default `return_failure{E}` function implies noexcept(true): any legacy C++
     // exception that escapes it calls std::terminate (exactly like a noexcept
     // function).
     if (!getLangOpts().EHAsynch)
@@ -989,7 +989,7 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
       if (VarDecl *VD = H.Stmt->getExceptionDecl()) {
         // Herbception catch: bind the exception variable directly from the error
         // payload slot. The error value (std::error for `throws` or E for
-        // `fails{E}`) is a compiler-fabricated value whose constructors are
+        // `return_failure{E}`) is a compiler-fabricated value whose constructors are
         // deleted and fields private, so it is not default/copy-constructed.
         // EmitAutoVarAlloca only allocates and registers the variable; skip
         // EmitAutoVarInit, then store the payload into the slot. The variable's

@@ -504,7 +504,7 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
     OS << "throws(false)";
     break;
   case EST_ThrowsTyped:
-    OS << "fails{";
+    OS << "return_failure{";
     assert(OldProto->getNumExceptions() == 1 && "Expected fails error type");
     OS << OldProto->getExceptionType(0).getAsString(getPrintingPolicy());
     OS << "}";
@@ -680,7 +680,7 @@ static bool CheckEquivalentExceptionSpecImpl(
   }
 
   // Herbception specifications must match: 'throws' matches 'throws', and
-  // 'fails{E}' matches 'fails{E}' with the same error type. These change the
+  // 'return_failure{E}' matches 'return_failure{E}' with the same error type. These change the
   // ABI (return type is lowered to {T, i1}), so they cannot be freely
   // mixed with other specification kinds.
   if ((OldEST == EST_BasicThrows || OldEST == EST_BasicThrowsTrue ||
@@ -903,7 +903,7 @@ bool Sema::CheckExceptionSpecSubset(
             SubEST == EST_BasicThrowsFalse))
         return false;
       if (SuperEST == EST_ThrowsTyped && SubEST == EST_ThrowsTyped) {
-        // fails{E}: error types must be equivalent.
+        // return_failure{E}: error types must be equivalent.
         ArrayRef<QualType> SuperExc = Superset->exceptions();
         ArrayRef<QualType> SubExc = Subset->exceptions();
         if (SuperExc.size() == 1 && SubExc.size() == 1 &&
@@ -1135,7 +1135,7 @@ static CanThrowResult canSubStmtsThrow(Sema &Self, const Stmt *S) {
 
 /// Determine whether the callee described by \p FT propagates a herbception
 /// error through the given channel: a null E tests the `throws` channel
-/// (EST_BasicThrows); a non-null E tests the `fails{E}` channel
+/// (EST_BasicThrows); a non-null E tests the `return_failure{E}` channel
 /// (EST_ThrowsTyped whose exception type is E).
 static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
                                    QualType E) {
@@ -1157,7 +1157,7 @@ static bool calleeHerbceptionThrow(const Sema &S, const FunctionProtoType *FT,
 
 /// Determine whether the callee of \p CE can propagate a herbception error
 /// through the channel \p E. Returns true when the callee is declared with a
-/// matching `throws`/`fails{E}` spec.
+/// matching `throws`/`return_failure{E}` spec.
 static bool canCalleeHerbceptionThrow(Sema &S, const CallExpr *CE, QualType E) {
   const Expr *Callee = CE->getCallee()->IgnoreParenImpCasts();
   QualType T = Callee->getType();
@@ -1192,7 +1192,7 @@ static bool canCalleeHerbceptionThrow(Sema &S, const CallExpr *CE, QualType E) {
   return calleeHerbceptionThrow(S, FT, E);
 }
 
-/// Determine whether the callee of \p CE has any herbception `throws`/`fails{E}`
+/// Determine whether the callee of \p CE has any herbception `throws`/`return_failure{E}`
 /// specification, regardless of the condition. Used by the noexcept check in
 /// requires-expr: any throws spec means the function is not noexcept.
 static bool calleeHasHerbceptionSpec(const FunctionProtoType *FT) {

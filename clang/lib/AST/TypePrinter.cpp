@@ -979,7 +979,7 @@ FunctionProtoType::printExceptionSpecification(raw_ostream &OS,
     else
       OS << " throws";
   } else if (hasReturnFailureSpec()) {
-    OS << " fails{";
+    OS << " return_failure{";
     for (unsigned I = 0, N = getNumExceptions(); I != N; ++I) {
       if (I)
         OS << ", ";

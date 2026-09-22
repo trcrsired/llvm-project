@@ -1753,7 +1753,7 @@ public:
   /// is `.failed`; `.value`/`.error` share a union.
   QualType getCatchReturnFailureType(QualType T, QualType E) const;
 
-  /// Return the synthetic result struct for invoking a `fails{E}` function:
+  /// Return the synthetic result struct for invoking a `return_failure{E}` function:
   /// `struct { using value_type = V; using error_type = E; }` (or void for
   /// error_type when the callable does not use fails). Backs the
   /// __invoke_herbceptions_return_failure_result builtin.

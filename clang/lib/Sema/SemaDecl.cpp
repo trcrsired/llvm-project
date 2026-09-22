@@ -10805,10 +10805,10 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // Finally, we know we have the right number of parameters, install them.
   NewFD->setParams(Params);
 
-  // Herbception `fails{E}` is a C-style feature: it may only be attached to
+  // Herbception `return_failure{E}` is a C-style feature: it may only be attached to
   // free (non-member) functions. It is disallowed on member functions
   // (including static members), lambdas, and function templates, which keeps
-  // the fails{E} machinery (and its type traits) simple. (Coroutines are
+  // the return_failure{E} machinery (and its type traits) simple. (Coroutines are
   // rejected separately when the body is parsed, since coroutine-ness is only
   // known then.)
   if (const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>()) {

@@ -344,7 +344,7 @@ def err_catch_return_failure_expression_only : Error<
 def err_throws_noexcept_combined : Error<
   "'throws'/'return_failure' and 'noexcept' cannot be combined">;
 def err_throws_fails_combined : Error<
-  "'throws' and 'fails{...}' cannot be combined: they are mutually exclusive "
+  "'throws' and 'return_failure{...}' cannot be combined: they are mutually exclusive "
   "herbceptions specifiers">;
 def err_return_failure_paren_not_allowed : Error<
   "'return_failure' takes a type in braces (e.g. 'return_failure{T}'); parentheses are for the "

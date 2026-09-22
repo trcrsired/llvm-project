@@ -979,7 +979,7 @@ bool Sema::diagnoseNonThrowsHerbceptionCall(SourceLocation Loc) {
 ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
                                      SourceLocation ThrowsLoc, Expr *Ex) {
   // Herbception `throw throws` is only valid inside a function declared
-  // with 'throws' or 'fails{E}', or inside a `catch throws` handler.
+  // with 'throws' or 'return_failure{E}', or inside a `catch throws` handler.
   if (!getLangOpts().HerbExceptions) {
     Diag(OpLoc, diag::err_herbceptions_disabled);
     return ExprError();
@@ -1003,7 +1003,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
   const bool InThrowsFunction = CurFPT && CurFPT->hasThrowsSpec();
 
   // 'throw throws' belongs to the implicit-std::error ('throws') channel only.
-  // A 'fails{E}' function returns errors exclusively through
+  // A 'return_failure{E}' function returns errors exclusively through
   // 'return failure(expr);'.
   if (CurFPT && CurFPT->hasReturnFailureSpec() && !CurFPT->hasBasicThrowsSpec()) {
     Diag(ThrowsLoc, diag::err_throw_throws_in_return_failure_function);
@@ -1492,11 +1492,18 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
     return ExprError();
   }
 
-  // `try(expr)` is only valid inside a function declared with 'throws' or
-  // 'fails{E}'.
+  // `try(expr)` is valid wherever the error has a route: a function declared
+  // with 'throws'/'return_failure{E}' propagates it, and inside a `try { }` body or a
+  // catch handler a `catch throws` handler receives it (routability of the
+  // latter is verified at CodeGen, since the handlers are parsed after the
+  // try body).
   const FunctionDecl *CurFD = getCurFunctionDecl();
-  if (!CurFD || CurFD->getType().isNull() ||
-      !CurFD->getType()->getAs<FunctionProtoType>()->hasThrowsSpec()) {
+  const FunctionProtoType *CurFPT =
+      CurFD && !CurFD->getType().isNull()
+          ? CurFD->getType()->getAs<FunctionProtoType>()
+          : nullptr;
+  if ((!CurFPT || !CurFPT->hasThrowsSpec()) && HerbceptionTryBodyDepth == 0 &&
+      HerbceptionCatchDepth == 0 && HerbceptionCatchClauseDepth == 0) {
     Diag(TryLoc, diag::err_try_throws_outside_throws_function);
     return ExprError();
   }
@@ -1518,26 +1525,24 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   // stripped of the discriminant.
   QualType Ty = Ex->getType();
 
-  // If this call is `fails{E}` and the enclosing function is `throws` (whose
-  // implicit error type is std::error), the auto-propagated E error value must
-  // be converted to std::error via error_domain<E>. Resolve it here so CodeGen
-  // can emit domain()/code() on the error path.
+  // If this call is `return_failure{E}` and the error may reach a std::error channel —
+  // a `throws` function's implicit std::error return, or a `catch throws`
+  // handler (which always takes std::error) — the E error value must be
+  // converted to std::error via error_domain<E>. Resolve it here so CodeGen
+  // can emit domain()/code() on the error path. CodeGen decides per route
+  // whether the conversion applies: a `return_failure{E2}` function propagates the raw
+  // E payload through its own E2 channel.
   CXXRecordDecl *ErrorDomain = nullptr;
-  if (const FunctionDecl *CurFD = getCurFunctionDecl()) {
-    if (const auto *CurFPT =
-            CurFD->getType().isNull()
-                ? nullptr
-                : CurFD->getType()->getAs<FunctionProtoType>();
-        CurFPT && CurFPT->hasBasicThrowsSpec()) {
-      if (const CallExpr *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
-        if (const FunctionDecl *FD =
-                dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
-          if (const auto *CalleeFPT =
-                  FD->getType()->getAs<FunctionProtoType>();
-              CalleeFPT && CalleeFPT->hasReturnFailureSpec())
-            ErrorDomain = lookupErrorDomain(TryLoc,
-                                            CalleeFPT->getExceptionType(0));
-    }
+  if ((CurFPT && CurFPT->hasBasicThrowsSpec()) || HerbceptionTryBodyDepth > 0 ||
+      HerbceptionCatchDepth > 0 || HerbceptionCatchClauseDepth > 0) {
+    if (const CallExpr *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+      if (const FunctionDecl *FD =
+              dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
+        if (const auto *CalleeFPT =
+                FD->getType()->getAs<FunctionProtoType>();
+            CalleeFPT && CalleeFPT->hasReturnFailureSpec())
+          ErrorDomain = lookupErrorDomain(TryLoc,
+                                          CalleeFPT->getExceptionType(0));
   }
 
   // Preserve reference identity: a `T&` / `T&&` return through `throws` is
@@ -1589,7 +1594,7 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
   // Determine the success value type T and the error type E of the
   // catch-fails aggregate. `throws` functions were rejected above (their
   // implicit std::error can only be handled by a `catch throws` block
-  // handler), so E is always the explicit `fails{E}` error type.
+  // handler), so E is always the explicit `return_failure{E}` error type.
   QualType ValueTy = Ex->getType();
   QualType ErrorTy = ValueTy;
   if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
@@ -1618,7 +1623,7 @@ ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *
     return ExprError();
   }
 
-  // `failure(expr)` is only valid inside a `fails{E}` function, and the operand
+  // `failure(expr)` is only valid inside a `return_failure{E}` function, and the operand
   // must be of the explicit error type E.
   const FunctionDecl *CurFD = getCurFunctionDecl();
   const FunctionProtoType *CurFPT =
@@ -1630,7 +1635,7 @@ ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *
 
   // Reuse the compiler-fabricated error value path: failure(expr) is the
   // C-style way to return an error via the failure channel, equivalent to
-  // `throw throws expr` for a fails{E} function.
+  // `throw throws expr` for a return_failure{E} function.
   return BuildCXXThrow(FailureLoc, Ex, /*IsThrownVarInScope=*/false,
                        /*IsHerbception=*/true);
 }
