@@ -19906,6 +19906,12 @@ void Sema::checkExceptionSpecification(
       // FIXME: Preserve type source info.
       QualType ET = GetTypeFromParser(DynamicExceptions[ei]);
 
+      // The type parser may have already diagnosed the type (e.g. an
+      // 'enum' elaborated specifier naming a type alias), leaving a null
+      // QualType. Bail out instead of passing it to the checks below.
+      if (ET.isNull())
+        continue;
+
       if (IsTopLevel) {
         SmallVector<UnexpandedParameterPack, 2> Unexpanded;
         collectUnexpandedParameterPacks(ET, Unexpanded);
