@@ -6945,6 +6945,18 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                      diagnoseNonThrowsHerbceptionCall(
                          Call.get()->getBeginLoc())) {
             return ExprError();
+          } else if (ThrowsCall && !SpecUndecided &&
+                     CalleeFPT->hasReturnFailureSpec() &&
+                     !CalleeFPT->hasBasicThrowsSpec() &&
+                     (HerbceptionTryBodyDepth > 0 || HerbceptionCatchDepth > 0 ||
+                      HerbceptionCatchClauseDepth > 0)) {
+            // A bare `return_failure{E}` call whose error routes to a
+            // `catch throws` handler must convert E to std::error, the same
+            // conversion auto-propagation performs. Wrap it in try(expr) so
+            // the error_domain<E> resolution and CodeGen conversion apply;
+            // without it the raw E payload would be reinterpreted as
+            // std::error.
+            Call = ActOnHerbceptionTry(Call.get()->getBeginLoc(), Call.get());
           }
         }
       }
@@ -6958,7 +6970,7 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
       currentEvaluationContext().ReferenceToConsteval.erase(DRE);
     }
   } else if (LangOpts.HerbExceptions && HerbceptionOperandDepth == 0) {
-    // Herbception (C): calling a fails{E} function without an explicit
+    // Herbception (C): calling a return_failure{E} function without an explicit
     // try(expr) or catch fails(expr) wrapper is a compile error.
     if (isHerbceptionThrowsCall(Call.get())) {
       Diag(Call.get()->getBeginLoc(), diag::err_return_failure_call_without_wrapper);

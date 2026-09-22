@@ -2027,13 +2027,50 @@ CodeGenFunction::EmitFailsErrorToStdError(const CXXTryExpr *E,
   if (!DomainFn || !CodeFn)
     return nullptr;
 
+  // ErrVal is the union{T,E} return slot read as the slot's own type. On the
+  // failure edge its low bytes hold E rather than T, so reinterpret the slot
+  // value as E's type before handing it to code(E). An integer E extracts
+  // from an integer slot with a plain intcast (the enum-with-error_domain
+  // case); anything else reinterprets the low bytes through memory, which
+  // also does the right thing on big-endian.
+  if (CodeFn->getNumParams() == 1) {
+    llvm::Type *CodeParamTy =
+        ConvertType(CodeFn->getParamDecl(0)->getType());
+    if (ErrVal->getType() != CodeParamTy) {
+      if (ErrVal->getType()->isIntegerTy() && CodeParamTy->isIntegerTy()) {
+        const llvm::DataLayout &DL = CGM.getDataLayout();
+        uint64_t SrcSize = DL.getTypeSizeInBits(ErrVal->getType());
+        uint64_t DstSize = DL.getTypeSizeInBits(CodeParamTy);
+        if (DL.isBigEndian() && SrcSize > DstSize)
+          // The error occupies the first bytes of the union slot, which are
+          // the high bits of the widened slot value on big-endian.
+          ErrVal = Builder.CreateLShr(ErrVal, SrcSize - DstSize);
+        ErrVal =
+            Builder.CreateIntCast(ErrVal, CodeParamTy, /*isSigned=*/false);
+      } else {
+        Address Tmp =
+            CreateDefaultAlignTempAlloca(ErrVal->getType(), "herb.errval");
+        auto *SI = Builder.CreateStore(ErrVal, Tmp);
+        addInstToCurrentSourceAtom(SI, SI->getValueOperand());
+        ErrVal = Builder.CreateLoad(Tmp.withElementType(CodeParamTy));
+      }
+    }
+  }
+
   SourceLocation Loc = E->getBeginLoc();
   llvm::Value *DomainVal =
       EmitStaticMemberCall(*this, DomainFn, {}, Loc);
   llvm::Value *CodeVal =
       EmitStaticMemberCall(*this, CodeFn, {ErrVal}, Loc);
 
-  llvm::Type *ErrTy = CurFnInfo->getHerbceptionErrorType();
+  // The fabricated value is always a std::error {domain, code}, whatever the
+  // enclosing function's own error channel is -- this is also reachable from
+  // noexcept and return_failure{E2} functions (routing to a `catch throws` handler),
+  // where CurFnInfo has no or a different herbception error type.
+  llvm::Type *ErrTy = llvm::StructType::get(
+      CGM.getLLVMContext(),
+      {CGM.VoidPtrTy,
+       CGM.getDataLayout().getIntPtrType(CGM.getLLVMContext())});
   llvm::Value *V = llvm::UndefValue::get(ErrTy);
   V = Builder.CreateInsertValue(V, DomainVal, 0);
   V = Builder.CreateInsertValue(V, CodeVal, 1);
@@ -2306,16 +2343,70 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
   {
     RunCleanupsScope CleanupScope(*this);
 
+    bool EmittedErrorReturn = false;
     if (CurFnInfo->hasThrowsReturn()) {
-      // If this is a `fails{E}` call being auto-propagated into a `throws`
+      // If this is a `return_failure{E}` call being auto-propagated into a `throws`
       // function, the E error payload must first be converted to std::error via
-      // error_domain<E>::domain() and error_domain<E>::code(e).
-      if (E->getErrorDomain()) {
+      // error_domain<E>::domain() and error_domain<E>::code(e). The error type
+      // of a basic `throws` function is the fabricated {void*, intptr} struct;
+      // a `return_failure{E2}` function propagates the raw payload through its own E2
+      // channel instead, so conversion only applies to basic throws.
+      llvm::Type *StdErrIRTy = llvm::StructType::get(
+          CGM.getLLVMContext(),
+          {CGM.VoidPtrTy,
+           CGM.getDataLayout().getIntPtrType(CGM.getLLVMContext())});
+      if (E->getErrorDomain() &&
+          CurFnInfo->getHerbceptionErrorType() == StdErrIRTy) {
         llvm::Value *StdErr = EmitFailsErrorToStdError(E, Success);
         if (StdErr) {
-          llvm::Value *Coerced = CoerceToSlot(StdErr, ReturnValue);
-          auto *I = Builder.CreateStore(Coerced, ReturnValue);
-          addInstToCurrentSourceAtom(I, I->getValueOperand());
+          if (!DiscOnly) {
+            // The fabricated {domain, code} is already the complete error
+            // value: return {union{T,E}, i1} built straight from it rather
+            // than bouncing it through the return-value and discriminant
+            // slots and the shared epilogue.
+            auto *FnRetIRTy =
+                cast<llvm::StructType>(CurFn->getReturnType());
+            llvm::Type *UnionTy = FnRetIRTy->getStructElementType(0);
+            llvm::Value *Payload = StdErr;
+            if (StdErr->getType() != UnionTy) {
+              // The union is wider than E alone: place E in its low bytes and
+              // zero the tail, the same way CoerceToSlot would.
+              Address Tmp =
+                  CreateDefaultAlignTempAlloca(UnionTy, "herb.retunion");
+              Builder.CreateStore(StdErr,
+                                  Tmp.withElementType(StdErr->getType()));
+              const llvm::DataLayout &DL = CGM.getDataLayout();
+              uint64_t SrcSize = DL.getTypeStoreSize(StdErr->getType());
+              uint64_t DstSize = DL.getTypeStoreSize(UnionTy);
+              if (DstSize > SrcSize) {
+                llvm::Type *I8 = llvm::Type::getInt8Ty(CGM.getLLVMContext());
+                Address Tail = Builder.CreateConstInBoundsGEP(
+                    Tmp.withElementType(I8), SrcSize, "herb.retunion.tail");
+                Builder.CreateMemSet(
+                    Tail, llvm::ConstantInt::get(I8, 0),
+                    llvm::ConstantInt::get(
+                        llvm::Type::getInt64Ty(CGM.getLLVMContext()),
+                        DstSize - SrcSize),
+                    false);
+              }
+              Payload = Builder.CreateLoad(Tmp);
+            }
+            llvm::Value *Ret = llvm::UndefValue::get(FnRetIRTy);
+            Ret = Builder.CreateInsertValue(Ret, Payload, 0);
+            Ret = Builder.CreateInsertValue(Ret, Builder.getTrue(), 1);
+            llvm::BasicBlock *RetBB = createBasicBlock("try.err.ret");
+            CleanupScope.ForceCleanup();
+            EmitBranchThroughCleanup(getJumpDestInCurrentScope(RetBB));
+            EmitBlock(RetBB);
+            Builder.CreateRet(Ret);
+            EmittedErrorReturn = true;
+          } else {
+            // Discriminant-only mode (wasm): the error travels through the
+            // payload slot, so keep storing it into ReturnValue.
+            llvm::Value *Coerced = CoerceToSlot(StdErr, ReturnValue);
+            auto *I = Builder.CreateStore(Coerced, ReturnValue);
+            addInstToCurrentSourceAtom(I, I->getValueOperand());
+          }
         }
       } else if (FnRetTy->isVoidType()) {
         // A void throws function's return slot holds the error value
@@ -2336,12 +2427,21 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
         auto *I = Builder.CreateStore(Coerced, ReturnValue);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
       }
-      Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
+      if (!EmittedErrorReturn)
+        Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
     }
 
-    if (!HerbceptionCatchScopes.empty()) {
+    if (EmittedErrorReturn) {
+      // The error edge already emitted its own return; nothing else to do.
+    } else if (!HerbceptionCatchScopes.empty()) {
       const HerbceptionCatchScope &Scope = HerbceptionCatchScopes.back();
       llvm::Value *Coerced = Success;
+      // A `catch throws` handler always takes std::error (Sema rejects any
+      // other caught type), so a return_failure{E} call's E payload is converted via
+      // its error_domain the same way auto-propagation converts it.
+      if (E->getErrorDomain())
+        if (llvm::Value *StdErr = EmitFailsErrorToStdError(E, Success))
+          Coerced = StdErr;
       if (Coerced->getType() != Scope.ErrorSlot.getElementType()) {
         // The payload may be a different (but same-layout) type than the
         // handler's exception variable (e.g. a literal vs a named struct), so

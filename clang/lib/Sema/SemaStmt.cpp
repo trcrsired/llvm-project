@@ -4085,7 +4085,7 @@ StmtResult Sema::BuildReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
   if (RetValExp && DiagnoseUnexpandedParameterPack(RetValExp))
     return StmtError();
 
-  // Herbception (C-style `fails{E}`): `return failure(expr)` returns \p expr
+  // Herbception (C-style `return_failure{E}`): `return failure(expr)` returns \p expr
   // via the failure channel. The operand is a herbception CXXThrowExpr (void
   // type), so the return statement simply evaluates it — the throw's codegen
   // routes the error into the failure return slot.
@@ -4419,7 +4419,7 @@ Sema::ActOnCXXCatchThrowsBlock(SourceLocation CatchLoc, SourceLocation SpecLoc,
     return StmtError();
   }
 
-  // A `catch throws(std::error)` block inside a `fails{E}` function receives
+  // A `catch throws(std::error)` block inside a `return_failure{E}` function receives
   // the errors of `throws` callees and of converted `fails` callees through
   // the std::error channel; converting this function's own error type E
   // requires a visible std::error_domain<E> specialization.

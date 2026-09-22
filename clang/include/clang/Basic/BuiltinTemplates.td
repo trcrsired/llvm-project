@@ -46,9 +46,9 @@ def __make_integer_seq : CPlusPlusBuiltinTemplate<
 def __type_pack_element : CPlusPlusBuiltinTemplate<
   [SizeT, Class<"T", /*is_variadic=*/1>]>;
 
-// Herbception: result of invoking a `fails{E}` function. Yields a synthetic
+// Herbception: result of invoking a `return_failure{E}` function. Yields a synthetic
 // struct with `value_type` (the success return type) and `error_type` (the
-// fails{E} error type, or void when F is not a fails function), mirroring
+// return_failure{E} error type, or void when F is not a fails function), mirroring
 // invoke_result_t's `type` member. `throws` functions need no such wrapper:
 // their error type is always the implicit std::error.
 def __invoke_herbceptions_return_failure_result : CPlusPlusBuiltinTemplate<

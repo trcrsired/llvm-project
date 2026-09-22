@@ -2973,8 +2973,8 @@ private:
   ExceptionSpecificationType tryParseNoexceptAfterThrows(
       ExceptionSpecificationType ThrowsType);
 
-  /// Parse a `noexcept` specifier that follows a `fails{E}` specifier.
-  /// `fails{E} noexcept(false)` adds the traditional C++ exception channel
+  /// Parse a `noexcept` specifier that follows a `return_failure{E}` specifier.
+  /// `return_failure{E} noexcept(false)` adds the traditional C++ exception channel
   /// alongside the herbception error channel.
   ExceptionSpecificationType
   tryParseNoexceptAfterFails(ExceptionSpecificationType FailsType);
@@ -4881,7 +4881,7 @@ private:
 
   /// ParseHerbceptionReturnFailureExpression - This handles the herbception
   /// `failure(expr)` expression, which returns \p expr via the failure channel
-  /// of a `fails{E}` function.
+  /// of a `return_failure{E}` function.
   ExprResult ParseHerbceptionReturnFailureExpression();
 
   //===--------------------------------------------------------------------===//

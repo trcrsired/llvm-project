@@ -6708,11 +6708,11 @@ public:
   ///
   /// \param E The channel to test: a null QualType tests the `throws` channel
   /// (implicit std::error, EST_BasicThrows); a non-null E tests the
-  /// `fails{E}` channel (EST_ThrowsTyped with exception type E). Returns true
+  /// `return_failure{E}` channel (EST_ThrowsTyped with exception type E). Returns true
   /// if some potentially-evaluated callee in \p S is declared with a matching
   /// herbception spec.
    bool canHerbceptionThrow(const Stmt *S, QualType E);
-   /// Check whether any callee in \p S has a herbception `throws`/`fails{E}`
+   /// Check whether any callee in \p S has a herbception `throws`/`return_failure{E}`
    /// specification (regardless of condition). Used by requires-expr noexcept
    /// checking: any throws spec means the expression is not noexcept.
    bool hasHerbceptionSpec(const Stmt *S);
@@ -8638,7 +8638,7 @@ public:
   ExprResult ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
                                         SourceLocation FailsLoc, Expr *Ex);
   /// ActOnHerbceptionReturnFailure - Parse `failure(expr)`, which returns \p Ex via
-  /// the failure channel of the enclosing `fails{E}` function.
+  /// the failure channel of the enclosing `return_failure{E}` function.
   ExprResult ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *Ex);
 
   /// ActOnHerbceptionReturnFailureStmt - Handle `return_failure expr;` statement.

@@ -7442,7 +7442,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   // Collect non-parameter declarations from the prototype if this is a function
   // declaration. They will be moved into the scope of the function. Only do
   // this in C and not C++, where the decls will continue to live in the
-  // surrounding context. Herbception 'fails{...}' is an exception
+  // surrounding context. Herbception 'return_failure{...}' is an exception
   // specification, which cannot coexist with declarations in the prototype.
   SmallVector<NamedDecl *, 0> DeclsInPrototype;
   if (getCurScope()->isFunctionDeclarationScope() && !getLangOpts().CPlusPlus &&

@@ -4184,7 +4184,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
            "Produced different number of exception types and ranges.");
   }
 
-  // Herbception: 'throws' (C++ only, implicit std::error) or 'fails{E}'
+  // Herbception: 'throws' (C++ only, implicit std::error) or 'return_failure{E}'
   // (C++ and C, explicit error type).
   if (Tok.is(tok::kw_throws) || Tok.is(tok::kw_return_failure)) {
     bool IsThrows = Tok.is(tok::kw_throws);
@@ -4221,7 +4221,7 @@ ExceptionSpecificationType Parser::tryParseExceptionSpecification(
       return tryParseNoexceptAfterThrows(EST_BasicThrows);
     }
 
-    // fails{E}: parse the explicit error type in braces.
+    // return_failure{E}: parse the explicit error type in braces.
     if (Tok.is(tok::l_paren)) {
       // `fails(E)` is invalid: parentheses are for the `throws` condition,
       // `fails` takes a type in braces. Recover by skipping the parens.

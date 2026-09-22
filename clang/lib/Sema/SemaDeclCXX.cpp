@@ -239,7 +239,7 @@ Sema::ImplicitExceptionSpecification::CalledDecl(SourceLocation CallLoc,
     ClearExceptions();
     ComputedEST = EST_None;
     return;
-  // A herbception 'throws'/'fails{E}' spec implies noexcept(true): the call
+  // A herbception 'throws'/'return_failure{E}' spec implies noexcept(true): the call
   // cannot propagate a traditional C++ exception.
   case EST_DependentThrows:
   case EST_BasicThrows:
@@ -20009,7 +20009,7 @@ void Sema::actOnDelayedExceptionSpecification(
   if (!FD)
     return;
 
-  // Herbception: a destructor cannot be declared 'throws' or 'fails{...}'.
+  // Herbception: a destructor cannot be declared 'throws' or 'return_failure{...}'.
   // Destruction must be able to run during unwinding/cleanup, so it cannot
   // itself fail through the herbception channel.
   if (isa<CXXDestructorDecl>(FD) &&
@@ -20021,7 +20021,7 @@ void Sema::actOnDelayedExceptionSpecification(
     // declaration is already erroneous and never used for code generation.
   }
 
-  // Herbception `fails{E}` is a C-style feature restricted to free (non-member)
+  // Herbception `return_failure{E}` is a C-style feature restricted to free (non-member)
   // functions. Member functions (including static members) and lambda call
   // operators reach this delayed path, so diagnose them here.
   if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus &&
