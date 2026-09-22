@@ -25,6 +25,12 @@ int bad_plain(int x) {
   return f(x);
 }
 
+/* C has no 'throws' specifier, so the diagnostic must not mention it. */
+int bad_try_plain(int x) {
+  // expected-error@+1 {{'try' is only allowed inside a function declared 'return_failure{...}'}}
+  return try(f(x));
+}
+
 /* try{} / catch are C++-only: in C exceptions are disabled, so the statement
    form is rejected entirely. */
 int bad_try_block(int x) {

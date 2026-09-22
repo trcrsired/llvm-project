@@ -8839,6 +8839,8 @@ def err_return_failure_type_too_large : Error<
   "the failure discriminant">;
 def err_try_throws_outside_throws_function : Error<
   "'try' is only allowed inside a function declared 'throws' or 'return_failure{...}'">;
+def err_try_outside_return_failure_function_c : Error<
+  "'try' is only allowed inside a function declared 'return_failure{...}'">;
 def err_herbceptions_try_requires_operand : Error<
   "'try' requires an expression operand">;
 def err_try_expr_requires_throws_call : Error<
