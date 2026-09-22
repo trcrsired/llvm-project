@@ -65,7 +65,7 @@ __to_u8scatter_from_errcs(::std::uint_least32_t __eno,
     return __to_u8scatter_from_parse_errc(__eno);
   case 3: // wine
     if constexpr (__simple_query_information_enable_wine_errc) {
-      return __to_u8scatter_from_parse_errc(__eno);
+      return __to_u8scatter_from_wine_errc(__eno);
     }
     [[fallthrough]];
   default:
@@ -320,10 +320,9 @@ inline constexpr void __simple_query_information_common(
     __numbuf must outlive the cookfun call below: a scatter points into it,
     so scoping it to the case block would leave a dangling pointer.
     */
-    alignas(char32_t) char unsigned
-        __numbuf[__format_decimal_value_max_size_with_brackets<
-                     ::std::uint_least32_t> *
-                 sizeof(char32_t)];
+    alignas(char32_t) char unsigned __numbuf
+        [__format_decimal_value_max_size_with_brackets<::std::uint_least32_t> *
+         sizeof(char32_t)];
     switch (query) {
     case ::std::error_query_information::name: {
       *__scatters =
@@ -359,10 +358,9 @@ inline constexpr void __simple_query_information_common(
     __numbuf must outlive the cookfun call below: a scatter points into it,
     so scoping it to the case block would leave a dangling pointer.
     */
-    alignas(char32_t) char unsigned
-        __numbuf[__format_decimal_value_max_size_with_brackets<
-                     ::std::uint_least32_t> *
-                 sizeof(char32_t)];
+    alignas(char32_t) char unsigned __numbuf
+        [__format_decimal_value_max_size_with_brackets<::std::uint_least32_t> *
+         sizeof(char32_t)];
     switch (query) {
     case ::std::error_query_information::name: {
       *__scatters =
