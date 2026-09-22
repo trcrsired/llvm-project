@@ -646,7 +646,7 @@ class CGFunctionInfo final
 
   /// The LLVM type of the error value carried by a herbception (throws/fails)
   /// function. For `throws` this is the 2-register `std::error` type; for
-  /// `fails{E}` it is the explicit error type E. Null if not a throws/fails
+  /// `return_failure{E}` it is the explicit error type E. Null if not a throws/fails
   /// function.
   llvm::Type *HerbceptionErrorType = nullptr;
 

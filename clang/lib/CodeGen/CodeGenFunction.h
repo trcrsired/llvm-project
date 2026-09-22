@@ -761,8 +761,6 @@ public:
   llvm::Instruction *CurrentFuncletPad = nullptr;
 
   class CallLifetimeEnd final : public EHScopeStack::Cleanup {
-    bool isRedundantBeforeReturn() override { return true; }
-
     llvm::Value *Addr;
 
   public:
@@ -5346,10 +5344,10 @@ public:
   /// herbception channel. Returns a pointer value.
   llvm::Value *EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E);
 
-  /// Convert a `fails{E}` error payload value \p ErrVal into a `std::error`
+  /// Convert a `return_failure{E}` error payload value \p ErrVal into a `std::error`
   /// value by calling error_domain<E>::domain() and error_domain<E>::code(e)
   /// (where \p E is \p E->getErrorDomain()). Used when auto-propagating a
-  /// fails{E} error into a throws function. Returns the {void*, size_t} value,
+  /// return_failure{E} error into a throws function. Returns the {void*, size_t} value,
   /// or null if the conversion cannot be built.
   llvm::Value *EmitFailsErrorToStdError(const CXXTryExpr *E,
                                         llvm::Value *ErrVal);

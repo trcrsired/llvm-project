@@ -1365,7 +1365,7 @@ public:
 };
 
 /// Represents a herbception `try(expr)` expression: evaluate \p SubExpr
-/// (which must call a `throws`/`fails{E}` function) and auto-propagate its
+/// (which must call a `throws`/`return_failure{E}` function) and auto-propagate its
 /// error on failure. On success, the expression's value is the success value.
 class CXXTryExpr : public Expr {
   friend class ASTStmtReader;
@@ -1376,7 +1376,7 @@ class CXXTryExpr : public Expr {
   /// The location of the "try".
   SourceLocation TryLoc;
 
-  /// When auto-propagating a `fails{E}` call's error into a `throws` function
+  /// When auto-propagating a `return_failure{E}` call's error into a `throws` function
   /// (whose implicit error type is std::error), the E error value must be
   /// converted to std::error via `error_domain<E>::domain()` /
   /// `error_domain<E>::code(e)`. If non-null, \p ErrorDomain is the resolved
@@ -1398,7 +1398,7 @@ public:
   const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
   Expr *getSubExpr() { return cast<Expr>(SubExpr); }
 
-  /// The `error_domain<E>` specialization used to convert a `fails{E}` error
+  /// The `error_domain<E>` specialization used to convert a `return_failure{E}` error
   /// into std::error when propagating into a `throws` function, or null when
   /// no conversion is needed (callee error type already matches).
   CXXRecordDecl *getErrorDomain() const { return ErrorDomain; }
@@ -1423,7 +1423,7 @@ public:
 };
 
 /// Represents a herbception `catch fails(expr)` expression: evaluate \p SubExpr
-/// (which must call a `throws`/`fails{E}` function) and produce an
+/// (which must call a `throws`/`return_failure{E}` function) and produce an
 /// `either{T, E}` value with `.positive`, `.left` and `.right` fields.
 class CXXCatchReturnFailureExpr : public Expr {
   friend class ASTStmtReader;

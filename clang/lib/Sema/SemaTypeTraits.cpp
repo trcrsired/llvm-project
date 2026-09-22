@@ -716,7 +716,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
 
   case UTT_IsInvokeHerbceptionsFails:
     // True when T is a function type (or pointer/reference to one) declared
-    // with a `fails{E}` herbception spec.
+    // with a `return_failure{E}` herbception spec.
     if (T->isDependentType())
       return false;
     if (!Self.getLangOpts().HerbExceptions)

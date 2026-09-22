@@ -3515,7 +3515,7 @@ static QualType checkBuiltinTemplateIdType(
 
   case BTK__invoke_herbceptions_return_failure_result: {
     // __invoke_herbceptions_return_failure_result<F, Args...> yields a synthetic struct
-    // with `value_type` (F's return type) and `error_type` (the fails{E} error
+    // with `value_type` (F's return type) and `error_type` (the return_failure{E} error
     // type, or void when F is not a fails function).
     assert(Converted.size() >= 1);
     if (llvm::any_of(Converted, [](auto &C) { return C.isDependent(); }))
