@@ -1504,7 +1504,9 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
           : nullptr;
   if ((!CurFPT || !CurFPT->hasThrowsSpec()) && HerbceptionTryBodyDepth == 0 &&
       HerbceptionCatchDepth == 0 && HerbceptionCatchClauseDepth == 0) {
-    Diag(TryLoc, diag::err_try_throws_outside_throws_function);
+    Diag(TryLoc, getLangOpts().CPlusPlus
+                     ? diag::err_try_throws_outside_throws_function
+                     : diag::err_try_outside_return_failure_function_c);
     return ExprError();
   }
 
