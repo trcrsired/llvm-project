@@ -2263,14 +2263,16 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
   }
 
   // Check for mutually incompatible attributes.  Only inreg is compatible with
-  // sret.
+  // sret and throws_sret.
   unsigned AttrCount = 0;
   AttrCount += Attrs.hasAttribute(Attribute::ByVal);
   AttrCount += Attrs.hasAttribute(Attribute::InAlloca);
   AttrCount += Attrs.hasAttribute(Attribute::Preallocated);
-  AttrCount += Attrs.hasAttribute(Attribute::StructRet) ||
-               Attrs.hasAttribute(Attribute::InReg);
+  AttrCount += Attrs.hasAttribute(Attribute::StructRet);
   AttrCount += Attrs.hasAttribute(Attribute::ThrowsSret);
+  AttrCount += Attrs.hasAttribute(Attribute::InReg) &&
+               !Attrs.hasAttribute(Attribute::StructRet) &&
+               !Attrs.hasAttribute(Attribute::ThrowsSret);
   AttrCount += Attrs.hasAttribute(Attribute::Nest);
   AttrCount += Attrs.hasAttribute(Attribute::ByRef);
   Check(AttrCount <= 1,
