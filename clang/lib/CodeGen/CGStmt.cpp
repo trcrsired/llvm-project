@@ -2495,8 +2495,13 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     // and storing the payload here would overflow it. The error always fits,
     // and defining the slot from it is all this needs to do. The value the try
     // expression actually produces is materialised below.
-    // In a non-throws function there is no return slot to mirror into.
-    if (CurFnInfo->hasThrowsReturn()) {
+    // In a non-throws function there is no return slot to mirror into, and in
+    // a non-void throws function the slot is the union{T,E} that may already
+    // hold the live return object (an indirect payload is constructed directly
+    // in it, and NRVO aliases a local into it), so writing the callee's
+    // error-sized value here would corrupt that object. Only a void throws
+    // function's return slot is guaranteed to be pure error storage.
+    if (CurFnInfo->hasThrowsReturn() && FnRetTy->isVoidType()) {
       llvm::Value *Coerced = CoerceToSlot(Success, ReturnValue);
       auto *I = Builder.CreateStore(Coerced, ReturnValue);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
