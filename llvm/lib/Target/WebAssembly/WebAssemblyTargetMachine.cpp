@@ -175,8 +175,7 @@ WebAssemblyTargetMachine::WebAssemblyTargetMachine(
     : CodeGenTargetMachineImpl(T, TT, CPU, FS, Options,
                                getEffectiveRelocModel(RM),
                                getEffectiveCodeModel(CM, CodeModel::Large), OL),
-      TLOF(new WebAssemblyTargetObjectFile()),
-      UsesMultivalueABI(Options.MCOptions.getABIName() == "experimental-mv") {
+      TLOF(new WebAssemblyTargetObjectFile()) {
   // WebAssembly type-checks instructions, but a noreturn function with a return
   // type that doesn't match the context will cause a check failure. So we lower
   // LLVM 'unreachable' to ISD::TRAP and then lower that to WebAssembly's
@@ -206,10 +205,12 @@ WebAssemblyTargetMachine::WebAssemblyTargetMachine(
 WebAssemblyTargetMachine::~WebAssemblyTargetMachine() = default; // anchor.
 
 const WebAssemblySubtarget *
-WebAssemblyTargetMachine::getSubtargetImpl(StringRef CPU, StringRef FS) const {
-  auto &I = SubtargetMap[CPU.str() + FS.str()];
+WebAssemblyTargetMachine::getSubtargetImpl(StringRef CPU, StringRef FS,
+                                           StringRef ABIName) const {
+  auto &I = SubtargetMap[CPU.str() + FS.str() + ABIName.str()];
   if (!I) {
-    I = std::make_unique<WebAssemblySubtarget>(TargetTriple, CPU, FS, *this);
+    I = std::make_unique<WebAssemblySubtarget>(TargetTriple, CPU, FS, *this,
+                                               ABIName);
   }
   return I.get();
 }
@@ -222,7 +223,7 @@ WebAssemblyTargetMachine::getSubtargetImpl(const Function &F) const {
   StringRef CPU = CPUAttr.isValid() ? CPUAttr.getValueAsString() : TargetCPU;
   StringRef FS = FSAttr.isValid() ? FSAttr.getValueAsString() : TargetFS;
 
-  return getSubtargetImpl(CPU, FS);
+  return getSubtargetImpl(CPU, FS, getTargetABIName(*F.getParent()));
 }
 
 namespace {
