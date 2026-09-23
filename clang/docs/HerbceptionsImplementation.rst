@@ -632,6 +632,22 @@ bytes on 64-bit targets); on a 32-bit register-model target an
 over-budget ``{E, i1}`` cannot be formed and falls back to storing the
 whole union through the buffer.
 
+``throws_sret`` does not set the ISD ``SRet`` argument flag
+(``SelectionDAGBuilder`` only inspects ``Attribute::StructRet`` for it):
+the pointer is lowered as an ordinary leading argument. That is why it
+combines with ``inreg`` the same way ``sret`` does. On
+``aarch64-windows-msvc`` and ``arm64ec`` the MSVC ABI classifier
+(``MicrosoftCXXABI::classifyReturnType``) marks every indirect
+non-trivial record return ``inreg``, and the frontend propagates that
+onto the ``throws_sret`` parameter: ``inreg`` selects the alternate
+Windows placement of the indirect-result pointer — ``x0`` for a free
+function, ``x1`` for an instance method (after ``this``) — instead of
+the AAPCS ``x8`` slot that a bare ``sret`` would use. The IR verifier
+therefore accepts ``inreg`` together with ``throws_sret`` (and ``sret``)
+while still rejecting it in combination with the other exclusive
+parameter attributes; without that exemption the combination could not
+survive bitcode round-tripping or ThinLTO import.
+
 Conditional-branch adjacency
 ````````````````````````````
 
