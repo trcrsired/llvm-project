@@ -5254,14 +5254,19 @@ void AArch64DAGToDAGISel::Select(SDNode *Node) {
         CurDAG->getCopyFromReg(Chain, dl, AArch64::NZCV, MVT::i32, InGlue);
     unsigned Opc = Node->getValueType(0) == MVT::i64 ? AArch64::HERB_CSETXr
                                                      : AArch64::HERB_CSETWr;
-    // HERB_CSET has no explicit operands; the NZCV use is implicit from
-    // Uses = [NZCV]. The chain/glue from CopyFromReg propagate through.
+    // HERB_CSET has no explicit register operands; the NZCV use is implicit
+    // from Uses = [NZCV]. The NZCV copy's glue is passed as an operand so the
+    // pseudo is glued to the call — without it the node has no dependency
+    // edges and the scheduler can emit it before the call whose flags it
+    // reads. Its own glue result keeps successors ordered after the flag
+    // read.
     MachineSDNode *MI =
-        CurDAG->getMachineNode(Opc, dl, Node->getValueType(0), MVT::Other,
-                               MVT::Glue, ArrayRef<SDValue>());
+        CurDAG->getMachineNode(Opc, dl,
+                               ArrayRef<EVT>{Node->getValueType(0), MVT::Glue},
+                               {NZCV.getValue(2)});
     CurDAG->ReplaceAllUsesOfValueWith(SDValue(Node, 0), SDValue(MI, 0));
     CurDAG->ReplaceAllUsesOfValueWith(SDValue(Node, 1), NZCV.getValue(1));
-    CurDAG->ReplaceAllUsesOfValueWith(SDValue(Node, 2), NZCV.getValue(2));
+    CurDAG->ReplaceAllUsesOfValueWith(SDValue(Node, 2), SDValue(MI, 1));
     CurDAG->RemoveDeadNode(Node);
     return;
   }
