@@ -1439,16 +1439,19 @@ public:
     mlir::Type resTy = cgf.convertType(e->getType());
     mlir::Location loc = cgf.getLoc(e->getExprLoc());
 
+    mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
+
     CIRGenFunction::ConditionalEvaluation eval(cgf);
 
-    mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
           CIRGenFunction::LexicalScope lexScope{cgf, loc,
                                                 b.getInsertionBlock()};
           cgf.curLexScope->setAsTernary();
+          eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
+          eval.endEvaluation();
           lexScope.forceCleanup({&res});
           cir::YieldOp::create(b, loc, res);
         },
@@ -1482,9 +1485,10 @@ public:
     mlir::Type resTy = cgf.convertType(e->getType());
     mlir::Location loc = cgf.getLoc(e->getExprLoc());
 
+    mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
+
     CIRGenFunction::ConditionalEvaluation eval(cgf);
 
-    mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -1499,7 +1503,9 @@ public:
           CIRGenFunction::LexicalScope lexScope{cgf, loc,
                                                 b.getInsertionBlock()};
           cgf.curLexScope->setAsTernary();
+          eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
+          eval.endEvaluation();
           lexScope.forceCleanup({&res});
           cir::YieldOp::create(b, loc, res);
         });
