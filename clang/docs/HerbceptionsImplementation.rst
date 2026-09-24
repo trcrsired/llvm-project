@@ -194,7 +194,49 @@ is diagnosed at call-lowering time with
 ``err_herbceptions_non_throws_call_throws`` (``CodeGen::EmitCall``,
 ``clang/lib/CodeGen/CGCall.cpp``). ``main()`` is a special case: its error
 path branches to a ``herb.main.trap`` block that executes ``llvm.trap``
-(the success path continues in ``herb.main.ok``).
+(the success path continues in ``herb.main.ok``). The trap is emitted
+directly on the error edge without ``EmitBranchThroughCleanup``, so no
+destructors are guaranteed to run before the trap -- neither ``main``'s
+local-object destructors nor the destructor of the escaping ``std::error``
+payload itself. ``main`` may not be declared ``throws`` or
+``return_failure{...}`` (``CheckMain`` in ``SemaDecl.cpp`` diagnoses it with
+``err_herbceptions_main_spec``).
+
+Running ``main``'s local cleanups first would be straightforward --
+``EmitBranchThroughCleanup`` to a shared trap block at the return block's
+scope depth does exactly that -- but it still cannot destroy the escaping
+error itself. On the error edge the ``{domain, code}`` payload exists only
+as the extracted call result; no cleanup entry in ``main``'s frame owns it.
+Materializing it into a slot and pushing a destructor cleanup so the
+domain's ``do_cleanup`` runs is not supported by the EH cleanup mechanism
+(which can only emit cleanups registered in scope order, not one for a
+value produced mid-path). Since the error's destructor cannot run anyway,
+running only the local destructors would give a false sense of cleanup, so
+the design traps immediately, like ``std::terminate``. This is also
+consistent with legacy C++ exception semantics: an uncaught ``throw``
+escaping ``main`` calls ``std::terminate``, and whether the stack is
+unwound (destructors run) is implementation-defined. Callers that need
+destruction must catch the error
+(``int main() try { ... } catch throws(std::error e) { ... }``).
+
+``llvm.trap`` rather than ``std::terminate()`` or ``abort()`` is also a
+deliberate choice. Even assuming the ``std::error`` layout were known and
+its destructor could be run, neither ``__builtin_trap()`` nor ``abort()``
+executes *global* destructors (``atexit``/``__cxa_atexit`` handlers and
+static-storage-duration destructors), so partial cleanup can never be
+complete cleanup. And ``std::terminate()`` itself is a poor fit for this
+path: it drags the whole terminate-handler machinery (and the exception
+runtime it lives in) into an otherwise runtime-free fail-fast edge; the
+committee may make the terminate handler replaceable/overridable in the
+future, which would turn a hard stop into a customizable callback; in
+many environments (freestanding, embedded, early-boot, some kernels)
+global destruction is not even possible; and unwinding-then-terminate has
+an ambiguity of its own -- [except.terminate] leaves it unspecified which
+handler is called if a destructor run during unwinding replaces the
+terminate handler before the unwind reaches ``std::terminate``. A bare
+``llvm.trap`` has none of those problems: it is a guaranteed,
+dependency-free, immediate stop -- directly crashing is always the
+safest.
 
 Type traits
 -----------
@@ -395,7 +437,9 @@ struct return is never misclassified: only a second struct element of type
   nearest active catch scope (so bare ``throw throws`` rethrows route to the
   innermost handler) and coerces the payload between ``T`` / ``E`` /
   ``std::error`` representations;
-* ``main()``: trap on error (blocks ``herb.main.ok`` / ``herb.main.trap``);
+* ``main()``: trap on error (blocks ``herb.main.ok`` / ``herb.main.trap``)
+  without running cleanups -- destructors are not guaranteed to run before
+  ``llvm.trap``;
 * otherwise: diagnose with ``err_herbceptions_non_throws_call_throws``.
 
 Every ``-fherbceptions`` function gets a ``herbception.disc`` alloca in
