@@ -379,6 +379,41 @@ that is neither ``throws`` nor ``return_failure{
 ``try { } catch throws(...)`` block instead. ``int main()`` is a special
 case: an unhandled error terminates via ``llvm.trap``.
 
+``main`` itself cannot be declared ``throws`` or ``return_failure{...}``:
+it is the outermost frame and has no caller able to consume a ``{T, i1}``
+error result, so such a declaration is a compile-time error.
+
+.. note::
+   When an uncaught herbception traps in ``main()``, there is **no
+   guarantee that any destructors run** before the trap. The trap is
+   emitted directly on the error edge without unwinding ``main``'s cleanup
+   stack, so destructors of ``main``'s local objects -- and the destructor
+   of the escaping ``std::error`` value itself (which would run the
+   domain's ``do_cleanup``) -- may all be skipped. This matches legacy C++
+   exception semantics: an uncaught ``throw`` escaping ``main`` calls
+   ``std::terminate``, and whether the stack is unwound (i.e. whether any
+   destructors run) is implementation-defined there as well. Note that a
+   hard stop is deliberate: ``abort()``/``__builtin_trap()`` never run
+   *global* destructors either, and ``std::terminate()`` would bloat the
+   fail-fast edge with the terminate-handler runtime -- a handler the
+   committee may make overridable, and one whose identity is even left
+   unspecified by [except.terminate] if a destructor run during unwinding
+   replaced it -- pointless where global destruction isn't even possible.
+   A direct crash is always the safest. Programs that rely on cleanup
+   before termination should catch the error instead, e.g. with a
+   function-try-block::
+
+     int main()
+     try {
+       // ...
+     } catch throws(std::error e) {
+       // handle e, or terminate explicitly
+     }
+
+   On that path the error is routed into the handler's error slot, ``e``'s
+   destructor runs when the handler exits, and ``main``'s local cleanups
+   run normally.
+
 Traditional exceptions
 ----------------------
 
