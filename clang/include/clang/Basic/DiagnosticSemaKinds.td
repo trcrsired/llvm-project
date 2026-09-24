@@ -8814,6 +8814,11 @@ def err_herbceptions_destructor_spec : Error<
   "destructor cannot be declared with a herbceptions "
   "('throws'/'return_failure{...}') exception specification; destructors cannot "
   "propagate errors">;
+def err_herbceptions_main_spec : Error<
+  "'main' cannot be declared with a herbceptions "
+  "('throws'/'return_failure{...}') exception specification; 'main' has no "
+  "caller able to consume an error result, and uncaught errors in 'main' "
+  "trap instead">;
 def err_return_failure_only_free_function : Error<
   "'return_failure{...}' is a C-style feature and may only be attached to free "
   "(non-member) functions; it is not allowed on member functions (including "
