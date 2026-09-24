@@ -1447,7 +1447,7 @@ public:
 
     mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
 
-    CIRGenFunction::ConditionalEvaluation eval(cgf);
+    CIRGenFunction::ConditionalEvaluation eval(cgf, loc);
 
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
@@ -1493,7 +1493,7 @@ public:
 
     mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
 
-    CIRGenFunction::ConditionalEvaluation eval(cgf);
+    CIRGenFunction::ConditionalEvaluation eval(cgf, loc);
 
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
@@ -3298,7 +3298,7 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
   }
 
   mlir::Value condV = cgf.emitOpOnBoolExpr(loc, condExpr);
-  CIRGenFunction::ConditionalEvaluation eval(cgf);
+  CIRGenFunction::ConditionalEvaluation eval(cgf, loc);
 
   auto emitBranch = [&](mlir::OpBuilder &b, mlir::Location loc, Expr *expr) {
     CIRGenFunction::LexicalScope lexScope{cgf, loc, b.getInsertionBlock()};
