@@ -12940,6 +12940,16 @@ void Sema::CheckMain(FunctionDecl *FD, const DeclSpec &DS) {
   if (isa<FunctionNoProtoType>(FT)) return;
 
   const FunctionProtoType* FTP = cast<const FunctionProtoType>(FT);
+
+  // Herbceptions: 'main' is the outermost frame and has no caller able to
+  // consume a {T, i1} error result, so it cannot be declared 'throws' or
+  // 'return_failure{...}'. An uncaught error in a non-'throws' main() traps
+  // instead.
+  if (getLangOpts().HerbExceptions && FTP->hasThrowsSpec()) {
+    Diag(FD->getLocation(), diag::err_herbceptions_main_spec);
+    FD->setInvalidDecl();
+  }
+
   unsigned nparams = FTP->getNumParams();
   assert(FD->getNumParams() == nparams);
 
