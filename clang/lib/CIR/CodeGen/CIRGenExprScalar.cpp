@@ -325,6 +325,12 @@ public:
     return {};
   }
 
+  mlir::Value VisitMatrixSingleSubscriptExpr(MatrixSingleSubscriptExpr *e) {
+    cgf.cgm.errorNYI(e->getSourceRange(),
+                     "ScalarExprEmitter: matrix singel subscript");
+    return {};
+  }
+
   mlir::Value VisitCastExpr(CastExpr *e);
   mlir::Value VisitCallExpr(const CallExpr *e);
 
@@ -1439,16 +1445,19 @@ public:
     mlir::Type resTy = cgf.convertType(e->getType());
     mlir::Location loc = cgf.getLoc(e->getExprLoc());
 
-    CIRGenFunction::ConditionalEvaluation eval(cgf);
-
     mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
+
+    CIRGenFunction::ConditionalEvaluation eval(cgf, loc);
+
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
           CIRGenFunction::LexicalScope lexScope{cgf, loc,
                                                 b.getInsertionBlock()};
           cgf.curLexScope->setAsTernary();
+          eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
+          eval.endEvaluation();
           lexScope.forceCleanup({&res});
           cir::YieldOp::create(b, loc, res);
         },
@@ -1482,9 +1491,10 @@ public:
     mlir::Type resTy = cgf.convertType(e->getType());
     mlir::Location loc = cgf.getLoc(e->getExprLoc());
 
-    CIRGenFunction::ConditionalEvaluation eval(cgf);
-
     mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
+
+    CIRGenFunction::ConditionalEvaluation eval(cgf, loc);
+
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -1499,7 +1509,9 @@ public:
           CIRGenFunction::LexicalScope lexScope{cgf, loc,
                                                 b.getInsertionBlock()};
           cgf.curLexScope->setAsTernary();
+          eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
+          eval.endEvaluation();
           lexScope.forceCleanup({&res});
           cir::YieldOp::create(b, loc, res);
         });
@@ -2241,8 +2253,8 @@ mlir::Value ScalarExprEmitter::emitMul(const BinOpInfo &ops) {
   }
   if (ops.fullType->isConstantMatrixType()) {
     assert(!cir::MissingFeatures::matrixType());
-    cgf.cgm.errorNYI("matrix types");
-    return nullptr;
+    cgf.cgm.errorNYI("ScalarExprEmitter::emitMul: matrix types");
+    return {};
   }
   if (ops.compType->isUnsignedIntegerType() &&
       cgf.sanOpts.has(SanitizerKind::UnsignedIntegerOverflow) &&
@@ -2265,6 +2277,12 @@ mlir::Value ScalarExprEmitter::emitDiv(const BinOpInfo &ops) {
   if (cir::isFPOrVectorOfFPType(ops.lhs.getType())) {
     CIRGenFunction::CIRGenFPOptionsRAII FPOptsRAII(cgf, ops.fpFeatures);
     return builder.createFDiv(loc, ops.lhs, ops.rhs);
+  }
+
+  if (ops.fullType->isConstantMatrixType()) {
+    assert(!cir::MissingFeatures::matrixType());
+    cgf.cgm.errorNYI("ScalarExprEmitter::emitDiv: matrix types");
+    return {};
   }
 
   if (ops.isFixedPointOp())
@@ -2404,8 +2422,8 @@ mlir::Value ScalarExprEmitter::emitAdd(const BinOpInfo &ops) {
   }
   if (ops.fullType->isConstantMatrixType()) {
     assert(!cir::MissingFeatures::matrixType());
-    cgf.cgm.errorNYI("matrix types");
-    return nullptr;
+    cgf.cgm.errorNYI("ScalarExprEmitter::emitAdd: matrix types");
+    return {};
   }
 
   if (ops.compType->isUnsignedIntegerType() &&
@@ -2452,8 +2470,8 @@ mlir::Value ScalarExprEmitter::emitSub(const BinOpInfo &ops) {
 
     if (ops.fullType->isConstantMatrixType()) {
       assert(!cir::MissingFeatures::matrixType());
-      cgf.cgm.errorNYI("matrix types");
-      return nullptr;
+      cgf.cgm.errorNYI("ScalarExprEmitter::emitSub: matrix types");
+      return {};
     }
 
     if (ops.compType->isUnsignedIntegerType() &&
@@ -3280,7 +3298,7 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
   }
 
   mlir::Value condV = cgf.emitOpOnBoolExpr(loc, condExpr);
-  CIRGenFunction::ConditionalEvaluation eval(cgf);
+  CIRGenFunction::ConditionalEvaluation eval(cgf, loc);
 
   auto emitBranch = [&](mlir::OpBuilder &b, mlir::Location loc, Expr *expr) {
     CIRGenFunction::LexicalScope lexScope{cgf, loc, b.getInsertionBlock()};
