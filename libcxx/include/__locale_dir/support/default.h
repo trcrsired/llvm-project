@@ -194,9 +194,6 @@ _LIBCPP_DIAGNOSTIC_POP
 } // namespace __locale
 _LIBCPP_END_NAMESPACE_STD
 
-<<<<<<< HEAD
-=======
 #include <__locale_dir/support/default/get_c_locale.h>
 
->>>>>>> origin/issue223128
 #endif // _LIBCPP___LOCALE_DIR_SUPPORT_DEFAULT_H
