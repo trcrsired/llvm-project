@@ -3501,7 +3501,7 @@ bool RISCVTTIImpl::isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
 bool RISCVTTIImpl::isLegalMaskedExpandLoad(Type *DataTy,
                                            Align Alignment) const {
   auto *VTy = dyn_cast<VectorType>(DataTy);
-  if (!VTy || VTy->isScalableTy())
+  if (!VTy)
     return false;
 
   if (!isLegalMaskedLoadStore(DataTy, Alignment))
@@ -3509,22 +3509,22 @@ bool RISCVTTIImpl::isLegalMaskedExpandLoad(Type *DataTy,
 
   // FIXME: If it is an i8 vector and the element count exceeds 256, we should
   // scalarize these types with LMUL >= maximum fixed-length LMUL.
-  if (VTy->getElementType()->isIntegerTy(8))
-    if (VTy->getElementCount().getFixedValue() > 256)
-      return VTy->getPrimitiveSizeInBits() / ST->getRealMinVLen() <
-             ST->getMaxLMULForFixedLengthVectors();
+  if (VTy->getElementType()->isIntegerTy(8)) {
+    uint64_t MaxEltCount = VTy->getElementCount().getKnownMinValue();
+    if (VTy->isScalableTy())
+      MaxEltCount *= ST->getRealMaxVLen() / RISCV::RVVBitsPerBlock;
+    // We can't yet split any widened indices type.
+    if (MaxEltCount > 256)
+      return getTypeLegalizationCost(
+                 VTy->getWithNewType(Type::getInt16Ty(VTy->getContext())))
+                 .first == 1;
+  }
   return true;
 }
 
 bool RISCVTTIImpl::isLegalMaskedCompressStore(Type *DataTy,
                                               Align Alignment) const {
-  auto *VTy = dyn_cast<VectorType>(DataTy);
-  if (!VTy || VTy->isScalableTy())
-    return false;
-
-  if (!isLegalMaskedLoadStore(DataTy, Alignment))
-    return false;
-  return true;
+  return isLegalMaskedLoadStore(DataTy, Alignment);
 }
 
 bool RISCVTTIImpl::isLegalBroadcastLoad(Type *ElementTy,
@@ -3770,7 +3770,7 @@ RISCVTTIImpl::enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const {
     // The minimum size should be `XLen / 8 + 1`, and the maxinum size should be
     // `VLenB * MaxLMUL` so that it fits in a single register group.
     unsigned MinSize = ST->getXLen() / 8 + 1;
-    unsigned MaxSize = VLenB * ST->getMaxLMULForFixedLengthVectors();
+    unsigned MaxSize = VLenB * 8;
     for (unsigned Size = MinSize; Size <= MaxSize; Size++)
       Options.LoadSizes.insert(Options.LoadSizes.begin(), Size);
   }
