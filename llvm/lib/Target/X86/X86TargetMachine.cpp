@@ -575,6 +575,9 @@ void X86PassConfig::addPreEmitPass() {
   addPass(createX86CompressEVEXLegacyPass());
   addPass(createX86InsertX87WaitLegacyPass());
 
+  if (TM->getTargetTriple().isLFI())
+    addPass(createX86LFIRewritePass());
+
   // Must run after prolog/epilog insertion: the fold depends on whether the
   // call's stack adjustment survives as a real add/sub, which is decided there.
   addPass(createX86HerbceptionsFoldPass());
