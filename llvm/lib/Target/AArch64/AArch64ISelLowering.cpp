@@ -11431,14 +11431,28 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   RetOps[0] = Chain; // Update chain.
 
   // Herbception (throws): set NZCV.C = discriminant before returning. The
-  // caller reads the C flag right after the call.
+  // caller reads the C flag right after the call. The discriminant rides on
+  // the RET as a register operand: RET_ReallyLR expands to "cmp disc, #1;
+  // ret", so the flag write is part of the terminator itself and epilogue
+  // code (e.g. the stack-protector cookie check, which is spliced in before
+  // the terminator) can never be scheduled between it and the return.
   if (ThrowsDiscriminant.getNode()) {
-    SDValue Carry = valueToCarryFlag(ThrowsDiscriminant, DAG,
-                                     /*Invert=*/false);
-    // Keep the flag-setting SUBS live and glue it to the return. Copy the
-    // produced NZCV flags to the NZCV register so RET observes them.
-    Chain = DAG.getCopyToReg(Chain, DL, AArch64::NZCV, Carry, Glue);
-    Glue = Chain.getValue(1);
+    SDValue Disc = ThrowsDiscriminant;
+    // Look through the wrappers the builder leaves in place: extensions from
+    // the IR-level i1 and MERGE_VALUES results from aggregate returns.
+    while (true) {
+      unsigned Opc = Disc.getOpcode();
+      if (Opc == ISD::ANY_EXTEND || Opc == ISD::ZERO_EXTEND ||
+          Opc == ISD::SIGN_EXTEND)
+        Disc = Disc.getOperand(0);
+      else if (Opc == ISD::MERGE_VALUES)
+        Disc = Disc.getNode()->getOperand(Disc.getResNo());
+      else
+        break;
+    }
+    if (Disc.getValueType() != MVT::i64)
+      Disc = DAG.getZExtOrTrunc(Disc, DL, MVT::i32);
+    RetOps.push_back(Disc);
     RetOps.push_back(DAG.getRegister(AArch64::NZCV, FlagsVT));
   }
 

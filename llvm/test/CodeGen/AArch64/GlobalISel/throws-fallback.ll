@@ -23,7 +23,7 @@ define { i64, i1 } @good(i32 %n) #1 {
 ; Falling back must produce SelectionDAG's convention: the discriminant is
 ; compared out of NZCV.C, not copied out of a return register.
 ; ASM-LABEL: good:
-; ASM:       subs w8, w8, #1
+; ASM:       cmp w{{[0-9]+}}, #1
 
 ; The same signature without 'throws' is unaffected and stays on GlobalISel.
 declare { i64, i1 } @plain(i32)

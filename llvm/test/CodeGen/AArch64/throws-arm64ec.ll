@@ -10,8 +10,7 @@
 ; Success: discriminant is false (0) -> C is clear.
 define { i64, i1 } @ret_success(i64 %x) #0 {
 ; CHECK-LABEL: ret_success
-; CHECK:            mov w8, wzr
-; CHECK-NEXT:       cmp w8, #1
+; CHECK:            subs wzr, wzr, #1
 ; CHECK-NEXT:       ret
 entry:
   %r.i = insertvalue { i64, i1 } poison, i64 %x, 0
@@ -22,6 +21,7 @@ entry:
 ; Error: discriminant is true (1) -> C is set.
 define { i64, i1 } @ret_error(i64 %x) #0 {
 ; CHECK-LABEL: ret_error
+; CHECK:            mov w8, #1
 ; CHECK:            cmp w8, #1
 ; CHECK:            ret
 entry:
@@ -36,7 +36,7 @@ define { i64, i64, i1 } @ret_16b(i64 %x, i64 %y) #0 {
 ; CHECK-LABEL: ret_16b
 ; CHECK:            mov x8, x0
 ; CHECK:            mov x0, x1
-; CHECK:            cmp w{{[0-9]+}}, #1
+; CHECK:            subs wzr, wzr, #1
 ; CHECK:            mov x1, x8
 ; CHECK:            ret
 entry:
@@ -64,9 +64,9 @@ entry:
 ; discriminant in NZCV.C.
 define { i64, i64, i1 } @ret_sret64(ptr throws_sret({i64,i64,i64}) %out, i64 %x) #0 {
 ; CHECK-LABEL: ret_sret64
-; CHECK:            cmp w{{[0-9]+}}, #1
 ; CHECK:            mov x0, x1
 ; CHECK:            mov {{w|x}}1, #42
+; CHECK:            cmp w{{[0-9]+}}, #1
 ; CHECK:            str {{x[0-9]+}}, [{{x[0-9]+}}]
 ; CHECK:            ret
 entry:

@@ -711,6 +711,65 @@ shape:
 * MIPS and Xtensa use ordinary integer registers, so no flag-read
   adjacency is needed.
 
+Return-side flag write adjacency
+````````````````````````````````
+
+The callee side has the symmetric problem: the instruction that
+materializes the discriminant onto the flag (``SUBS``/``cmp`` on
+NZCV.C/CPSR.C/ICC) must be the last flag write before the return, because
+any later flag def silently replaces the discriminant the caller reads.
+Originally each ``LowerReturn`` emitted the flag write as a free
+instruction glued (via ``CopyToReg``/``Glue``) to the return node, which
+guarantees DAG order but not machine-block order: epilogue code inserted
+between the write and the terminator still clobbers the discriminant.
+
+The failure that motivated the fix is the stack protector.
+``findSplitPointForStackProtector`` splices an MBB's tail at its
+terminator sequence (vreg->physreg copies plus the terminator) into the
+success block, then emits the cookie comparison in the parent block right
+before it. A flag write is not a copy, so it stayed in the parent and the
+cookie ``cmp`` became the last flag def before ``ret``: every successful
+return reported the cookie result (always "threw"), e.g.
+``cmp x9, x8; ret`` instead of ``cmp x9, x8; subs wzr, disc, #1; ret``.
+aarch64-darwin showed it first because the Apple driver enables
+``-fstack-protector-strong`` by default; aarch64-windows-msvc was masked
+only because the MSVC driver does not enable stack protection. ARM had it
+twice over — ``early-ifcvt`` additionally predicates the return itself
+(``addeq``/``popeq``), which a flag-discriminant return cannot express.
+
+Two fixes keep the flag write adjacent to the return:
+
+* ``findSplitPointForStackProtector`` now also pulls instructions that
+  define a physical register implicitly used by the terminator into the
+  terminator sequence (``llvm/lib/CodeGen/CodeGenCommonISel.cpp``). The
+  flag write therefore travels with the return into the success block and
+  lands after the cookie check. This is generic: it fixed ARM (which also
+  loses the conditional-return fold, since a predicated flag write cannot
+  satisfy the return's implicit flag use) and SPARC.
+* On AArch64 the discriminant rides as an explicit operand on
+  ``RET_ReallyLR`` and ``aarch64-expand-pseudo`` materializes
+  ``cmp disc, #1`` inside the terminator expansion itself
+  (``AArch64ExpandPseudoInsts.cpp``). No epilogue pass can interpose, so
+  this also protects against any future flag-defining epilogue code
+  beyond the stack protector — the same class of hazard x86 earlier
+  worked around by forcing a frame pointer on Win64 so the epilogue uses
+  ``MOV RSP, RBP`` instead of CF-clobbering ``ADD RSP, imm``.
+
+SPARC additionally needed the flag channel modeled on the return: the
+``RET``/``RETL`` implicit ``%icc`` use is pushed onto ``RET_GLUE`` in
+``SparcISelLowering.cpp`` so the flag producer is live at the terminator
+and discoverable by the splice fix.
+
+PowerPC (``cr6`` is a separate condition field the cookie check does not
+write), x86 (flag materialization already glued into the terminator
+sequence), and the register-channel targets (MIPS ``$a0``, RISC-V ``a2``,
+LoongArch ``a2``, Xtensa ``a4``) were never affected — a flag-free
+discriminant cannot be clobbered.
+
+Regression coverage: ``throws-write-cf-glue.ll`` for AArch64, ARM and
+SPARC, which force ``sspstrong`` frames and check that the flag write
+follows the cookie comparison.
+
 ARM64EC details
 ```````````````
 
