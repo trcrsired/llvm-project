@@ -74,9 +74,9 @@ entry:
 ; in the carry bit.
 define { i64, i64, i1 } @ret_sret64(ptr throws_sret({i64,i64,i64}) %out, i64 %x) #0 {
 ; V9-LABEL: ret_sret64:
-; V9:            stx %o1, [%o0]
 ; V9:            mov 42, %o1
 ; V9:            cmp %g0, 1
+; V9:            stx %o2, [%o0]
 ; V9:            retl
 entry:
   store i64 %x, ptr %out, align 8
