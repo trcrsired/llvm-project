@@ -128,8 +128,9 @@ define { { ptr, i64 }, i1 } @propagate_reuses_discriminant(i32 noundef %0) #0 {
 ; CHECK:         bl callee_pair
 ; CHECK-NEXT:    cset w8, hs
 ; CHECK-NEXT:    mov w9, w0
-; CHECK-NEXT:    csel x0, x0, x9, hs
-; CHECK-NEXT:    cmp w8, #1
+; CHECK-NEXT:    ands w8, w8, #0x1
+; CHECK-NEXT:    csel x0, x0, x9, ne
+; CHECK:         cmp w8, #1
 ; CHECK-NOT:     tst
   %c = tail call { { ptr, i64 }, i1 } @callee_pair(i32 noundef %0) #0
   %v = extractvalue { { ptr, i64 }, i1 } %c, 0

@@ -360,6 +360,10 @@ SparcTargetLowering::LowerReturn_32(SDValue Chain, CallingConv::ID CallConv,
     SDValue Disc = DAG.getZExtOrTrunc(ThrowsDiscriminant, DL, MVT::i32);
     Glue = DAG.getNode(SPISD::CMPICC, DL, MVT::Glue,
                        DAG.getConstant(0, DL, MVT::i32), Disc);
+    // Model the flag channel on the return: RET/RETL implicitly uses ICC so
+    // the discriminant's producer is live at the return and the stack
+    // protector splice keeps the flag write adjacent to it.
+    RetOps.push_back(DAG.getRegister(SP::ICC, MVT::i32));
   }
 
   // Add the glue if we have it.
@@ -459,6 +463,10 @@ SparcTargetLowering::LowerReturn_64(SDValue Chain, CallingConv::ID CallConv,
     SDValue Disc = DAG.getZExtOrTrunc(ThrowsDiscriminant, DL, MVT::i32);
     Glue = DAG.getNode(SPISD::CMPICC, DL, MVT::Glue,
                        DAG.getConstant(0, DL, MVT::i32), Disc);
+    // Model the flag channel on the return: RET/RETL implicitly uses ICC so
+    // the discriminant's producer is live at the return and the stack
+    // protector splice keeps the flag write adjacent to it.
+    RetOps.push_back(DAG.getRegister(SP::ICC, MVT::i32));
   }
 
   // Add the flag if we have it.
