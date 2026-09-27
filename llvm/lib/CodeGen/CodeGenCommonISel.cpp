@@ -12,6 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/CodeGenCommonISel.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -184,7 +186,25 @@ llvm::findSplitPointForStackProtector(MachineBasicBlock *BB,
     return Previous;
   }
 
-  while (MIIsInTerminatorSequence(*Previous)) {
+  // Herbception (throws): a throws return carries an implicit use of a flag
+  // register (NZCV.C on AArch64, CPSR.C on ARM, ICC on SPARC, EFLAGS.CF on
+  // X86, CR6 on PowerPC) whose producer materializes the return discriminant.
+  // That producer must travel with the terminator into the success block:
+  // leaving it behind would put the cookie check (which itself sets flags)
+  // between the discriminant write and the return, so the callee would report
+  // the cookie result instead of its own success/failure.
+  SmallSet<MCRegister, 4> FlagRegs;
+  for (auto It = SplitPoint; It != BB->end(); ++It)
+    for (const MachineOperand &Op : It->operands())
+      if (Op.isReg() && Op.isUse() && Op.isImplicit() &&
+          Op.getReg().isPhysical())
+        FlagRegs.insert(Op.getReg());
+  const TargetRegisterInfo &TRI = TII.getRegisterInfo();
+
+  while (MIIsInTerminatorSequence(*Previous) ||
+         llvm::any_of(FlagRegs, [&](MCRegister R) {
+           return Previous->modifiesRegister(R, &TRI);
+         })) {
     SplitPoint = Previous;
     if (Previous == Start)
       break;

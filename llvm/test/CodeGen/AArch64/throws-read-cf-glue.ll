@@ -19,9 +19,9 @@ declare { { ptr, i64 }, i1 } @flush() #0
 
 define { { ptr, i64 }, i1 } @g(ptr %p) #0 {
 ; CHECK-LABEL: {{^"?#?g"?}}:
-; CHECK:      b.eq
+; CHECK:      b.ne
 ; CHECK:      bl {{"?#?}}flush{{"?}}
-; CHECK-NEXT: cset
+; CHECK-NEXT: b.hs
 entry:
   %s = tail call ptr @iob(i32 noundef 0)
   %eq = icmp eq ptr %p, %s
