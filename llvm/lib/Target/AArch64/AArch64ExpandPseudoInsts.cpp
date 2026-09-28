@@ -1658,35 +1658,25 @@ bool AArch64ExpandPseudoImpl::expandMI(MachineBasicBlock &MBB,
   case AArch64::MOVi64imm:
     return expandMOVImm(MBB, MBBI, 64);
   case AArch64::RET_ReallyLR: {
-    // Herbception (throws): RET_ReallyLR carries the discriminant as an
-    // explicit (non-implicit) operand so that the NZCV.C materialization can
-    // never be separated from the return: the stack-protector instrumentation
-    // splices the MBB tail at the terminator, so any flag-setting instruction
-    // emitted before the RET (e.g. a cookie check CMP) would overwrite the
-    // discriminant. Emit "cmp disc, #1" here, immediately before the ret.
+    // Herbception (throws): RET_ReallyLR carries the discriminant so that the
+    // NZCV.C materialization can never be separated from the return: the
+    // stack-protector instrumentation splices the MBB tail at the terminator,
+    // so any flag-setting instruction emitted before the RET (e.g. a cookie
+    // check CMP) would overwrite the discriminant. Emit "cmp disc, #1" here,
+    // immediately before the ret.
+    //
+    // The discriminant always arrives in W16 (IP0), copied there by
+    // LowerReturn among the return-value copies which run before the epilogue
+    // restores callee-saved registers; a plain operand vreg could have been
+    // allocated to a callee-saved register and read back its restored (caller)
+    // value here.
     MachineFunction &MF = *MBB.getParent();
     if (MF.getFunction().hasFnAttribute(Attribute::Throws)) {
-      const MachineRegisterInfo &MRI = MF.getRegInfo();
       for (const MachineOperand &Op : MI.operands()) {
-        if (Op.isImm()) {
-          // Constant discriminant: CMP WZR, #1 gives C=0, CMP WZR, #0 gives
-          // C=1.
+        if (Op.isReg() && Op.isUse() && Op.getReg() == AArch64::W16) {
           BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::SUBSWri),
                   AArch64::WZR)
-              .addReg(AArch64::WZR)
-              .addImm(Op.getImm() ? 0 : 1)
-              .addImm(0);
-          break;
-        }
-        if (Op.isReg() && Op.isUse() && !Op.isImplicit()) {
-          Register Disc = Op.getReg();
-          bool Is64 = Disc.isVirtual()
-                          ? MRI.getType(Disc).getScalarSizeInBits() == 64
-                          : AArch64::GPR64RegClass.contains(Disc);
-          BuildMI(MBB, MBBI, MI.getDebugLoc(),
-                  TII->get(Is64 ? AArch64::SUBSXri : AArch64::SUBSWri),
-                  Is64 ? AArch64::XZR : AArch64::WZR)
-              .addReg(Disc)
+              .addReg(AArch64::W16)
               .addImm(1)
               .addImm(0);
           break;

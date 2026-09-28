@@ -43,7 +43,8 @@ define { { ptr, i64 }, i1 } @g() #1 {
 ; CHECK-LABEL: {{^"?#?_?g"?}}:
 ; CHECK:      cmp x{{[0-9]+}}, x{{[0-9]+}}
 ; CHECK-NEXT: b.ne
-; CHECK:      subs wzr, wzr, #1
+; CHECK:      mov w16, wzr
+; CHECK:      cmp w16, #1
 ; CHECK-NEXT: ret
 entry:
   %buf = alloca [48 x i8], align 1
