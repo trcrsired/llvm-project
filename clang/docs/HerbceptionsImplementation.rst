@@ -746,14 +746,34 @@ Two fixes keep the flag write adjacent to the return:
   lands after the cookie check. This is generic: it fixed ARM (which also
   loses the conditional-return fold, since a predicated flag write cannot
   satisfy the return's implicit flag use) and SPARC.
-* On AArch64 the discriminant rides as an explicit operand on
-  ``RET_ReallyLR`` and ``aarch64-expand-pseudo`` materializes
-  ``cmp disc, #1`` inside the terminator expansion itself
+* On AArch64 ``aarch64-expand-pseudo`` materializes ``cmp w16, #1``
+  inside the ``RET_ReallyLR`` terminator expansion itself
   (``AArch64ExpandPseudoInsts.cpp``). No epilogue pass can interpose, so
   this also protects against any future flag-defining epilogue code
   beyond the stack protector — the same class of hazard x86 earlier
   worked around by forcing a frame pointer on Win64 so the epilogue uses
   ``MOV RSP, RBP`` instead of CF-clobbering ``ADD RSP, imm``.
+
+  That placement has a second, subtler hazard of its own: the compare
+  inside the expansion executes *after* the epilogue's callee-saved
+  register restores, so the discriminant's value cannot be carried there
+  in an ordinary virtual-register operand — regalloc may place it in a
+  callee-saved register whose epilogue restore overwrites it before the
+  terminator reads it (the first implementation hit exactly that: the
+  operand landed in ``w21``, the epilogue emitted ``ldp x22, x21``
+  between the operand copies and ``cmp w21, #1``, and every success path
+  returned the caller's stale ``x21`` as the discriminant — a spurious
+  "threw" flag paired with an undefined payload). ``LowerReturn``
+  therefore copies the discriminant into ``w16`` (IP0) alongside the
+  return-value copies, which run before the restores: ``w16`` is
+  call-clobbered scratch that no callee-saved restore touches, and the
+  epilogue's scratch-register finder skips it because it is live into the
+  terminator's implicit ``$w16`` use. The other flag-channel targets do
+  not need this: their flag write is a real instruction emitted *before*
+  the terminator, which lands before the restores (the restores are
+  inserted at the first terminator) and therefore reads the discriminant
+  while its register is still valid — the flag then survives because the
+  intervening restores are flag-neutral.
 
 SPARC additionally needed the flag channel modeled on the return: the
 ``RET``/``RETL`` implicit ``%icc`` use is pushed onto ``RET_GLUE`` in
@@ -768,7 +788,11 @@ discriminant cannot be clobbered.
 
 Regression coverage: ``throws-write-cf-glue.ll`` for AArch64, ARM and
 SPARC, which force ``sspstrong`` frames and check that the flag write
-follows the cookie comparison.
+follows the cookie comparison; and ``throws-csr-disc.ll``, which keeps
+enough values live to push the discriminant's operand onto a
+callee-saved register — on AArch64 it checks the flag write reads
+``w16``, and on X86, ARM, SPARC and PowerPC it checks the flag write
+runs before the callee-saved restores.
 
 ARM64EC details
 ```````````````

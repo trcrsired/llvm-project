@@ -11443,11 +11443,19 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   RetOps[0] = Chain; // Update chain.
 
   // Herbception (throws): set NZCV.C = discriminant before returning. The
-  // caller reads the C flag right after the call. The discriminant rides on
-  // the RET as a register operand: RET_ReallyLR expands to "cmp disc, #1;
-  // ret", so the flag write is part of the terminator itself and epilogue
-  // code (e.g. the stack-protector cookie check, which is spliced in before
-  // the terminator) can never be scheduled between it and the return.
+  // caller reads the C flag right after the call. RET_ReallyLR expands to
+  // "cmp disc, #1; ret", so the flag write is part of the terminator itself
+  // and epilogue code (e.g. the stack-protector cookie check, which is spliced
+  // in before the terminator) can never be scheduled between it and the
+  // return.
+  //
+  // The compare inside the RET expansion runs *after* the epilogue's
+  // callee-saved register restores, so the discriminant cannot be kept in an
+  // ordinary vreg operand: regalloc may place it in a callee-saved register
+  // that a restore overwrites before the terminator reads it. It is instead
+  // copied into W16 (IP0) with the return-value copies, which run before the
+  // restores; W16 is call-clobbered scratch that no restore or epilogue
+  // liveness-driven scratch use will clobber.
   if (ThrowsDiscriminant.getNode()) {
     SDValue Disc = ThrowsDiscriminant;
     // Look through the wrappers the builder leaves in place: extensions from
@@ -11462,9 +11470,12 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
       else
         break;
     }
-    if (Disc.getValueType() != MVT::i64)
+    if (Disc.getValueType() != MVT::i32)
       Disc = DAG.getZExtOrTrunc(Disc, DL, MVT::i32);
-    RetOps.push_back(Disc);
+    Chain = DAG.getCopyToReg(Chain, DL, AArch64::W16, Disc, Glue);
+    Glue = Chain.getValue(1);
+    RetOps[0] = Chain;
+    RetOps.push_back(DAG.getRegister(AArch64::W16, MVT::i32));
     RetOps.push_back(DAG.getRegister(AArch64::NZCV, FlagsVT));
   }
 
