@@ -2246,13 +2246,10 @@ Value *ScalarExprEmitter::VisitMatrixSingleSubscriptExpr(
   auto *ResultTy = llvm::FixedVectorType::get(ElemTy, NumColumns);
   Value *RowVec = llvm::PoisonValue::get(ResultTy);
 
-  bool IsMatrixRowMajor =
-      isMatrixRowMajor(CGF.getLangOpts(), E->getBase()->getType());
-
   for (unsigned Col = 0; Col != NumColumns; ++Col) {
     Value *ColVal = llvm::ConstantInt::get(RowIdx->getType(), Col);
     Value *EltIdx = MB.CreateIndex(RowIdx, ColVal, NumRows, NumColumns,
-                                   IsMatrixRowMajor, "matrix_row_idx");
+                                   /*IsRowMajor=*/false, "matrix_row_idx");
     Value *Elt =
         Builder.CreateExtractElement(FlatMatrix, EltIdx, "matrix_elem");
     Value *Lane = llvm::ConstantInt::get(Builder.getInt32Ty(), Col);
@@ -2276,9 +2273,8 @@ Value *ScalarExprEmitter::VisitMatrixSubscriptExpr(MatrixSubscriptExpr *E) {
   Value *Idx;
   unsigned NumCols = MatrixTy->getNumColumns();
   unsigned NumRows = MatrixTy->getNumRows();
-  bool IsMatrixRowMajor =
-      isMatrixRowMajor(CGF.getLangOpts(), E->getBase()->getType());
-  Idx = MB.CreateIndex(RowIdx, ColumnIdx, NumRows, NumCols, IsMatrixRowMajor);
+  Idx = MB.CreateIndex(RowIdx, ColumnIdx, NumRows, NumCols,
+                       /*IsRowMajor=*/false);
 
   if (CGF.CGM.getCodeGenOpts().OptimizationLevel > 0)
     MB.CreateIndexAssumption(Idx, MatrixTy->getNumElementsFlattened());
@@ -2360,10 +2356,8 @@ Value *ScalarExprEmitter::VisitInitListExpr(InitListExpr *E) {
 
   // For column-major matrix types, we insert elements directly at their
   // column-major positions rather than inserting sequentially and shuffling.
-  const ConstantMatrixType *ColMajorMT = nullptr;
-  if (const auto *MT = E->getType()->getAs<ConstantMatrixType>();
-      MT && !isMatrixRowMajor(CGF.getLangOpts(), E->getType()))
-    ColMajorMT = MT;
+  const ConstantMatrixType *ColMajorMT =
+      E->getType()->getAs<ConstantMatrixType>();
 
   // Loop over initializers collecting the Value for each, and remembering
   // whether the source was swizzle (ExtVectorElementExpr).  This will allow
@@ -3199,15 +3193,10 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
       assert(NumRows <= SrcMatTy->getNumRows());
       assert(NumCols <= SrcMatTy->getNumColumns());
 
-      // isMatrix[Src|Dst]RowMajor needs the full sugared QualType to find
-      // matrix layout attrs. So use E->getType() &  DestTy rather than SrcMatTy
-      // & MatTy b/c getAs<ConstantMatrixType>() strips the sugar.
-      bool IsSrcRowMajor = isMatrixRowMajor(CGF.getLangOpts(), E->getType());
-      bool IsDstRowMajor = isMatrixRowMajor(CGF.getLangOpts(), DestTy);
       for (unsigned R = 0; R < NumRows; R++)
         for (unsigned C = 0; C < NumCols; C++)
-          Mask[MatTy->getFlattenedIndex(R, C, IsDstRowMajor)] =
-              SrcMatTy->getFlattenedIndex(R, C, IsSrcRowMajor);
+          Mask[MatTy->getColumnMajorFlattenedIndex(R, C)] =
+              SrcMatTy->getColumnMajorFlattenedIndex(R, C);
 
       return Builder.CreateShuffleVector(Mat, Mask, "trunc");
     }
