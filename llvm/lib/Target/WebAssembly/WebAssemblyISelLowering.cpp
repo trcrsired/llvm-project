@@ -3423,8 +3423,8 @@ static SDValue performBitcastCombine(SDNode *N,
     SDValue Concat, SetCCVector;
     ISD::CondCode SetCond;
 
-    if (!sd_match(N, m_BitCast(m_c_SetCC(m_Value(Concat), m_Value(SetCCVector),
-                                         m_CondCode(SetCond)))))
+    if (!sd_match(N, m_BitCast(m_c_SetCC(SetCond, m_Value(Concat),
+                                         m_Value(SetCCVector)))))
       return SDValue();
     if (Concat.getOpcode() != ISD::CONCAT_VECTORS)
       return SDValue();
@@ -3498,8 +3498,8 @@ static SDValue performBitmaskCombine(SDNode *N, SelectionDAG &DAG) {
     return SDValue();
 
   SDValue LHS;
-  if (!sd_match(N->getOperand(1), m_c_SetCC(m_Value(LHS), m_Zero(),
-                                            m_SpecificCondCode(ISD::SETLT))))
+  if (!sd_match(N->getOperand(1),
+                m_c_SpecificSetCC(ISD::SETLT, m_Value(LHS), m_Zero())))
     return SDValue();
 
   SDLoc DL(N);
@@ -3518,8 +3518,7 @@ static SDValue performAnyAllCombine(SDNode *N, SelectionDAG &DAG) {
 
   SDValue LHS;
   if (N->getNumOperands() < 2 ||
-      !sd_match(N->getOperand(1),
-                m_c_SetCC(m_Value(LHS), m_Zero(), m_CondCode())))
+      !sd_match(N->getOperand(1), m_c_SetCC(m_Value(LHS), m_Zero())))
     return SDValue();
   EVT LT = LHS.getValueType();
   if (LT.getScalarSizeInBits() > 128 / LT.getVectorNumElements())
@@ -3532,8 +3531,8 @@ static SDValue performAnyAllCombine(SDNode *N, SelectionDAG &DAG) {
       return SDValue();
 
     SDValue LHS;
-    if (!sd_match(N->getOperand(1), m_c_SetCC(m_Value(LHS), m_Zero(),
-                                              m_SpecificCondCode(SetType))))
+    if (!sd_match(N->getOperand(1),
+                  m_c_SpecificSetCC(SetType, m_Value(LHS), m_Zero())))
       return SDValue();
 
     SDLoc DL(N);
