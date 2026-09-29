@@ -185,7 +185,6 @@ static cl::opt<bool>
     DumpThinCGSCCs("dump-thin-cg-sccs", cl::init(false), cl::Hidden,
                    cl::desc("Dump the SCCs in the ThinLTO index's callgraph"));
 namespace llvm {
-extern cl::opt<bool> CodeGenDataThinLTOTwoRounds;
 extern cl::opt<bool> ForceImportAll;
 extern cl::opt<bool> AlwaysRenamePromotedLocals;
 } // end namespace llvm
@@ -1208,7 +1207,7 @@ LTO::addRegularLTO(InputFile &Input, ArrayRef<SymbolResolution> InputRes,
       NewIA += " " + llvm::join(NonPrevailingAsmSymbols, ", ");
     }
     NewIA += "\n";
-    M.prependModuleInlineAsm(NewIA);
+    M.prependModuleInlineAsm({NewIA, M.getModuleInlineAsm().front().Props});
   }
 
   assert(MsymI == MsymE);
@@ -2390,7 +2389,7 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
     return BackendProcess->wait();
   };
 
-  if (!CodeGenDataThinLTOTwoRounds) {
+  if (!cgdata::thinLTOTwoRounds()) {
     std::unique_ptr<ThinBackendProc> BackendProc =
         ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
                         AddStream, Cache, BitcodeLibFuncs);
