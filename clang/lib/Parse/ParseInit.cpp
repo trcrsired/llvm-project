@@ -614,12 +614,26 @@ ExprResult Parser::ParseInitializer(Decl *DeclForInitializer) {
       Actions.ExprEvalContexts.back().DeclForInitializer = VD;
   }
 
+  // Herbception: a constexpr/constinit variable initializer is always
+  // constant-evaluated, so a bare call to a throws function inside it is not
+  // subject to the non-throws-caller check; only an error that escapes the
+  // evaluation is diagnosed.
+  bool ConstexprInit = false;
+  if (getLangOpts().HerbExceptions)
+    if (const auto *VD = dyn_cast_or_null<VarDecl>(DeclForInitializer))
+      ConstexprInit = VD->isConstexpr() || VD->hasAttr<ConstInitAttr>();
+  if (ConstexprInit)
+    ++Actions.HerbceptionConstexprInitDepth;
+
   ExprResult init;
   if (Tok.isNot(tok::l_brace)) {
     init = ParseAssignmentExpression();
   } else {
     init = ParseBraceInitializer();
   }
+
+  if (ConstexprInit)
+    --Actions.HerbceptionConstexprInitDepth;
 
   return init;
 }

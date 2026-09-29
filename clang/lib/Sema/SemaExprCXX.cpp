@@ -916,6 +916,9 @@ bool Sema::isHerbceptionThrowsCall(const Expr *Ex) {
 ///   - main(): an escaped error traps at runtime;
 ///   - default arguments and other expressions evaluated in a different
 ///     frame: the caller's context decides;
+///   - constant-evaluated contexts, including constexpr/constinit variable
+///     initializers: the call runs at compile time; only an error escaping
+///     the evaluation is diagnosed there;
 ///   - unevaluated operands: never emitted.
 bool Sema::diagnoseNonThrowsHerbceptionCall(SourceLocation Loc) {
   const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true);
@@ -936,9 +939,11 @@ bool Sema::diagnoseNonThrowsHerbceptionCall(SourceLocation Loc) {
   }
 
   if (CurFD->isMain() || isUnevaluatedContext() ||
+      isConstantEvaluatedContext() ||
       isCheckingDefaultArgumentOrInitializer() ||
       HerbceptionTryBodyDepth > 0 || HerbceptionCatchClauseDepth > 0 ||
-      HerbceptionCatchDepth > 0 || HerbceptionIfConstexprDepth > 0)
+      HerbceptionCatchDepth > 0 || HerbceptionIfConstexprDepth > 0 ||
+      HerbceptionConstexprInitDepth > 0)
     return false;
 
   // A default argument is evaluated in the caller's frame. While it is

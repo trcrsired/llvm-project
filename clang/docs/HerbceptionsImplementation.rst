@@ -376,6 +376,33 @@ failure, propagation through bare calls and ``try(expr)``, and evaluation of
 constant). The newer bytecode interpreter covers ``CXXCatchFailsExpr``
 (``clang/lib/AST/ByteCode/Compiler.cpp``).
 
+Calls to ``throws``/``return_failure{E}`` functions in
+constant-expression contexts are exempt from the Sema-side
+``err_herbceptions_non_throws_call_throws`` check: like ``operator new`` in
+a constant expression, the call is evaluated and the rule is enforced at
+the evaluation boundary. The exemption covers
+``isConstantEvaluatedContext()`` (``static_assert``, constant template
+arguments, immediate calls, ...) plus ``constexpr``/``constinit`` variable
+initializers, which are tracked by ``Sema::HerbceptionConstexprInitDepth``
+-- raised in ``Parser::InitializerScopeRAII`` /
+``Parser::ParseInitializer`` and re-raised by
+``Sema::InstantiateVariableInitializer`` while an initializer is
+re-substituted during template instantiation.
+
+An error thrown and caught *inside* the evaluation is consumed by the
+in-evaluator ``catch throws`` routing; a ``HerbceptionErrorPending`` left
+over when the outermost initializer / ``static_assert`` /
+template-argument evaluation finishes makes the expression not a constant
+expression (you cannot throw out of constant evaluation). To diagnose it,
+``EvalInfo::HerbceptionErrorLoc`` records where the error originated (the
+``throw throws`` / ``return_failure`` site, preserved through
+``try(expr)`` auto-propagation and bare-call revival) and
+``HerbceptionErrorIsReturnFailure`` records the channel; the note
+``note_constexpr_herbception_uncaught`` replaces the misleading
+uninitialized-subobject diagnostic in ``CheckEvaluationResult`` and is
+appended in ``~EvalInfo`` for evaluation paths that bail out before a
+result check.
+
 CodeGen
 =======
 
