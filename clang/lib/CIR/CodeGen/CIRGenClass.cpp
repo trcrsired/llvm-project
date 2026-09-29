@@ -925,6 +925,15 @@ void CIRGenFunction::emitForwardingCallToLambda(
       cgm.errorNYI(callOperator->getSourceRange(),
                    "emitForwardingCallToLambda: ObjCAutoRefCount");
     emitReturnOfRValue(getLoc(*currSrcLoc), rv, resultType);
+  } else if (curFnInfo && curFnInfo->hasThrowsReturn() &&
+             !cast<cir::FuncOp>(curFn).getFunctionType().hasVoidReturn()) {
+    // A void-returning throws function still carries the shaped {E, i1}
+    // signature: return a default error payload with the discriminant clear.
+    mlir::Location loc = getLoc(*currSrcLoc);
+    mlir::Value value =
+        builder.getNullValue(curFnInfo->getHerbceptionErrorType(), loc);
+    cir::ReturnOp::create(builder, loc,
+                          wrapHerbceptionReturnValue(loc, value));
   } else {
     cir::ReturnOp::create(builder, getLoc(*currSrcLoc));
   }

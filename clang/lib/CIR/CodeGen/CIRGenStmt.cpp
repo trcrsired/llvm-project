@@ -716,6 +716,14 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
       value = wrapHerbceptionReturnValue(loc, value);
 
     cir::ReturnOp::create(builder, loc, {value});
+  } else if (curFnInfo && curFnInfo->hasThrowsReturn()) {
+    // A 'return;' in a void throws function still has to produce the shaped
+    // {E, i1} result: a default (null) error payload with the discriminant
+    // clear.
+    mlir::Value value =
+        builder.getNullValue(curFnInfo->getHerbceptionErrorType(), loc);
+    value = wrapHerbceptionReturnValue(loc, value);
+    cir::ReturnOp::create(builder, loc, {value});
   } else {
     cir::ReturnOp::create(builder, loc);
   }

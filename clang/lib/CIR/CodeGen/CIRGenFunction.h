@@ -2168,6 +2168,10 @@ private:
   /// While emitting a legacy C++ exception conversion inside a herbception
   /// catch-all handler, the thrown object pointer from cir.begin_catch.
   mlir::Value curHerbceptionExnPtr = nullptr;
+  /// While emitting a `catch throws` handler body, the address holding the
+  /// error currently being handled. A bare `throw throws` (rethrow) reloads
+  /// this slot; outside a handler it is invalid.
+  Address curHerbceptionInFlightError = Address::invalid();
 
 public:
   mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
