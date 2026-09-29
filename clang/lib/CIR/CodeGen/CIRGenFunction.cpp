@@ -1393,9 +1393,7 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
     getCIRGenModule().errorNYI(e->getSourceRange(), "emitLValue: CoyieldExpr");
     return LValue();
   case Expr::PackIndexingExprClass:
-    getCIRGenModule().errorNYI(e->getSourceRange(),
-                               "emitLValue: PackIndexingExpr");
-    return LValue();
+    return emitLValue(cast<PackIndexingExpr>(e)->getSelectedExpr());
   case Expr::HLSLOutArgExprClass:
     llvm_unreachable("cannot emit a HLSL out argument directly");
   }
