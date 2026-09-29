@@ -372,7 +372,13 @@ mlir::Value CIRGenFunction::wrapHerbceptionReturnValue(mlir::Location loc,
                                                        mlir::Value payload,
                                                        bool disc) {
   auto fn = cast<cir::FuncOp>(curFn);
-  auto shapedTy = cast<cir::RecordType>(fn.getFunctionType().getReturnType());
+  auto shapedTy =
+      dyn_cast<cir::RecordType>(fn.getFunctionType().getReturnType());
+  if (!shapedTy) {
+    cgm.errorNYI(loc, "herbception error return out of a function whose "
+                      "signature does not carry a shaped {T, i1} return type");
+    return payload;
+  }
   CharUnits align =
       CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
   Address tmp = createTempAlloca(shapedTy, align, loc, "__herb.ret");
@@ -1236,6 +1242,10 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
 
     return emitComplexCompoundAssignmentLValue(cast<CompoundAssignOperator>(e));
   }
+  case Expr::CXXTryExprClass:
+    // herbceptions: a try-expression with a reference-typed success value is
+    // itself an lvalue. Forward to the sub-expression.
+    return emitLValue(cast<CXXTryExpr>(e)->getSubExpr());
   case Expr::CallExprClass:
   case Expr::CXXMemberCallExprClass:
   case Expr::CXXOperatorCallExprClass:

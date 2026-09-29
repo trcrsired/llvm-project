@@ -2168,6 +2168,10 @@ private:
   /// While emitting a legacy C++ exception conversion inside a herbception
   /// catch-all handler, the thrown object pointer from cir.begin_catch.
   mlir::Value curHerbceptionExnPtr = nullptr;
+  /// While emitting a `catch throws` handler body, the address holding the
+  /// error currently being handled. A bare `throw throws` (rethrow) reloads
+  /// this slot; outside a handler it is invalid.
+  Address curHerbceptionInFlightError = Address::invalid();
 
 public:
   mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
@@ -2175,6 +2179,13 @@ public:
   /// Herbception: emit a `try(expr)` expression. Evaluates the throws/fails
   /// call and auto-propagates its error on failure. Returns the success value.
   RValue emitHerbceptionTry(const clang::CXXTryExpr *E);
+
+  /// Herbception: convert a `return_failure{E}` error value into the
+  /// fabricated std::error ({domain, code}) via error_domain<E>::domain() and
+  /// error_domain<E>::code(E). Returns null when E has no error_domain or the
+  /// required members are missing.
+  mlir::Value emitFailsErrorToStdError(const clang::CXXTryExpr *E,
+                                       mlir::Value errVal);
 
   /// Herbception: emit a `catch fails(expr)` expression. Evaluates the
   /// throws/fails call and produces an `either{T, E}` value.

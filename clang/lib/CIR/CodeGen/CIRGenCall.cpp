@@ -901,8 +901,10 @@ CIRGenTypes::arrangeCXXStructorDeclaration(GlobalDecl gd) {
   assert(!cir::MissingFeatures::opCallCIRGenFuncInfoExtParamInfo());
   assert(!cir::MissingFeatures::opCallFnInfoOpts());
 
-  return arrangeCIRFunctionInfo(resultType, /*isInstanceMethod=*/true, argTypes,
-                                fpt->getExtInfo(), required);
+  return arrangeCIRFunctionInfo(
+      resultType, /*isInstanceMethod=*/true, argTypes, fpt->getExtInfo(),
+      required, fpt.getTypePtr()->hasThrowsSpec(),
+      getHerbceptionErrorType(fpt.getTypePtr()));
 }
 
 /// Derives the 'this' type for CIRGen purposes, i.e. ignoring method CVR
@@ -1053,8 +1055,10 @@ const CIRGenFunctionInfo &CIRGenTypes::arrangeCXXConstructorCall(
   assert(!cir::MissingFeatures::opCallFnInfoOpts());
   assert(!cir::MissingFeatures::opCallCIRGenFuncInfoExtParamInfo());
 
-  return arrangeCIRFunctionInfo(resultType, /*isInstanceMethod=*/true, argTypes,
-                                fpt->getExtInfo(), required);
+  return arrangeCIRFunctionInfo(
+      resultType, /*isInstanceMethod=*/true, argTypes, fpt->getExtInfo(),
+      required, fpt.getTypePtr()->hasThrowsSpec(),
+      getHerbceptionErrorType(fpt.getTypePtr()));
 }
 
 /// Arrange a call to a C++ method, passing the given arguments.
@@ -1509,10 +1513,20 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
     theCall->setAttr(cir::CIRDialect::getMustTailAttrName(),
                      builder.getUnitAttr());
 
-    if (isa<cir::VoidType>(convertType(retTy)))
+    // For a throws function the AST return type can be void while the
+    // function signature carries the shaped {T, i1} result; check the
+    // function's actual CIR return type.
+    mlir::Type fnRetTy =
+        cast<cir::FuncOp>(curFn).getFunctionType().getReturnType();
+    if (isa<cir::VoidType>(fnRetTy)) {
       cir::ReturnOp::create(builder, loc);
-    else
+    } else if (theCall->getResult(0).getType() == fnRetTy) {
       cir::ReturnOp::create(builder, loc, theCall->getResult(0));
+    } else {
+      cgm.errorNYI(mustTailCall->getBeginLoc(),
+                   "musttail call with a result type that does not match "
+                   "the function return type");
+    }
 
     // Musttail must return immediately, so we just do that.  All of the below
     // stuff is effectively UB if this is a musttail, so just do a return
@@ -1583,35 +1597,42 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
       // main() traps on a propagating error.
       cir::IfOp trapIf = cir::IfOp::create(
           builder, loc, disc,
-          /*withElseRegion=*/false, [&](mlir::OpBuilder &, mlir::Location) {
+          /*withElseRegion=*/false,
+          [&](mlir::OpBuilder &, mlir::Location) {
             cir::TrapOp::create(builder, loc);
-            cir::UnreachableOp::create(builder, loc);
           });
       builder.setInsertionPointAfter(trapIf);
     } else {
-      // Propagate the error through the enclosing throws function: store the
-      // payload into a shaped temp with discriminant true and return.
+      // Propagate the error through the enclosing throws function: on
+      // failure, store the payload into a shaped temp with discriminant true
+      // and return.
       if (curFnInfo && curFnInfo->hasThrowsReturn()) {
-        RunCleanupsScope propagateScope(*this);
-        Address payloadPtr = memberAddr(0);
-        mlir::Value payload = builder.createLoad(loc, payloadPtr);
-        // Coerce the callee's payload into the caller's shaped member[0]
-        // type if they differ (same-layout coercion through memory).
-        mlir::Type callerPayloadTy = members[0];
-        if (payload.getType() != callerPayloadTy) {
-          Address ptmp =
-              createTempAlloca(payload.getType(), align, loc, "herb.payload");
-          builder.createStore(loc, payload, ptmp);
-          mlir::Value casted = builder.createBitcast(
-              ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
-          payload =
-              builder.createLoad(loc, Address(casted, callerPayloadTy, align));
-        }
-        mlir::Value wrapped = wrapHerbceptionReturnValue(loc, payload,
-                                                         /*disc=*/true);
-        cir::ReturnOp::create(builder, loc, wrapped);
-        propagateScope.forceCleanup();
-        builder.createBlock(builder.getBlock()->getParent());
+        cir::IfOp propIf = cir::IfOp::create(
+            builder, loc, disc,
+            /*withElseRegion=*/false,
+            [&](mlir::OpBuilder &, mlir::Location) {
+              RunCleanupsScope propagateScope(*this);
+              Address payloadPtr = memberAddr(0);
+              mlir::Value payload = builder.createLoad(loc, payloadPtr);
+              // Coerce the callee's payload into the caller's shaped member[0]
+              // type if they differ (same-layout coercion through memory).
+              mlir::Type callerPayloadTy = members[0];
+              if (payload.getType() != callerPayloadTy) {
+                Address ptmp = createTempAlloca(payload.getType(), align, loc,
+                                                "herb.payload");
+                builder.createStore(loc, payload, ptmp);
+                mlir::Value casted = builder.createBitcast(
+                    ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
+                payload = builder.createLoad(loc,
+                                             Address(casted, callerPayloadTy,
+                                                     align));
+              }
+              mlir::Value wrapped = wrapHerbceptionReturnValue(loc, payload,
+                                                              /*disc=*/true);
+              cir::ReturnOp::create(builder, loc, wrapped);
+              propagateScope.forceCleanup();
+            });
+        builder.setInsertionPointAfter(propIf);
       } else {
         cgm.errorNYI(loc, "herbception error escaping a noexcept function");
       }
@@ -1627,24 +1648,9 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
     }
     switch (getEvaluationKind(retTy)) {
     case cir::TEK_Scalar: {
-      mlir::Value v;
-      if (!isa<cir::VoidType>(retCIRTy2))
-        v = builder.createLoad(loc, payloadOut);
-      else
-        v = builder.getBool(false, loc);
-      // For void herbception functions, the success RValue is discarded by
-      // the caller (expression statement). Emit a cir.return directly so the
-      // block has a terminator instead of falling through to an empty block
-      // that gets erased (which would leave the function without a return).
-      if (isa<cir::VoidType>(retCIRTy2) && curFnInfo &&
-          curFnInfo->hasThrowsReturn()) {
-        mlir::Value wrapped = wrapHerbceptionReturnValue(loc, v,
-                                                          /*disc=*/false);
-        cir::ReturnOp::create(builder, loc, wrapped);
-        builder.createBlock(builder.getBlock()->getParent());
+      if (isa<cir::VoidType>(retCIRTy2))
         return getUndefRValue(retTy);
-      }
-      return RValue::get(v);
+      return RValue::get(builder.createLoad(loc, payloadOut));
     }
     case cir::TEK_Aggregate: {
       // Aggregate success value: store the payload into the return slot and
