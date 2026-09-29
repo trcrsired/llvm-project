@@ -2503,9 +2503,20 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     Declarator &D;
     Decl *ThisDecl;
     bool Entered;
+    bool HerbceptionConstexprInit = false;
 
     InitializerScopeRAII(Parser &P, Declarator &D, Decl *ThisDecl)
         : P(P), D(D), ThisDecl(ThisDecl), Entered(false) {
+      // Herbception: a constexpr/constinit variable's initializer is always
+      // constant-evaluated, so a bare call to a throws function inside it is
+      // exempt from the non-throws-caller check; only an error that escapes
+      // the evaluation is diagnosed.
+      if (P.getLangOpts().HerbExceptions)
+        if (const auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl))
+          HerbceptionConstexprInit =
+              VD->isConstexpr() || VD->hasAttr<ConstInitAttr>();
+      if (HerbceptionConstexprInit)
+        ++P.Actions.HerbceptionConstexprInitDepth;
       if (ThisDecl && P.getLangOpts().CPlusPlus) {
         Scope *S = nullptr;
         if (D.getCXXScopeSpec().isSet()) {
@@ -2529,6 +2540,8 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
         if (S)
           P.ExitScope();
       }
+      if (HerbceptionConstexprInit)
+        --P.Actions.HerbceptionConstexprInitDepth;
       ThisDecl = nullptr;
     }
   };

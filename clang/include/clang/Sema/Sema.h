@@ -8642,6 +8642,13 @@ public:
   /// error locally - from a throw directly in handler code.
   unsigned HerbceptionTryBodyDepth = 0;
 
+  /// Whether the parser is inside the initializer of a constexpr or
+  /// constinit variable. Such initializers are always evaluated at compile
+  /// time, so a bare call to a throws/return_failure{E} function there is
+  /// never routed at runtime; the evaluator reports an error only if it
+  /// escapes the constant evaluation.
+  unsigned HerbceptionConstexprInitDepth = 0;
+
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'return_failure{E}' spec.
   bool isHerbceptionThrowsCall(const Expr *Ex);

@@ -6577,10 +6577,22 @@ void Sema::InstantiateVariableInitializer(
   currentEvaluationContext().DeclForInitializer = Var;
 
   if (OldVar->getInit()) {
+    // Herbception: a constexpr/constinit variable initializer is always
+    // constant-evaluated, so a bare call to a throws function inside it is
+    // exempt from the non-throws-caller check while it is rebuilt here.
+    bool ConstexprInit =
+        getLangOpts().HerbExceptions &&
+        (Var->isConstexpr() || Var->hasAttr<ConstInitAttr>());
+    if (ConstexprInit)
+      ++HerbceptionConstexprInitDepth;
+
     // Instantiate the initializer.
     ExprResult Init =
         SubstInitializer(OldVar->getInit(), TemplateArgs,
                          OldVar->getInitStyle() == VarDecl::CallInit);
+
+    if (ConstexprInit)
+      --HerbceptionConstexprInitDepth;
 
     if (!Init.isInvalid()) {
       Expr *InitExpr = Init.get();
