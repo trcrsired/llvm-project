@@ -470,6 +470,33 @@ At compile time the fabricated domain pointer is a unique opaque constant,
 so ``e.code()`` and ``e == errc_value`` comparisons work in constant
 expressions.
 
+A call to a ``throws``/``return_failure{E}`` function inside a
+constant-expression context (a ``constexpr`` variable initializer,
+``static_assert``, a constant template argument, ...) is **not** rejected
+merely because the lexically enclosing function lacks a
+``throws``/``return_failure{...}`` spec. The call is evaluated at compile
+time, like ``operator new`` in a constant expression: the operation is
+permitted inside the evaluation, but its effects must not escape it.
+A herbception error that is thrown *and caught* within the evaluation is
+fine; an error that reaches the boundary of the constant expression
+uncaught makes it not a constant expression -- you cannot throw out of
+constant evaluation:
+
+.. code-block:: cpp
+
+   constexpr int parse(const char *s) throws;
+
+   constexpr int safe(const char *s) {
+     try { return parse(s); }
+     catch throws(std::error e) { return -1; } // caught inside: OK
+   }
+
+   constexpr int a{parse("42")};  // OK: evaluated at compile time, no error
+   constexpr int b{safe("abc")};  // OK: the error is caught by the handler
+                                  // inside the evaluation
+   constexpr int c{parse("abc")}; // error: a 'throws' error escapes the
+                                  // constant expression
+
 Coroutines
 ----------
 

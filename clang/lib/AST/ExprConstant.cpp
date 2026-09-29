@@ -879,6 +879,13 @@ namespace {
     bool HerbceptionErrorPending = false;
     APValue HerbceptionErrorValue;
 
+    /// Herbception: where the pending error originated (the `throw throws`
+    /// or `return_failure`/`return throws` site) and whether it came from
+    /// the `return_failure{E}` channel rather than the `throws` (std::error)
+    /// channel. Used to diagnose an error escaping constant evaluation.
+    SourceLocation HerbceptionErrorLoc;
+    bool HerbceptionErrorIsReturnFailure = false;
+
     /// Herbception: fabricated per-domain opaque `error_domain_singleton`
     /// objects, keyed by the `error_domain<T>` specialization record. Each
     /// domain gets a unique pointer value in constant evaluation so that
@@ -906,6 +913,23 @@ namespace {
     }
 
     ~EvalInfo() {
+      // Herbception: an error that reached the top of the evaluation without
+      // being caught by `catch throws` or routed to `catch fails` makes the
+      // result unusable (it is never produced, so callers fail regardless);
+      // attach a reason note. The note is appended directly rather than via
+      // FFDiag so it survives alongside any generic "not a constant
+      // expression" note the failure already produced.
+      if (HerbceptionErrorPending && EvalStatus.Diag &&
+          llvm::none_of(*EvalStatus.Diag, [](const PartialDiagnosticAt &N) {
+            return N.second.getDiagID() ==
+                   diag::note_constexpr_herbception_uncaught;
+          })) {
+        EvalStatus.DiagEmitted = true;
+        PartialDiagnostic PD(diag::note_constexpr_herbception_uncaught,
+                             Ctx.getDiagAllocator());
+        PD << unsigned(HerbceptionErrorIsReturnFailure);
+        EvalStatus.Diag->emplace_back(HerbceptionErrorLoc, std::move(PD));
+      }
       discardCleanups();
     }
 
@@ -2428,7 +2452,15 @@ static bool CheckEvaluationResult(CheckEvaluationResultKind CERK,
                                   CheckedTemporaries &CheckedTemps,
                                   bool IsCompleteClass) {
   if (!Value.hasValue()) {
-    if (SubobjectDecl) {
+    // Herbception: an uncaught error left the result unproduced; report the
+    // throw/failure site rather than a misleading uninitialized-subobject
+    // note.
+    if (Info.HerbceptionErrorPending) {
+      Info.FFDiag(Info.HerbceptionErrorLoc.isValid() ? Info.HerbceptionErrorLoc
+                                                    : DiagLoc,
+                  diag::note_constexpr_herbception_uncaught)
+          << unsigned(Info.HerbceptionErrorIsReturnFailure);
+    } else if (SubobjectDecl) {
       Info.FFDiag(DiagLoc, diag::note_constexpr_uninitialized)
           << /*(name)*/ 1 << SubobjectDecl;
       Info.Note(SubobjectDecl->getLocation(),
@@ -6068,6 +6100,12 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
           if (!Scope.destroy())
             return ESR_Failed;
           Info.HerbceptionErrorPending = true;
+          Info.HerbceptionErrorLoc = Throw->getBeginLoc();
+          if (const auto *FD = dyn_cast_if_present<FunctionDecl>(
+                  Info.CurrentCall->Callee))
+            if (const auto *FPT = FD->getType()->getAs<FunctionProtoType>())
+              Info.HerbceptionErrorIsReturnFailure =
+                  FPT->hasReturnFailureSpec();
           return ESR_ErrorReturned;
         }
       }
@@ -6135,6 +6173,11 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
           if (!Evaluate(*Result.ErrorValue, Info, Op))
             return ESR_Failed;
         }
+        Info.HerbceptionErrorLoc = Throw->getBeginLoc();
+        if (const auto *FD =
+                dyn_cast_if_present<FunctionDecl>(Info.CurrentCall->Callee))
+          if (const auto *FPT = FD->getType()->getAs<FunctionProtoType>())
+            Info.HerbceptionErrorIsReturnFailure = FPT->hasReturnFailureSpec();
         return Scope.destroy() ? ESR_ErrorReturned : ESR_Failed;
       }
     if (RetExpr &&
@@ -6507,6 +6550,7 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
       return ESR;
     APValue Err = std::move(Info.HerbceptionErrorValue);
     Info.HerbceptionErrorPending = false;
+    Info.HerbceptionErrorLoc = SourceLocation();
     for (unsigned I = 0, N = TS->getNumHandlers(); I != N; ++I) {
       if (auto *CT = TS->getCatchThrowsHandler(I)) {
         const VarDecl *ED = CT->getExceptionDecl();
@@ -7314,6 +7358,10 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
       // has no error slot (a bare call). Convert to the pending mechanism so a
       // `catch throws` handler can intercept it.
       Info.HerbceptionErrorValue = Result;
+      if (!Info.HerbceptionErrorLoc.isValid()) {
+        Info.HerbceptionErrorLoc = CallLoc;
+        Info.HerbceptionErrorIsReturnFailure = FPT->hasReturnFailureSpec();
+      }
       Info.HerbceptionErrorPending = true;
     }
   }
@@ -9056,6 +9104,13 @@ public:
     // evaluation can turn this into an ESR_ErrorReturned for the current
     // function.
     Info.HerbceptionErrorValue = std::move(ErrorVal);
+    if (!Info.HerbceptionErrorLoc.isValid()) {
+      Info.HerbceptionErrorLoc = E->getBeginLoc();
+      if (const auto *FD = dyn_cast_if_present<FunctionDecl>(
+              Call->getCalleeDecl()))
+        if (const auto *FPT = FD->getType()->getAs<FunctionProtoType>())
+          Info.HerbceptionErrorIsReturnFailure = FPT->hasReturnFailureSpec();
+    }
     Info.HerbceptionErrorPending = true;
     return true;
   }

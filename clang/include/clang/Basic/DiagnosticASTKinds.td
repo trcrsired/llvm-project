@@ -78,6 +78,9 @@ def note_consteval_address_accessible : Note<
   "is not a constant expression">;
 def note_constexpr_uninitialized : Note<
   "subobject %select{of type |}0%1 is not initialized">;
+def note_constexpr_herbception_uncaught : Note<
+  "%select{herbception thrown|failure returned}0 during constant evaluation "
+  "was not caught">;
 def note_constexpr_uninitialized_base : Note<
   "constructor of base class %0 is not called">;
 def note_constexpr_static_local : Note<
