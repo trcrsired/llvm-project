@@ -367,6 +367,26 @@ void CIRGenFunction::emitCXXThrowExpr(const CXXThrowExpr *e) {
       if (const Expr *subExpr = e->getSubExpr())
         emitAnyExprToMem(subExpr, scope.errorSlot, Qualifiers(),
                          /*isInitializer=*/false);
+      else if (curHerbceptionInFlightError.isValid()) {
+        // Bare `throw throws` (rethrow): forward the in-flight error to the
+        // enclosing handler's slot, coercing through a pointer bitcast when
+        // the handler's error type differs.
+        mlir::Type slotTy = scope.errorSlot.getElementType();
+        mlir::Value payload =
+            builder.createLoad(loc, curHerbceptionInFlightError);
+        if (payload.getType() != slotTy) {
+          CharUnits payloadAlign = CharUnits::fromQuantity(
+              cgm.getDataLayout().getABITypeAlign(payload.getType()));
+          Address ptmp = createTempAlloca(payload.getType(), payloadAlign, loc,
+                                        "herb.payload");
+          builder.createStore(loc, payload, ptmp);
+          mlir::Value casted = builder.createBitcast(
+              ptmp.getBasePointer(), builder.getPointerTo(slotTy));
+          payload =
+              builder.createLoad(loc, Address(casted, slotTy, payloadAlign));
+        }
+        builder.createStore(loc, payload, scope.errorSlot);
+      }
       throwScope.forceCleanup();
 
       cir::GotoOp::create(builder, loc, scope.handlerLabel);
@@ -385,32 +405,40 @@ void CIRGenFunction::emitCXXThrowExpr(const CXXThrowExpr *e) {
     }
     const Expr *subExpr = e->getSubExpr();
     if (!subExpr) {
-      // Bare `throw throws` (rethrow) in a throws function: the error value is
-      // already in the return slot from a previous catch. Wrap it with the
-      // discriminant set to true and return.
-      if (!fnRetAlloca) {
-        // Void throws function: no return slot. The error type is the payload
-        // type; create a temp, wrap with disc=true and return.
-        auto fn = cast<cir::FuncOp>(curFn);
-        auto shapedTy =
-            cast<cir::RecordType>(fn.getFunctionType().getReturnType());
-        mlir::Type errTy = shapedTy.getMembers()[0];
-        CharUnits errAlign =
-            CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(errTy));
-        Address errSlot = createTempAlloca(errTy, errAlign, loc, "herb.error");
-        mlir::Value payload = builder.createLoad(loc, errSlot);
-        mlir::Value wrapped = wrapHerbceptionReturnValue(loc, payload,
-                                                         /*disc=*/true);
-        cir::ReturnOp::create(builder, loc, wrapped);
-        builder.createBlock(builder.getBlock()->getParent());
+      // Bare `throw throws` (rethrow) in a throws function: rethrow the error
+      // currently being handled, coerced to the payload member type, with the
+      // discriminant set to true.
+      if (!curHerbceptionInFlightError.isValid()) {
+        cgm.getDiags().Report(e->getExprLoc(),
+                              diag::err_throw_throws_no_catch_handler);
         return;
       }
-      mlir::Type retTy =
-          cast<cir::FuncOp>(curFn).getFunctionType().getReturnType();
-      mlir::Value value =
-          cir::LoadOp::create(builder, loc, retTy, *fnRetAlloca);
-      value = wrapHerbceptionReturnValue(loc, value, /*disc=*/true);
-      cir::ReturnOp::create(builder, loc, value);
+      auto fn = cast<cir::FuncOp>(curFn);
+      auto shapedTy =
+          dyn_cast<cir::RecordType>(fn.getFunctionType().getReturnType());
+      if (!shapedTy) {
+        cgm.errorNYI(loc, "herbception rethrow out of a function whose "
+                          "signature does not carry a shaped {T, i1} return "
+                          "type");
+        return;
+      }
+      mlir::Type payloadTy = shapedTy.getMembers()[0];
+      mlir::Value payload =
+          builder.createLoad(loc, curHerbceptionInFlightError);
+      if (payload.getType() != payloadTy) {
+        CharUnits payloadAlign = CharUnits::fromQuantity(
+            cgm.getDataLayout().getABITypeAlign(payload.getType()));
+        Address ptmp = createTempAlloca(payload.getType(), payloadAlign, loc,
+                                      "herb.payload");
+        builder.createStore(loc, payload, ptmp);
+        mlir::Value casted = builder.createBitcast(
+            ptmp.getBasePointer(), builder.getPointerTo(payloadTy));
+        payload =
+            builder.createLoad(loc, Address(casted, payloadTy, payloadAlign));
+      }
+      mlir::Value wrapped =
+          wrapHerbceptionReturnValue(loc, payload, /*disc=*/true);
+      cir::ReturnOp::create(builder, loc, wrapped);
       builder.createBlock(builder.getBlock()->getParent());
       return;
     }
@@ -965,8 +993,13 @@ CIRGenFunction::emitHerbceptionCatchTry(const CXXTryStmt &s) {
   // the innermost handler's slot and branches to its label; the cleanups of
   // this scope run on that exit.
   if (!legacyHandlerStmt) {
-    RunCleanupsScope bodyCleanups(*this);
-    if (emitStmt(s.getTryBlock(), /*useCurrentScope=*/true).failed()) {
+    mlir::LogicalResult bodyRes = mlir::success();
+    {
+      RunCleanupsScope bodyCleanups(*this);
+      if (emitStmt(s.getTryBlock(), /*useCurrentScope=*/true).failed())
+        bodyRes = mlir::failure();
+    }
+    if (mlir::failed(bodyRes)) {
       herbceptionCatchScopes.truncate(savedScopes);
       return mlir::failure();
     }
@@ -980,9 +1013,14 @@ CIRGenFunction::emitHerbceptionCatchTry(const CXXTryStmt &s) {
     auto tryOp = cir::TryOp::create(
         builder, tryLoc,
         /*tryBuilder=*/[&](mlir::OpBuilder &, mlir::Location loc) {
-          RunCleanupsScope bodyCleanups(*this);
-          if (emitStmt(s.getTryBlock(), /*useCurrentScope=*/true).failed())
-            tryBodyRes = mlir::failure();
+          {
+            // Close the body's cleanups before probing for a terminator: the
+            // yield belongs in the block that owns the enclosing cir.cleanup
+            // .scope op, not inside its body region.
+            RunCleanupsScope bodyCleanups(*this);
+            if (emitStmt(s.getTryBlock(), /*useCurrentScope=*/true).failed())
+              tryBodyRes = mlir::failure();
+          }
           if (!builder.getBlock()->mightHaveTerminator() ||
               !builder.getBlock()->back().hasTrait<mlir::OpTrait::IsTerminator>())
             cir::YieldOp::create(builder, loc);
@@ -1052,6 +1090,11 @@ CIRGenFunction::emitHerbceptionCatchTry(const CXXTryStmt &s) {
     builder.createBlock(builder.getBlock()->getParent());
     cir::LabelOp::create(builder, getLoc(h.stmt->getCatchLoc()), h.label);
 
+    // A bare `throw throws` inside this handler rethrows the error the
+    // handler was entered with, so the slot it was routed through is the
+    // in-flight error for the duration of the handler body.
+    llvm::SaveAndRestore<Address> restoreInFlight(curHerbceptionInFlightError,
+                                                  h.slot);
     RunCleanupsScope handlerScope(*this);
     if (VarDecl *vd = h.stmt->getExceptionDecl()) {
       // Bind the exception variable directly from the error payload slot. The
@@ -1140,8 +1183,9 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
       CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
   Address tmp =
       createTempAlloca(shapedTy, align, getLoc(E->getExprLoc()), "__herb.ret");
-  builder.createStore(getLoc(E->getExprLoc()),
-                      callRValue.getAggregateAddress().getPointer(), tmp);
+  mlir::Value callResult =
+      builder.createLoad(getLoc(E->getExprLoc()), callAddr);
+  builder.createStore(getLoc(E->getExprLoc()), callResult, tmp);
 
   llvm::SmallVector<mlir::Type> members(shapedTy.getMembers().begin(),
                                         shapedTy.getMembers().end());
@@ -1165,6 +1209,12 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
         if (!herbceptionCatchScopes.empty()) {
           const HerbceptionCatchScope &scope = herbceptionCatchScopes.back();
           mlir::Value payload = builder.createLoad(loc, successAddr);
+          // A `catch throws` handler always takes std::error, so a
+          // return_failure{E} call's E payload is converted via its
+          // error_domain the same way auto-propagation converts it.
+          if (E->getErrorDomain())
+            if (mlir::Value stdErr = emitFailsErrorToStdError(E, payload))
+              payload = stdErr;
           mlir::Type slotTy = scope.errorSlot.getElementType();
           if (slotTy != payload.getType()) {
             Address ptmp =
@@ -1176,29 +1226,76 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
           }
           builder.createStore(loc, payload, scope.errorSlot);
           cir::GotoOp::create(builder, loc, scope.handlerLabel);
-        } else {
-          // Auto-propagate: wrap the error payload with disc=true and return.
+        } else if (curFnInfo && curFnInfo->hasThrowsReturn()) {
+          // Auto-propagate. A `return_failure{E}` call's error converts to
+          // std::error via error_domain<E>::domain()/code(E) unless the
+          // enclosing function is itself return_failure{E'}, which carries
+          // the raw E payload through its own channel instead.
           mlir::Value payload = builder.createLoad(loc, successAddr);
-          mlir::Type callerPayloadTy = members[0];
+          const FunctionProtoType *callerProto = nullptr;
+          if (const auto *curFD = dyn_cast_or_null<FunctionDecl>(curFuncDecl))
+            callerProto = curFD->getType()->getAs<FunctionProtoType>();
+          if (E->getErrorDomain() &&
+              (!callerProto ||
+               callerProto->getExceptionSpecType() != EST_ThrowsTyped))
+            if (mlir::Value stdErr = emitFailsErrorToStdError(E, payload))
+              payload = stdErr;
+
+          // Coerce the error into the enclosing function's union payload
+          // member (sized for max(T, E)): store it in the low bytes of a
+          // slot-sized temp and leave the tail zeroed, like classic
+          // codegen's CoerceToSlot.
+          mlir::Type callerPayloadTy =
+              cast<cir::RecordType>(cast<cir::FuncOp>(curFn)
+                                        .getFunctionType()
+                                        .getReturnType())
+                  .getMembers()[0];
           if (payload.getType() != callerPayloadTy) {
-            Address ptmp =
-                createTempAlloca(payload.getType(), align, loc, "herb.payload");
-            builder.createStore(loc, payload, ptmp);
-            mlir::Value casted = builder.createBitcast(
-                ptmp.getBasePointer(), builder.getPointerTo(callerPayloadTy));
-            payload = builder.createLoad(
-                loc, Address(casted, callerPayloadTy, align));
+            Address ptmp = createTempAlloca(callerPayloadTy, align, loc,
+                                          "herb.payload");
+            builder.createStore(
+                loc, builder.getNullValue(callerPayloadTy, loc), ptmp);
+            builder.createStore(
+                loc, payload,
+                ptmp.withElementType(builder, payload.getType()));
+            payload = builder.createLoad(loc, ptmp);
           }
           mlir::Value wrapped =
               wrapHerbceptionReturnValue(loc, payload, /*disc=*/true);
           cir::ReturnOp::create(builder, loc, wrapped);
+        } else {
+          // try() in a non-throws function follows the bare-call rule: the
+          // error traps in main(); anywhere else Sema has already rejected
+          // it, so this is only a defensive diagnostic.
+          const FunctionDecl *curFD =
+              dyn_cast_or_null<FunctionDecl>(curFuncDecl);
+          if (curFD && curFD->isMain()) {
+            cir::TrapOp::create(builder, loc);
+          } else {
+            cgm.getDiags().Report(
+                E->getExprLoc(),
+                diag::err_herbceptions_non_throws_call_throws);
+            cir::UnreachableOp::create(builder, loc);
+          }
         }
       });
 
   // Success path: the try expression's value is the success value.
   builder.setInsertionPointAfter(routeIf);
 
+  // The payload slot is sized for the larger of the success and error types;
+  // read it back as the call's declared type through a same-layout pointer
+  // bitcast when they differ.
+  mlir::Type callCIRTy = convertType(callTy);
+  if (callCIRTy != members[0]) {
+    mlir::Value casted = builder.createBitcast(
+        successAddr.getBasePointer(), builder.getPointerTo(callCIRTy));
+    successAddr = Address(casted, callCIRTy, align);
+  }
+
   if (getEvaluationKind(callTy) == cir::TEK_Scalar) {
+    if (isa<cir::VoidType>(callCIRTy))
+      return getUndefRValue(callTy);
     mlir::Value v = builder.createLoad(loc, successAddr);
     return RValue::get(v);
   }
@@ -1210,6 +1307,113 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
   }
   cgm.errorNYI(E->getSourceRange(), "emitHerbceptionTry: complex result");
   return getUndefRValue(callTy);
+}
+
+mlir::Value
+CIRGenFunction::emitFailsErrorToStdError(const CXXTryExpr *E,
+                                         mlir::Value errVal) {
+  CXXRecordDecl *domain = E->getErrorDomain();
+  if (!domain)
+    return {};
+
+  auto findDomain = [](CXXRecordDecl *rd) -> CXXMethodDecl * {
+    for (const Decl *d : rd->decls()) {
+      const auto *md = dyn_cast<CXXMethodDecl>(d);
+      if (!md || !md->isStatic())
+        continue;
+      if (md->getDeclName().isIdentifier() && md->getName() == "domain")
+        return const_cast<CXXMethodDecl *>(md);
+    }
+    return nullptr;
+  };
+
+  CXXMethodDecl *domainFn = findDomain(domain);
+  CXXMethodDecl *codeFn = nullptr;
+  for (const Decl *d : domain->decls()) {
+    const auto *md = dyn_cast<CXXMethodDecl>(d);
+    if (!md || !md->isStatic())
+      continue;
+    if (md->getDeclName().isIdentifier() && md->getName() == "code")
+      codeFn = const_cast<CXXMethodDecl *>(md);
+  }
+  if (!domainFn) {
+    // Follow the alias to error_domain<U>::domain(). The alias is declared as
+    // a member type `domain_alias_type`; resolve it via qualified lookup on
+    // the record.
+    ASTContext &ctx = getContext();
+    DeclarationName dn = &ctx.Idents.get("domain_alias_type");
+    DeclContext::lookup_result lookup = domain->lookup(dn);
+    if (!lookup.empty()) {
+      if (auto *td = dyn_cast<TypeDecl>(lookup.front())) {
+        if (CXXRecordDecl *aliasDomain =
+                ctx.getTypeDeclType(td)->getAsCXXRecordDecl())
+          domainFn = findDomain(aliasDomain);
+      }
+    }
+  }
+  if (!domainFn || !codeFn)
+    return {};
+
+  mlir::Location loc = getLoc(E->getExprLoc());
+
+  auto coerceScalar = [&](mlir::Value v, mlir::Type ty) -> mlir::Value {
+    if (v.getType() == ty)
+      return v;
+    if (isa<cir::PointerType>(v.getType()) && isa<cir::PointerType>(ty))
+      return builder.createPtrBitcast(v, cast<cir::PointerType>(ty)
+                                           .getPointee());
+    if (isa<cir::IntType>(v.getType()) && isa<cir::IntType>(ty))
+      return builder.createIntCast(v, ty);
+    CharUnits align = CharUnits::fromQuantity(
+        cgm.getDataLayout().getABITypeAlign(v.getType()));
+    Address ptmp = createTempAlloca(v.getType(), align, loc, "herb.coerce");
+    builder.createStore(loc, v, ptmp);
+    mlir::Value casted =
+        builder.createBitcast(ptmp.getBasePointer(), builder.getPointerTo(ty));
+    return builder.createLoad(loc, Address(casted, ty, align));
+  };
+
+  // errVal is the union{T,E} payload read as the slot's own type. On the
+  // failure edge its low bytes hold E rather than T, so reinterpret the slot
+  // value as E's type before handing it to code(E).
+  if (codeFn->getNumParams() == 1)
+    errVal = coerceScalar(errVal, convertType(codeFn->getParamDecl(0)->getType()));
+
+  // error_domain<E>::domain() and error_domain<E>::code(e).
+  RValue domainRV =
+      emitCall(cgm.getTypes().arrangeCXXMethodDeclaration(domainFn),
+               emitDirectCallee(GlobalDecl(domainFn)), ReturnValueSlot(),
+               CallArgList(), /*isMustTail=*/false);
+  CallArgList args;
+  args.add(RValue::get(errVal), codeFn->getParamDecl(0)->getType());
+  RValue codeRV =
+      emitCall(cgm.getTypes().arrangeCXXMethodDeclaration(codeFn),
+               emitDirectCallee(GlobalDecl(codeFn)), ReturnValueSlot(), args,
+               /*isMustTail=*/false);
+
+  // The fabricated value is always a std::error {domain, code}, whatever the
+  // enclosing function's own error channel is -- this is also reachable from
+  // noexcept and return_failure{E2} functions (routing to a `catch throws`
+  // handler), where curFnInfo has no or a different herbception error type.
+  auto &ctx = cgm.getMLIRContext();
+  mlir::Type voidPtrTy = builder.getPointerTo(builder.getVoidTy());
+  mlir::Type sizeTy = convertType(getContext().getSizeType());
+  llvm::SmallVector<mlir::Type> members{voidPtrTy, sizeTy};
+  mlir::Type errTy =
+      cir::StructType::get(&ctx, members, /*packed=*/false,
+                           /*is_class=*/false,
+                           cir::RecordType::getAllDataKinds(members));
+  CharUnits align =
+      CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(errTy));
+  Address tmp = createTempAlloca(errTy, align, loc, "herb.stderr");
+  mlir::Value vals[2] = {domainRV.getValue(), codeRV.getValue()};
+  for (unsigned idx = 0; idx < 2; ++idx) {
+    mlir::Value memberPtr = builder.createGetMember(
+        loc, builder.getPointerTo(members[idx]), tmp.getBasePointer(), "", idx);
+    builder.createStore(loc, coerceScalar(vals[idx], members[idx]),
+                        Address(memberPtr, members[idx], align));
+  }
+  return builder.createLoad(loc, tmp);
 }
 
 RValue CIRGenFunction::emitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E) {
@@ -1236,8 +1440,9 @@ RValue CIRGenFunction::emitHerbceptionCatchReturnFailure(const CXXCatchReturnFai
       CharUnits::fromQuantity(cgm.getDataLayout().getABITypeAlign(shapedTy));
   Address tmp =
       createTempAlloca(shapedTy, align, getLoc(E->getExprLoc()), "__herb.ret");
-  builder.createStore(getLoc(E->getExprLoc()),
-                      callRValue.getAggregateAddress().getPointer(), tmp);
+  mlir::Value callResult =
+      builder.createLoad(getLoc(E->getExprLoc()), callAddr);
+  builder.createStore(getLoc(E->getExprLoc()), callResult, tmp);
 
   llvm::SmallVector<mlir::Type> members(shapedTy.getMembers().begin(),
                                         shapedTy.getMembers().end());
@@ -1293,10 +1498,12 @@ RValue CIRGenFunction::emitHerbceptionCatchReturnFailure(const CXXCatchReturnFai
       mlir::Value unionPtr = builder.createGetMember(
           loc, builder.getPointerTo(unionTy), addr.getPointer(),
           outer->getName(), unionIndex);
-      // For unions, all fields map to index 0
+      // Union members are addressed by their position in the union type;
+      // all fields overlap at offset zero but keep distinct indices.
       mlir::Type fieldType = convertType(inner->getType());
       mlir::Value fieldPtr = builder.createGetMember(
-          loc, builder.getPointerTo(fieldType), unionPtr, inner->getName(), 0);
+          loc, builder.getPointerTo(fieldType), unionPtr, inner->getName(),
+          inner->getFieldIndex());
       Address fieldAddr(fieldPtr, fieldType, align);
       builder.createStore(loc, V, fieldAddr);
     } else {
