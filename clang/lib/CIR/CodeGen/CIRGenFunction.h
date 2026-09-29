@@ -2180,6 +2180,13 @@ public:
   /// call and auto-propagates its error on failure. Returns the success value.
   RValue emitHerbceptionTry(const clang::CXXTryExpr *E);
 
+  /// Herbception: convert a `return_failure{E}` error value into the
+  /// fabricated std::error ({domain, code}) via error_domain<E>::domain() and
+  /// error_domain<E>::code(E). Returns null when E has no error_domain or the
+  /// required members are missing.
+  mlir::Value emitFailsErrorToStdError(const clang::CXXTryExpr *E,
+                                       mlir::Value errVal);
+
   /// Herbception: emit a `catch fails(expr)` expression. Evaluates the
   /// throws/fails call and produces an `either{T, E}` value.
   RValue emitHerbceptionCatchReturnFailure(const clang::CXXCatchReturnFailureExpr *E);

@@ -1242,6 +1242,10 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
 
     return emitComplexCompoundAssignmentLValue(cast<CompoundAssignOperator>(e));
   }
+  case Expr::CXXTryExprClass:
+    // herbceptions: a try-expression with a reference-typed success value is
+    // itself an lvalue. Forward to the sub-expression.
+    return emitLValue(cast<CXXTryExpr>(e)->getSubExpr());
   case Expr::CallExprClass:
   case Expr::CXXMemberCallExprClass:
   case Expr::CXXOperatorCallExprClass:
