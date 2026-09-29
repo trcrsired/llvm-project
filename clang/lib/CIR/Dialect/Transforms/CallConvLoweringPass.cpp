@@ -1181,6 +1181,10 @@ void CallConvLoweringPass::runOnOperation() {
       indirectCalls.push_back(c);
   });
   for (cir::CIRCallOpInterface c : indirectCalls) {
+    // Herbception: calls marked 'cir.throws' keep the written wire form, the
+    // same as direct calls to 'cir.throws' callees.
+    if (c->hasAttr("cir.throws"))
+      continue;
     // classification-attr mode injects a per-function classification, which
     // cannot describe a callee resolved at run time.  Report it rather than
     // leave the indirect call unrewritten while direct calls are coerced.
