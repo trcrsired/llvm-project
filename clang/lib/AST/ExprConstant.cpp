@@ -33,6 +33,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ByteCode/Context.h"
+#include "ByteCode/EvalSettings.h"
 #include "ByteCode/Frame.h"
 #include "ByteCode/State.h"
 #include "ExprConstShared.h"
@@ -780,10 +781,6 @@ namespace {
     /// we will evaluate.
     unsigned StepsLeft;
 
-    /// Enable the experimental new constant interpreter. If an expression is
-    /// not supported by the interpreter, an error is triggered.
-    bool EnableNewConstInterp;
-
     /// BottomFrame - The frame in which evaluation started. This must be
     /// initialized after CurrentCall and CallStackDepth.
     CallStackFrame BottomFrame;
@@ -900,7 +897,6 @@ namespace {
         : State(const_cast<ASTContext &>(C), S), CurrentCall(nullptr),
           CallStackDepth(0), NextCallIndex(1),
           StepsLeft(C.getLangOpts().ConstexprStepLimit),
-          EnableNewConstInterp(C.getLangOpts().EnableNewConstInterp),
           BottomFrame(*this, SourceLocation(), /*Callee=*/nullptr,
                       /*This=*/nullptr,
                       /*CallExpr=*/nullptr, CallRef()),
@@ -22108,15 +22104,13 @@ static bool EvaluateInPlace(APValue &Result, EvalInfo &Info, const LValue &This,
 /// lvalue-to-rvalue cast if it is an lvalue.
 static bool EvaluateAsRValue(EvalInfo &Info, const Expr *E, APValue &Result) {
   assert(!E->isValueDependent());
+  assert(!Info.Ctx.getLangOpts().EnableNewConstInterp);
 
   if (E->getType().isNull())
     return false;
 
   if (!CheckLiteralType(Info, E))
     return false;
-
-  if (Info.EnableNewConstInterp)
-    return Info.Ctx.getInterpContext().evaluateAsRValue(Info, E, Result);
 
   if (!::Evaluate(Result, Info, E))
     return false;
@@ -22248,6 +22242,17 @@ bool Expr::EvaluateAsRValue(EvalResult &Result, const ASTContext &Ctx,
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateAsRValue");
+
+  bool IsConst;
+  if (FastEvaluateAsRValue(this, Result.Val, Ctx, IsConst))
+    return IsConst;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects, Result);
+    Settings.InConstantContext = InConstantContext;
+    return Ctx.getInterpContext().evaluateAsRValue(Settings, this, Result.Val);
+  }
+
   EvalInfo Info(Ctx, Result, EvaluationMode::IgnoreSideEffects);
   Info.InConstantContext = InConstantContext;
   return ::EvaluateAsRValue(this, Result, Ctx, Info);
@@ -22268,7 +22273,28 @@ bool Expr::EvaluateAsInt(EvalResult &Result, const ASTContext &Ctx,
                          bool InConstantContext) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
+
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateAsInt");
+
+  if (!getType()->isIntegralOrEnumerationType())
+    return false;
+
+  bool IsConst;
+  if (FastEvaluateAsRValue(this, Result.Val, Ctx, IsConst))
+    return IsConst;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects, Result);
+    Settings.InConstantContext = InConstantContext;
+    if (!Ctx.getInterpContext().evaluateAsRValue(Settings, this, Result.Val))
+      return false;
+
+    if (!Result.Val.isInt() ||
+        hasUnacceptableSideEffect(Result, AllowSideEffects))
+      return false;
+    return true;
+  }
+
   EvalInfo Info(Ctx, Result, EvaluationMode::IgnoreSideEffects);
   Info.InConstantContext = InConstantContext;
   return ::EvaluateAsInt(this, Result, Ctx, AllowSideEffects, Info);
@@ -22280,6 +22306,24 @@ bool Expr::EvaluateAsFixedPoint(EvalResult &Result, const ASTContext &Ctx,
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateAsFixedPoint");
+
+  if (!getType()->isFixedPointType())
+    return false;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects, Result);
+    Settings.InConstantContext = InConstantContext;
+
+    if (!Ctx.getInterpContext().evaluateAsRValue(Settings, this, Result.Val))
+      return false;
+
+    if (!Result.Val.isFixedPoint() ||
+        hasUnacceptableSideEffect(Result, AllowSideEffects))
+      return false;
+
+    return true;
+  }
+
   EvalInfo Info(Ctx, Result, EvaluationMode::IgnoreSideEffects);
   Info.InConstantContext = InConstantContext;
   return ::EvaluateAsFixedPoint(this, Result, Ctx, AllowSideEffects, Info);
@@ -22311,15 +22355,17 @@ bool Expr::EvaluateAsLValue(EvalResult &Result, const ASTContext &Ctx,
          "Expression evaluator can't be called on a dependent expression.");
 
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateAsLValue");
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantFold, Result);
+    Settings.InConstantContext = InConstantContext;
+    return Ctx.getInterpContext().evaluate(Settings, this, Result.Val);
+  }
+
   EvalInfo Info(Ctx, Result, EvaluationMode::ConstantFold);
   Info.InConstantContext = InConstantContext;
   LValue LV;
   CheckedTemporaries CheckedTemps;
-
-  if (Info.EnableNewConstInterp) {
-    return Info.Ctx.getInterpContext().evaluate(Info, this, Result.Val,
-                                                ConstantExprKind::Normal);
-  }
 
   if (!EvaluateLValue(this, LV, Info) || !Info.discardCleanups() ||
       Result.HasSideEffects ||
@@ -22366,12 +22412,16 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
     return true;
 
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateAsConstantExpr");
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpression, Result,
+                                  Kind);
+    Settings.InConstantContext = true;
+    return Ctx.getInterpContext().evaluate(Settings, this, Result.Val);
+  }
+
   EvaluationMode EM = EvaluationMode::ConstantExpression;
   EvalInfo Info(Ctx, Result, EM);
   Info.InConstantContext = true;
-
-  if (Info.EnableNewConstInterp)
-    return Info.Ctx.getInterpContext().evaluate(Info, this, Result.Val, Kind);
 
   // The type of the object we're initializing is 'const T' for a class NTTP.
   QualType T = getType();
@@ -22432,21 +22482,25 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
     return Name;
   });
 
-  EvalInfo Info(Ctx, EStatus,
-                (IsConstantInitialization &&
-                 (Ctx.getLangOpts().CPlusPlus || Ctx.getLangOpts().C23))
-                    ? EvaluationMode::ConstantExpression
-                    : EvaluationMode::ConstantFold);
-  Info.setEvaluatingDecl(VD, EStatus.Val);
-  Info.InConstantContext = IsConstantInitialization;
+  EvaluationMode EvalMode =
+      (IsConstantInitialization &&
+       (Ctx.getLangOpts().CPlusPlus || Ctx.getLangOpts().C23))
+          ? EvaluationMode::ConstantExpression
+          : EvaluationMode::ConstantFold;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvalMode, EStatus);
+    Settings.InConstantContext = IsConstantInitialization;
+    return Ctx.getInterpContext().evaluateAsInitializer(Settings, VD, this,
+                                                        EStatus.Val);
+  }
 
   SourceLocation DeclLoc = VD->getLocation();
   QualType DeclTy = VD->getType();
 
-  if (Info.EnableNewConstInterp) {
-    auto &InterpCtx = Ctx.getInterpContext();
-    return InterpCtx.evaluateAsInitializer(Info, VD, this, EStatus.Val);
-  }
+  EvalInfo Info(Ctx, EStatus, EvalMode);
+  Info.setEvaluatingDecl(VD, EStatus.Val);
+  Info.InConstantContext = IsConstantInitialization;
 
   LValue LVal;
   LVal.set(VD);
@@ -22512,11 +22566,12 @@ bool VarDecl::evaluateDestruction(
     return false;
 
   if (Ctx.getLangOpts().EnableNewConstInterp) {
-    EvalInfo Info(Ctx, EStatus,
-                  IsConstantDestruction ? EvaluationMode::ConstantExpression
-                                        : EvaluationMode::ConstantFold);
-    Info.InConstantContext = IsConstantDestruction;
-    if (!Ctx.getInterpContext().evaluateDestruction(Info, this,
+    interp::EvalSettings Settings(IsConstantDestruction
+                                      ? EvaluationMode::ConstantExpression
+                                      : EvaluationMode::ConstantFold,
+                                  EStatus);
+    Settings.InConstantContext = IsConstantDestruction;
+    if (!Ctx.getInterpContext().evaluateDestruction(Settings, this,
                                                     std::move(DestroyedValue)))
       return false;
     ensureEvaluatedStmt()->HasConstantDestruction = true;
@@ -22549,6 +22604,18 @@ APSInt Expr::EvaluateKnownConstInt(const ASTContext &Ctx) const {
 
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateKnownConstInt");
   EvalResult EVResult;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects, EVResult);
+    Settings.InConstantContext = true;
+    [[maybe_unused]] bool Result =
+        Ctx.getInterpContext().evaluateAsRValue(Settings, this, EVResult.Val);
+    assert(Result && "Could not evaluate expression");
+    assert(EVResult.Val.isInt() && "Expression did not evaluate to integer");
+
+    return EVResult.Val.getInt();
+  }
+
   EvalInfo Info(Ctx, EVResult, EvaluationMode::IgnoreSideEffects);
   Info.InConstantContext = true;
 
@@ -22568,6 +22635,19 @@ APSInt Expr::EvaluateKnownConstIntCheckOverflow(
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateKnownConstIntCheckOverflow");
   EvalResult EVResult;
   EVResult.Diag = Diag;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects, EVResult);
+    Settings.InConstantContext = true;
+    Settings.CheckingForUndefinedBehavior = true;
+    [[maybe_unused]] bool Result =
+        Ctx.getInterpContext().evaluateAsRValue(Settings, this, EVResult.Val);
+    assert(Result && "Could not evaluate expression");
+    assert(EVResult.Val.isInt() && "Expression did not evaluate to integer");
+
+    return EVResult.Val.getInt();
+  }
+
   EvalInfo Info(Ctx, EVResult, EvaluationMode::IgnoreSideEffects);
   Info.InConstantContext = true;
   Info.CheckingForUndefinedBehavior = true;
@@ -22587,11 +22667,19 @@ void Expr::EvaluateForOverflow(const ASTContext &Ctx) const {
   ExprTimeTraceScope TimeScope(this, Ctx, "EvaluateForOverflow");
   bool IsConst;
   EvalResult EVResult;
-  if (!FastEvaluateAsRValue(this, EVResult.Val, Ctx, IsConst)) {
-    EvalInfo Info(Ctx, EVResult, EvaluationMode::IgnoreSideEffects);
-    Info.CheckingForUndefinedBehavior = true;
-    (void)::EvaluateAsRValue(Info, this, EVResult.Val);
+  if (FastEvaluateAsRValue(this, EVResult.Val, Ctx, IsConst))
+    return;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects, EVResult);
+    Settings.CheckingForUndefinedBehavior = true;
+    (void)Ctx.getInterpContext().evaluateAsRValue(Settings, this, EVResult.Val);
+    return;
   }
+
+  EvalInfo Info(Ctx, EVResult, EvaluationMode::IgnoreSideEffects);
+  Info.CheckingForUndefinedBehavior = true;
+  (void)::EvaluateAsRValue(Info, this, EVResult.Val);
 }
 
 bool Expr::EvalResult::isGlobalLValue() const {
@@ -22641,6 +22729,16 @@ static ICEDiag Worst(ICEDiag A, ICEDiag B) { return A.Kind >= B.Kind ? A : B; }
 
 static ICEDiag CheckEvalInICE(const Expr* E, const ASTContext &Ctx) {
   Expr::EvalResult EVResult;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpression, EVResult);
+    Settings.InConstantContext = true;
+    if (!Ctx.getInterpContext().evaluateAsRValue(Settings, E, EVResult.Val) ||
+        EVResult.HasSideEffects || !EVResult.Val.isInt())
+      return ICEDiag(IK_NotICE, E->getBeginLoc());
+    return NoDiag();
+  }
+
   Expr::EvalStatus Status;
   EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpression);
 
@@ -23106,7 +23204,7 @@ EvaluateCPlusPlus11IntegralConstantExpr(const ASTContext &Ctx, const Expr *E,
     return false;
 
   APValue Result;
-  if (!E->isCXX11ConstantExpr(Ctx, &Result, AllowRelaxedEval))
+  if (!E->isCXX11ConstantExpr(Ctx, Result, AllowRelaxedEval))
     return false;
 
   if (!Result.isInt())
@@ -23155,6 +23253,17 @@ Expr::getIntegerConstantExpr(const ASTContext &Ctx,
   // required to treat the expression as an ICE, so we produce the folded
   // value.
   EvalResult ExprResult;
+
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::IgnoreSideEffects,
+                                  ExprResult);
+    Settings.InConstantContext = true;
+    if (!Ctx.getInterpContext().evaluateAsRValue(Settings, this,
+                                                 ExprResult.Val))
+      llvm_unreachable("ICE cannot be evaluated!");
+    return ExprResult.Val.getInt();
+  }
+
   Expr::EvalStatus Status;
   EvalInfo Info(Ctx, Status, EvaluationMode::IgnoreSideEffects);
   Info.InConstantContext = true;
@@ -23172,7 +23281,7 @@ bool Expr::isCXX98IntegralConstantExpr(const ASTContext &Ctx) const {
   return CheckICE(this, Ctx).Kind == IK_ICE;
 }
 
-bool Expr::isCXX11ConstantExpr(const ASTContext &Ctx, APValue *Result,
+bool Expr::isCXX11ConstantExpr(const ASTContext &Ctx, APValue &Result,
                                bool AllowRelaxedEval) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
@@ -23182,25 +23291,27 @@ bool Expr::isCXX11ConstantExpr(const ASTContext &Ctx, APValue *Result,
   assert(Ctx.getLangOpts().CPlusPlus);
 
   bool IsConst;
-  APValue Scratch;
-  if (FastEvaluateAsRValue(this, Scratch, Ctx, IsConst) && Scratch.hasValue()) {
-    if (Result)
-      *Result = std::move(Scratch);
+  if (FastEvaluateAsRValue(this, Result, Ctx, IsConst) && Result.hasValue())
     return true;
-  }
 
-  // Build evaluation settings.
+  bool IsConstExpr;
   Expr::EvalStatus Status;
-  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpression);
   SmallVector<PartialDiagnosticAt> MSRelaxedDiag;
   Status.ExtendedDiag = AllowRelaxedEval ? &MSRelaxedDiag : nullptr;
 
-  bool IsConstExpr =
-      ::EvaluateAsRValue(Info, this, Result ? *Result : Scratch) &&
-      // NOTE: We don't produce a diagnostic for this, but the callers that
-      // call us on arbitrary full-expressions should generally not care.
-      Info.discardCleanups() && !Status.HasSideEffects;
-
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpression, Status);
+    IsConstExpr =
+        Ctx.getInterpContext().evaluateAsRValue(Settings, this, Result);
+  } else {
+    // Build evaluation settings.
+    EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpression);
+    IsConstExpr =
+        ::EvaluateAsRValue(Info, this, Result) &&
+        // NOTE: We don't produce a diagnostic for this, but the callers that
+        // call us on arbitrary full-expressions should generally not care.
+        Info.discardCleanups() && !Status.HasSideEffects;
+  }
   return IsConstExpr && !Status.DiagEmitted;
 }
 
@@ -23220,18 +23331,22 @@ bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
   });
 
   Expr::EvalStatus Status;
-  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpressionUnevaluated);
-  Info.InConstantContext = true;
 
-  if (Info.EnableNewConstInterp) {
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpressionUnevaluated,
+                                  Status);
+    Settings.InConstantContext = true;
     if (std::optional<bool> BoolResult =
-            Info.Ctx.getInterpContext().evaluateWithSubstitution(
-                Info, Callee, Args, This, this)) {
+            Ctx.getInterpContext().evaluateWithSubstitution(Settings, Callee,
+                                                            Args, This, this)) {
       Value = APValue(APSInt(APInt(1, static_cast<uint64_t>(*BoolResult))));
       return true;
     }
     return false;
   }
+
+  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpressionUnevaluated);
+  Info.InConstantContext = true;
 
   LValue ThisVal;
   const LValue *ThisPtr = nullptr;
@@ -23303,19 +23418,22 @@ bool Expr::isPotentialConstantExpr(const FunctionDecl *FD,
     return Name;
   });
 
+  const ASTContext &Ctx = FD->getASTContext();
   Expr::EvalStatus Status;
   Status.Diag = &Diags;
 
-  EvalInfo Info(FD->getASTContext(), Status,
-                EvaluationMode::ConstantExpression);
-  Info.InConstantContext = true;
-  Info.CheckingPotentialConstantExpression = true;
-
   // The constexpr VM attempts to compile all methods to bytecode here.
-  if (Info.EnableNewConstInterp) {
-    Info.Ctx.getInterpContext().isPotentialConstantExpr(Info, FD);
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpression, Status);
+    Settings.InConstantContext = true;
+    Settings.CheckingPotentialConstantExpression = true;
+    Ctx.getInterpContext().isPotentialConstantExpr(Settings, FD);
     return Diags.empty();
   }
+
+  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpression);
+  Info.InConstantContext = true;
+  Info.CheckingPotentialConstantExpression = true;
 
   const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD);
   const CXXRecordDecl *RD = MD ? MD->getParent()->getCanonicalDecl() : nullptr;
@@ -23353,18 +23471,22 @@ bool Expr::isPotentialConstantExprUnevaluated(Expr *E,
   assert(!E->isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
 
+  const ASTContext &Ctx = FD->getASTContext();
   Expr::EvalStatus Status;
   Status.Diag = &Diags;
 
-  EvalInfo Info(FD->getASTContext(), Status,
-                EvaluationMode::ConstantExpressionUnevaluated);
-  Info.InConstantContext = true;
-  Info.CheckingPotentialConstantExpression = true;
-
-  if (Info.EnableNewConstInterp) {
-    Info.Ctx.getInterpContext().isPotentialConstantExprUnevaluated(Info, E, FD);
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpressionUnevaluated,
+                                  Status);
+    Settings.InConstantContext = true;
+    Settings.CheckingPotentialConstantExpression = true;
+    Ctx.getInterpContext().isPotentialConstantExprUnevaluated(Settings, E, FD);
     return Diags.empty();
   }
+
+  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpressionUnevaluated);
+  Info.InConstantContext = true;
+  Info.CheckingPotentialConstantExpression = true;
 
   // Fabricate a call stack frame to give the arguments a plausible cover story.
   CallStackFrame Frame(Info, SourceLocation(), FD, /*This=*/nullptr,
@@ -23381,12 +23503,13 @@ std::optional<uint64_t> Expr::tryEvaluateObjectSize(const ASTContext &Ctx,
     return std::nullopt;
 
   Expr::EvalStatus Status;
-  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantFold);
-  if (Info.EnableNewConstInterp)
-    return Info.Ctx.getInterpContext().tryEvaluateObjectSize(
-        Info, this, Type,
-        /*IsDynamic=*/false);
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantFold, Status);
+    return Ctx.getInterpContext().tryEvaluateObjectSize(Settings, this, Type,
+                                                        /*IsDynamic=*/false);
+  }
 
+  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantFold);
   return tryEvaluateBuiltinObjectSize(this, Type, Info);
 }
 
@@ -23437,15 +23560,16 @@ EvaluateBuiltinStrLen(const Expr *E, EvalInfo &Info,
 
 std::optional<std::string> Expr::tryEvaluateString(ASTContext &Ctx) const {
   Expr::EvalStatus Status;
-  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantFold);
   std::string StringResult;
 
-  if (Info.EnableNewConstInterp) {
-    if (!Info.Ctx.getInterpContext().evaluateString(Info, this, StringResult))
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantFold, Status);
+    if (!Ctx.getInterpContext().evaluateString(Settings, this, StringResult))
       return std::nullopt;
     return StringResult;
   }
 
+  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantFold);
   if (EvaluateBuiltinStrLen(this, Info, &StringResult))
     return StringResult;
   return std::nullopt;
@@ -23457,12 +23581,15 @@ static bool EvaluateCharRangeAsStringImpl(const Expr *, T &Result,
                                           const Expr *PtrExpression,
                                           ASTContext &Ctx,
                                           Expr::EvalResult &Status) {
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantExpression, Status);
+    Settings.InConstantContext = true;
+    return Ctx.getInterpContext().evaluateCharRange(Settings, SizeExpression,
+                                                    PtrExpression, Result);
+  }
+
   EvalInfo Info(Ctx, Status, EvaluationMode::ConstantExpression);
   Info.InConstantContext = true;
-
-  if (Info.EnableNewConstInterp)
-    return Info.Ctx.getInterpContext().evaluateCharRange(Info, SizeExpression,
-                                                         PtrExpression, Result);
 
   LValue String;
   FullExpressionRAII Scope(Info);
@@ -23525,10 +23652,12 @@ bool Expr::EvaluateCharRangeAsString(APValue &Result,
 
 std::optional<uint64_t> Expr::tryEvaluateStrLen(const ASTContext &Ctx) const {
   Expr::EvalStatus Status;
-  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantFold);
 
-  if (Info.EnableNewConstInterp)
-    return Info.Ctx.getInterpContext().evaluateStrlen(Info, this);
+  if (Ctx.getLangOpts().EnableNewConstInterp) {
+    interp::EvalSettings Settings(EvaluationMode::ConstantFold, Status);
+    return Ctx.getInterpContext().evaluateStrlen(Settings, this);
+  }
+  EvalInfo Info(Ctx, Status, EvaluationMode::ConstantFold);
   return EvaluateBuiltinStrLen(this, Info);
 }
 
