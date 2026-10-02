@@ -3026,6 +3026,12 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
   case ExprWithCleanupsClass:
     return cast<ExprWithCleanups>(this)->getSubExpr()
                ->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
+  case CXXTryExprClass:
+    return cast<CXXTryExpr>(this)->getSubExpr()
+               ->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
+  case CXXCatchReturnFailureExprClass:
+    return cast<CXXCatchReturnFailureExpr>(this)->getSubExpr()
+               ->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
   case OpaqueValueExprClass:
     return cast<OpaqueValueExpr>(this)->getSourceExpr()->isUnusedResultAWarning(
         WarnE, Loc, R1, R2, Ctx);
