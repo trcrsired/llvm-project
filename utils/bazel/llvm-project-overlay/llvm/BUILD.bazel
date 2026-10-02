@@ -793,10 +793,20 @@ cc_library(
     ],
 )
 
+gentbl_cc_library(
+    name = "MCCLOptionsTableGen",
+    strip_include_prefix = "lib/MC",
+    tbl_outs = {"lib/MC/MCCLOptions.inc": ["-gen-opt-parser-defs"]},
+    tblgen = ":llvm-tblgen",
+    td_file = "lib/MC/MCCLOptions.td",
+    deps = [":OptParserTdFiles"],
+)
+
 cc_library(
     name = "MC",
     srcs = glob([
         "lib/MC/*.cpp",
+        "lib/MC/*.h",
     ]),
     hdrs = glob([
         "include/llvm/MC/*.h",
@@ -807,6 +817,8 @@ cc_library(
         ":BinaryFormat",
         ":DebugInfoCodeView",
         ":DebugInfoDWARFLowLevel",
+        ":MCCLOptionsTableGen",
+        ":Option",
         ":Support",
         ":TargetParser",
         ":config",
@@ -2245,6 +2257,9 @@ genrule(
     srcs = ["include/llvm/Transforms/IPO/InstrumentorRuntimeHelper.h"],
     outs = ["include/llvm/Transforms/IPO/InstrumentorVariables.inc"],
     cmd = "printf 'constexpr char InstrumentorRuntimeHelper[] = R\"(' > $@ && cat $(SRCS) >> $@ && echo ')\";' >> $@",
+    # `set /p` writes its prompt without a newline, like printf; it also returns
+    # errorlevel 1 on empty input, hence the single `&` after it.
+    cmd_bat = ">$@ <nul set /p =constexpr char InstrumentorRuntimeHelper[] = R^\"(& >>$@ type $(SRCS)&& >>$@ echo ^)^\";",
 )
 
 cc_library(
