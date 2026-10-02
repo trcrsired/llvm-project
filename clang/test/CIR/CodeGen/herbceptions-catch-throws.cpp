@@ -19,7 +19,7 @@ struct error {
 }
 
 // CHECK: define dso_local void @_Z6calleem(i64 noundef %0) #[[ATTR:[0-9]+]] {
-// CHECK: call { { ptr, i64 }, i1 } @_Z3barm
+// CHECK: call { { ptr, i64 }, i1 } @_Z3barDrm
 // CHECK: extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
 // CHECK: br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
 // CHECK: store {{.*}} %{{.*}}, ptr %{{.*}}, align 8

@@ -784,42 +784,51 @@ The implementation spans the following areas:
   (posix, win32, nt, com, wine, cmath, parse, exception-ptr), ``std::error``,
   and the name/message query protocol.
 
-Link-time ODR checking
-======================
+Mangling
+========
 
-The ``throws``/``return_failure`` specifier is deliberately not part of a
-function's own mangled name: a herbception function and its plain counterpart
-share one symbol.
-That keeps object files link-compatible with non-herbception toolchains,
-but it also means translation units that *disagree* about a function's
-specifier (or about a ``return_failure{
-  E}`` error type) compile cleanly and then
-link silently -- callers compiled against the plain ABI would read garbage
-from a ``throws`` definition. That is a One Definition Rule violation, and
-only the linker can see it.
+The ``throws``/``return_failure`` specifier is part of a function's mangled
+name, so a herbception function and a plain function with the same signature
+get different symbols. Translation units that disagree about a function's
+specifier (or about a ``return_failure{E}`` error type) then fail to link --
+an undefined or missing symbol is a hard error, not silent ABI garbage.
 
-Nested function types are different. ``int (*)() throws`` and ``int (*)()``
-are distinct types that may appear as parameters, template arguments or
-pointed-to types (``void take(int (*)() throws)`` and
-``void take(int (*)())`` are separate overloads), so the specifier must be
-encoded there or the overloads collide. In the Itanium ABI the
-``<exception-spec>`` slot of a ``<function-type>`` gains::
+In the Itanium ABI the specifier is encoded in two places:
 
-   Dr              # throws
-   DE <type> E     # return_failure{E}
-   Dg <expression> E  # throws(expr) with an instantiation-dependent operand
+* In a function's own encoding, between the ``<name>`` (and any
+  ``enable_if`` attribute) and the ``<bare-function-type>``. The position is
+  unambiguous because a parameter or return type can never begin with
+  ``Dr``/``DE``/``Dg`` (function types decay to pointers in signatures)::
 
-``throws(false)`` is type-equivalent to ``noexcept`` and mangles as ``Do``.
-In the MSVC ABI the terminal ``<throw-spec>`` of a function type gains
-``_H`` for ``throws`` and ``_F <type>`` for ``return_failure{E}``.
-llvm-cxxfilt, llvm-undname and ``__cxa_demangle`` all round-trip these
-encodings. C symbols are unmangled as usual, so nothing changes there.
+    _Z1fDrv         # int f() throws
+    _Z1gDEiEv       # int g() return_failure{int}
+    _Z2nfv          # int nf() throws(false) -- no marker, like noexcept
 
-When you link with LTO (``-flto``, full or thin), ``ld.lld`` compares the
-herbception signature -- whether the IR function carries the error channel
-and which payload type it returns -- of every externally visible function
-across all bitcode modules, for every supported target, and return_failure the link
-on a conflict:
+* In the ``<exception-spec>`` slot of a nested ``<function-type>`` (pointer
+  types, parameters, template arguments, ...), where the specifier must
+  appear because ``int (*)() throws`` and ``int (*)()`` are distinct types::
+
+    Dr              # throws
+    DE <type> E     # return_failure{E}
+    Dg <expression> E  # throws(expr) with an instantiation-dependent operand
+
+``throws(false)`` is type-equivalent to ``noexcept`` and mangles as ``Do``
+in nested positions, with no marker in a function's own name.
+In the MSVC ABI the terminal ``<throw-spec>`` uses ``_H`` for ``throws`` and
+``_F <type>`` for ``return_failure{E}``, both for nested function types and
+in a function's own decorated name (where ``noexcept``'s ``_E`` is normally
+omitted). ``llvm-cxxfilt``, ``llvm-undname`` and ``__cxa_demangle`` all
+round-trip these encodings. C symbols are unmangled as usual, so nothing
+changes there.
+
+When you link with LTO (``-flto``, full or thin), ``ld.lld`` additionally
+compares the herbception signature -- whether the IR function carries the
+error channel and which payload type it returns -- of every externally
+visible function across all bitcode modules, for every supported target, and
+fails the link on a conflict. This is a backstop for bitcode whose symbols
+still collide (e.g. objects produced before the specifier was mangled, or
+hand-written IR); with current compilers, disagreeing TUs normally fail
+earlier with an unresolved symbol:
 
 .. code-block:: none
 

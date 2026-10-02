@@ -32,9 +32,9 @@ int intcall(int) throws;
 // callee() call must leave %0 alone -- the payload %11 it would store is the
 // callee's error, garbage on this path.
 //
-// CHECK-LABEL: define {{.*}} @_Z1fi(
-// X86:        call { { ptr, i64 }, i1 } @_Z6calleei
-// W32:        call i1 @_Z6calleei
+// CHECK-LABEL: define {{.*}} @_Z1fDri(
+// X86:        call { { ptr, i64 }, i1 } @_Z6calleeDri
+// W32:        call i1 @_Z6calleeDri
 // CHECK:      br i1 {{.*}}, label %[[ERR:[0-9]+]], label %[[OK:[0-9]+]]
 // CHECK:    [[ERR]]:
 // X86:        store { ptr, i64 } {{.*}}, ptr %0
@@ -54,9 +54,9 @@ Str f(int n) throws {
 // Same hazard through a non-void try(): the try value is materialised below
 // the mirror point, so %0 must stay untouched on the success arm.
 //
-// CHECK-LABEL: define {{.*}} @_Z1hi(
-// X86:        call { { ptr, i64 }, i1 } @_Z7intcalli
-// W32:        call i1 @_Z7intcalli
+// CHECK-LABEL: define {{.*}} @_Z1hDri(
+// X86:        call { { ptr, i64 }, i1 } @_Z7intcallDri
+// W32:        call i1 @_Z7intcallDri
 // CHECK:      br i1 {{.*}}, label %[[ERR2:[0-9]+]], label %[[OK2:[0-9]+]]
 // CHECK:    [[ERR2]]:
 // CHECK:      store i1 true
@@ -76,9 +76,9 @@ Str h(int n) throws {
 // still emitted there -- without it the slot is undef on the success arm and
 // SROA forms a select with an undef arm that blocks tail calls.
 //
-// CHECK-LABEL: define {{.*}} @_Z3fwdi(
-// X86:        call { { ptr, i64 }, i1 } @_Z1gi
-// W32:        call i1 @_Z1gi
+// CHECK-LABEL: define {{.*}} @_Z3fwdDri(
+// X86:        call { { ptr, i64 }, i1 } @_Z1gDri
+// W32:        call i1 @_Z1gDri
 // CHECK:      br i1 {{.*}}, label %[[ERR3:[0-9]+]], label %[[OK3:[0-9]+]]
 // CHECK:    [[OK3]]:
 // X86-NEXT:   store { ptr, i64 }
@@ -89,9 +89,9 @@ void fwd(int n) throws { g(n); }
 // A scalar throws return's slot is a dead temp until the return writes it, so
 // the mirror is simply skipped; propagation still works.
 //
-// CHECK-LABEL: define {{.*}} @_Z2sii(
-// X86:        call { { ptr, i64 }, i1 } @_Z1gi
-// W32:        call i1 @_Z1gi
+// CHECK-LABEL: define {{.*}} @_Z2siDri(
+// X86:        call { { ptr, i64 }, i1 } @_Z1gDri
+// W32:        call i1 @_Z1gDri
 // CHECK:      br i1 {{.*}}, label %[[ERR4:[0-9]+]], label %[[OK4:[0-9]+]]
 // CHECK:    [[ERR4]]:
 // CHECK:      store i1 true

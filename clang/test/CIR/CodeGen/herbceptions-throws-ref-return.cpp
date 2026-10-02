@@ -15,31 +15,31 @@ struct error { void *d; __SIZE_TYPE__ c; ~error() noexcept; };
 
 int g = 42;
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z11lref_middlev(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z11lref_middleDrv(
 int& lref_inner() { return g; }
 int& lref_middle() throws { return lref_inner(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10lref_outerv(
-// CHECK: call { { ptr, i64 }, i8 } @_Z11lref_middlev()
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10lref_outerDrv(
+// CHECK: call { { ptr, i64 }, i8 } @_Z11lref_middleDrv()
 int& lref_outer() throws { return lref_middle(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z11rref_middlev(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z11rref_middleDrv(
 int&& rref_inner() { return static_cast<int&&>(g); }
 int&& rref_middle() throws { return rref_inner(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10rref_outerv(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10rref_outerDrv(
 int&& rref_outer() throws { return rref_middle(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z11cref_middlev(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z11cref_middleDrv(
 const int& cref_inner() { return g; }
 const int& cref_middle() throws { return cref_inner(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10cref_outerv(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10cref_outerDrv(
 const int& cref_outer() throws { return cref_middle(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10ptr_middlev(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z10ptr_middleDrv(
 int* ptr_inner() { return &g; }
 int* ptr_middle() throws { return ptr_inner(); }
 
-// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z9ptr_outerv(
+// CHECK-LABEL: define {{.*}} { { ptr, i64 }, i8 } @_Z9ptr_outerDrv(
 int* ptr_outer() throws { return ptr_middle(); }

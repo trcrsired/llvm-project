@@ -5,15 +5,15 @@
 
 int callee() throws;
 
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3foov()
-// CHECK: call { { ptr, i64 }, i8 } @_Z6calleev()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3fooDrv()
+// CHECK: call { { ptr, i64 }, i8 } @_Z6calleeDrv()
 // CHECK: ret { { ptr, i64 }, i8 }
 int foo() throws {
   return try(callee());
 }
 
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3barv()
-// CHECK: call { { ptr, i64 }, i8 } @_Z6calleev()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3barDrv()
+// CHECK: call { { ptr, i64 }, i8 } @_Z6calleeDrv()
 // CHECK: ret { { ptr, i64 }, i8 }
 int bar() throws {
   return try(callee());

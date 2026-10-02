@@ -58,7 +58,7 @@ void foo(int) throws;
 // A bare `throw throws;` is the rethrow: the flag starts set, the rethrow path
 // clears it, and the destructor is conditional on it.
 //
-// CHECK-LABEL: define {{.*}} @_Z4barei(
+// CHECK-LABEL: define {{.*}} @_Z4bareDri(
 // CHECK:         catch.throws:
 // CHECK:         store i1 true, ptr %herb.catchvar.alive
 // CHECK:         store i1 false, ptr %herb.catchvar.alive
@@ -77,7 +77,7 @@ void bare(int x) throws {
 // is still owned here: the flag is set and never cleared, and the destructor
 // runs. This is the whole difference from the bare form.
 //
-// CHECK-LABEL: define {{.*}} @_Z4copyi(
+// CHECK-LABEL: define {{.*}} @_Z4copyDri(
 // CHECK:         catch.throws:
 // CHECK:         store i1 true, ptr %herb.catchvar.alive
 // CHECK-NOT:     store i1 false, ptr %herb.catchvar.alive
@@ -93,7 +93,7 @@ void copy(int x) throws {
 // A fresh error built out of an errc goes through that domain's code()/domain()
 // and leaves the caught error owned here, exactly like the copy above.
 //
-// CHECK-LABEL: define {{.*}} @_Z5freshi(
+// CHECK-LABEL: define {{.*}} @_Z5freshDri(
 // CHECK:         catch.throws:
 // CHECK:         store i1 true, ptr %herb.catchvar.alive
 // CHECK-NOT:     store i1 false, ptr %herb.catchvar.alive
@@ -113,7 +113,7 @@ void fresh(int x) throws {
 // decision would either destroy the moved-out error or leak the one it still
 // owns; the flag makes each path correct on its own.
 //
-// CHECK-LABEL: define {{.*}} @_Z5mixedi(
+// CHECK-LABEL: define {{.*}} @_Z5mixedDri(
 // CHECK:         catch.throws:
 // CHECK:         store i1 true, ptr %herb.catchvar.alive
 // CHECK:         store i1 false, ptr %herb.catchvar.alive

@@ -31,8 +31,8 @@ void bar() throws {
 // The catch handler must be reachable (have a predecessor) and run on the
 // error path.
 //
-// CHECK: define dso_local { { ptr, i64 }, i1 } @_Z8test_barv()
-// CHECK: call { { ptr, i64 }, i1 } @_Z3barv()
+// CHECK: define dso_local { { ptr, i64 }, i1 } @_Z8test_barDrv()
+// CHECK: call { { ptr, i64 }, i1 } @_Z3barDrv()
 // CHECK: br i1 %{{.*}}, label %try.err, label %try.ok
 // CHECK: try.err:
 // CHECK: br label %catch.throws

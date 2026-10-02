@@ -16,16 +16,16 @@ struct error {
 int sum_throws(int n, ...) throws;
 
 // Direct call to a variadic throws callee.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3usev()
-// CHECK:         call { { ptr, i64 }, i8 } (i32, ...) @_Z10sum_throwsiz(i32 noundef 3, i32 noundef 10, i32 noundef 20, i32 noundef 30)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3useDrv()
+// CHECK:         call { { ptr, i64 }, i8 } (i32, ...) @_Z10sum_throwsDriz(i32 noundef 3, i32 noundef 10, i32 noundef 20, i32 noundef 30)
 int use() throws {
   return sum_throws(3, 10, 20, 30);
 }
 
-// CHECK-LABEL: declare { { ptr, i64 }, i8 } @_Z10sum_throwsiz(i32 noundef, ...)
+// CHECK-LABEL: declare { { ptr, i64 }, i8 } @_Z10sum_throwsDriz(i32 noundef, ...)
 
 // Indirect call through a pointer to a variadic throws function.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z7via_ptrPDrFiizEii(
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z7via_ptrDrPDrFiizEii(
 // CHECK:         call { { ptr, i64 }, i8 } (i32, ...) %
 int via_ptr(int (*fp)(int, ...) throws, int n, int a) throws {
   return fp(n, a);
@@ -33,7 +33,7 @@ int via_ptr(int (*fp)(int, ...) throws, int n, int a) throws {
 
 // va_start/va_arg inside a throws function lower as usual and the shaped
 // result is returned.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z9count_maxiz(i32 noundef {{.*}}, ...)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z9count_maxDriz(i32 noundef {{.*}}, ...)
 // CHECK:         call void @llvm.va_start.p0
 // CHECK:         call void @llvm.va_end.p0
 // CHECK:         ret { { ptr, i64 }, i8 }

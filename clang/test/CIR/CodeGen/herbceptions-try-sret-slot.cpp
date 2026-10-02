@@ -18,8 +18,8 @@ void callee(int) throws;
 void g(int) throws;
 int intcall(int) throws;
 
-// CHECK-LABEL: define dso_local { %struct.Str, i8 } @_Z1fi(i32 noundef %0)
-// CHECK: call { { ptr, i64 }, i8 } @_Z6calleei(i32
+// CHECK-LABEL: define dso_local { %struct.Str, i8 } @_Z1fDri(i32 noundef %0)
+// CHECK: call { { ptr, i64 }, i8 } @_Z6calleeDri(i32
 // CHECK: ret { %struct.Str, i8 }
 Str f(int n) throws {
   Str s{};
@@ -28,8 +28,8 @@ Str f(int n) throws {
   return s;
 }
 
-// CHECK-LABEL: define dso_local { %struct.Str, i8 } @_Z1hi(i32 noundef %0)
-// CHECK: call { { ptr, i64 }, i8 } @_Z7intcalli(i32
+// CHECK-LABEL: define dso_local { %struct.Str, i8 } @_Z1hDri(i32 noundef %0)
+// CHECK: call { { ptr, i64 }, i8 } @_Z7intcallDri(i32
 // CHECK: ret { %struct.Str, i8 }
 Str h(int n) throws {
   Str s{};
@@ -39,12 +39,12 @@ Str h(int n) throws {
   return s;
 }
 
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3fwdi(i32 noundef %0)
-// CHECK: call { { ptr, i64 }, i8 } @_Z1gi(i32
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z3fwdDri(i32 noundef %0)
+// CHECK: call { { ptr, i64 }, i8 } @_Z1gDri(i32
 // CHECK: ret { { ptr, i64 }, i8 }
 void fwd(int n) throws { g(n); }
 
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z2sii(i32 noundef %0)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z2siDri(i32 noundef %0)
 // CHECK: ret { { ptr, i64 }, i8 }
 int si(int n) throws {
   g(n);

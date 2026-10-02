@@ -71,14 +71,14 @@ int f(void *p) {
 }
 
 // The dependent-throws template instantiation keeps the channel.
-// CHECK-LABEL: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_ZW1m12construct_inIS_6WidgetJiEEPT_PvDpOT0_(
+// CHECK-LABEL: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_ZW1m12construct_inIS_6WidgetJiEEDgntnxcvT_spscT0_fL4294967294p0_EPS2_PvDpOS3_(
 // CHECK-NOT: __cxa_throw
 // CHECK-NOT: __cxa_allocate_exception
 // CHECK: ret { { ptr, i64 }, i1 }
 
 // The re-emitted ctor body must raise the error through the throws channel and
 // return { { ptr, i64 }, i1 } with the error flag -- never __cxa_throw.
-// CHECK-LABEL: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_ZNW1m6WidgetC2Ei(
+// CHECK-LABEL: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_ZNW1m6WidgetC2EDri(
 // CHECK-NOT: __cxa_throw
 // CHECK-NOT: __cxa_allocate_exception
 // CHECK: ret { { ptr, i64 }, i1 }

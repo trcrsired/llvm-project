@@ -28,8 +28,8 @@ public:
 // low bytes of the i64 slot with a trunc, then returns the fabricated
 // {domain, code} pair directly -- no round trip through the return slot.
 //
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5h_i64v(
-// CHECK:         call { i64, i1 } @_Z7api_i64v
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5h_i64Drv(
+// CHECK:         call { i64, i1 } @_Z7api_i64DESt7my_errcEv
 // CHECK:         br i1 %{{.*}}, label %[[ERR:[0-9]+]], label %[[OK:[0-9]+]]
 // CHECK:       [[ERR]]:
 // CHECK-NEXT:    trunc i64 %{{.*}} to i32
@@ -43,7 +43,7 @@ long long api_i64() return_failure{std::my_errc};
 long long h_i64() throws { return try(api_i64()); }
 
 // i32 payload, same-width error: no trunc or zext needed at all.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5h_i32v(
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5h_i32Drv(
 // CHECK-NOT:     zext i64
 // CHECK:         call {{.*}}code
 // CHECK:         ret { { ptr, i64 }, i1 }
@@ -53,7 +53,7 @@ int h_i32() throws { return try(api_i32()); }
 
 // Aggregate payload wider than the error: the fabricated {domain, code} goes
 // into the union's low bytes with the tail zeroed.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5h_bigv(
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5h_bigDrv(
 // CHECK:         call {{.*}}code
 // CHECK:         ret { { ptr, i64 }, i1 }
 struct Big { long long a, b, c; };
@@ -64,7 +64,7 @@ Big h_big() throws { return try(api_big()); }
 // A catch throws(std::error) handler on a return_failure{E} call gets the converted
 // std::error, the same conversion auto-propagation performs.
 // CHECK-LABEL: define dso_local void @_Z7handleri(
-// CHECK:         call { i64, i1 } @_Z7api_i64v
+// CHECK:         call { i64, i1 } @_Z7api_i64DESt7my_errcEv
 // CHECK:         trunc i64 %{{.*}} to i32
 // CHECK:         call {{.*}}code
 // CHECK:         store %"struct.std::error" %{{.*}}, ptr %{{.*}}, align 8
@@ -80,7 +80,7 @@ void handler(int x) noexcept {
 // function too: the error routes to the catch throws handler, with the same
 // return_failure{E} -> std::error conversion.
 // CHECK-LABEL: define dso_local noundef i32 @_Z12explicit_tryv(
-// CHECK:         call { i64, i1 } @_Z7api_i64v
+// CHECK:         call { i64, i1 } @_Z7api_i64DESt7my_errcEv
 // CHECK:         trunc i64 %{{.*}} to i32
 // CHECK:         call {{.*}}code
 // CHECK:         store %"struct.std::error" %{{.*}}, ptr %{{.*}}, align 8

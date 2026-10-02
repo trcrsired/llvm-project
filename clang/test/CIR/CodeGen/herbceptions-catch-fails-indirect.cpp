@@ -8,13 +8,13 @@
 struct Big { long long a, b, c, d; };
 struct E2 { long long x, y; };
 
-// CHECK: define {{.*}} { %struct.Big, i8 } @_Z5mkbigi(
+// CHECK: define {{.*}} { %struct.Big, i8 } @_Z5mkbigDE2E2Ei(
 Big mkbig(int n) return_failure{E2} { return {n, n + 1, n + 2, n + 3}; }
 
 // The discriminant comes from the aggregate, and the payload is read back
 // out of the result's union member zero (the value), not the error member.
 // CHECK-LABEL: define dso_local noundef i64 @_Z3fooi(i32 noundef %0)
-// CHECK: call { %struct.Big, i8 } @_Z5mkbigi
+// CHECK: call { %struct.Big, i8 } @_Z5mkbigDE2E2Ei
 // CHECK: ret i64
 long long foo(int x) {
   auto e = catch return_failure(mkbig(x));
