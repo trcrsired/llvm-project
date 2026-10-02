@@ -904,12 +904,38 @@ dead-return-value elimination must not strip it when LTO internalizes a
 Linker: LTO ODR checking
 ========================
 
-The herbception specifier is deliberately not part of the C++ mangled name,
+The herbception specifier is deliberately not part of a function's own
+mangled name,
 so a ``throws`` function and its plain counterpart share the same symbol.
 Two translation units that disagree about the specifier (or about a
 ``return_failure{E}`` error type) therefore link silently, and calls compiled against
 the wrong ABI read garbage return values. Only the linker sees all of the
 definitions, so LTO diagnoses this.
+
+Nested function *types* do carry the specifier, because they must remain
+distinct types in signatures -- ``void take(int (*)() throws)`` and
+``void take(int (*)())`` are separate overloads and must not collide.
+``CXXNameMangler::mangleType`` (``clang/lib/AST/ItaniumMangle.cpp``) emits
+the specifier in the ``<exception-spec>`` slot of the ``F ... E`` function
+encoding, alongside ``Do``/``DO``/``Dw``:
+
+* ``Dr`` for ``throws`` (``EST_BasicThrows`` / ``EST_BasicThrowsTrue``);
+* ``DE <type> E`` for ``return_failure{E}`` (``EST_ThrowsTyped``, resolved
+  or instantiation-dependent);
+* ``Dg <expression> E`` for ``throws(expr)`` (``EST_DependentThrows``);
+* ``throws(false)`` (``EST_BasicThrowsFalse``) is type-equivalent to
+  ``noexcept`` and mangles as ``Do``.
+
+``MicrosoftCXXNameMangler::mangleThrowSpecification``
+(``clang/lib/AST/MicrosoftMangle.cpp``) emits ``_H`` for ``throws`` and
+``_F <type>`` for ``return_failure{E}`` in the terminal ``<throw-spec>``
+slot of a mangled function type.
+
+Both demanglers round-trip the new encodings: ``Dr``/``DE``/``Dg`` map to
+``ThrowsSpec``/``FailureSpec``/``ThrowsExprSpec`` nodes in
+``llvm/include/llvm/Demangle/ItaniumDemangle.h`` (and the libcxxabi copy),
+and ``_H``/``_F`` set ``FunctionSignatureNode::IsThrows``/``FailureType`` in
+``llvm/lib/Demangle/MicrosoftDemangle.cpp``.
 
 ``llvm/include/llvm/LTO/Config.h`` defines ``lto::HerbceptionODRChecker``,
 shared by every module of an LTO link through

@@ -386,6 +386,12 @@ struct DEMANGLE_ABI FunctionSignatureNode : public TypeNode {
 
   // True if the function type is noexcept.
   bool IsNoexcept = false;
+
+  // Herbception: true if the function type is `throws`.
+  bool IsThrows = false;
+
+  // Herbception: the `return_failure{E}` error type, if any.
+  TypeNode *FailureType = nullptr;
 };
 
 struct IdentifierNode : public Node {

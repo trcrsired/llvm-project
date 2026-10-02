@@ -271,7 +271,8 @@ private:
   FuncClass demangleFunctionClass(std::string_view &MangledName);
   CallingConv demangleCallingConvention(std::string_view &MangledName);
   StorageClass demangleVariableStorageClass(std::string_view &MangledName);
-  bool demangleThrowSpecification(std::string_view &MangledName);
+  void demangleThrowSpecification(std::string_view &MangledName,
+                                  FunctionSignatureNode *FTy);
   wchar_t demangleWcharLiteral(std::string_view &MangledName);
   uint8_t demangleCharLiteral(std::string_view &MangledName);
 

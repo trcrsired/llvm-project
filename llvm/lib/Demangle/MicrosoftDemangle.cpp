@@ -1902,14 +1902,28 @@ TypeNode *Demangler::demangleType(std::string_view &MangledName,
   return Ty;
 }
 
-bool Demangler::demangleThrowSpecification(std::string_view &MangledName) {
-  if (consumeFront(MangledName, "_E"))
-    return true;
+void Demangler::demangleThrowSpecification(std::string_view &MangledName,
+                                           FunctionSignatureNode *FTy) {
+  // _E = noexcept, _H = throws, _F <type> = return_failure{E}
+  if (consumeFront(MangledName, "_E")) {
+    FTy->IsNoexcept = true;
+    return;
+  }
+  if (consumeFront(MangledName, "_H")) {
+    FTy->IsThrows = true;
+    return;
+  }
+  if (consumeFront(MangledName, "_F")) {
+    FTy->FailureType =
+        demangleType(MangledName, QualifierMangleMode::Drop);
+    if (!FTy->FailureType)
+      Error = true;
+    return;
+  }
   if (consumeFront(MangledName, 'Z'))
-    return false;
+    return;
 
   Error = true;
-  return false;
 }
 
 FunctionSignatureNode *
@@ -1934,7 +1948,7 @@ Demangler::demangleFunctionType(std::string_view &MangledName,
 
   FTy->Params = demangleFunctionParameterList(MangledName, FTy->IsVariadic);
 
-  FTy->IsNoexcept = demangleThrowSpecification(MangledName);
+  demangleThrowSpecification(MangledName, FTy);
 
   return FTy;
 }
