@@ -3457,8 +3457,22 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(const FunctionType *T,
 
 void MicrosoftCXXNameMangler::mangleThrowSpecification(
                                                 const FunctionProtoType *FT) {
-  // <throw-spec> ::= Z # (default)
-  //              ::= _E # noexcept
+  // <throw-spec> ::= Z         # (default)
+  //              ::= _E        # noexcept
+  //              ::= _H        # throws (herbception)
+  //              ::= _F <type> # return_failure{E} (herbception)
+  switch (FT->getExceptionSpecType()) {
+  case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+    Out << "_H";
+    return;
+  case EST_ThrowsTyped:
+    Out << "_F";
+    mangleType(FT->getExceptionType(0), SourceRange(), QMM_Drop);
+    return;
+  default:
+    break;
+  }
   if (FT->canThrow())
     Out << 'Z';
   else

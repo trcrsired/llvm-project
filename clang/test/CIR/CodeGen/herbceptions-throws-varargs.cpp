@@ -25,7 +25,7 @@ int use() throws {
 // CHECK-LABEL: declare { { ptr, i64 }, i8 } @_Z10sum_throwsiz(i32 noundef, ...)
 
 // Indirect call through a pointer to a variadic throws function.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z7via_ptrPFiizEii(
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z7via_ptrPDrFiizEii(
 // CHECK:         call { { ptr, i64 }, i8 } (i32, ...) %
 int via_ptr(int (*fp)(int, ...) throws, int n, int a) throws {
   return fp(n, a);

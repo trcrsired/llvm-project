@@ -1,0 +1,16 @@
+RUN: llvm-cxxfilt -n < %s | FileCheck --match-full-lines %s
+
+_Z4takePDrFivE
+; CHECK: take(int (*)() throws)
+_Z4takePDoFivE
+; CHECK: take(int (*)() noexcept)
+_Z4takePFivE
+; CHECK: take(int (*)())
+_Z6take_rPDEiEFivE
+; CHECK: take_r(int (*)() return_failure{int})
+_Z6take_rPDElEFivE
+; CHECK: take_r(int (*)() return_failure{long})
+_ZN1SIPDrFivEE1mEv
+; CHECK: S<int (*)() throws>::m()
+_ZN1SIPDEiEFivEE1mEv
+; CHECK: S<int (*)() return_failure{int}>::m()

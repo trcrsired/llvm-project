@@ -449,6 +449,13 @@ void FunctionSignatureNode::outputPost(OutputBuffer &OB,
 
   if (IsNoexcept)
     OB << " noexcept";
+  if (IsThrows)
+    OB << " throws";
+  if (FailureType) {
+    OB << " return_failure{";
+    FailureType->output(OB, OF_Default);
+    OB << '}';
+  }
 
   if (RefQualifier == FunctionRefQualifier::Reference)
     OB << " &";
