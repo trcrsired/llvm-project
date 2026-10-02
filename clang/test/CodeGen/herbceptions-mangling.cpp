@@ -1,10 +1,12 @@
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -fherbceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=ITANIUM
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc -fherbceptions -fms-compatibility-version=19.30 -emit-llvm -o - %s | FileCheck %s --check-prefix=MSVC
 
-// The throws/return_failure specifier of a function *type* is mangled in
-// nested positions (Itanium encodes Dr / DE <type> E in the <exception-spec>
-// slot; MSVC encodes _H / _F <type> in the <throw-spec> slot). A function's
-// own mangled name does not carry the specifier, matching noexcept.
+// The throws/return_failure specifier is part of the mangled name, both for
+// a function's own encoding and for function types in nested positions.
+// Itanium encodes Dr / DE <type> E / Dg <expr> E in the <exception-spec>
+// slot of a nested function type and between the name and the
+// bare-function-type of a function's own encoding; MSVC encodes _H / _F
+// <type> in the <throw-spec> slot in both positions.
 
 using Plain = int (*)();
 using Throws = int (*)() throws;
@@ -29,12 +31,14 @@ void take(Noexcept) {}
 void take_r(FailsInt) {}
 void take_r(FailsLong) {}
 
-// Top-level function names do not carry the specifier.
-// ITANIUM-DAG: define {{.*}}@_Z1fv(
-// ITANIUM-DAG: define {{.*}}@_Z1gv(
+// The function's own encoding carries the specifier between the name and the
+// bare-function-type on Itanium, and in the <throw-spec> slot on MSVC.
+// throws(false) is type-equivalent to noexcept and gets no marker.
+// ITANIUM-DAG: define {{.*}}@_Z1fDrv(
+// ITANIUM-DAG: define {{.*}}@_Z1gDEiEv(
 // ITANIUM-DAG: define {{.*}}@_Z2nfv(
-// MSVC-DAG: define {{.*}}@"?f@@YAHXZ"(
-// MSVC-DAG: define {{.*}}@"?g@@YAHXZ"(
+// MSVC-DAG: define {{.*}}@"?f@@YAHX_H"(
+// MSVC-DAG: define {{.*}}@"?g@@YAHX_FH"(
 // MSVC-DAG: define {{.*}}@"?nf@@YAHXZ"(
 int f() throws { return 1; }
 int g() return_failure{int} { return 2; }

@@ -34,7 +34,7 @@ struct status { long long p, n; };
 #endif
 }
 
-// CHECK-LABEL: define dso_local { %"struct.ns::status", i8 } @_Z5innerv()
+// CHECK-LABEL: define dso_local { %"struct.ns::status", i8 } @_Z5innerDrv()
 // CHECK: ret { %"struct.ns::status", i8 }
 __attribute__((noinline)) ns::status inner() throws {
   ns::status s;
@@ -44,8 +44,8 @@ __attribute__((noinline)) ns::status inner() throws {
 
 // The shaped result is stored through memory and its discriminant drives
 // the propagate/continue branch.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z5outerv()
-// CHECK: call { %"struct.ns::status", i8 } @_Z5innerv()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z5outerDrv()
+// CHECK: call { %"struct.ns::status", i8 } @_Z5innerDrv()
 // CHECK: br i1
 // CHECK: ret { { ptr, i64 }, i8 }
 __attribute__((noinline)) void outer() throws {

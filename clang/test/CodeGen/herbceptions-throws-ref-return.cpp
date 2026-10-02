@@ -57,11 +57,11 @@ int main() {
 // discriminant is materialized from the carry flag via HERB_SETCCr
 // (X86 backend) after each call.
 
-// CHECK-LREF: define {{[^@]+}}@_Z11lref_middlev() #1
-// CHECK-LREF: define {{[^@]+}}@_Z10lref_outerv() #1
-// CHECK-RREF: define {{[^@]+}}@_Z11rref_middlev() #1
-// CHECK-RREF: define {{[^@]+}}@_Z10rref_outerv() #1
-// CHECK-CREF: define {{[^@]+}}@_Z11cref_middlev() #1
-// CHECK-CREF: define {{[^@]+}}@_Z10cref_outerv() #1
-// CHECK-PTR: define {{[^@]+}}@_Z10ptr_middlev() #1
-// CHECK-PTR: define {{[^@]+}}@_Z9ptr_outerv() #1
+// CHECK-LREF: define {{[^@]+}}@_Z11lref_middleDrv() #1
+// CHECK-LREF: define {{[^@]+}}@_Z10lref_outerDrv() #1
+// CHECK-RREF: define {{[^@]+}}@_Z11rref_middleDrv() #1
+// CHECK-RREF: define {{[^@]+}}@_Z10rref_outerDrv() #1
+// CHECK-CREF: define {{[^@]+}}@_Z11cref_middleDrv() #1
+// CHECK-CREF: define {{[^@]+}}@_Z10cref_outerDrv() #1
+// CHECK-PTR: define {{[^@]+}}@_Z10ptr_middleDrv() #1
+// CHECK-PTR: define {{[^@]+}}@_Z9ptr_outerDrv() #1

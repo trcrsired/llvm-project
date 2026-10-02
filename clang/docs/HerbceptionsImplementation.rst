@@ -901,35 +901,47 @@ implicitly by the backend even when no IR caller extracts it, so ordinary
 dead-return-value elimination must not strip it when LTO internalizes a
 ``throws`` function.
 
-Linker: LTO ODR checking
-========================
+Mangling and LTO ODR checking
+=============================
 
-The herbception specifier is deliberately not part of a function's own
-mangled name,
-so a ``throws`` function and its plain counterpart share the same symbol.
-Two translation units that disagree about the specifier (or about a
-``return_failure{E}`` error type) therefore link silently, and calls compiled against
-the wrong ABI read garbage return values. Only the linker sees all of the
-definitions, so LTO diagnoses this.
+The herbception specifier is part of a function's mangled name, so a
+``throws`` function and its plain counterpart get different symbols and
+translation units that disagree about the specifier (or about a
+``return_failure{E}`` error type) fail to link rather than silently
+mis-calling.
 
-Nested function *types* do carry the specifier, because they must remain
-distinct types in signatures -- ``void take(int (*)() throws)`` and
-``void take(int (*)())`` are separate overloads and must not collide.
-``CXXNameMangler::mangleType`` (``clang/lib/AST/ItaniumMangle.cpp``) emits
-the specifier in the ``<exception-spec>`` slot of the ``F ... E`` function
-encoding, alongside ``Do``/``DO``/``Dw``:
+In the Itanium ABI,
+``CXXNameMangler::mangleFunctionEncodingBareType``
+(``clang/lib/AST/ItaniumMangle.cpp``) emits the specifier between the
+``<name>`` (plus any ``enable_if`` attribute) and the
+``<bare-function-type>`` of a function's own encoding, and
+``CXXNameMangler::mangleType`` emits it in the ``<exception-spec>`` slot of
+a nested ``F ... E`` function encoding, alongside ``Do``/``DO``/``Dw``:
 
 * ``Dr`` for ``throws`` (``EST_BasicThrows`` / ``EST_BasicThrowsTrue``);
 * ``DE <type> E`` for ``return_failure{E}`` (``EST_ThrowsTyped``, resolved
   or instantiation-dependent);
 * ``Dg <expression> E`` for ``throws(expr)`` (``EST_DependentThrows``);
 * ``throws(false)`` (``EST_BasicThrowsFalse``) is type-equivalent to
-  ``noexcept`` and mangles as ``Do``.
+  ``noexcept``: it mangles as ``Do`` in nested types and carries no marker
+  in a function's own name.
+
+The marker precedes the bare function type rather than following it so it
+also applies to constructors, destructors and conversion operators, whose
+encodings have no return type. It cannot be mistaken for a parameter type
+because function types decay to pointers in signatures, so no parameter or
+return type begins with ``Dr``/``DE``/``Dg``.
 
 ``MicrosoftCXXNameMangler::mangleThrowSpecification``
 (``clang/lib/AST/MicrosoftMangle.cpp``) emits ``_H`` for ``throws`` and
 ``_F <type>`` for ``return_failure{E}`` in the terminal ``<throw-spec>``
-slot of a mangled function type.
+slot. Unlike ``_E`` for ``noexcept`` -- which MSVC omits from a function's
+own name -- the herbception markers are emitted unconditionally, including
+in the decorated name.
+
+LTO still runs ``ld.lld``'s herbception ODR check over bitcode modules as a
+backstop for symbols that still collide -- for example objects produced
+before the specifier was mangled, or hand-written IR.
 
 Both demanglers round-trip the new encodings: ``Dr``/``DE``/``Dg`` map to
 ``ThrowsSpec``/``FailureSpec``/``ThrowsExprSpec`` nodes in

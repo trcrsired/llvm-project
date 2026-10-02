@@ -963,8 +963,43 @@ void CXXNameMangler::mangleFunctionEncodingBareType(const FunctionDecl *FD) {
     FD = PrimaryTemplate->getTemplatedDecl();
   }
 
-  mangleBareFunctionType(FD->getType()->castAs<FunctionProtoType>(),
-                         MangleReturnType, FD);
+  const FunctionProtoType *Proto = FD->getType()->castAs<FunctionProtoType>();
+
+  // Herbception: the specifier is part of the function's own mangled name so
+  // that a throws/plain (or two different return_failure{E}) declarations
+  // can never share a symbol. It precedes the bare-function-type; the
+  // position is unambiguous because parameter and return types can never
+  // begin with Dr/DE/Dg (function types decay to pointers in signatures).
+  //
+  //   Dr                 throws
+  //   DE <type> E        return_failure{E}
+  //   Dg <expression> E  throws(expr) with an instantiation-dependent operand
+  //
+  // throws(false) is type-equivalent to noexcept and leaves no marker.
+  switch (Proto->getExceptionSpecType()) {
+  case EST_BasicThrows:
+  case EST_BasicThrowsTrue:
+    Out << "Dr";
+    break;
+  case EST_ThrowsTyped:
+    Out << "DE";
+    FunctionTypeDepth.enterFunctionDeclSuffix();
+    mangleType(Proto->getExceptionType(0));
+    FunctionTypeDepth.leaveFunctionDeclSuffix();
+    Out << 'E';
+    break;
+  case EST_DependentThrows:
+    Out << "Dg";
+    FunctionTypeDepth.enterFunctionDeclSuffix();
+    mangleExpression(Proto->getThrowsExpr());
+    FunctionTypeDepth.leaveFunctionDeclSuffix();
+    Out << 'E';
+    break;
+  default:
+    break;
+  }
+
+  mangleBareFunctionType(Proto, MangleReturnType, FD);
 }
 
 /// Return whether a given namespace is the 'std' namespace.

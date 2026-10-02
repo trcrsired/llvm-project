@@ -12,3 +12,9 @@
 ; CHECK: void __cdecl take_r(int (__cdecl *)(void) return_failure{long})
 ?m@?$S@P6AHX_FH@@SAXXZ
 ; CHECK: public: static void __cdecl S<int (__cdecl *)(void) return_failure{int}>::m(void)
+?f@@YAHX_H
+; CHECK: int __cdecl f(void) throws
+?g@@YAHX_FH
+; CHECK: int __cdecl g(void) return_failure{int}
+?nf@@YAHXZ
+; CHECK: int __cdecl nf(void)

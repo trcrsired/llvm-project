@@ -42,9 +42,9 @@ struct Manual {
 
 // A 'return;' in a void throws function still has to produce the shaped
 // {E, i1} result.
-// CIR: cir.func {{.*}}@_Z10early_exitv() -> !rec_
+// CIR: cir.func {{.*}}@_Z10early_exitDrv() -> !rec_
 // CIR-SAME: cir.throws
-// LLVM: define {{.*}} { { ptr, i64 }, i8 } @_Z10early_exitv(
+// LLVM: define {{.*}} { { ptr, i64 }, i8 } @_Z10early_exitDrv(
 void early_exit() throws {
   return;
 }
@@ -69,12 +69,12 @@ int main() {
 // The constructor definitions are emitted last (linkonce_odr). Each must
 // carry the shaped return signature and the cir.throws attribute.
 
-// CIR: cir.func {{.*}}@_ZN6WidgetC1Ev({{.*}}) -> !rec_
+// CIR: cir.func {{.*}}@_ZN6WidgetC1EDrv({{.*}}) -> !rec_
 // CIR-SAME: cir.throws
-// LLVM: define {{.*}} { { ptr, i64 }, i8 } @_ZN6WidgetC1Ev(
+// LLVM: define {{.*}} { { ptr, i64 }, i8 } @_ZN6WidgetC1EDrv(
 
-// CIR: cir.func {{.*}}@_ZN5OtherC1Ev({{.*}}) -> !rec_
+// CIR: cir.func {{.*}}@_ZN5OtherC1EDrv({{.*}}) -> !rec_
 // CIR-SAME: cir.throws
 
-// CIR: cir.func {{.*}}@_ZN6ManualC1Ei({{.*}}) -> !rec_
+// CIR: cir.func {{.*}}@_ZN6ManualC1EDri({{.*}}) -> !rec_
 // CIR-SAME: cir.throws

@@ -37,27 +37,27 @@ public:
 struct Big { char data[32]; };
 struct Tiny { char data[4]; };
 
-// WASM: define i1 @_Z8f_scalari(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
+// WASM: define i1 @_Z8f_scalarDri(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
 // WASM: ret i1
-// WASM64: define i1 @_Z8f_scalari(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
+// WASM64: define i1 @_Z8f_scalarDri(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
 // WASM64: ret i1
-// X86: define dso_local { { ptr, i64 }, i1 } @_Z8f_scalari(i32 noundef %{{.*}})
+// X86: define dso_local { { ptr, i64 }, i1 } @_Z8f_scalarDri(i32 noundef %{{.*}})
 // X86: ret { { ptr, i64 }, i1 }
 int f_scalar(int v) throws {
   if (v < 0) throw throws std::my_errc{v};
   return v;
 }
 
-// WASM: define i1 @_Z6f_voidi(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
-// WASM64: define i1 @_Z6f_voidi(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
-// X86: define dso_local { { ptr, i64 }, i1 } @_Z6f_voidi(i32 noundef %{{.*}})
+// WASM: define i1 @_Z6f_voidDri(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
+// WASM64: define i1 @_Z6f_voidDri(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
+// X86: define dso_local { { ptr, i64 }, i1 } @_Z6f_voidDri(i32 noundef %{{.*}})
 void f_void(int v) throws {
   if (v < 0) throw throws std::my_errc{v};
 }
 
-// WASM: define i1 @_Z5f_bigi(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
-// WASM64: define i1 @_Z5f_bigi(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
-// X86: define dso_local { { ptr, i64 }, i1 } @_Z5f_bigi(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
+// WASM: define i1 @_Z5f_bigDri(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
+// WASM64: define i1 @_Z5f_bigDri(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
+// X86: define dso_local { { ptr, i64 }, i1 } @_Z5f_bigDri(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
 Big f_big(int v) throws {
   if (v < 0) throw throws std::my_errc{v};
   return {};
@@ -65,9 +65,9 @@ Big f_big(int v) throws {
 
 // Tiny is smaller than std::error, so the destination slot cannot hold an
 // error and the {E, i1} form is kept even on wasm.
-// WASM: define { { ptr, i32 }, i1 } @_Z6f_tinyi(i32 noundef %{{.*}})
-// WASM64: define { { ptr, i64 }, i1 } @_Z6f_tinyi(i32 noundef %{{.*}})
-// X86: define dso_local { { ptr, i64 }, i1 } @_Z6f_tinyi(i32 noundef %{{.*}})
+// WASM: define { { ptr, i32 }, i1 } @_Z6f_tinyDri(i32 noundef %{{.*}})
+// WASM64: define { { ptr, i64 }, i1 } @_Z6f_tinyDri(i32 noundef %{{.*}})
+// X86: define dso_local { { ptr, i64 }, i1 } @_Z6f_tinyDri(i32 noundef %{{.*}})
 Tiny f_tiny(int v) throws {
   if (v < 0) throw throws std::my_errc{v};
   return {};
@@ -83,15 +83,15 @@ struct Foo {
 
 // The caller reads the i1 discriminant from the call itself and the
 // error/payload out of the throws_sret buffer.
-// WASM-LABEL: define i1 @_Z13caller_scalari(
-// WASM: %call = call i1 @_Z8f_scalari(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
+// WASM-LABEL: define i1 @_Z13caller_scalarDri(
+// WASM: %call = call i1 @_Z8f_scalarDri(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
 // WASM: load { ptr, i32 }, ptr %tmp
 // WASM: br i1 %call, label %try.err, label %try.ok
 // WASM: try.ok:
 // WASM: load i32, ptr %tmp
 // WASM: ret i1
-// X86-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z13caller_scalari(
-// X86: %call = call { { ptr, i64 }, i1 } @_Z8f_scalari(i32 noundef %{{.*}})
+// X86-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z13caller_scalarDri(
+// X86: %call = call { { ptr, i64 }, i1 } @_Z8f_scalarDri(i32 noundef %{{.*}})
 // X86: extractvalue { { ptr, i64 }, i1 } %call, 1
 // X86: ret { { ptr, i64 }, i1 }
 int caller_scalar(int v) throws {
@@ -108,8 +108,8 @@ struct Alloc {
 int *Alloc::allocate_new(int n) throws {
   return reinterpret_cast<int *>(n);
 }
-// WASM-LABEL: define i1 @_Z15caller_mem_callP5Alloc(
-// WASM: %{{.*}} = call i1 @_ZN5Alloc12allocate_newEi(ptr writable throws_sret({ ptr, i32 }) align 4 %{{.*}}, ptr noundef nonnull align 1 dereferenceable(1) %{{.*}}, i32 noundef {{.*}})
+// WASM-LABEL: define i1 @_Z15caller_mem_callDrP5Alloc(
+// WASM: %{{.*}} = call i1 @_ZN5Alloc12allocate_newEDri(ptr writable throws_sret({ ptr, i32 }) align 4 %{{.*}}, ptr noundef nonnull align 1 dereferenceable(1) %{{.*}}, i32 noundef {{.*}})
 // WASM: load { ptr, i32 }, ptr %{{.*}}
 // WASM: br i1 %{{.*}}, label %try.err, label %try.ok
 // WASM: try.err:
@@ -123,8 +123,8 @@ int *caller_mem_call(Alloc *a) throws {
 
 // A bool payload is stored as i8 in the union slot but is an i1 value: the
 // caller must run the usual load conversion (icmp ne), not br on the i8.
-// WASM-LABEL: define i1 @_Z13f_bool_calleri(
-// WASM: %call = call i1 @_Z6f_booli(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
+// WASM-LABEL: define i1 @_Z13f_bool_callerDri(
+// WASM: %call = call i1 @_Z6f_boolDri(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
 // WASM: br i1 %call, label %try.err, label %try.ok
 // WASM: try.ok:
 // WASM: load i8, ptr %tmp
@@ -141,14 +141,14 @@ int f_bool_caller(int v) throws {
   return 0;
 }
 
-// WASM-LABEL: define i1 @_Z11caller_ctori(
-// WASM: %call = call i1 @_ZN3FooC1Ei(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp,
+// WASM-LABEL: define i1 @_Z11caller_ctorDri(
+// WASM: %call = call i1 @_ZN3FooC1EDri(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp,
 // WASM: br i1 %call,
 void caller_ctor(int v) throws {
   Foo f(v);
   (void)f;
 }
 
-// WASM: define linkonce_odr i1 @_ZN3FooC2Ei(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
-// WASM64: define linkonce_odr i1 @_ZN3FooC2Ei(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
-// X86: define linkonce_odr { { ptr, i64 }, i1 } @_ZN3FooC2Ei(ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
+// WASM: define linkonce_odr i1 @_ZN3FooC2EDri(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
+// WASM64: define linkonce_odr i1 @_ZN3FooC2EDri(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
+// X86: define linkonce_odr { { ptr, i64 }, i1 } @_ZN3FooC2EDri(ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})

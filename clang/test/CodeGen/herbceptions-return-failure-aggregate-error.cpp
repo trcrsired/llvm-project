@@ -11,7 +11,7 @@
 using W = __SIZE_TYPE__;
 struct E1 { W x; };
 
-// CHECK: define dso_local { i64, i1 } @_Z1fi(i32
+// CHECK: define dso_local { i64, i1 } @_Z1fDE2E1Ei(i32
 // CHECK:       %[[SLOT:.*]] = alloca i64, align 8
 // CHECK:       %[[ERR:.*]] = alloca %struct.E1, align 8
 // The error is built in its own storage...
