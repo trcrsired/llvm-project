@@ -682,10 +682,10 @@ static void emitHerbceptionConvertBlock(
   // catch.start, and the handler blocks do not begin with a catchpad.)
   SaveAndRestore RestoreCurrentFuncletPad(CGF.CurrentFuncletPad);
   llvm::CatchPadInst *CPI = nullptr;
-  if (EHPersonality::get(CGF).isMSVCXXPersonality()) {
+  if (getEHPersonality(CGF).isMSVCXXPersonality()) {
     llvm::Instruction *First = &*ConvertBB->begin();
     CPI = dyn_cast<llvm::CatchPadInst>(First);
-  } else if (EHPersonality::get(CGF).isWasmPersonality()) {
+  } else if (getEHPersonality(CGF).isWasmPersonality()) {
     // On wasm the shared catchpad lives in the catch.start block -- this
     // handler block's single predecessor. Its token is needed here for the
     // "funclet" operand bundles on the conversion calls and for the
@@ -1039,7 +1039,7 @@ void CodeGenFunction::EmitHerbceptionCatchTry(const CXXTryStmt &S) {
   if (TradUsed) {
     SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
     llvm::BasicBlock *WasmCatchStartBlock = nullptr;
-    bool IsWasm = EHPersonality::get(*this).isWasmPersonality();
+    bool IsWasm = getEHPersonality(*this).isWasmPersonality();
     if (IsWasm) {
       auto *CatchSwitch =
           cast<llvm::CatchSwitchInst>(TradDispatchBlock->getFirstNonPHIIt());
@@ -2087,10 +2087,10 @@ void CodeGenFunction::emitHerbceptionLegacyConvertBody() {
   // catch.start, and the handler blocks do not begin with a catchpad.)
   SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
   llvm::CatchPadInst *CPI = nullptr;
-  if (EHPersonality::get(*this).isMSVCXXPersonality()) {
+  if (getEHPersonality(*this).isMSVCXXPersonality()) {
     llvm::Instruction *First = &*HerbceptionLegacyConvertBB->begin();
     CPI = dyn_cast<llvm::CatchPadInst>(First);
-  } else if (EHPersonality::get(*this).isWasmPersonality()) {
+  } else if (getEHPersonality(*this).isWasmPersonality()) {
     // On wasm the shared catchpad lives in the catch.start block -- this
     // block's single predecessor. Its token is needed for the "funclet"
     // operand bundles on the conversion calls and for the catchret that must
