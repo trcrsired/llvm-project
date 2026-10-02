@@ -98,6 +98,29 @@ int caller_scalar(int v) throws {
   return try(f_scalar(v));
 }
 
+// A throws member call propagating through a throws function: the callee
+// expression carries the 'bound member function' placeholder type, so the
+// error type must be recovered from the resolved method declaration. This
+// used to crash CodeGen on the discriminant-only path.
+struct Alloc {
+  int *allocate_new(int n) throws;
+};
+int *Alloc::allocate_new(int n) throws {
+  return reinterpret_cast<int *>(n);
+}
+// WASM-LABEL: define i1 @_Z15caller_mem_callP5Alloc(
+// WASM: %{{.*}} = call i1 @_ZN5Alloc12allocate_newEi(ptr writable throws_sret({ ptr, i32 }) align 4 %{{.*}}, ptr noundef nonnull align 1 dereferenceable(1) %{{.*}}, i32 noundef {{.*}})
+// WASM: load { ptr, i32 }, ptr %{{.*}}
+// WASM: br i1 %{{.*}}, label %try.err, label %try.ok
+// WASM: try.err:
+// WASM: try.ok:
+// WASM: load ptr, ptr %{{.*}}
+// WASM: ret i1
+int *caller_mem_call(Alloc *a) throws {
+  int *p = a->allocate_new(42);
+  return p;
+}
+
 // A bool payload is stored as i8 in the union slot but is an i1 value: the
 // caller must run the usual load conversion (icmp ne), not br on the i8.
 // WASM-LABEL: define i1 @_Z13f_bool_calleri(

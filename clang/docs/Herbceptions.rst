@@ -62,23 +62,23 @@ stack-unwinding model:
 Keyword naming
 --------------
 
-The original C standard proposal (N2289) used ``return_failure{E}`` and ``failure(expr)``
+The original C standard proposal (N2289) used ``fails{E}`` and ``failure(expr)``
 as the keyword names for the C-style error specifier and error-return
 expression. These names were rejected in this implementation for two reasons:
 
-* ``failure`` collides with ``std::failure``, the standard exception class
-  defined in ``<ios>``/``<system_error>``. Making ``failure`` a keyword breaks
-  any code that includes ``<iostream>``, ``<system_error>``, or any header that
-  transitively defines ``std::failure`` — a non-starter for a feature meant to
-  interoperate with existing C++ code.
-* Both ``return_failure`` and ``failure`` are common English words that appear as
+* ``failure`` collides with ``std::ios_base::failure``, the standard exception
+  class defined in ``<ios>``. Making ``failure`` a keyword breaks
+  any code that includes ``<iostream>``, ``<ios>``, or any header that
+  transitively defines ``std::ios_base::failure`` — a non-starter for a
+  feature meant to interoperate with existing C++ code.
+* Both ``fails`` and ``failure`` are common English words that appear as
   identifiers in real code (variable names, function names, member names).
   Keywords must be distinctive; reserving common words imposes an unacceptable
   migration burden on existing codebases.
 
 This implementation uses ``return_failure`` instead. It serves both roles:
 
-* ``return_failure{E}`` — function specifier (replaces ``return_failure{E}``).
+* ``return_failure{E}`` — function specifier (replaces ``fails{E}``).
 * ``return_failure expr;`` — statement (replaces ``failure(expr)``). Parsed as
   a standalone statement like ``return`` or ``throw``; the operand is an
   expression and no parentheses are required. Also valid:
@@ -787,8 +787,9 @@ The implementation spans the following areas:
 Link-time ODR checking
 ======================
 
-The ``throws``/``return_failure`` specifier is deliberately not part of the mangled
-name: a herbception function and its plain counterpart share one symbol.
+The ``throws``/``return_failure`` specifier is deliberately not part of a
+function's own mangled name: a herbception function and its plain counterpart
+share one symbol.
 That keeps object files link-compatible with non-herbception toolchains,
 but it also means translation units that *disagree* about a function's
 specifier (or about a ``return_failure{
@@ -796,6 +797,23 @@ specifier (or about a ``return_failure{
 link silently -- callers compiled against the plain ABI would read garbage
 from a ``throws`` definition. That is a One Definition Rule violation, and
 only the linker can see it.
+
+Nested function types are different. ``int (*)() throws`` and ``int (*)()``
+are distinct types that may appear as parameters, template arguments or
+pointed-to types (``void take(int (*)() throws)`` and
+``void take(int (*)())`` are separate overloads), so the specifier must be
+encoded there or the overloads collide. In the Itanium ABI the
+``<exception-spec>`` slot of a ``<function-type>`` gains::
+
+   Dr              # throws
+   DE <type> E     # return_failure{E}
+   Dg <expression> E  # throws(expr) with an instantiation-dependent operand
+
+``throws(false)`` is type-equivalent to ``noexcept`` and mangles as ``Do``.
+In the MSVC ABI the terminal ``<throw-spec>`` of a function type gains
+``_H`` for ``throws`` and ``_F <type>`` for ``return_failure{E}``.
+llvm-cxxfilt, llvm-undname and ``__cxa_demangle`` all round-trip these
+encodings. C symbols are unmangled as usual, so nothing changes there.
 
 When you link with LTO (``-flto``, full or thin), ``ld.lld`` compares the
 herbception signature -- whether the IR function carries the error channel

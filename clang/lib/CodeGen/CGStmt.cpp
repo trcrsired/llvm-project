@@ -861,6 +861,16 @@ void CodeGenFunction::EmitGotoStmt(const GotoStmt &S) {
   if (HaveInsertPoint())
     EmitStopPoint(&S);
 
+  // Reinitialize the variables this goto bypasses, whose scope it re-enters.
+  // Backward gotos reinit here while forward gotos are recorded for
+  // EmitAutoVarAlloca to patch once the alloca exists. Skip when jump sources
+  // are unknown (computed goto); EmitAutoVarAlloca then uses function-scope
+  // init.
+  if (HaveInsertPoint() && !Bypasses.isAlwaysBypassed()) {
+    emitBypassedVarInitsForSource(&S);
+    BypassingForwardJumps.push_back({Builder.GetInsertBlock(), &S});
+  }
+
   ApplyAtomGroup Grp(getDebugInfo());
   EmitBranchThroughCleanup(getJumpDestForLabel(S.getLabel()));
 }
@@ -2127,7 +2137,7 @@ CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
   //   - MSVC (funclet pads): the exception pointer is obtained from the
   //     catchpad token via llvm.eh.exceptionpointer.
   llvm::Value *Obj = nullptr;
-  const EHPersonality &Personality = EHPersonality::get(*this);
+  const EHPersonality &Personality = getEHPersonality(*this);
   if (Personality.isMSVCXXPersonality()) {
     llvm::Function *GetExnFn =
         CGM.getIntrinsic(llvm::Intrinsic::eh_exceptionpointer, Int8PtrTy);
@@ -2169,10 +2179,21 @@ static const CallExpr *getHerbceptionWrappedCall(const Expr *Sub) {
 /// type from the call expression rather than a CGFunctionInfo.
 static llvm::Type *getHerbceptionCallErrorType(CodeGenFunction &CGF,
                                                const CallExpr *Call) {
-  QualType Ty = Call->getCallee()->getType();
-  if (Ty->isPointerType() || Ty->isMemberPointerType())
-    Ty = Ty->getPointeeType();
-  const auto *FTP = Ty->getAs<FunctionProtoType>();
+  const FunctionProtoType *FTP = nullptr;
+  if (const Expr *Callee = Call->getCallee()) {
+    QualType Ty = Callee->getType();
+    if (Ty->isPointerType() || Ty->isMemberPointerType())
+      Ty = Ty->getPointeeType();
+    FTP = Ty->getAs<FunctionProtoType>();
+  }
+  // A member call's callee expression carries the 'bound member function'
+  // placeholder type rather than a FunctionProtoType: recover the prototype
+  // from the resolved callee declaration instead (the same way Sema's
+  // getHerbceptionThrowsCallProto does).
+  if (!FTP)
+    if (const auto *FD =
+            dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
+      FTP = FD->getType()->getAs<FunctionProtoType>();
   if (!FTP || !FTP->hasThrowsSpec())
     return nullptr;
   if (FTP->getExceptionSpecType() == EST_ThrowsTyped)
@@ -2264,11 +2285,14 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
             : CGM.getNaturalTypeAlignment(CallTy);
     IndirectPayload = Address(CallOrInvoke->getArgOperand(SretArgNo),
                               PayloadEltTy, PayloadAlign);
-    if (DiscOnly)
+    if (DiscOnly) {
       // The error path needs the error value, which the callee wrote into
       // the low bytes of the union slot.
-      Success = Builder.CreateLoad(IndirectPayload.withElementType(
-          getHerbceptionCallErrorType(*this, Call)));
+      llvm::Type *ErrTy = getHerbceptionCallErrorType(*this, Call);
+      assert(ErrTy && "throws call must have a resolvable error type");
+      Success =
+          Builder.CreateLoad(IndirectPayload.withElementType(ErrTy));
+    }
   }
 
   // The payload slot is sized to hold the larger of the callee's success type
@@ -2609,8 +2633,10 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
   // discriminant-only mode the same storage holds error-or-payload and only
   // the i1 comes back.
   bool PayloadIsIndirect = SretArgNo != ~0u;
-  if (DiscOnly)
+  if (DiscOnly) {
     // The error occupies the low bytes of the union slot.
+    llvm::Type *ErrTy = getHerbceptionCallErrorType(*this, Call);
+    assert(ErrTy && "throws call must have a resolvable error type");
     Slot = Builder.CreateLoad(
         Address(CallOrInvoke->getArgOperand(SretArgNo),
                 CallOrInvoke->getParamThrowsSretType(SretArgNo),
@@ -2619,7 +2645,8 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
                         .getABITypeAlign(
                             CallOrInvoke->getParamThrowsSretType(SretArgNo))
                         .value()))
-            .withElementType(getHerbceptionCallErrorType(*this, Call)));
+            .withElementType(ErrTy));
+  }
 
   // Build the catch-fails value. C++: either{T, E} with .positive/.left/.right;
   // C (N2289): struct { union { T value; E error; }; bool failed; }.
@@ -3455,6 +3482,17 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
   // explicit case ranges tests can have a place to jump to on
   // failure.
   llvm::BasicBlock *DefaultBlock = createBasicBlock("sw.default");
+
+  // The dispatch is the jump that bypasses any declarations sitting between the
+  // switch and its case labels, so the initialization goes here, ahead of the
+  // switch instruction -- not at the case labels. A case label is also reached
+  // by falling through from the case above it, and that edge bypasses nothing;
+  // initializing there would clobber a variable the previous case had written.
+  // The declarations are inside the body and so have no alloca yet, hence the
+  // patch-it-in-later handling in EmitAutoVarAlloca.
+  if (!Bypasses.isAlwaysBypassed())
+    BypassingForwardJumps.push_back({Builder.GetInsertBlock(), &S});
+
   SwitchInsn = Builder.CreateSwitch(CondV, DefaultBlock);
   addInstToNewSourceAtom(SwitchInsn, CondV);
 

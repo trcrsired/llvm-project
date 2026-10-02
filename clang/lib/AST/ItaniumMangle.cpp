@@ -3571,6 +3571,11 @@ void CXXNameMangler::mangleType(const BuiltinType *T) {
     mangleVendorType(#Name);                                                   \
     break;
 #include "clang/Basic/HLSLIntangibleTypes.def"
+#define HLSL_PACKED_TYPE(Name, Id, SingletonId)                                \
+  case BuiltinType::Id:                                                        \
+    mangleVendorType(#Name);                                                   \
+    break;
+#include "clang/Basic/HLSLPackedTypes.def"
 #define SPIRV_TYPE(Name, Id, SingletonId)                                      \
   case BuiltinType::Id:                                                        \
     mangleVendorType(Name);                                                    \
@@ -3779,8 +3784,17 @@ void CXXNameMangler::mangleType(const FunctionProtoType *T) {
       mangleExpression(T->getNoexceptExpr());
       Out << "E";
     } else if (T->getExceptionSpecType() == EST_DependentThrows) {
-      // Herbception throws specs are not part of the mangled name in this
-      // ABI, matching the non-dependent throws encoding.
+      // Herbception: `throws(expr)` with an instantiation-dependent
+      // expression, mangled like computed noexcept.
+      Out << "Dg";
+      mangleExpression(T->getThrowsExpr());
+      Out << "E";
+    } else if (T->getExceptionSpecType() == EST_ThrowsTyped) {
+      // Herbception: `return_failure{E}` with an instantiation-dependent
+      // error type.
+      Out << "DE";
+      mangleType(T->getExceptionType(0));
+      Out << "E";
     } else {
       assert(T->getExceptionSpecType() == EST_Dynamic);
       Out << "Dw";
@@ -3789,7 +3803,18 @@ void CXXNameMangler::mangleType(const FunctionProtoType *T) {
       Out << "E";
     }
   } else if (T->isNothrow()) {
+    // noexcept, noexcept(true), and throws(false) -- the latter is
+    // type-equivalent to noexcept.
     Out << "Do";
+  } else if (T->getExceptionSpecType() == EST_ThrowsTyped) {
+    // Herbception: `return_failure{E}` carries its error type.
+    Out << "DE";
+    mangleType(T->getExceptionType(0));
+    Out << "E";
+  } else if (T->getExceptionSpecType() == EST_BasicThrows ||
+             T->getExceptionSpecType() == EST_BasicThrowsTrue) {
+    // Herbception: `throws` (implicit std::error error channel).
+    Out << "Dr";
   }
 
   Out << 'F';

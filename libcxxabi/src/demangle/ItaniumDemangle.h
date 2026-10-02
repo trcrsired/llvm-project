@@ -924,6 +924,50 @@ public:
   }
 };
 
+// Herbception: `Dr` -- the `throws` specifier.
+class ThrowsSpec : public Node {
+public:
+  ThrowsSpec() : Node(KThrowsSpec) {}
+
+  template<typename Fn> void match(Fn F) const {}
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += "throws";
+  }
+};
+
+// Herbception: `DE <type> E` -- `return_failure{E}`.
+class FailureSpec : public Node {
+  const Node *E;
+public:
+  FailureSpec(const Node *E_) : Node(KFailureSpec), E(E_) {}
+
+  template<typename Fn> void match(Fn F) const { F(E); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += "return_failure{";
+    E->printAsOperand(OB);
+    OB += '}';
+  }
+};
+
+// Herbception: `Dg <expression> E` -- `throws(expr)` with a dependent
+// expression.
+class ThrowsExprSpec : public Node {
+  const Node *E;
+public:
+  ThrowsExprSpec(const Node *E_) : Node(KThrowsExprSpec), E(E_) {}
+
+  template<typename Fn> void match(Fn F) const { F(E); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += "throws";
+    OB.printOpen();
+    E->printAsOperand(OB);
+    OB.printClose();
+  }
+};
+
 /// Represents the explicitly named object parameter.
 /// E.g.,
 /// \code{.cpp}
@@ -3959,6 +4003,9 @@ std::string_view AbstractManglingParser<Alloc, Derived>::parseBareSourceName() {
 // <exception-spec> ::= Do                # non-throwing exception-specification (e.g., noexcept, throw())
 //                  ::= DO <expression> E # computed (instantiation-dependent) noexcept
 //                  ::= Dw <type>+ E      # dynamic exception specification with instantiation-dependent types
+//                  ::= Dr               # throws (herbception, std::error channel)
+//                  ::= DE <type> E      # return_failure{E} (herbception)
+//                  ::= Dg <expression> E # throws(expr) (herbception)
 //
 // <ref-qualifier> ::= R                   # & ref-qualifier
 // <ref-qualifier> ::= O                   # && ref-qualifier
@@ -3988,6 +4035,24 @@ Node *AbstractManglingParser<Derived, Alloc>::parseFunctionType() {
     }
     ExceptionSpec =
       make<DynamicExceptionSpec>(popTrailingNodeArray(SpecsBegin));
+    if (!ExceptionSpec)
+      return nullptr;
+  } else if (consumeIf("Dr")) {
+    ExceptionSpec = make<ThrowsSpec>();
+    if (!ExceptionSpec)
+      return nullptr;
+  } else if (consumeIf("DE")) {
+    Node *E = getDerived().parseType();
+    if (E == nullptr || !consumeIf('E'))
+      return nullptr;
+    ExceptionSpec = make<FailureSpec>(E);
+    if (!ExceptionSpec)
+      return nullptr;
+  } else if (consumeIf("Dg")) {
+    Node *E = getDerived().parseExpr();
+    if (E == nullptr || !consumeIf('E'))
+      return nullptr;
+    ExceptionSpec = make<ThrowsExprSpec>(E);
     if (!ExceptionSpec)
       return nullptr;
   }
@@ -4238,7 +4303,9 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     if (look(AfterQuals) == 'F' ||
         (look(AfterQuals) == 'D' &&
          (look(AfterQuals + 1) == 'o' || look(AfterQuals + 1) == 'O' ||
-          look(AfterQuals + 1) == 'w' || look(AfterQuals + 1) == 'x'))) {
+          look(AfterQuals + 1) == 'w' || look(AfterQuals + 1) == 'x' ||
+          look(AfterQuals + 1) == 'r' || look(AfterQuals + 1) == 'E' ||
+          look(AfterQuals + 1) == 'g'))) {
       Result = getDerived().parseFunctionType();
       break;
     }
@@ -4569,6 +4636,10 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     case 'o':
     case 'O':
     case 'w':
+    // Herbception exception specifiers on a function type.
+    case 'r':
+    case 'E':
+    case 'g':
     // Transaction safe function type.
     case 'x':
       Result = getDerived().parseFunctionType();
