@@ -10,11 +10,11 @@
 struct Big { long long a, b, c, d; };
 struct E2 { long long x, y; };
 
-// CHECK: define dso_local { %struct.E2, i1 } @_Z5mkbigi(ptr noalias writable throws_sret(%struct.Big) align 8 %{{.*}}, i32
+// CHECK: define dso_local { %struct.E2, i1 } @_Z5mkbigDE2E2Ei(ptr noalias writable throws_sret(%struct.Big) align 8 %{{.*}}, i32
 Big mkbig(int n) return_failure{E2} { return {n, n + 1, n + 2, n + 3}; }
 
 // CHECK-LABEL: define dso_local noundef i64 @_Z3fooi(i32 noundef %0)
-// CHECK:         %[[CALL:.*]] = call { %struct.E2, i1 } @_Z5mkbigi(ptr {{.*}}throws_sret(%struct.Big){{.*}} %[[SLOT:.*]], i32
+// CHECK:         %[[CALL:.*]] = call { %struct.E2, i1 } @_Z5mkbigDE2E2Ei(ptr {{.*}}throws_sret(%struct.Big){{.*}} %[[SLOT:.*]], i32
 // The discriminant comes from the aggregate.
 // CHECK:         %[[DISC:.*]] = extractvalue { %struct.E2, i1 } %[[CALL]], 1
 // CHECK:         %[[ZF:.*]] = zext i1 %[[DISC]] to i8

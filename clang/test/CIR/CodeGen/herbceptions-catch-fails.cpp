@@ -8,7 +8,7 @@
 // CHECK: %struct.__herb_catch_fails = type { %union.anon, i8 }
 
 // A return_failure{int} function returns {i32, i1} with the 'throws' attribute.
-// CHECK: define dso_local { i32, i1 } @_Z3bari(i32 noundef %0) #[[ATTR:[0-9]+]]
+// CHECK: define dso_local { i32, i1 } @_Z3barDEiEi(i32 noundef %0) #[[ATTR:[0-9]+]]
 int bar(int x) return_failure{int} {
   if (x < 0) return_failure x;
   return x + 1;
@@ -16,7 +16,7 @@ int bar(int x) return_failure{int} {
 
 // catch return_failure(bar(x)) extracts the discriminant and builds the aggregate.
 // CHECK-LABEL: define dso_local noundef i32 @_Z3fooi(i32 noundef %0)
-// CHECK:         %{{.*}} = call { i32, i1 } @_Z3bari
+// CHECK:         %{{.*}} = call { i32, i1 } @_Z3barDEiEi
 // CHECK:         %[[VAL:.*]] = extractvalue { i32, i1 } %{{.*}}, 0
 // CHECK:         %[[DISC:.*]] = extractvalue { i32, i1 } %{{.*}}, 1
 // CHECK:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 1

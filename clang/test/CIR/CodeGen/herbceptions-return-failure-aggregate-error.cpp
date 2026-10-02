@@ -12,7 +12,7 @@ struct E1 { W x; };
 
 // The error is built in its own storage and copied into the slot, limited to
 // the slot's width.
-// CHECK-LABEL: define dso_local { i64, i8 } @_Z1fi(i32 noundef %0)
+// CHECK-LABEL: define dso_local { i64, i8 } @_Z1fDE2E1Ei(i32 noundef %0)
 // CHECK: getelementptr inbounds nuw %struct.E1
 // CHECK: store i64
 // CHECK: store i8 1

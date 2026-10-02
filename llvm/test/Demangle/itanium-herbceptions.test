@@ -14,3 +14,13 @@ _ZN1SIPDrFivEE1mEv
 ; CHECK: S<int (*)() throws>::m()
 _ZN1SIPDEiEFivEE1mEv
 ; CHECK: S<int (*)() return_failure{int}>::m()
+_Z1fDrv
+; CHECK: f() throws
+_Z1gDEiEv
+; CHECK: g() return_failure{int}
+_Z1gDElEv
+; CHECK: g() return_failure{long}
+_ZN2ns3mthEDrPNS_5AllocE
+; CHECK: ns::mth(ns::Alloc*) throws
+_ZN1AC1EDri
+; CHECK: A::A(int) throws

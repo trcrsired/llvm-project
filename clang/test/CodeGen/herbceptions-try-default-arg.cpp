@@ -30,18 +30,18 @@ int local(int ts, bool dl = daylight()) throws {
 // The bare call's default-arg error traps in main; the call inside try{}
 // routes to the catch throws handler instead.
 // WASM-LABEL: define noundef i32 @main()
-// WASM: %call = call i1 @_Z8daylightv(ptr {{.*}}throws_sret({ ptr, i32 })
+// WASM: %call = call i1 @_Z8daylightDrv(ptr {{.*}}throws_sret({ ptr, i32 })
 // WASM: br i1 %call, label %try.err, label %try.ok
 // WASM: try.err:
 // WASM-NEXT: call void @llvm.trap()
 // WASM-NEXT: unreachable
-// WASM: %call{{[0-9]+}} = call i1 @_Z8daylightv(ptr {{.*}}throws_sret({ ptr, i32 })
+// WASM: %call{{[0-9]+}} = call i1 @_Z8daylightDrv(ptr {{.*}}throws_sret({ ptr, i32 })
 // WASM: br i1 %{{.*}}, label %try.err{{[0-9]+}}, label %try.ok{{[0-9]+}}
 // WASM: try.err{{[0-9]+}}:
 // WASM-NOT: call void @llvm.trap()
 // WASM: store %"struct.std::error"
 // X86-LABEL: define dso_local noundef i32 @main()
-// X86: call { { ptr, i64 }, i1 } @_Z8daylightv()
+// X86: call { { ptr, i64 }, i1 } @_Z8daylightDrv()
 // X86: try.err:
 // X86-NEXT: call void @llvm.trap()
 // X86-NEXT: unreachable
@@ -56,13 +56,13 @@ int main() {
 }
 
 // In a throws caller the same default argument auto-propagates.
-// WASM-LABEL: define i1 @_Z12caller_outerv(
-// WASM: %call = call i1 @_Z8daylightv(ptr {{.*}}throws_sret({ ptr, i32 })
+// WASM-LABEL: define i1 @_Z12caller_outerDrv(
+// WASM: %call = call i1 @_Z8daylightDrv(ptr {{.*}}throws_sret({ ptr, i32 })
 // WASM: try.err:
 // WASM-NOT: call void @llvm.trap()
 // WASM: store i1 true, ptr %herbception.disc
 // WASM: ret i1
-// X86-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z12caller_outerv(
+// X86-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z12caller_outerDrv(
 // X86: try.err:
 // X86-NOT: call void @llvm.trap()
 // X86: ret { { ptr, i64 }, i1 }

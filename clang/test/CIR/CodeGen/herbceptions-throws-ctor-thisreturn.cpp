@@ -17,8 +17,8 @@ struct Bar {
   Bar(int v) : x(v) {}
 };
 
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z8make_foov()
-// CHECK: call { { ptr, i64 }, i8 } @_ZN3FooC1Ei(ptr {{.*}}, i32 noundef 1)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z8make_fooDrv()
+// CHECK: call { { ptr, i64 }, i8 } @_ZN3FooC1EDri(ptr {{.*}}, i32 noundef 1)
 // CHECK: ret { { ptr, i64 }, i8 }
 Foo *make_foo() throws { return new Foo(1); }
 

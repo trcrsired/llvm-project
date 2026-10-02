@@ -56,7 +56,7 @@ __attribute__((noinline)) void outer() throws {
 }
 
 // CHECK-NOT: bitcast {{.*}} to { ptr, i
-// CHECK-X64: define dso_local { { ptr, i64 }, i1 } @_Z5outerv()
+// CHECK-X64: define dso_local { { ptr, i64 }, i1 } @_Z5outerDrv()
 // CHECK-X64: ret { { ptr, i64 }, i1 }
-// CHECK-X86: define dso_local { { ptr, i32 }, i1 } @_Z5outerv()
+// CHECK-X86: define dso_local { { ptr, i32 }, i1 } @_Z5outerDrv()
 // CHECK-X86: ret { { ptr, i32 }, i1 }

@@ -12,7 +12,7 @@ struct S { int v; };
 
 extern void legacy();
 
-// CHECK: define dso_local { i32, i1 } @_Z8defaultfv() #[[DEF:[0-9]+]] personality ptr @__gxx_personality_v0 {
+// CHECK: define dso_local { i32, i1 } @_Z8defaultfDE1EEv() #[[DEF:[0-9]+]] personality ptr @__gxx_personality_v0 {
 // CHECK: invoke void @_Z6legacyv()
 // CHECK:         to label %invoke.cont unwind label %terminate.lpad
 // CHECK: terminate.lpad:
