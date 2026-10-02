@@ -10621,6 +10621,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   // Determine whether we need any streaming mode changes.
   SMECallAttrs CallAttrs =
       getSMECallAttrs(MF.getFunction(), getRuntimeLibcallsInfo(), CLI);
+  if (CallAttrs.requiresNonLazySaveZA())
+    reportFatalUsageError(
+        "Calls that require saving ZA non-lazily is not yet implemented");
 
   std::optional<unsigned> ZAMarkerNode = getZAMarkerForCall(CallAttrs);
 
