@@ -2137,7 +2137,7 @@ CodeGenFunction::EmitCxaExceptionPtr(const CXXCxaExceptionExpr *E) {
   //   - MSVC (funclet pads): the exception pointer is obtained from the
   //     catchpad token via llvm.eh.exceptionpointer.
   llvm::Value *Obj = nullptr;
-  const EHPersonality &Personality = EHPersonality::get(*this);
+  const EHPersonality &Personality = getEHPersonality(*this);
   if (Personality.isMSVCXXPersonality()) {
     llvm::Function *GetExnFn =
         CGM.getIntrinsic(llvm::Intrinsic::eh_exceptionpointer, Int8PtrTy);
