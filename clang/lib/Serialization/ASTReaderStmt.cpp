@@ -1984,6 +1984,7 @@ void ASTStmtReader::VisitCXXThrowExpr(CXXThrowExpr *E) {
   E->CXXThrowExprBits.ThrowLoc = readSourceLocation();
   E->Operand = Record.readSubExpr();
   E->CXXThrowExprBits.IsThrownVariableInScope = Record.readInt();
+  E->CXXThrowExprBits.IsHerbception = Record.readInt();
 }
 
 void ASTStmtReader::VisitCXXErrorValueExpr(CXXErrorValueExpr *E) {
