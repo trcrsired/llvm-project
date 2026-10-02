@@ -2036,6 +2036,7 @@ void ASTStmtWriter::VisitCXXThrowExpr(CXXThrowExpr *E) {
   Record.AddSourceLocation(E->getThrowLoc());
   Record.AddStmt(E->getSubExpr());
   Record.push_back(E->isThrownVariableInScope());
+  Record.push_back(E->isHerbception());
   Code = serialization::EXPR_CXX_THROW;
 }
 
