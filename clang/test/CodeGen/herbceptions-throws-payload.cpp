@@ -14,7 +14,7 @@
 // Complex. A _Complex float is {float, float}: its imag component belongs at
 // offset 4, and lands at offset 8 if the value is built as the union.
 //
-// CHECK-LABEL: define {{.*}} @_Z2cfi(
+// CHECK-LABEL: define {{.*}} @_Z2cfDri(
 // CHECK:         getelementptr inbounds nuw { float, float }, ptr {{.*}}, i32 0, i32 1
 // CHECK:         store float {{.*}} align 4
 // CHECK-NOT:     getelementptr inbounds nuw { ptr, i64 }, ptr {{.*}}, i32 0, i32 1
@@ -28,7 +28,7 @@
 // error. So there must be no payload temp on the success path at all, and the
 // copy into the return slot must come from the storage the callee wrote.
 //
-// CHECK-LABEL: define {{.*}} @_Z7big_viai(
+// CHECK-LABEL: define {{.*}} @_Z7big_viaDri(
 // CHECK:         call {{.*}} throws_sret(%struct.Big)
 // CHECK-NOT:     try.payload
 // CHECK:         ret

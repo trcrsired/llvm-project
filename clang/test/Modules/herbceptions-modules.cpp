@@ -27,6 +27,6 @@ int use_wrap_fail(int x) {
 
 // The imported 'throws' function keeps its attribute and {payload, i1}
 // return shape; the imported inline definition is emitted (linkonce_odr).
-// CHECK-DAG: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_Z9throws_iov()
+// CHECK-DAG: define {{.*}}linkonce_odr { { ptr, i64 }, i1 } @_Z9throws_ioDrv()
 // CHECK-DAG: define {{.*}}@_Z13use_wrap_faili(
 // CHECK-DAG: attributes #[[ATTR:[0-9]+]] = { {{.*}}throws{{.*}} }

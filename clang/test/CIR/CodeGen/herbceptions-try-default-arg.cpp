@@ -25,9 +25,9 @@ int local(int ts, bool dl = daylight()) throws {
 // The bare call's default-arg error traps in main; the call inside try{}
 // routes to the catch throws handler instead.
 // CHECK-LABEL: define dso_local noundef i32 @main()
-// CHECK: call { { ptr, i64 }, i8 } @_Z8daylightv()
+// CHECK: call { { ptr, i64 }, i8 } @_Z8daylightDrv()
 // CHECK: call void @llvm.trap()
-// CHECK: {{call|invoke}} { { ptr, i64 }, i8 } @_Z8daylightv()
+// CHECK: {{call|invoke}} { { ptr, i64 }, i8 } @_Z8daylightDrv()
 // CHECK: store %"struct.std::error"
 int main() {
   int r = local<0>(0);
@@ -40,8 +40,8 @@ int main() {
 }
 
 // In a throws caller the same default argument auto-propagates.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z12caller_outerv(
-// CHECK: call { { ptr, i64 }, i8 } @_Z8daylightv()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z12caller_outerDrv(
+// CHECK: call { { ptr, i64 }, i8 } @_Z8daylightDrv()
 // CHECK: ret { { ptr, i64 }, i8 }
 int caller_outer() throws {
   return local<0>(0);

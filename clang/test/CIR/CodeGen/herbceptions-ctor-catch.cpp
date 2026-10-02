@@ -39,7 +39,7 @@ struct good_file {
 // into the handler slot and jump to the handler) and the success path
 // (construct good_file).
 // CHECK-LABEL: define dso_local noundef i32 @_Z8test_bugv()
-// CHECK: {{call|invoke}} { { ptr, i64 }, i8 } @_ZN8bad_fileC{{[12]}}Ev
+// CHECK: {{call|invoke}} { { ptr, i64 }, i8 } @_ZN8bad_fileC{{[12]}}EDrv
 // CHECK: br i1
 // CHECK: store %"struct.std::error"
 // CHECK: ret i32

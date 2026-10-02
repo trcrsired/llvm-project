@@ -23,14 +23,14 @@ public:
 // This function always throws, so the frontend may consider it [[noreturn]]
 // for diagnostic purposes. However, from the IR perspective it returns an
 // error value through the herbception mechanism, so it must NOT be noreturn.
-// CHECK: define dso_local { { ptr, i64 }, i1 } @_Z13always_throwsv()
+// CHECK: define dso_local { { ptr, i64 }, i1 } @_Z13always_throwsDrv()
 // CHECK-NOT: noreturn
 void always_throws() throws {
   throw throws ::std::errc::io_error;
 }
 
 // Verify the function returns normally (not unreachable after call).
-// CHECK: call { { ptr, i64 }, i1 } @_Z13always_throwsv()
+// CHECK: call { { ptr, i64 }, i1 } @_Z13always_throwsDrv()
 // CHECK-NEXT: extractvalue
 void caller() throws {
   always_throws();

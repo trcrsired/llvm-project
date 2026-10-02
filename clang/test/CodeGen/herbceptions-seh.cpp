@@ -38,8 +38,8 @@ int plain_seh_except() {
 }
 
 // A 'throws' function containing SEH still returns {T, i1}.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @"?throwing_with_seh@@YAHXZ"()
-// NOCXXEH-LABEL: define {{.*}} @"?throwing_with_seh@@YAHXZ"()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @"?throwing_with_seh@@YAHX_H"()
+// NOCXXEH-LABEL: define {{.*}} @"?throwing_with_seh@@YAHX_H"()
 int throwing_with_seh() throws {
   __try {
     g = 4;
@@ -52,7 +52,7 @@ int throwing_with_seh() throws {
 // 'throw throws' inside __try: the error is materialized in the return slot;
 // calls that build it unwind to the SEH catch.dispatch, and an SEH exception
 // escaping the function becomes a std::error via the msvc_exception_ptr shims.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @"?throw_throws_in_seh@@YAHXZ"()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @"?throw_throws_in_seh@@YAHX_H"()
 // CHECK-SAME:    personality ptr @__C_specific_handler
 // CHECK:         catchswitch within none [label %__except] unwind label %[[LEGACY:[a-z0-9_.]+]]
 // CHECK:       [[LEGACY]]:
@@ -76,7 +76,7 @@ int throw_throws_in_seh() throws {
 
 // 'throw throws' inside a live __except handler exits the funclet via
 // catchret, then returns {err, true} through the normal throws channel.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @"?throw_in_except_live@@YAHXZ"()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @"?throw_in_except_live@@YAHX_H"()
 // CHECK-SAME:    personality ptr @__C_specific_handler
 // CHECK:       __except:
 // CHECK-NEXT:    catchpad within %{{.*}} [ptr null]

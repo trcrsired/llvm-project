@@ -23,7 +23,7 @@ public:
 // This function always throws, so the frontend may consider it [[noreturn]]
 // for diagnostic purposes. However, from the IR perspective it returns an
 // error value through the herbception mechanism, so it must NOT be noreturn.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z13always_throwsv()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z13always_throwsDrv()
 // CHECK-NOT: noreturn
 // CHECK: ret { { ptr, i64 }, i8 }
 void always_throws() throws {
@@ -31,8 +31,8 @@ void always_throws() throws {
 }
 
 // Verify the function returns normally (not unreachable after call).
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z6callerv()
-// CHECK: call { { ptr, i64 }, i8 } @_Z13always_throwsv()
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z6callerDrv()
+// CHECK: call { { ptr, i64 }, i8 } @_Z13always_throwsDrv()
 // CHECK: ret { { ptr, i64 }, i8 }
 void caller() throws {
   always_throws();

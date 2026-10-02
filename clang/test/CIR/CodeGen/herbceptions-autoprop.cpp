@@ -3,14 +3,14 @@
 // In C++, a bare call to a throws function inside a throws function
 // auto-propagates the error (no explicit try() needed).
 
-// CHECK: define dso_local { i32, i1 } @_Z3bari(i32 noundef %0) #[[ATTR:[0-9]+]]
+// CHECK: define dso_local { i32, i1 } @_Z3barDEiEi(i32 noundef %0) #[[ATTR:[0-9]+]]
 int bar(int x) return_failure{int} {
   if (x < 0) return_failure x;
   return x + 1;
 }
 
-// CHECK-LABEL: define dso_local { i32, i1 } @_Z3fooi(i32 noundef %0)
-// CHECK:         call { i32, i1 } @_Z3bari
+// CHECK-LABEL: define dso_local { i32, i1 } @_Z3fooDEiEi(i32 noundef %0)
+// CHECK:         call { i32, i1 } @_Z3barDEiEi
 // CHECK:         extractvalue { i32, i1 } %{{.*}}, 1
 // CHECK:         br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
 int foo(int x) return_failure{int} {

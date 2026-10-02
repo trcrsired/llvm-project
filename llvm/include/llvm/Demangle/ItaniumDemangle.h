@@ -1000,21 +1000,22 @@ class FunctionEncoding final : public Node {
   NodeArray Params;
   const Node *Attrs;
   const Node *Requires;
+  const Node *Spec;
   Qualifiers CVQuals;
   FunctionRefQual RefQual;
 
 public:
   FunctionEncoding(const Node *Ret_, const Node *Name_, NodeArray Params_,
-                   const Node *Attrs_, const Node *Requires_,
+                   const Node *Attrs_, const Node *Requires_, const Node *Spec_,
                    Qualifiers CVQuals_, FunctionRefQual RefQual_)
       : Node(KFunctionEncoding,
              /*RHSComponentCache=*/Cache::Yes, /*ArrayCache=*/Cache::No,
              /*FunctionCache=*/Cache::Yes),
         Ret(Ret_), Name(Name_), Params(Params_), Attrs(Attrs_),
-        Requires(Requires_), CVQuals(CVQuals_), RefQual(RefQual_) {}
+        Requires(Requires_), Spec(Spec_), CVQuals(CVQuals_), RefQual(RefQual_) {}
 
   template<typename Fn> void match(Fn F) const {
-    F(Ret, Name, Params, Attrs, Requires, CVQuals, RefQual);
+    F(Ret, Name, Params, Attrs, Requires, Spec, CVQuals, RefQual);
   }
 
   Qualifiers getCVQuals() const { return CVQuals; }
@@ -1023,6 +1024,7 @@ public:
   const Node *getReturnType() const { return Ret; }
   const Node *getAttrs() const { return Attrs; }
   const Node *getRequires() const { return Requires; }
+  const Node *getSpec() const { return Spec; }
 
   bool hasRHSComponentSlow(OutputBuffer &) const override { return true; }
   bool hasFunctionSlow(OutputBuffer &) const override { return true; }
@@ -1061,6 +1063,11 @@ public:
 
     if (Attrs != nullptr)
       Attrs->print(OB);
+
+    if (Spec != nullptr) {
+      OB += ' ';
+      Spec->print(OB);
+    }
 
     if (Requires != nullptr) {
       OB += " requires ";
@@ -5814,6 +5821,31 @@ Node *AbstractManglingParser<Derived, Alloc>::parseEncoding(bool ParseParams) {
       return nullptr;
   }
 
+  // Herbception specifier on a function's own encoding. It sits between the
+  // name (and any enable_if attribute) and the bare function type; the
+  // position is unambiguous since no parameter or return type can begin
+  // with Dr/DE/Dg.
+  Node *Spec = nullptr;
+  if (consumeIf("Dr")) {
+    Spec = make<ThrowsSpec>();
+    if (!Spec)
+      return nullptr;
+  } else if (consumeIf("DE")) {
+    Node *E = getDerived().parseType();
+    if (E == nullptr || !consumeIf('E'))
+      return nullptr;
+    Spec = make<FailureSpec>(E);
+    if (!Spec)
+      return nullptr;
+  } else if (consumeIf("Dg")) {
+    Node *E = getDerived().parseExpr();
+    if (E == nullptr || !consumeIf('E'))
+      return nullptr;
+    Spec = make<ThrowsExprSpec>(E);
+    if (!Spec)
+      return nullptr;
+  }
+
   Node *ReturnType = nullptr;
   if (!NameInfo.CtorDtorConversion && NameInfo.EndsWithTemplateArgs) {
     ReturnType = getDerived().parseType();
@@ -5849,7 +5881,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseEncoding(bool ParseParams) {
   }
 
   return make<FunctionEncoding>(ReturnType, Name, Params, Attrs, Requires,
-                                NameInfo.CVQualifiers,
+                                Spec, NameInfo.CVQualifiers,
                                 NameInfo.ReferenceQualifier);
 }
 

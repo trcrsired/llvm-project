@@ -38,7 +38,7 @@ struct good_file {
 
 // When the first constructor throws, the catch handler must be reachable.
 // CHECK: define dso_local noundef i32 @_Z8test_bugv()
-// CHECK: call { { ptr, i64 }, i1 } @_ZN8bad_fileC2Ev
+// CHECK: call { { ptr, i64 }, i1 } @_ZN8bad_fileC2EDrv
 // CHECK: extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
 // CHECK: br i1 %{{.*}}, label %{{[0-9]+}}, label %{{[0-9]+}}
 // CHECK: store %"struct.std::error" %{{.*}}, ptr %

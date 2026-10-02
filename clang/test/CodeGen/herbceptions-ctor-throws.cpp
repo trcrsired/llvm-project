@@ -23,8 +23,8 @@ struct A {
 // error. The call site must agree with the constructor's {E, i1} definition
 // ABI, and (since Sema does not wrap constructor calls in `try(expr)`) the
 // auto-propagate path stores the payload and sets the discriminant.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z4makev(
-// CHECK:         call { { ptr, i64 }, i1 } @_ZN1AC2Ev(
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z4makeDrv(
+// CHECK:         call { { ptr, i64 }, i1 } @_ZN1AC2EDrv(
 int make() throws {
   A a{};
   return a.fd;
@@ -34,4 +34,4 @@ int make() throws {
 // implicit 2-register {void*, size_t} struct), so its member-initializer call
 // to a throws function can store the error payload and set the discriminant
 // on failure instead of crashing.
-// CHECK: define {{.*}}dso_local { { ptr, i64 }, i1 } @_ZN1AC{{[12]}}Ev(
+// CHECK: define {{.*}}dso_local { { ptr, i64 }, i1 } @_ZN1AC{{[12]}}EDrv(

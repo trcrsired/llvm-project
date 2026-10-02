@@ -3293,9 +3293,16 @@ void MicrosoftCXXNameMangler::mangleFunctionType(const FunctionType *T,
       Out << '@';
   }
 
-  if (MangleExceptionSpec && getASTContext().getLangOpts().CPlusPlus17 &&
-      getASTContext().getLangOpts().isCompatibleWithMSVC(
-          LangOptions::MSVC2017_5))
+  // Herbception specifiers are always encoded -- including in a function's
+  // own name, where MSVC never emits _E for noexcept -- so a throws/plain
+  // (or two different return_failure{E}) declarations never share a symbol.
+  if (Proto && (Proto->getExceptionSpecType() == EST_BasicThrows ||
+                Proto->getExceptionSpecType() == EST_BasicThrowsTrue ||
+                Proto->getExceptionSpecType() == EST_ThrowsTyped))
+    mangleThrowSpecification(Proto);
+  else if (MangleExceptionSpec && getASTContext().getLangOpts().CPlusPlus17 &&
+           getASTContext().getLangOpts().isCompatibleWithMSVC(
+               LangOptions::MSVC2017_5))
     mangleThrowSpecification(Proto);
   else
     Out << 'Z';

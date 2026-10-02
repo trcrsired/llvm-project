@@ -11,14 +11,14 @@ int callee() throws;
 
 // A throws function wrapping a throws call in try(expr). No legacy C++
 // exception can escape, so no herb.legacy.convert block should be emitted.
-// MSVC-LABEL: define dso_local { { ptr, i64 }, i1 } @"?foo@@YAHXZ"()
+// MSVC-LABEL: define dso_local { { ptr, i64 }, i1 } @"?foo@@YAHX_H"()
 // MSVC-NOT: herb.legacy.convert
 int foo() throws {
   return try(callee());
 }
 
 // Same pattern on Itanium.
-// ITANIUM-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z3barv()
+// ITANIUM-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z3barDrv()
 // ITANIUM-NOT: herb.legacy.convert
 int bar() throws {
   return try(callee());

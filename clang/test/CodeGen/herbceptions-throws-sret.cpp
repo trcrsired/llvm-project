@@ -27,20 +27,20 @@ struct TwoInts { int a, b; };          // 8 bytes: smaller than the error
 struct ThreeInts { int a, b, c; };     // 12 bytes: smaller than the error
 
 // Registers: {Small, i1}, with no hidden pointer argument.
-// CHECK-LABEL: define dso_local { %struct.Small, i1 } @_Z5smalli(i32 noundef %0)
+// CHECK-LABEL: define dso_local { %struct.Small, i1 } @_Z5smallDri(i32 noundef %0)
 // CHECK-NOT:     throws_sret
 // CHECK:         ret { %struct.Small, i1 }
 
 // Caller storage: a 'throws_sret' pointer carries the payload, and what comes
 // back is {error, i1} -- the fabricated std::error is {ptr, i64}.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z3bigi(ptr noalias writable throws_sret(%struct.Big) align 8 %0, i32 noundef %1)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z3bigDri(ptr noalias writable throws_sret(%struct.Big) align 8 %0, i32 noundef %1)
 // CHECK:         ret { { ptr, i64 }, i1 }
 
 // Smaller than the error: the slot is still the union, because that is what
 // sizes it for the error, but every payload field is addressed through
 // %struct.TwoInts. Addressing them through the union instead is the bug this
 // guards: field 1 would land at offset 8 rather than 4 and read back as 0.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z3twoi(i32 noundef %0)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z3twoDri(i32 noundef %0)
 // CHECK:         alloca { ptr, i64 }, align 8
 // CHECK-NOT:     getelementptr inbounds nuw { ptr, i64 }
 // CHECK:         getelementptr inbounds nuw %struct.TwoInts, ptr %{{[0-9]+}}, i32 0, i32 0
@@ -51,7 +51,7 @@ struct ThreeInts { int a, b, c; };     // 12 bytes: smaller than the error
 // 12 bytes: the union has two fields where ThreeInts has three, so addressing
 // the payload as the union indexed past its last field and crashed the backend
 // rather than merely miscompiling.
-// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5threei(i32 noundef %0)
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z5threeDri(i32 noundef %0)
 // CHECK:         alloca { ptr, i64 }, align 8
 // CHECK:         getelementptr inbounds nuw %struct.ThreeInts, ptr %{{[0-9]+}}, i32 0, i32 0
 // CHECK:         getelementptr inbounds nuw %struct.ThreeInts, ptr %{{[0-9]+}}, i32 0, i32 1
