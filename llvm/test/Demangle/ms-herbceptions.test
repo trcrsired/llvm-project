@@ -1,0 +1,14 @@
+; RUN: llvm-undname < %s | FileCheck %s
+
+?take@@YAXP6AHX_H@Z
+; CHECK: void __cdecl take(int (__cdecl *)(void) throws)
+?take@@YAXP6AHX_E@Z
+; CHECK: void __cdecl take(int (__cdecl *)(void) noexcept)
+?take@@YAXP6AHXZ@Z
+; CHECK: void __cdecl take(int (__cdecl *)(void))
+?take_r@@YAXP6AHX_FH@Z
+; CHECK: void __cdecl take_r(int (__cdecl *)(void) return_failure{int})
+?take_r@@YAXP6AHX_FJ@Z
+; CHECK: void __cdecl take_r(int (__cdecl *)(void) return_failure{long})
+?m@?$S@P6AHX_FH@@SAXXZ
+; CHECK: public: static void __cdecl S<int (__cdecl *)(void) return_failure{int}>::m(void)
