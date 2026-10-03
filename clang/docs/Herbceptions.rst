@@ -605,6 +605,31 @@ In the other direction, ``std::error::throw_dynamic_exception()`` rethrows
 the error as a traditional C++ exception through the domain's
 ``do_throw_dynamic_exception`` vtable entry.
 
+A legacy ``throw`` that escapes a ``throws`` function -- whether it comes
+from the function's own ``throw`` expression or from a ``noexcept(false)``
+callee -- is delivered to callers as a ``std::error``, never as an unwind:
+
+.. code-block:: cpp
+
+   int compute() throws {
+     // This legacy throw does not unwind out of compute(): the compiler
+     // catches it at the function boundary and converts it to std::error.
+     throw std::runtime_error("disk full");
+   }
+
+   int main() {
+     try {
+       compute();
+       throw std::runtime_error("boom"); // a direct legacy throw lands in
+     } catch throws(std::error e) {      // the same handler
+       // e arrived on the herbception channel both times: compute()'s error
+       // and this runtime_error are boxed as std::error via the
+       // exception-pointer domain.
+       if (e.is_code_of<std::exception_ptr>())
+         e.throw_dynamic_exception(); // recover the original exception
+     }
+   }
+
 Templates and concepts
 ----------------------
 
