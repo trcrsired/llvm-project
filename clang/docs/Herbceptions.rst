@@ -13,6 +13,11 @@ Herbceptions
    implementation is incomplete, the ABI is not stable, and the design may
    change. Enable it with ``-fherbceptions``.
 
+   This document is the user guide. For the Clang/LLVM internals -- the
+   ``{T, i1}`` lowering, per-target discriminant conventions, legacy-EH
+   interop mechanism and mangling encodings -- see
+   :ref:`herbceptions-implementation`.
+
 Overview
 ========
 
@@ -925,46 +930,6 @@ Each ``__details/<name>.h`` header declares the corresponding
 ``std::error_domain<E>`` specialization, so a ``throw throws std::errc(e)``
 or ``throw throws std::nt_errc(s)`` works out of the box once the runtime
 is linked.
-
-ABI and mangling
-================
-
-A ``throws`` / ``return_failure{E}`` function is lowered with the LLVM
-``throws`` attribute and a ``{T, i1}`` struct return: the first element is a
-``max(T, E)``-sized value-or-error union and the trailing ``i1`` is the
-discriminant -- ``false`` on success, ``true`` on error. There is no
-``invoke``, landing pad, personality function or LSDA on the
-pure-herbception path: a ``throws`` call is an ordinary call, and the
-caller simply checks the discriminant. On targets that support it the
-backend carries the discriminant in a dedicated location -- the carry flag
-on x86/AArch64/ARM/SPARC/ARM64EC, an extra register on
-RISC-V/LoongArch/MIPS/Xtensa, the ``cr6`` field on PowerPC, or an extra
-multivalue result on WebAssembly -- so checking it costs a single
-conditional branch. When a payload does not fit the register-return budget
-it is constructed through a hidden ``throws_sret`` buffer and the
-registers carry only ``{E, i1}``.
-
-The specifier is part of the function's mangled name (``Dr`` /
-``DE <type> E`` / ``Dg <expr> E`` in the Itanium ABI, ``_H`` /
-``_F <type>`` in the MSVC ABI), so a ``throws`` function and a plain
-function with the same signature get different symbols. Translation units
-that disagree about a specifier fail to link with an unresolved-symbol
-error rather than silently mis-calling. Under LTO (``-flto``, full or
-thin), ``ld.lld`` additionally compares the herbception signature of every
-externally visible bitcode function and reports an ODR violation on a
-conflict:
-
-.. code-block:: none
-
-   ld.lld: error: herbception ODR violation: symbol '_Z3fooi' has
-   conflicting definitions: it is defined as a herbception ('throws')
-   function with error payload type '{ ptr, i64 }' in 'a.o', but without
-   the herbception error channel in 'b.o'
-
-For the full lowering rules, the per-target discriminant conventions, the
-legacy-EH interop mechanism and the mangling encodings, see
-:ref:`herbceptions-implementation`.
-
 
 Known limitations
 =================
