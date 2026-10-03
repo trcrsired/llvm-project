@@ -312,7 +312,23 @@ specialization that references it:
 
    namespace {
    constinit std::error_domain_singleton my_domain{
-     // Map a code onto std::errc for error::to_errc().
+     // Required: semantic equivalence across domains.
+     .do_equivalent = [](std::size_t c, std::error_domain_singleton const *o,
+                         std::size_t oc) noexcept {
+       return my_domain.do_to_errc(c) == o->do_to_errc(oc);
+     },
+     // Required: name/message reporting in the requested encoding.
+     .do_query_information = [](std::size_t, std::error_query_information q,
+                                std::error_reporter_encoding enc, void *cookie,
+                                std::error_reporter_io_cookie_function emit) noexcept {
+       if (enc != std::error_reporter_encoding::utf8)
+         return; // minimal domain: report UTF-8 only
+       std::io_scatter_t const name{"[my]", 4};
+       if (static_cast<unsigned>(q) &
+           static_cast<unsigned>(std::error_query_information::name))
+         emit(cookie, &name, 1);
+     },
+     // Required: map a code onto std::errc for error::to_errc().
      .do_to_errc = [](std::size_t c) noexcept {
        return c == 1 ? std::errc::invalid_argument : std::errc{};
      },
@@ -332,10 +348,10 @@ specialization that references it:
 
    int risky() throws { throw throws my_errc::bad; }
 
-The ``error_domain_singleton`` vtable members:
+The ``error_domain_singleton`` vtable members. Three are **required** --
+leaving one ``nullptr`` makes the corresponding ``std::error`` operation
+dereference a null pointer:
 
-* ``do_cleanup(code)`` -- run by ``~std::error()`` on the code; use it to
-  release resources owned by the error value. May be ``nullptr``.
 * ``do_equivalent(code, other_domain, other_code)`` -- semantic comparison
   behind ``error::equivalent``; lets different encodings mean the same
   error (e.g. ``ENOENT`` matching ``std::errc::no_such_file_or_directory``).
@@ -344,8 +360,14 @@ The ``error_domain_singleton`` vtable members:
   (``io_scatter_t``) in the requested encoding, so generic printers can
   render the error without domain knowledge.
 * ``do_to_errc(code)`` -- map the code onto ``std::errc``.
+
+The remaining two are optional (null-checked before use):
+
+* ``do_cleanup(code)`` -- run by ``~std::error()`` on the code; use it to
+  release resources owned by the error value.
 * ``do_throw_dynamic_exception(code, abi)`` -- rethrow the error as a
-  traditional C++ exception; used by ``error::throw_dynamic_exception()``.
+  traditional C++ exception; used by ``error::throw_dynamic_exception()``,
+  which falls back to ``std::system_error`` when it is absent.
 
 Two optional members of ``error_domain<E>`` refine interop:
 
