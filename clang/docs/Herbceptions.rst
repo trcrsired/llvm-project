@@ -126,6 +126,59 @@ Semantically:
 * ``return_failure(E)`` (parentheses) is rejected; the braces form is mandatory.
   Combining ``throws`` and ``return_failure{...}`` on one declaration is rejected.
 
+Returning an error
+------------------
+
+A ``throws`` function returns an error with ``throw throws expr`` (C++
+only); a ``return_failure{E}`` function returns an error with ``return_failure(expr)``
+instead -- ``throw throws`` is not available inside ``return_failure{...}``
+functions:
+
+.. code-block:: cpp
+
+   struct file {
+     FILE *f;
+     file(char const *path, char const *mode) throws : f(fopen(path, mode)) {
+       if (!f)
+         throw throws std::errc(errno);
+     }
+     ~file() { if (f) fclose(f); }
+     file(const file &) = delete;
+     file &operator=(const file &) = delete;
+     FILE *get() const { return f; }
+   };
+
+   std::size_t read_file(char const *path, char *buf, std::size_t n) throws {
+     file f{path, "rb"}; // a failing constructor auto-propagates
+     std::size_t got = fread(buf, 1, n, f.get());
+     if (ferror(f.get()))
+       throw throws std::errc(errno); // f's destructor runs on the error edge
+     return got;
+   }
+
+The operand is the error value; the compiler fabricates the (otherwise
+unconstructible) ``std::error`` by evaluating
+``std::error_domain<T>::domain()`` and ``std::error_domain<T>::code(e)``.
+An operand whose type has no ``std::error_domain`` specialization is
+rejected. Inside a ``catch throws`` handler the operand form is allowed
+only when the enclosing function itself declares ``throws`` /
+``return_failure{...}`` (the new error then leaves via its own channel); otherwise
+use the bare rethrow instead (see below).
+
+A ``return_failure{E}`` function returns an error with ``return_failure(expr)``
+(C and C++), where ``expr`` has exactly the type ``E``:
+
+.. code-block:: c
+
+   int divide(int a, int b) return_failure{int} {
+     if (b == 0)
+       return_failure 42;
+     return a / b;
+   }
+
+Bare ``throw throws`` (without an operand) rethrows the error currently
+being handled and is only valid inside a ``catch throws`` handler.
+
 Conditional ``throws``
 ``````````````````````
 
@@ -279,59 +332,6 @@ Two optional members of ``error_domain<E>`` refine interop:
 The ``libherbceptions`` runtime ships ready-made domains (see `Predefined
 domains`_), so user-defined domains are only needed for application- or
 library-specific error types.
-
-Returning an error
-------------------
-
-A ``throws`` function returns an error with ``throw throws expr`` (C++
-only); a ``return_failure{E}`` function returns an error with ``return_failure(expr)``
-instead -- ``throw throws`` is not available inside ``return_failure{...}``
-functions:
-
-.. code-block:: cpp
-
-   struct file {
-     FILE *f;
-     file(char const *path, char const *mode) throws : f(fopen(path, mode)) {
-       if (!f)
-         throw throws std::errc(errno);
-     }
-     ~file() { if (f) fclose(f); }
-     file(const file &) = delete;
-     file &operator=(const file &) = delete;
-     FILE *get() const { return f; }
-   };
-
-   std::size_t read_file(char const *path, char *buf, std::size_t n) throws {
-     file f{path, "rb"}; // a failing constructor auto-propagates
-     std::size_t got = fread(buf, 1, n, f.get());
-     if (ferror(f.get()))
-       throw throws std::errc(errno); // f's destructor runs on the error edge
-     return got;
-   }
-
-The operand is the error value; the compiler fabricates the (otherwise
-unconstructible) ``std::error`` by evaluating
-``std::error_domain<T>::domain()`` and ``std::error_domain<T>::code(e)``.
-An operand whose type has no ``std::error_domain`` specialization is
-rejected. Inside a ``catch throws`` handler the operand form is allowed
-only when the enclosing function itself declares ``throws`` /
-``return_failure{...}`` (the new error then leaves via its own channel); otherwise
-use the bare rethrow instead (see below).
-
-A ``return_failure{E}`` function returns an error with ``return_failure(expr)``
-(C and C++), where ``expr`` has exactly the type ``E``:
-
-.. code-block:: c
-
-   int divide(int a, int b) return_failure{int} {
-     if (b == 0)
-       return_failure 42;
-     return a / b;
-   }
-
-Bare ``throw throws`` (without an operand) rethrows the error currently
-being handled and is only valid inside a ``catch throws`` handler.
 
 Calling a function that can fail
 --------------------------------
