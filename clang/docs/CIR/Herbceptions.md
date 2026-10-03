@@ -188,5 +188,5 @@ void callee() noexcept {
 ## Tests
 
 Herbception tests are located in:
-- `clang/test/CodeGen/herbception-*.cpp` - Classic codegen tests
-- `clang/test/CIR/CodeGen/herbception-*.cpp` - ClangIR tests
+- `clang/test/CodeGen/herbceptions-*.cpp` - Classic codegen tests
+- `clang/test/CIR/CodeGen/herbceptions-*.cpp` - ClangIR tests
