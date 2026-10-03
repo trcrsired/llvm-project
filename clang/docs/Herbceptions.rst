@@ -491,8 +491,30 @@ A herbception error must never silently escape a ``noexcept(true)``
 function. Calling a ``throws`` function without handling it from a function
 that is neither ``throws`` nor ``return_failure{...}`` is a diagnostic, and
 ``try(foo())`` (which propagates) is likewise rejected there; use a
-``try { } catch throws(std::error e)`` block instead. ``int main()`` is a special
-case: an unhandled error terminates via ``llvm.trap``.
+``try { } catch throws(std::error e)`` block instead:
+
+.. code-block:: cpp
+
+   int compute() throws;
+
+   void foo() {           // no spec
+     compute();           // error: unhandled 'throws' call
+     try(compute());      // error: 'try()' propagates, nowhere to go
+     try {
+       compute();         // ok: error is handled locally
+     } catch throws(std::error e) { /* ... */ }
+   }
+
+   void bar() noexcept {  // noexcept does not help
+     compute();           // error: ditto
+   }
+
+   void baz() throws {
+     compute();           // ok: auto-propagates on baz's error channel
+   }
+
+``int main()`` is a special case: an unhandled error terminates via
+``llvm.trap``.
 
 ``main`` itself cannot be declared ``throws`` or ``return_failure{...}``:
 it is the outermost frame and has no caller able to consume a ``{T, i1}``
@@ -617,7 +639,7 @@ callee -- is delivered to callers as a ``std::error``, never as an unwind:
      throw std::runtime_error("disk full");
    }
 
-   int main() {
+   void foo() {
      try {
        compute();
        throw std::runtime_error("boom"); // a direct legacy throw lands in
