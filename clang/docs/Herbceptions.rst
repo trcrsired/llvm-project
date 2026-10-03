@@ -100,7 +100,8 @@ Two specifiers exist and cannot coexist on the same function:
    // C++ only. Implicit error type std::error.
    T foo() throws;
 
-   // C++ and C. Explicit error type E (trivially copyable).
+   // C++ and C. Explicit error type E: must be trivially copyable and no
+   // larger than 2 * sizeof(size_t).
    T foo() return_failure{E};
 
 Semantically:
@@ -156,6 +157,20 @@ functions:
      return got;
    }
 
+   int main() {
+     char buf[256];
+     try {
+       std::size_t n = read_file("config.txt", buf, sizeof buf);
+       printf("read %zu bytes\n", n);
+     } catch throws(std::error e) {
+       // std::errc errors land here; the posix domain makes == work
+       if (e == std::errc::no_such_file_or_directory)
+         fputs("config.txt not found\n", stderr);
+       else
+         fprintf(stderr, "I/O error %d\n", static_cast<int>(e.to_errc()));
+     }
+   }
+
 The operand is the error value; the compiler fabricates the (otherwise
 unconstructible) ``std::error`` by evaluating
 ``std::error_domain<T>::domain()`` and ``std::error_domain<T>::code(e)``.
@@ -174,6 +189,15 @@ A ``return_failure{E}`` function returns an error with ``return_failure(expr)``
      if (b == 0)
        return_failure 42;
      return a / b;
+   }
+
+   int main() {
+     struct { union { int value; int error; }; bool failed; } r =
+       catch return_failure(divide(10, 0));
+     if (r.failed)
+       printf("failed: %d\n", r.error);
+     else
+       printf("%d\n", r.value);
    }
 
 Bare ``throw throws`` (without an operand) rethrows the error currently
@@ -235,7 +259,10 @@ Restrictions
 * Destructors cannot be declared with a herbception specification.
 * ``return_failure{std::error}`` is rejected: the implicit error type of ``throws``
   is compiler-fabricated and cannot be named explicitly.
-* ``E`` must be trivially copyable.
+* ``E`` must be trivially copyable **and no larger than
+  ``2 * sizeof(size_t)``**: the error value travels in the same two
+  registers as the failure discriminant, so it must fit the
+  register-return budget alongside it.
 
 Function pointers
 `````````````````
