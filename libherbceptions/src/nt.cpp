@@ -156,9 +156,10 @@ constinit ::std::error_domain_singleton nt_error_domain{
           }
           auto const ntstatus{static_cast<::std::uint_least32_t>(cd)};
           if constexpr (::std::error_domains::__herbceptions_detail::
-                            __is_freestanding_kernel_mode) {
+                            __messages_disabled) {
             /*
-            Freestanding kernel mode: the ntkernel table is a waste of rom
+            Messages disabled (freestanding, kernel mode, or
+            __HERBCEPTIONS_NO_MESSAGES): the ntkernel table is a waste of rom
             size, so only [nt](0x<hex code>) is ever reported and the table
             is never touched. Only a small fixed scratch buffer is used.
             */

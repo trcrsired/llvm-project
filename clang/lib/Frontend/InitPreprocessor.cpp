@@ -1019,8 +1019,12 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
 
   if (!LangOpts.MSVCCompat && LangOpts.Exceptions)
     Builder.defineMacro("__EXCEPTIONS");
-  if (LangOpts.HerbExceptions)
+  if (LangOpts.HerbExceptions) {
     Builder.defineMacro("__HERBCEPTIONS__");
+    // The name of the compiler-injected herbceptions error channel ABI type
+    // {domain, code}; usable without any header in C and C++ alike.
+    Builder.defineMacro("__CXX_STD_ERROR_TYPE__", "__cxx_std_error");
+  }
   if (LangOpts.GNUCVersion && LangOpts.RTTI)
     Builder.defineMacro("__GXX_RTTI");
 

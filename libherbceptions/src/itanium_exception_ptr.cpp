@@ -294,9 +294,10 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                            : nullptr};
           bool const is_itanium_cxx_eh{hdr != nullptr};
           if constexpr (::std::error_domains::__herbceptions_detail::
-                            __is_freestanding_kernel_mode) {
+                            __messages_disabled) {
             /*
-            Freestanding kernel mode: no heap allocation and no big stack
+            Messages disabled (freestanding, kernel mode, or
+            __HERBCEPTIONS_NO_MESSAGES): no heap allocation and no big stack
             allocation. The mangled name and what() text are narrow (utf8 /
             gb18030 compatible) bytes that are already available in place,
             so they are only reported for those encodings; every other
@@ -533,9 +534,9 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     }
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)
     ,
-    .do_throw_dynamic_exception =
-        [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
-          if (__ehabi != ::std::dynamic_exception_abi::platform)
+    .do_throw_legacy_exception =
+        [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
+          if (__ehabi != ::std::legacy_exception_abi::platform)
             return;
           void *__obj{reinterpret_cast<void *>(__cd)};
           if (!__obj) {
@@ -550,7 +551,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           // this domain's back. The minted reference is the flight
           // reference here -- the catching runtime consumes it inside
           // __cxa_end_catch. A failed unwind falls through, letting
-          // std::error::throw_dynamic_exception raise its system_error
+          // std::error::throw_legacy_exception raise its system_error
           // fallback instead.
           auto *hdr{itanium_cxa_exception_from_thrown_object(__obj)};
           auto *globals{reinterpret_cast<itanium_cxa_eh_globals *>(

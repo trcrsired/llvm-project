@@ -384,6 +384,12 @@ void Sema::Initialize() {
     (void)Context.getBuiltinZOSVaListDecl();
   (void)Context.getBuiltinVaListDecl();
 
+  // Herbceptions: __cxx_std_error is the ABI type of the error channel;
+  // __CXX_STD_ERROR_TYPE__ expands to it. Create it before external sema
+  // sources see the TU, same as the va_list decls above.
+  if (Context.getLangOpts().HerbExceptions)
+    (void)Context.getBuiltinCXXStdErrorDecl();
+
   if (SemaConsumer *SC = dyn_cast<SemaConsumer>(&Consumer))
     SC->InitializeSema(*this);
 
@@ -605,6 +611,18 @@ void Sema::Initialize() {
   DeclarationName BuiltinVaList = &Context.Idents.get("__builtin_va_list");
   if (IdResolver.begin(BuiltinVaList) == IdResolver.end())
     PushOnScopeChains(Context.getBuiltinVaListDecl(), TUScope);
+
+  if (Context.getLangOpts().HerbExceptions) {
+    DeclarationName CXXStdError = &Context.Idents.get("__cxx_std_error");
+    if (IdResolver.begin(CXXStdError) == IdResolver.end()) {
+      // Inject the record tag first so C can spell it 'struct
+      // __cxx_std_error'; the typedef of the same name then provides the
+      // bare spelling in both languages.
+      PushOnScopeChains(cast<NamedDecl>(Context.getCXXStdErrorTagDecl()),
+                        TUScope);
+      PushOnScopeChains(Context.getBuiltinCXXStdErrorDecl(), TUScope);
+    }
+  }
 }
 
 Sema::~Sema() {

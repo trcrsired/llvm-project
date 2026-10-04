@@ -308,11 +308,12 @@ inline constexpr void __simple_query_information_common(
   }
   auto const __code{static_cast<::std::uint_least32_t>(cd)};
   if constexpr (::std::error_domains::__herbceptions_detail::
-                    __is_freestanding_kernel_mode) {
+                    __messages_disabled) {
     /*
-    Freestanding kernel mode: the message tables are a waste of rom size,
-    so only [domain](numeric code) is ever reported and the text is never
-    touched. Only a small fixed scratch buffer is used.
+    Messages disabled (freestanding, kernel mode, or
+    __HERBCEPTIONS_NO_MESSAGES): the message tables are a waste of rom size, so
+    only [domain](numeric code) is ever reported and the text is never touched.
+    Only a small fixed scratch buffer is used.
     */
     ::std::io_scatter_t __scatters[2];
     ::std::size_t __scatterlen{};

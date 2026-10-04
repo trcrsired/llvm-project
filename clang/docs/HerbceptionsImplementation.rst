@@ -1015,7 +1015,7 @@ Runtime: libherbceptions
   - ``class std::error``: default/copy/move construction and assignment all
     deleted; ``constexpr ~error()`` runs the domain's ``do_cleanup``;
     accessors ``domain()``, ``code()``, ``equivalent(T)``, ``to_errc()``,
-    ``throw_dynamic_exception()`` (rethrows as a traditional exception via
+    ``throw_legacy_exception()`` (rethrows as a traditional exception via
     the domain vtable, falling back to ``std::system_error(to_errc())``),
     ``is_code_of<T>()``; private two-word payload
     ``{error_domain_singleton const *, std::size_t}`` and a private magic
@@ -1023,7 +1023,7 @@ Runtime: libherbceptions
   - ``struct error_domain_singleton`` with members ``do_cleanup``,
     ``do_equivalent``, ``do_query_information`` (writev-style scatter/gather
     name/message query with requested encoding), ``do_to_errc`` and
-    ``do_throw_dynamic_exception``.
+    ``do_throw_legacy_exception``.
   - the ``template <typename T> class std::error_domain;`` customization
     point (declared, never defined; any specialization may be thrown).
   - ``namespace std::error_domains``: extern ``"C"`` singletons
