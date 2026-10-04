@@ -277,10 +277,6 @@ if(LIBHERBCEPTIONS_BUILD_FUZZERS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
   foreach(target herbceptions herbceptions_static)
     target_compile_options(${target} PRIVATE -fsanitize=fuzzer-no-link)
   endforeach()
-  set(LIBHERBCEPTIONS_LIBCXX_DIR
-    "$ENV{HOME}/toolchains/llvm/x86_64-linux-gnu/x86_64-linux-gnu/usr"
-    CACHE PATH "libc++ installation used by the fuzzer runtime")
-
   function(add_herbceptions_fuzzer name)
     add_executable(${name} fuzz/${name}.cpp)
     target_include_directories(${name} PRIVATE
@@ -289,12 +285,8 @@ if(LIBHERBCEPTIONS_BUILD_FUZZERS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
     if(LIBHERBCEPTIONS_FUZZ_ENGINE)
       target_compile_definitions(${name} PRIVATE
         LIBHERBCEPTIONS_HAVE_FUZZ_ENGINE=1)
-      target_compile_options(${name} PRIVATE -fsanitize=fuzzer
-        -nostdinc++
-        "-isystem${LIBHERBCEPTIONS_LIBCXX_DIR}/include/c++/v1")
-      target_link_options(${name} PRIVATE -fsanitize=fuzzer
-        -nostdlib++
-        "-L${LIBHERBCEPTIONS_LIBCXX_DIR}/lib" -lc++ -lc++abi)
+      target_compile_options(${name} PRIVATE -fsanitize=fuzzer)
+      target_link_options(${name} PRIVATE -fsanitize=fuzzer)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
       target_link_libraries(${name} PRIVATE ntdll)
