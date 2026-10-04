@@ -1033,6 +1033,36 @@ Each ``__details/<name>.h`` header declares the corresponding
 or ``throw throws std::nt_errc(s)`` works out of the box once the runtime
 is linked.
 
+``std::http_errc`` names every IANA-registered HTTP response status —
+``continue_`` (the keyword gets a trailing underscore) through
+``network_authentication_required`` — and ``code()`` returns the wire
+status number verbatim. Any code may ride the domain, named or not:
+``throw throws static_cast<http_errc>(599)`` works, unlisted codes report
+``"Unknown"`` in messages, and ``to_errc()`` falls back by class: below
+400 is success (2xx/3xx are not errors), 4xx is ``protocol_error``, and
+500+ is ``io_error``. The translation unit is deliberately self-contained
+so linking the domain does not pull the shared table machinery into
+other objects.
+
+Runtime build options
+---------------------
+
+``libherbceptions``'s CMake offers a few size/naming knobs:
+
+* ``LIBHERBCEPTIONS_NO_MESSAGES`` — compile the runtime with
+  ``__HERBCEPTIONS_NO_MESSAGES``: ``do_query_information`` reports only
+  ``[domain](numeric code)`` and the domain message tables and platform
+  text lookups (``strerror``, ``FormatMessage``, demangling) are never
+  compiled in. The vtable ABI is unchanged — only the text shrinks.
+  Freestanding (``__STDC_HOSTED__ == 0``) and ``_KERNEL_MODE`` builds
+  always behave this way; the option lets a hosted build opt in.
+* ``LIBHERBCEPTIONS_NO_LIB_PREFIX`` — emit the shared library without
+  the ``lib`` prefix: ``herbceptions.so``/``herbceptions.dll``, the same
+  name the MSVC build produces on Windows.
+* ``LIBHERBCEPTIONS_BUILD_BOTH_SHARED_NAMES`` — additionally emit the
+  alternate prefix convention as a post-build copy, so a single build
+  produces both ``libherbceptions.*`` and ``herbceptions.*``.
+
 Known limitations
 =================
 
