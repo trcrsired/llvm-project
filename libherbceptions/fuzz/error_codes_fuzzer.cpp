@@ -62,6 +62,26 @@ extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *data,
   query_all(::std::error_domains::__cxa_error_domain_posix(), a);
   query_all(::std::error_domains::__cxa_error_domain_parse(), b);
   query_all(::std::error_domains::__cxa_error_domain_cmath(), a ^ b);
+  query_all(::std::error_domains::__cxa_error_domain_http(), a);
+  // http codes worth hammering: registered statuses, boundary values, and
+  // attacker-controlled range extensions.
+  query_all(::std::error_domains::__cxa_error_domain_http(), 99u + (b % 500u));
+  query_all(::std::error_domains::__cxa_error_domain_http(), a | b);
+
+  // Cross-domain equivalence over the always-available domains.
+  {
+    error_domain_singleton const *const kDomains[] = {
+        ::std::error_domains::__cxa_error_domain_posix(),
+        ::std::error_domains::__cxa_error_domain_parse(),
+        ::std::error_domains::__cxa_error_domain_cmath(),
+        ::std::error_domains::__cxa_error_domain_http()};
+    for (auto const *d1 : kDomains) {
+      for (auto const *d2 : kDomains) {
+        d1->do_equivalent(a, d2, b);
+        d1->do_to_errc(a);
+      }
+    }
+  }
 
 #ifdef _WIN32
   auto const *wine{::std::error_domains::__cxa_error_domain_wine()};

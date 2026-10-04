@@ -382,9 +382,9 @@ struct is_invoke_herbceptions_return_failure
           ::std::is_invoke_herbceptions_return_failure_v<__F>> {};
 
 // __invoke_herbceptions_return_failure_result<F> yields a synthetic struct with
-// value_type (the success return type) and error_type (the fails{E} error
-// type, void when F is not a fails function). Query it via the trailing _t
-// aliases below.
+// value_type (the success return type) and error_type (the return_failure{E}
+// error type, void when F is not a return_failure function). Query it via the
+// trailing _t aliases below.
 template <typename __F>
 using invoke_herbceptions_return_failure_result_t =
     __invoke_herbceptions_return_failure_result<__F>;
