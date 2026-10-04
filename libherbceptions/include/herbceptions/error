@@ -86,7 +86,7 @@ enum class error_query_information : ::std::uint_least32_t {
 Add an abi enum class to ensure user cross
 windows-gnu/windows-msvc eh thrown correctness
 */
-enum class dynamic_exception_abi : ::std::uint_least32_t {
+enum class legacy_exception_abi : ::std::uint_least32_t {
   itanium = 0,
   microsoft = 1,
 #if defined(_MSC_VER)
@@ -130,7 +130,7 @@ struct error_domain_singleton {
       ::std::error_reporter_io_cookie_function) noexcept = nullptr;
   ::std::errc (*do_to_errc)(::std::size_t) noexcept = nullptr;
   void (*do_throw_legacy_exception)(::std::size_t,
-                                     ::std::dynamic_exception_abi) = nullptr;
+                                     ::std::legacy_exception_abi) = nullptr;
 #if 0
   ::std::error_cross_dll_domain_identifier_t (*do_cross_dll_domain_identifier)() noexcept = nullptr;
 #endif
@@ -281,7 +281,7 @@ public:
       // If the function returns then the EH was not thrown for whatever
       // reason; fall back to a generic error below.
       __dothrow(static_cast<::std::size_t>(this->code()),
-                ::std::dynamic_exception_abi::platform);
+                ::std::legacy_exception_abi::platform);
     }
     // EH throw failed by the domain vtable. throw a generic error by errc
     throw ::std::system_error(static_cast<int>(this->to_errc()),

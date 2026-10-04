@@ -534,8 +534,8 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)
     ,
     .do_throw_legacy_exception =
-        [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
-          if (__ehabi != ::std::dynamic_exception_abi::platform)
+        [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
+          if (__ehabi != ::std::legacy_exception_abi::platform)
             return;
           void *__obj{reinterpret_cast<void *>(__cd)};
           if (!__obj) {

@@ -9,18 +9,28 @@
 
 namespace std {
 
+enum class errc : int {};
+enum class error_query_information : int {};
+enum class error_reporter_encoding : int {};
+enum class legacy_exception_abi : int {};
+struct io_scatter_t;
+using error_reporter_io_cookie_function =
+    void (*)(void *, io_scatter_t const *, __SIZE_TYPE__) noexcept;
+
 struct error_domain_singleton {
-  void (*do_cleanup)(unsigned long) noexcept = 0;
-  bool (*do_equivalent)(unsigned long, error_domain_singleton const *, unsigned long) noexcept = 0;
-  void (*do_name)(unsigned long, int, void *, void *) noexcept = 0;
-  void (*do_message)(unsigned long, int, void *, void *) noexcept = 0;
-  int (*do_to_errc)(unsigned long) noexcept = 0;
+  void (*do_cleanup)(__SIZE_TYPE__) noexcept = nullptr;
+  bool (*do_equivalent)(__SIZE_TYPE__, error_domain_singleton const *,
+                        __SIZE_TYPE__) noexcept = nullptr;
+  void (*do_query_information)(__SIZE_TYPE__, error_query_information,
+                               error_reporter_encoding, void *,
+                               error_reporter_io_cookie_function) noexcept =
+      nullptr;
+  errc (*do_to_errc)(__SIZE_TYPE__) noexcept = nullptr;
+  void (*do_throw_legacy_exception)(__SIZE_TYPE__, legacy_exception_abi) =
+      nullptr;
 };
 
-struct cxx_std_error {
-  error_domain_singleton const *domain;
-  __SIZE_TYPE__ code;
-};
+using cxx_std_error = __CXX_STD_ERROR_TYPE__;
 
 class error {
 public:
