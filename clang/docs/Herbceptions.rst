@@ -262,6 +262,12 @@ Restrictions
 * ``throws`` is **not allowed on coroutine declarations**; every herbception
   must be caught within the coroutine body.
 * Destructors cannot be declared with a herbception specification.
+* Deallocation functions (``operator delete``/``operator delete[]``)
+  cannot be declared with a herbception specification: they run on
+  cleanup paths — e.g. when construction inside a new-expression fails —
+  where no frame can consume the error. Class-specific ``operator new``
+  *may* use ``throws`` — allocation failure propagates through the
+  channel like any call.
 * ``return_failure{std::error}`` is rejected: the implicit error type of ``throws``
   is compiler-fabricated and cannot be named explicitly.
 * ``E`` must be trivially copyable **and no larger than
@@ -370,8 +376,8 @@ The remaining two are optional (null-checked before use):
 
 * ``do_cleanup(code)`` -- run by ``~std::error()`` on the code; use it to
   release resources owned by the error value.
-* ``do_throw_dynamic_exception(code, abi)`` -- rethrow the error as a
-  traditional C++ exception; used by ``error::throw_dynamic_exception()``,
+* ``do_throw_legacy_exception(code, abi)`` -- rethrow the error as a
+  traditional C++ exception; used by ``error::throw_legacy_exception()``,
   which falls back to ``std::system_error`` when it is absent.
 
 Two optional members of ``error_domain<E>`` refine interop:
@@ -490,7 +496,7 @@ same handler:
        // e is either open_db()'s std::error or the exception thrown by
        // legacy_init(), boxed as std::error.
        if (e.is_code_of<std::exception_ptr>())
-         e.throw_dynamic_exception(); // rethrow the original C++ exception
+         e.throw_legacy_exception(); // rethrow the original C++ exception
      }
    }
 
@@ -677,9 +683,9 @@ herbception errors match only the ``catch throws`` clauses:
      ...
    }
 
-In the other direction, ``std::error::throw_dynamic_exception()`` rethrows
+In the other direction, ``std::error::throw_legacy_exception()`` rethrows
 the error as a traditional C++ exception through the domain's
-``do_throw_dynamic_exception`` vtable entry.
+``do_throw_legacy_exception`` vtable entry.
 
 A legacy ``throw`` that escapes a ``throws`` function -- whether it comes
 from the function's own ``throw`` expression or from a ``noexcept(false)``
@@ -702,7 +708,7 @@ callee -- is delivered to callers as a ``std::error``, never as an unwind:
        // and this runtime_error are boxed as std::error via the
        // exception-pointer domain.
        if (e.is_code_of<std::exception_ptr>())
-         e.throw_dynamic_exception(); // recover the original exception
+         e.throw_legacy_exception(); // recover the original exception
      }
    }
 
@@ -769,11 +775,28 @@ constant evaluation:
 Coroutines
 ----------
 
-Coroutines cannot declare ``throws`` or ``return_failure{...}``; all herbceptions
-must be caught within the coroutine body.
+Today, coroutines cannot declare ``throws`` or ``return_failure{...}``; all
+herbceptions must be caught within the coroutine body. The planned model —
+not yet implemented — mirrors ``unhandled_exception``:
 
-Feature-test macro
-------------------
+* A coroutine declared ``throws`` propagates *ramp-phase* failures —
+  parameter copies, promise construction, and ``initial_suspend`` — to the
+  caller through the channel, so ``try(f())`` reports them like any
+  ``throws`` call.
+* A herbception escaping the coroutine *body* is delivered to
+  ``promise.unhandled_herbception(e)``, where ``e`` has the builtin
+  ``__cxx_std_error`` ABI type: ``std::error`` is non-copyable, so the
+  handler takes the copyable ``{domain, code}`` pair instead. After the
+  handler returns, the coroutine proceeds to ``final_suspend``.
+* A ``throws`` coroutine requires ``promise_type::unhandled_herbception``.
+  In a coroutine without ``throws``, an escaping herbception is diagnosed
+  exactly as in a non-``throws`` function.
+* A legacy C++ exception escaping a ``throws`` coroutine body converts to
+  a herbception error and also reaches ``unhandled_herbception``; a
+  user-provided ``unhandled_exception`` is ignored in that mode.
+
+Feature-test macros
+-------------------
 
 ``-fherbceptions`` defines ``__HERBCEPTIONS__`` so code can detect the
 feature:
@@ -783,6 +806,65 @@ feature:
    #ifdef __HERBCEPTIONS__
    int foo() throws;
    #endif
+
+``__cxx_std_error`` and ``__CXX_STD_ERROR_TYPE__``
+`````````````````````````````````````````````````
+
+Under ``-fherbceptions`` — in **both C and C++** — the compiler injects a
+predefined record type ``__cxx_std_error``: the ABI twin of
+``std::error``, an opaque ``{domain pointer, code}`` pair exactly two
+words wide, marked ``herbceptions_cxx_std_error`` so a ``throw throws``
+operand of this type is carried as the error value directly. The macro
+``__CXX_STD_ERROR_TYPE__`` expands to its name, so headers never declare
+the struct themselves:
+
+.. code-block:: cpp
+
+   // The compiler's canonical type; needs no header at all.
+   using error_abi = __CXX_STD_ERROR_TYPE__;
+   static_assert(sizeof(error_abi) == 2 * sizeof(void *));
+
+   extern "C" error_abi c_produce();      // FFI boundary
+   void relay(error_abi e) throws {
+     throw throws e;                    // used directly, no error_domain
+   }
+
+A ``__cxx_std_error`` may also be produced *by hand* — an ``extern "C"``
+function returning ``{domain, errno}``, or ``std::error::release()``.
+
+.. warning::
+
+   **Always check ``e.domain != nullptr`` before rethrowing a
+   ``__cxx_std_error`` through ``throw throws``.**
+   Unlike ``std::error`` — where the domain is an invariant and the
+   compiler diagnoses ``error_domain<E>::domain() == nullptr`` at the
+   throw site — a ``__cxx_std_error`` may legitimately hold a null
+   domain: a zero-initialized value means *"no error"*. The channel
+   carries the pair verbatim, so nothing re-validates it: ``catch throws``
+   fabricates a ``std::error`` from it, and ``~error()`` dereferences the
+   domain to run ``do_cleanup`` (as do ``to_errc()``/``equivalent()``).
+   Throwing a null-domain value turns a "no error" into a crash at
+   handler exit. The check belongs at the throw site:
+
+   .. code-block:: cpp
+
+      void relay() throws {
+        __cxx_std_error e = c_produce();
+        if (e.domain != nullptr)
+          throw throws e;   // becomes a std::error; its dtor does the cleanup
+      }
+
+   Treat ``__cxx_std_error`` like a nullable handle — it travels, it
+   stores, and it must be checked before it is promoted back to a
+   guaranteed-valid ``std::error`` on the channel.
+
+Because the compiler owns the type, every ``cxx_std_error`` — libherbceptions',
+fast_io's, or a C struct defined elsewhere — is *the same type* at the ABI
+boundary; two independently defined copies could not be passed between
+functions without that. In ``<herbceptions/error>``,
+``std::cxx_std_error`` is an alias for the builtin type and does not exist
+otherwise — a compiler without herbceptions has nothing for the struct to
+mean, so the header still compiles with them.
 
 Type traits
 -----------
@@ -853,12 +935,18 @@ transiently on the error channel and inside ``catch throws`` handlers.
      [[nodiscard]] constexpr std::size_t code() const noexcept;
      template <class T> constexpr bool equivalent(T ec) const noexcept;
      constexpr std::errc to_errc() const noexcept;
-     void throw_dynamic_exception() const; // rethrow as a C++ exception
+     void throw_legacy_exception() const; // rethrow as a C++ exception
      template <class T> constexpr bool is_code_of() const noexcept;
+     [[nodiscard]] constexpr cxx_std_error release() noexcept; // move the payload out
    };
 
 * ``domain()`` -- the ``error_domain_singleton`` vtable of the domain the
-  error came from; never null.
+  error came from. Marked ``returns_nonnull`` and it is an invariant:
+  ``error_domain<E>::domain() == nullptr`` is a compile-time error at the
+  throw site, and a ``__cxx_std_error`` with a null domain must never be
+  placed on the channel. The null domain is how ``__cxx_std_error``
+  itself says "no error" (a zero-initialized value is empty); inside a
+  ``std::error`` the pointer is always dereferenceable.
 * ``code()`` -- the raw code value minted by ``error_domain<E>::code(e)``.
 * ``e == v`` -- *exact* match: ``v``'s domain (or its ``domain_alias_type``)
   is the error's domain and the codes are equal. ``v`` is any type with an
@@ -870,9 +958,20 @@ transiently on the error channel and inside ``catch throws`` handlers.
 * ``e.to_errc()`` -- map the code to ``std::errc`` via ``do_to_errc``.
 * ``e.is_code_of<T>()`` -- whether the error belongs to ``T``'s domain
   (honoring ``domain_alias_type``).
-* ``e.throw_dynamic_exception()`` -- rethrow the error as a traditional
-  C++ exception via ``do_throw_dynamic_exception``; falls back to
+* ``e.throw_legacy_exception()`` -- rethrow the error as a traditional
+  C++ exception via ``do_throw_legacy_exception``; falls back to
   ``std::system_error(e.to_errc())``. Deleted when exceptions are disabled.
+* ``e.release()`` -- transfer ownership of the ``{domain, code}`` payload
+  out of the error as a ``std::cxx_std_error`` (the copyable ABI struct
+  below) and rebind the error to ``{posix domain, 0}``, the success value.
+  This is how an error crosses an API boundary — an async completion, a C
+  function, a coroutine frame — where the non-copyable ``std::error``
+  cannot go. The caller then owns the payload: it can rethrow it through
+  ``throw throws`` (a ``cxx_std_error`` value is recognized directly as an
+  error value), or drop it for posix-style domains that have no cleanup
+  hook. Only available under ``-fherbceptions``, and usable in constant
+  expressions because ``error_domain<E>::domain()`` is intercepted by the
+  constant evaluator.
 * ``herbception_cast<E>(e)`` -- convert the error back to ``E`` when
   ``error_domain<E>`` provides ``from_std_error``.
 
@@ -884,7 +983,7 @@ transiently on the error channel and inside ``catch throws`` handlers.
      if (e == std::errc::no_such_file_or_directory) { /* exact match */ }
      else if (e.equivalent(std::errc::timed_out))   { /* semantic match */ }
      else if (e.is_code_of<std::exception_ptr>())
-       e.throw_dynamic_exception();  // recover the original exception
+       e.throw_legacy_exception();  // recover the original exception
      report(e.to_errc());
    }
 
@@ -922,6 +1021,9 @@ extern ``"C"`` factory declared in namespace ``std::error_domains`` of
    * - ``__cxa_error_domain_parse()``
      - ``std::parse_errc``
      - parser errors (eof / partial / invalid / overflow)
+   * - ``__cxa_error_domain_http()``
+     - ``std::http_errc``
+     - HTTP response status codes (all IANA-registered 1xx–5xx)
    * - ``__cxa_error_domain_{itanium,msvc}_exception_ptr()``
      - ``std::exception_ptr``
      - legacy C++ exceptions (see `Traditional exceptions`_)
@@ -930,6 +1032,48 @@ Each ``__details/<name>.h`` header declares the corresponding
 ``std::error_domain<E>`` specialization, so a ``throw throws std::errc(e)``
 or ``throw throws std::nt_errc(s)`` works out of the box once the runtime
 is linked.
+
+``std::http_errc`` names every IANA-registered HTTP response status —
+``continue_`` (the keyword gets a trailing underscore) through
+``network_authentication_required`` — and ``code()`` returns the wire
+status number verbatim. Any code may ride the domain, named or not:
+``throw throws static_cast<http_errc>(599)`` works, unlisted codes report
+``"Unknown"`` in messages, and ``to_errc()`` falls back by class: below
+400 is success (2xx/3xx are not errors), 4xx is ``protocol_error``, and
+500+ is ``io_error``. The translation unit is deliberately self-contained
+so linking the domain does not pull the shared table machinery into
+other objects.
+
+Runtime build options
+---------------------
+
+``libherbceptions``'s CMake offers a few size/naming knobs:
+
+* ``LIBHERBCEPTIONS_NO_MESSAGES`` — compile the runtime with
+  ``__HERBCEPTIONS_NO_MESSAGES``: ``do_query_information`` reports only
+  ``[domain](numeric code)`` and the domain message tables and platform
+  text lookups (``strerror``, ``FormatMessage``, demangling) are never
+  compiled in. The vtable ABI is unchanged — only the text shrinks.
+  Freestanding (``__STDC_HOSTED__ == 0``) and ``_KERNEL_MODE`` builds
+  always behave this way; the option lets a hosted build opt in.
+* ``LIBHERBCEPTIONS_NO_LIB_PREFIX`` — emit the shared library without
+  the ``lib`` prefix: ``herbceptions.so``/``herbceptions.dll``, the same
+  name the MSVC build produces on Windows.
+* ``LIBHERBCEPTIONS_BUILD_BOTH_SHARED_NAMES`` — additionally emit the
+  alternate prefix convention as a post-build copy, so a single build
+  produces both ``libherbceptions.*`` and ``herbceptions.*``.
+
+The Windows dual-name output exists mainly so MinGW-w64 and MSVC
+components in *one process* can share a single runtime: the domain
+singletons are process-global identities (``e.domain()`` is a pointer
+comparison in ``==``/``equivalent()``), so loading two differently
+named copies of the runtime would create two distinct singletons and
+break error identity across module boundaries. MSVC cannot consume
+GNU import libraries, but MinGW ``ld`` resolves ``herbceptions.lib``
+and ``herbceptions.dll`` fine — so the shared DLL should be the
+MSVC-named one (``LIBHERBCEPTIONS_NO_LIB_PREFIX``), with the GNU-style
+names provided only as link-time conveniences. Ship one DLL; do not
+install both names where a mixed process could load each.
 
 Known limitations
 =================

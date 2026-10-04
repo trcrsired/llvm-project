@@ -411,7 +411,7 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
 #if defined(_LIBCPPABI_VERSION) || defined(__GLIBCXX__)
   // The conversion catches the exception without __cxa_begin_catch; retire
   // the count __cxa_throw added so std::uncaught_exceptions() stays
-  // accurate. do_throw_dynamic_exception re-adds it on rethrow.
+  // accurate. do_throw_legacy_exception re-adds it on rethrow.
   reinterpret_cast<itanium_cxa_eh_globals *>(::__cxxabiv1::__cxa_get_globals())
       ->uncaughtExceptions -= 1;
 #endif

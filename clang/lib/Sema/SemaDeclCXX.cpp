@@ -20030,6 +20030,19 @@ void Sema::actOnDelayedExceptionSpecification(
     // declaration is already erroneous and never used for code generation.
   }
 
+  // Herbception: an operator delete/delete[] cannot be declared 'throws' or
+  // 'return_failure{...}'. Deallocation functions run on cleanup paths —
+  // e.g. when construction inside a new-expression fails — where there is
+  // no frame able to consume an error result from the herbception channel.
+  if (FD->getDeclName().getNameKind() == DeclarationName::CXXOperatorName &&
+      (FD->getDeclName().getCXXOverloadedOperator() == OO_Delete ||
+       FD->getDeclName().getCXXOverloadedOperator() == OO_Array_Delete) &&
+      hasHerbceptionExceptionSpec(EST)) {
+    Diag(SpecificationRange.getBegin(),
+         diag::err_herbceptions_deallocation_spec)
+        << SpecificationRange;
+  }
+
   // Herbception `return_failure{E}` is a C-style feature restricted to free (non-member)
   // functions. Member functions (including static members) and lambda call
   // operators reach this delayed path, so diagnose them here.
