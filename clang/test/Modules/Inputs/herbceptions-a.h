@@ -6,7 +6,7 @@ struct error_domain_singleton {
                         unsigned long) noexcept = 0;
   void (*do_query_information)(unsigned long, int, int, void *, void *) noexcept = 0;
   int (*do_to_errc)(unsigned long) noexcept = 0;
-  void (*do_throw_dynamic_exception)(unsigned long, void *) = 0;
+  void (*do_throw_legacy_exception)(unsigned long, void *) = 0;
 };
 class error {
 public:

@@ -506,9 +506,9 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
             return;
           }
           if constexpr (::std::error_domains::__herbceptions_detail::
-                            __is_freestanding_kernel_mode) {
+                            __messages_disabled) {
             /*
-            Freestanding kernel mode: no heap allocation and no big stack
+            Messages disabled (freestanding, kernel mode, or __HERBCEPTIONS_NO_MESSAGES): no heap allocation and no big stack
             allocation. The mangled name and what() text are narrow (utf8 /
             gb18030 compatible) bytes that are already available in place,
             so they are only reported for those encodings; every other
@@ -717,9 +717,9 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
     }
 #if defined(__cpp_exceptions) && defined(_MSC_VER)
     ,
-    .do_throw_dynamic_exception =
-        [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
-          if (__ehabi != ::std::dynamic_exception_abi::platform)
+    .do_throw_legacy_exception =
+        [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
+          if (__ehabi != ::std::legacy_exception_abi::platform)
             return;
           void *__epstorage = reinterpret_cast<void *>(__cd);
           if (__epstorage == nullptr)

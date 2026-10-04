@@ -29,6 +29,9 @@ option(LIBHERBCEPTIONS_FREESTANDING "Build with -ffreestanding" OFF)
 option(LIBHERBCEPTIONS_ENABLE_EXCEPTIONS "Enable C++ dynamic exception handling (not herbceptions)" ON)
 option(LIBHERBCEPTIONS_ENABLE_RTTI "Enable C++ RTTI" ON)
 option(LIBHERBCEPTIONS_ENABLE_EBCDIC "Build with EBCDIC support for guard against -fexec-charset= EBCDIC charsets" OFF)
+option(LIBHERBCEPTIONS_NO_MESSAGES "Strip domain message text; errors report only \"[domain](numeric code)\"" OFF)
+option(LIBHERBCEPTIONS_NO_LIB_PREFIX "Emit the shared library without the 'lib' prefix (herbceptions.so/herbceptions.dll)" OFF)
+option(LIBHERBCEPTIONS_BUILD_BOTH_SHARED_NAMES "Emit both prefixed and unprefixed names for the shared library (libherbceptions.so and herbceptions.so / libherbceptions.dll and herbceptions.dll)" OFF)
 option(LIBHERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
 option(LIBHERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
 option(LIBHERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
@@ -37,6 +40,7 @@ set(LIBHERBCEPTIONS_SOURCES
   src/posix.cpp
   src/parse.cpp
   src/cmath_errc.cpp
+  src/http_errc.cpp
   src/itanium_exception_ptr.cpp
   src/msvc_exception_ptr.cpp
   src/win32.cpp
@@ -96,6 +100,9 @@ foreach(target IN LISTS HERBCEPTIONS_TARGETS)
   target_link_libraries(${target} PUBLIC herbceptions_headers)
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
+  if(LIBHERBCEPTIONS_NO_MESSAGES)
+    target_compile_definitions(${target} PRIVATE __HERBCEPTIONS_NO_MESSAGES=1)
+  endif()
   if(LIBHERBCEPTIONS_FREESTANDING)
     target_compile_options(${target} PRIVATE -ffreestanding)
   endif()
@@ -110,6 +117,41 @@ if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
     VERSION ${LIBHERBCEPTIONS_VERSION}
     SOVERSION ${LIBHERBCEPTIONS_VERSION_MAJOR}
   )
+  # On Unix-like toolchains shared libraries carry a "lib" prefix
+  # (libherbceptions.so / libherbceptions.dll); clearing it emits
+  # herbceptions.so / herbceptions.dll instead — the same name the MSVC
+  # build produces on Windows, and a valid spelling elsewhere.
+  if(LIBHERBCEPTIONS_NO_LIB_PREFIX)
+    set_target_properties(herbceptions PROPERTIES
+      PREFIX ""
+      IMPORT_PREFIX ""
+    )
+  endif()
+  # Emit the alternate name alongside the primary output: whichever
+  # prefix convention the build produces natively, add the other as a
+  # copy. Names derive from the platform suffixes, so this works for
+  # .so / .dylib / .dll alike.
+  if(LIBHERBCEPTIONS_BUILD_BOTH_SHARED_NAMES)
+    if(LIBHERBCEPTIONS_NO_LIB_PREFIX)
+      set(__herbceptions_altname libherbceptions)
+    else()
+      set(__herbceptions_altname herbceptions)
+    endif()
+    add_custom_command(TARGET herbceptions POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              $<TARGET_FILE:herbceptions>
+              $<TARGET_FILE_DIR:herbceptions>/${__herbceptions_altname}${CMAKE_SHARED_LIBRARY_SUFFIX}
+    )
+    # DLL platforms have a separate import library; ELF/Mach-O do not.
+    if(CMAKE_IMPORT_LIBRARY_SUFFIX)
+      add_custom_command(TARGET herbceptions POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_LINKER_FILE:herbceptions>
+                $<TARGET_LINKER_FILE_DIR:herbceptions>/${__herbceptions_altname}${CMAKE_IMPORT_LIBRARY_SUFFIX}
+      )
+    endif()
+    unset(__herbceptions_altname)
+  endif()
 endif()
 
 if(TARGET cxx_shared OR TARGET cxx_static OR LLVM_RUNTIMES_BUILD)
