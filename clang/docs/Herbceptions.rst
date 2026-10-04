@@ -1063,6 +1063,18 @@ Runtime build options
   alternate prefix convention as a post-build copy, so a single build
   produces both ``libherbceptions.*`` and ``herbceptions.*``.
 
+The Windows dual-name output exists mainly so MinGW-w64 and MSVC
+components in *one process* can share a single runtime: the domain
+singletons are process-global identities (``e.domain()`` is a pointer
+comparison in ``==``/``equivalent()``), so loading two differently
+named copies of the runtime would create two distinct singletons and
+break error identity across module boundaries. MSVC cannot consume
+GNU import libraries, but MinGW ``ld`` resolves ``herbceptions.lib``
+and ``herbceptions.dll`` fine — so the shared DLL should be the
+MSVC-named one (``LIBHERBCEPTIONS_NO_LIB_PREFIX``), with the GNU-style
+names provided only as link-time conveniences. Ship one DLL; do not
+install both names where a mixed process could load each.
+
 Known limitations
 =================
 
