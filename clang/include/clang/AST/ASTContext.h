@@ -459,6 +459,12 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// __builtin_va_list type.
   mutable TypedefDecl *BuiltinVaListDecl = nullptr;
 
+  /// The typedef for the predefined \c __cxx_std_error type, the
+  /// herbceptions error channel ABI type {domain, code}. Only created when
+  /// -fherbceptions is enabled; \c __CXX_STD_ERROR_TYPE__ expands to its
+  /// name.
+  mutable TypedefDecl *BuiltinCXXStdErrorDecl = nullptr;
+
   /// The typedef for the predefined \c __builtin_ms_va_list type.
   mutable TypedefDecl *BuiltinMSVaListDecl = nullptr;
 
@@ -1448,6 +1454,10 @@ public:
   // Decl used to help define __builtin_va_list for some targets.
   // The decl is built when constructing 'BuiltinVaListDecl'.
   mutable Decl *VaListTagDecl = nullptr;
+
+  // The tag decl underlying \c __cxx_std_error, built when constructing
+  // 'BuiltinCXXStdErrorDecl'.
+  mutable Decl *CXXStdErrorTagDecl = nullptr;
 
   // Implicitly-declared type 'struct _GUID'.
   mutable TagDecl *MSGuidTagDecl = nullptr;
@@ -2614,6 +2624,21 @@ public:
   /// \c __va_list_tag type used to help define the \c __builtin_va_list type
   /// for some targets.
   Decl *getVaListTagDecl() const;
+
+  /// Retrieve the C type declaration corresponding to the predefined
+  /// \c __cxx_std_error type, the herbceptions error channel ABI type
+  /// {domain pointer, code} marked 'herbceptions_cxx_std_error'.
+  TypedefDecl *getBuiltinCXXStdErrorDecl() const;
+
+  /// Retrieve the type of the \c __cxx_std_error type.
+  QualType getBuiltinCXXStdErrorType() const {
+    return getTypedefType(ElaboratedTypeKeyword::None,
+                          /*Qualifier=*/std::nullopt,
+                          getBuiltinCXXStdErrorDecl());
+  }
+
+  /// Retrieve the C tag declaration underlying the \c __cxx_std_error type.
+  Decl *getCXXStdErrorTagDecl() const;
 
   /// Retrieve the C type declaration corresponding to the predefined
   /// \c __builtin_ms_va_list type.

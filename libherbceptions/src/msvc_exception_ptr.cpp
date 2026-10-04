@@ -717,7 +717,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
     }
 #if defined(__cpp_exceptions) && defined(_MSC_VER)
     ,
-    .do_throw_dynamic_exception =
+    .do_throw_legacy_exception =
         [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
           if (__ehabi != ::std::dynamic_exception_abi::platform)
             return;

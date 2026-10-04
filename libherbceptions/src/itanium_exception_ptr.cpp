@@ -533,7 +533,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     }
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)
     ,
-    .do_throw_dynamic_exception =
+    .do_throw_legacy_exception =
         [](::std::size_t __cd, ::std::dynamic_exception_abi __ehabi) {
           if (__ehabi != ::std::dynamic_exception_abi::platform)
             return;
@@ -550,7 +550,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           // this domain's back. The minted reference is the flight
           // reference here -- the catching runtime consumes it inside
           // __cxa_end_catch. A failed unwind falls through, letting
-          // std::error::throw_dynamic_exception raise its system_error
+          // std::error::throw_legacy_exception raise its system_error
           // fallback instead.
           auto *hdr{itanium_cxa_exception_from_thrown_object(__obj)};
           auto *globals{reinterpret_cast<itanium_cxa_eh_globals *>(

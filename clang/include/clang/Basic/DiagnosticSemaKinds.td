@@ -8825,6 +8825,10 @@ def err_herbceptions_destructor_spec : Error<
   "destructor cannot be declared with a herbceptions "
   "('throws'/'return_failure{...}') exception specification; destructors cannot "
   "propagate errors">;
+def err_herbceptions_deallocation_spec : Error<
+  "deallocation function cannot be declared with a herbceptions "
+  "('throws'/'return_failure{...}') exception specification; deallocation "
+  "runs on cleanup/unwinding paths that cannot propagate errors">;
 def err_herbceptions_main_spec : Error<
   "'main' cannot be declared with a herbceptions "
   "('throws'/'return_failure{...}') exception specification; 'main' has no "

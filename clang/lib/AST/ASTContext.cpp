@@ -10605,6 +10605,58 @@ Decl *ASTContext::getVaListTagDecl() const {
   return VaListTagDecl;
 }
 
+static TypedefDecl *CreateCXXStdErrorDecl(const ASTContext *Context) {
+  // The herbceptions error channel ABI value {domain, code}:
+  //   struct __cxx_std_error { void const *domain; uintptr_t code; };
+  // The 'herbceptions_cxx_std_error' attribute marks the layout so that a
+  // `throw throws`/`return_failure{...}` operand of this type is carried
+  // directly, without consulting error_domain<T>. The record itself is
+  // named __cxx_std_error so C can spell it `struct __cxx_std_error`; the
+  // injected typedef of the same name provides the bare spelling in both
+  // languages, like `struct stat`/`stat`.
+  RecordDecl *CXXStdErrorTagDecl =
+      Context->buildImplicitRecord("__cxx_std_error");
+  CXXStdErrorTagDecl->startDefinition();
+
+  const struct {
+    const char *Name;
+    QualType Ty;
+  } Fields[] = {
+      {"domain", Context->getPointerType(Context->VoidTy.withConst())},
+      {"code", Context->getUIntPtrType()},
+  };
+  for (const auto &F : Fields) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), CXXStdErrorTagDecl,
+        SourceLocation(), SourceLocation(), &Context->Idents.get(F.Name), F.Ty,
+        /*TInfo=*/nullptr, /*BitWidth=*/nullptr, /*Mutable=*/false,
+        ICIS_NoInit);
+    Field->setAccess(AS_public);
+    CXXStdErrorTagDecl->addDecl(Field);
+  }
+  CXXStdErrorTagDecl->completeDefinition();
+  CXXStdErrorTagDecl->addAttr(HerbceptionsCXXStdErrorAttr::CreateImplicit(
+      const_cast<ASTContext &>(*Context)));
+  Context->CXXStdErrorTagDecl = CXXStdErrorTagDecl;
+  CanQualType TagTy = Context->getCanonicalTagType(CXXStdErrorTagDecl);
+  return Context->buildImplicitTypedef(TagTy, "__cxx_std_error");
+}
+
+TypedefDecl *ASTContext::getBuiltinCXXStdErrorDecl() const {
+  if (!BuiltinCXXStdErrorDecl)
+    BuiltinCXXStdErrorDecl = CreateCXXStdErrorDecl(this);
+  return BuiltinCXXStdErrorDecl;
+}
+
+Decl *ASTContext::getCXXStdErrorTagDecl() const {
+  // Force the creation of CXXStdErrorTagDecl by building the __cxx_std_error
+  // declaration.
+  if (!CXXStdErrorTagDecl)
+    (void)getBuiltinCXXStdErrorDecl();
+
+  return CXXStdErrorTagDecl;
+}
+
 TypedefDecl *ASTContext::getBuiltinMSVaListDecl() const {
   if (!BuiltinMSVaListDecl)
     BuiltinMSVaListDecl = CreateMSVaListDecl(this);
