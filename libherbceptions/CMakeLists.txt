@@ -6,7 +6,7 @@
 #
 #===----------------------------------------------------------------------===#
 #
-# libherbceptions — the error-domain runtime used by the 'throws'/'fails{E}'
+# libherbceptions — the error-domain runtime used by the 'throws'/'return_failure{E}'
 # herbception exception model. Also a first-class LLVM runtime: add
 # "libherbceptions" to LLVM_ENABLE_RUNTIMES.
 #

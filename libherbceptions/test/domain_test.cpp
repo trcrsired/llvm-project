@@ -111,9 +111,10 @@ int main() {
   // Herbception type traits (available under -fherbceptions).
   static_assert(::std::is_herbceptions_throwsable_v<::std::errc>);
   static_assert(!::std::is_herbceptions_throwsable_v<int>);
+  static_assert(::std::is_invoke_herbceptions_return_failure_v<
+                int (*)(int) return_failure{::std::errc}>);
   static_assert(
-      ::std::is_invoke_herbceptions_fails_v<int (*)(int) fails{::std::errc}>);
-  static_assert(!::std::is_invoke_herbceptions_fails_v<int (*)(int)>);
+      !::std::is_invoke_herbceptions_return_failure_v<int (*)(int)>);
 
   // is_herbceptions_throws_constructible
   // A class with a throws copy constructor.
