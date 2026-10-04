@@ -122,11 +122,16 @@ template <char8_t __asciicp, typename __chartype>
 inline constexpr __chartype __char_literal_v{__asciicp};
 
 /*
-In Freestanding Mode, we do not print message, only the code
-value to avoid Heap Allocation routines and stack overflow
+In Freestanding Mode we do not print message, only the code
+value to avoid Heap Allocation routines and stack overflow.
+__HERBCEPTIONS_NO_MESSAGES (LIBHERBCEPTIONS_NO_MESSAGES in the CMake
+build) opts a hosted build into the same mode: do_query_information
+reports only "[domain](numeric code)" and the message tables/text are
+never touched, saving the table bytes.
 */
-inline constexpr bool __is_freestanding_kernel_mode{
-#if __STDC_HOSTED__ == 0 || _KERNEL_MODE == 1
+inline constexpr bool __messages_disabled{
+#if __STDC_HOSTED__ == 0 || _KERNEL_MODE == 1 ||                               \
+    defined(__HERBCEPTIONS_NO_MESSAGES)
     true
 #endif
 };

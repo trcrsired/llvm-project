@@ -294,9 +294,10 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                            : nullptr};
           bool const is_itanium_cxx_eh{hdr != nullptr};
           if constexpr (::std::error_domains::__herbceptions_detail::
-                            __is_freestanding_kernel_mode) {
+                            __messages_disabled) {
             /*
-            Freestanding kernel mode: no heap allocation and no big stack
+            Messages disabled (freestanding, kernel mode, or
+            __HERBCEPTIONS_NO_MESSAGES): no heap allocation and no big stack
             allocation. The mangled name and what() text are narrow (utf8 /
             gb18030 compatible) bytes that are already available in place,
             so they are only reported for those encodings; every other

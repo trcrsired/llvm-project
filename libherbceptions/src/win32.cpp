@@ -146,9 +146,10 @@ constinit ::std::error_domain_singleton win32_error_domain{
           ::std::uint_least32_t win32err{
               static_cast<::std::uint_least32_t>(cd)};
           if constexpr (::std::error_domains::__herbceptions_detail::
-                            __is_freestanding_kernel_mode) {
+                            __messages_disabled) {
             /*
-            Freestanding kernel mode: FormatMessage and its message tables
+            Messages disabled (freestanding, kernel mode, or
+            __HERBCEPTIONS_NO_MESSAGES): FormatMessage and its message tables
             are unavailable / a waste of rom size, so only
             [win32](0x<hex code>) is ever reported. Only a small fixed
             scratch buffer is used.

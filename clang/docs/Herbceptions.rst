@@ -1021,6 +1021,9 @@ extern ``"C"`` factory declared in namespace ``std::error_domains`` of
    * - ``__cxa_error_domain_parse()``
      - ``std::parse_errc``
      - parser errors (eof / partial / invalid / overflow)
+   * - ``__cxa_error_domain_http()``
+     - ``std::http_errc``
+     - HTTP response status codes (all IANA-registered 1xx–5xx)
    * - ``__cxa_error_domain_{itanium,msvc}_exception_ptr()``
      - ``std::exception_ptr``
      - legacy C++ exceptions (see `Traditional exceptions`_)

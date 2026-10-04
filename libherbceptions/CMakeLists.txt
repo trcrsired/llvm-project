@@ -29,6 +29,7 @@ option(LIBHERBCEPTIONS_FREESTANDING "Build with -ffreestanding" OFF)
 option(LIBHERBCEPTIONS_ENABLE_EXCEPTIONS "Enable C++ dynamic exception handling (not herbceptions)" ON)
 option(LIBHERBCEPTIONS_ENABLE_RTTI "Enable C++ RTTI" ON)
 option(LIBHERBCEPTIONS_ENABLE_EBCDIC "Build with EBCDIC support for guard against -fexec-charset= EBCDIC charsets" OFF)
+option(LIBHERBCEPTIONS_NO_MESSAGES "Strip domain message text; errors report only \"[domain](numeric code)\"" OFF)
 option(LIBHERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
 option(LIBHERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
 option(LIBHERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
@@ -37,6 +38,7 @@ set(LIBHERBCEPTIONS_SOURCES
   src/posix.cpp
   src/parse.cpp
   src/cmath_errc.cpp
+  src/http_errc.cpp
   src/itanium_exception_ptr.cpp
   src/msvc_exception_ptr.cpp
   src/win32.cpp
@@ -96,6 +98,9 @@ foreach(target IN LISTS HERBCEPTIONS_TARGETS)
   target_link_libraries(${target} PUBLIC herbceptions_headers)
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_definitions(${target} PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
+  if(LIBHERBCEPTIONS_NO_MESSAGES)
+    target_compile_definitions(${target} PRIVATE __HERBCEPTIONS_NO_MESSAGES=1)
+  endif()
   if(LIBHERBCEPTIONS_FREESTANDING)
     target_compile_options(${target} PRIVATE -ffreestanding)
   endif()
