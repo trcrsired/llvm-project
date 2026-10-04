@@ -1,4 +1,5 @@
-//===--- http_errc_test.cpp - std::http_errc domain tests ------------------===//
+//===--- http_errc_test.cpp - std::http_errc domain tests
+//------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +11,8 @@
 // do_to_errc mapping + class fallback, do_query_information text, unlisted
 // codes, and a throws/catch round trip.
 //
-// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib -lherbceptions %s -o %t && %t | %FileCheck %s
-// CHECK: PASS
+// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib
+// -lherbceptions %s -o %t && %t | %FileCheck %s CHECK: PASS
 //
 //===----------------------------------------------------------------------===//
 
@@ -49,9 +50,7 @@ static void capture_cookfun(void *cookie, ::std::io_scatter_t const *v,
   ctx->buf[ctx->len] = '\0';
 }
 
-static void thrower() throws {
-  throw throws ::std::http_errc::not_found;
-}
+static void thrower() throws { throw throws::std::http_errc::not_found; }
 
 int main() {
   auto const *http = ::std::error_domains::__cxa_error_domain_http();
@@ -78,7 +77,7 @@ int main() {
   CHECK(http->do_to_errc(301) == ::std::errc{}); // 3xx either
   CHECK(http->do_to_errc(430) == ::std::errc::protocol_error); // unlisted 4xx
   CHECK(http->do_to_errc(599) == ::std::errc::io_error);       // unlisted 5xx
-  CHECK(http->do_to_errc(700) == ::std::errc::io_error);       // out of registry
+  CHECK(http->do_to_errc(700) == ::std::errc::io_error); // out of registry
 
   // do_query_information.
   capture_ctx nctx{};
@@ -94,12 +93,10 @@ int main() {
   CHECK(std::string(mctx.buf, mctx.len) == "(404)Not Found");
 
   capture_ctx nmctx{};
-  http->do_query_information(503,
-                             ::std::error_query_information::name_message,
+  http->do_query_information(503, ::std::error_query_information::name_message,
                              ::std::error_reporter_encoding::utf8, &nmctx,
                              capture_cookfun);
-  CHECK(std::string(nmctx.buf, nmctx.len) ==
-        "[http](503)Service Unavailable");
+  CHECK(std::string(nmctx.buf, nmctx.len) == "[http](503)Service Unavailable");
 
   // Unlisted code reports Unknown.
   capture_ctx uctx{};

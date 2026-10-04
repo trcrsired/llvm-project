@@ -11,8 +11,8 @@
 // mapping, cross-domain equivalence, do_name/do_message, and the herbception
 // type traits.
 //
-// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib -lherbceptions %s -o %t && %t | %FileCheck %s
-// CHECK: PASS
+// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib
+// -lherbceptions %s -o %t && %t | %FileCheck %s CHECK: PASS
 //
 //===----------------------------------------------------------------------===//
 
@@ -111,10 +111,9 @@ int main() {
   // Herbception type traits (available under -fherbceptions).
   static_assert(::std::is_herbceptions_throwsable_v<::std::errc>);
   static_assert(!::std::is_herbceptions_throwsable_v<int>);
-  static_assert(::std::is_invoke_herbceptions_return_failure_v<
-                int (*)(int) return_failure{::std::errc}>);
-  static_assert(
-      !::std::is_invoke_herbceptions_return_failure_v<int (*)(int)>);
+  static_assert(::std::is_invoke_herbceptions_return_failure_v<int (*)(
+                    int) return_failure{::std::errc}>);
+  static_assert(!::std::is_invoke_herbceptions_return_failure_v<int (*)(int)>);
 
   // is_herbceptions_throws_constructible
   // A class with a throws copy constructor.

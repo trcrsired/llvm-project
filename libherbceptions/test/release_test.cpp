@@ -1,4 +1,5 @@
-//===--- release_test.cpp - std::error::release() tests --------------------===//
+//===--- release_test.cpp - std::error::release() tests
+//--------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +11,8 @@
 // cxx_std_error, rebinds the source error to {posix domain, 0}, and the
 // released value can re-enter the channel via throw throws.
 //
-// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib -lherbceptions %s -o %t && %t | %FileCheck %s
-// CHECK: PASS
+// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib
+// -lherbceptions %s -o %t && %t | %FileCheck %s CHECK: PASS
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,9 +30,7 @@ static int failures = 0;
     }                                                                          \
   } while (0)
 
-static void thrower() throws {
-  throw throws ::std::errc::permission_denied;
-}
+static void thrower() throws { throw throws::std::errc::permission_denied; }
 
 static void rethrower(::std::cxx_std_error e) throws {
   CHECK(e.domain != nullptr); // never rethrow a null-domain value

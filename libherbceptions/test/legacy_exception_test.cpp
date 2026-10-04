@@ -1,4 +1,5 @@
-//===--- legacy_exception_test.cpp - throw_legacy_exception tests ----------===//
+//===--- legacy_exception_test.cpp - throw_legacy_exception tests
+//----------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,8 +12,8 @@
 // std::system_error(to_errc(), generic_category()). Also exercises a plain
 // C++ exception escaping a throws function -> herbception conversion.
 //
-// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib -lherbceptions %s -o %t && %t | %FileCheck %s
-// CHECK: PASS
+// RUN: %cxx %herbceptions_flags -I%herbceptions_include -L%herbceptions_lib
+// -lherbceptions %s -o %t && %t | %FileCheck %s CHECK: PASS
 //
 //===----------------------------------------------------------------------===//
 
@@ -30,14 +31,13 @@ static int failures = 0;
     }                                                                          \
   } while (0)
 
-static void thrower() throws {
-  throw throws ::std::errc::permission_denied;
-}
+static void thrower() throws { throw throws::std::errc::permission_denied; }
 
 // A legacy C++ exception thrown inside a throws function is converted to a
 // herbception error at the boundary.
 static void legacy_thrower() throws {
-  throw ::std::system_error(::std::make_error_code(::std::errc::no_such_file_or_directory));
+  throw ::std::system_error(
+      ::std::make_error_code(::std::errc::no_such_file_or_directory));
 }
 
 int main() {
