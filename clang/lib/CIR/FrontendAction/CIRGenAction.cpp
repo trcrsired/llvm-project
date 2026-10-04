@@ -74,7 +74,6 @@ lowerFromCIRToLLVMIR(mlir::ModuleOp MLIRModule, llvm::LLVMContext &LLVMCtx,
                                               mlirSaveTempsOutFile, fs);
 }
 
-<<<<<<< HEAD
 // Herbception (throws): CIRGen marks shaped functions and call sites with a
 // placeholder 'throws' attribute, which lowerFromCIRToLLVMIR forwards as a
 // plain string on functions (the LLVM dialect has no enum equivalent). Swap
