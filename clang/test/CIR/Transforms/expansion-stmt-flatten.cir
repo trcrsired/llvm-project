@@ -1,0 +1,69 @@
+// RUN: cir-opt %s -cir-flatten-cfg -cir-goto-solver -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+!s32i = !cir.int<s, 32>
+!void = !cir.void
+
+// CIRGen emits C++26 expansion statements ('template for') as sequential
+// instantiations inside a cir.scope; 'break'/'continue' that bind to the
+// expansion are lowered to cir.goto of synthesized cir.labels which
+// GotoSolver resolves once FlattenCFG has merged all regions. This test
+// exercises that shape: a goto escaping a nested cir.if (break) and a goto
+// escaping a cleanup scope (continue from the last instantiation).
+
+module {
+  cir.func private @dtor(!cir.ptr<!s32i>)
+  cir.func private @use(!s32i)
+
+  cir.func @expansion(%arg0: !s32i) {
+    cir.scope {
+      // First instantiation: 'break' lowered to a goto inside a cir.if.
+      cir.scope {
+        %0 = cir.const #cir.int<0> : !s32i
+        %1 = cir.cmp eq %arg0, %0 : !s32i
+        cir.if %1 {
+          cir.goto "cir.expand.0.end"
+        } else {
+        }
+        cir.yield
+      }
+      cir.br ^bb1
+    ^bb1:
+      cir.label "cir.expand.0.cont.1"
+      // Second instantiation: 'continue' inside a cleanup scope exits the
+      // expansion (last instantiation), routing through the cleanup.
+      %2 = cir.alloca "w" align(4) init : !cir.ptr<!s32i>
+      cir.cleanup.scope {
+        cir.goto "cir.expand.0.end"
+      } cleanup normal {
+        cir.call @dtor(%2) : (!cir.ptr<!s32i>) -> ()
+        cir.yield
+      }
+      cir.br ^bb2
+    ^bb2:
+      cir.label "cir.expand.0.end"
+      cir.yield
+    }
+    cir.return
+  }
+}
+
+// The scope/if/cleanup regions are flattened, the break-goto lands on the
+// block holding the end label, and the continue-goto branches through the
+// cleanup before reaching it.
+// CHECK-LABEL: cir.func @expansion(
+// CHECK:         cir.brcond %{{.*}} ^[[THEN:bb[0-9]+]], ^[[ELSE:bb[0-9]+]]
+// CHECK:       ^[[THEN]]:
+// CHECK-NEXT:    cir.br ^[[END:bb[0-9]+]]
+// CHECK:       ^[[ELSE]]:
+// CHECK:         %[[W:.*]] = cir.alloca "w"
+// CHECK:         cir.br ^[[CLEANUP:bb[0-9]+]]
+// CHECK:       ^[[CLEANUP]]:
+// CHECK:         cir.call @dtor(%[[W]])
+// CHECK:         cir.br ^[[AFTER_CLEANUP:bb[0-9]+]]
+// CHECK:       ^[[AFTER_CLEANUP]]:
+// CHECK:         cir.br ^[[END]]
+// CHECK:       ^[[END]]:
+// CHECK:         cir.br ^[[RET:bb[0-9]+]]
+// CHECK:       ^[[RET]]:
+// CHECK:         cir.return

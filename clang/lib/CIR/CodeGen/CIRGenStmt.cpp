@@ -465,11 +465,14 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   case Stmt::ObjCAtCatchStmtClass:
   case Stmt::ObjCAtFinallyStmtClass:
   case Stmt::DeferStmtClass:
-  case Stmt::CXXExpansionStmtPatternClass:
-  case Stmt::CXXExpansionStmtInstantiationClass:
     cgm.errorNYI(s->getSourceRange(),
                  std::string("emitStmt: ") + s->getStmtClassName());
     return mlir::failure();
+  case Stmt::CXXExpansionStmtPatternClass:
+    llvm_unreachable("unexpanded expansion statements should not be emitted");
+  case Stmt::CXXExpansionStmtInstantiationClass:
+    return emitCXXExpansionStmtInstantiation(
+        cast<CXXExpansionStmtInstantiation>(*s));
   case Stmt::CapturedStmtClass:
     llvm_unreachable("CapturedStmt must be handled by the parent directive");
   }
@@ -775,7 +778,22 @@ CIRGenFunction::emitIndirectGotoStmt(const IndirectGotoStmt &s) {
 
 mlir::LogicalResult
 CIRGenFunction::emitContinueStmt(const clang::ContinueStmt &s) {
-  builder.createContinue(getLoc(s.getKwLoc()));
+  mlir::Location loc = getLoc(s.getKwLoc());
+  // A 'continue' may bind to an enclosing expansion statement
+  // ('template for') rather than a CIR loop op; lower it to a goto of the
+  // synthesized label for the next instantiation then. Entries with
+  // 'bindsContinue == false' (switches) are skipped.
+  const FlowControlTarget *target = nullptr;
+  for (const FlowControlTarget &t : llvm::reverse(flowControlTargets)) {
+    if (t.bindsContinue) {
+      target = &t;
+      break;
+    }
+  }
+  if (target && !target->continueLabel.empty())
+    cir::GotoOp::create(builder, loc, target->continueLabel);
+  else
+    builder.createContinue(loc);
 
   // Insert the new block to continue codegen after the continue statement.
   builder.createBlock(builder.getBlock()->getParent());
@@ -807,7 +825,15 @@ mlir::LogicalResult CIRGenFunction::emitLabel(const clang::LabelDecl &d) {
 }
 
 mlir::LogicalResult CIRGenFunction::emitBreakStmt(const clang::BreakStmt &s) {
-  builder.createBreak(getLoc(s.getKwLoc()));
+  mlir::Location loc = getLoc(s.getKwLoc());
+  // A 'break' may bind to an enclosing expansion statement ('template for')
+  // rather than a CIR loop or switch op; lower it to a goto of the
+  // synthesized exit label then.
+  if (!flowControlTargets.empty() &&
+      !flowControlTargets.back().breakLabel.empty())
+    cir::GotoOp::create(builder, loc, flowControlTargets.back().breakLabel);
+  else
+    builder.createBreak(loc);
 
   // Insert the new block to continue codegen after the break statement.
   builder.createBlock(builder.getBlock()->getParent());
@@ -958,6 +984,7 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
 
   // TODO(cir): pass in array of attributes.
   auto forStmtBuilder = [&]() -> mlir::LogicalResult {
+    FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
     // Evaluate the first pieces before the loop.
     if (s.getInit())
@@ -1024,11 +1051,92 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
   return mlir::success();
 }
 
+void CIRGenFunction::emitExpansionLabel(llvm::StringRef name,
+                                        mlir::Location loc) {
+  // Create a new block to tag with the label and add a branch from the
+  // current one to it. If the current block is empty just attach the label
+  // to it. (Same structure as emitLabel, but for synthesized label names
+  // rather than clang::LabelDecls.)
+  mlir::Block *currBlock = builder.getBlock();
+  mlir::Block *labelBlock = currBlock;
+  if (!currBlock->empty() || currBlock->isEntryBlock()) {
+    {
+      mlir::OpBuilder::InsertionGuard guard(builder);
+      labelBlock = builder.createBlock(builder.getBlock()->getParent());
+    }
+    cir::BrOp::create(builder, loc, labelBlock);
+  }
+
+  builder.setInsertionPointToEnd(labelBlock);
+  cir::LabelOp::create(builder, loc, name);
+}
+
+mlir::LogicalResult CIRGenFunction::emitCXXExpansionStmtInstantiation(
+    const CXXExpansionStmtInstantiation &s) {
+  mlir::LogicalResult res = mlir::success();
+  cir::ScopeOp::create(builder, getLoc(s.getSourceRange()),
+                       /*scopeBuilder=*/
+                       [&](mlir::OpBuilder &b, mlir::Location loc) {
+                         LexicalScope lexScope{*this, loc,
+                                               builder.getInsertionBlock()};
+
+                         // The preamble statements run once before the
+                         // expansions; 'break'/'continue' inside them bind
+                         // to enclosing constructs, not to the expansion.
+                         for (const Stmt *pre : s.getPreambleStmts())
+                           if (emitStmt(pre, /*useCurrentScope=*/true)
+                                   .failed())
+                             res = mlir::failure();
+
+                         llvm::ArrayRef<Stmt *> insts = s.getInstantiations();
+                         if (res.failed() || insts.empty())
+                           return;
+
+                         // 'break' exits the expansion entirely; 'continue'
+                         // in the n-th instantiation transfers control to
+                         // the (n+1)-th one. Since an expansion is not a
+                         // loop-like CIR op that 'cir.break'/'cir.continue'
+                         // could bind to, these are emitted as gotos of
+                         // synthesized labels that GotoSolver resolves after
+                         // FlattenCFG has merged all regions.
+                         unsigned id = expansionLabelId++;
+                         std::string endLabel =
+                             ("cir.expand." + Twine(id) + ".end").str();
+                         auto contLabel = [&](unsigned n) {
+                           return ("cir.expand." + Twine(id) + ".cont." +
+                                   Twine(n))
+                               .str();
+                         };
+
+                         for (unsigned n = 0; n < insts.size(); ++n) {
+                           // Mark the entry of this instantiation; this is
+                           // where 'continue' in the previous one lands.
+                           if (n > 0)
+                             emitExpansionLabel(
+                                 contLabel(n),
+                                 getLoc(insts[n]->getBeginLoc()));
+
+                           RunCleanupsScope expansionScope{*this};
+                           FlowControlTargetScope target{
+                               *this, endLabel,
+                               n + 1 < insts.size() ? contLabel(n + 1)
+                                                    : endLabel};
+                           if (emitStmt(insts[n], /*useCurrentScope=*/false)
+                                   .failed())
+                             res = mlir::failure();
+                         }
+
+                         emitExpansionLabel(endLabel, getLoc(s.getEndLoc()));
+                       });
+  return res;
+}
+
 mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   cir::ForOp forOp;
 
   // TODO: pass in an array of attributes.
   auto forStmtBuilder = [&]() -> mlir::LogicalResult {
+    FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
     // Evaluate the first part before the loop.
     if (s.getInit())
@@ -1119,6 +1227,7 @@ mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s) {
 
   // TODO: pass in array of attributes.
   auto doStmtBuilder = [&]() -> mlir::LogicalResult {
+    FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
     assert(!cir::MissingFeatures::loopInfoStack());
 
@@ -1166,6 +1275,7 @@ mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s) {
 
   // TODO: pass in array of attributes.
   auto whileStmtBuilder = [&]() -> mlir::LogicalResult {
+    FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
     assert(!cir::MissingFeatures::loopInfoStack());
 
@@ -1311,6 +1421,8 @@ mlir::LogicalResult CIRGenFunction::emitSwitchStmt(const clang::SwitchStmt &s) {
 
   SwitchOp swop;
   auto switchStmtBuilder = [&]() -> mlir::LogicalResult {
+    // 'continue' does not bind to a switch, so it is not claimed here.
+    FlowControlTargetScope targetScope{*this, "", "", /*bindsContinue=*/false};
     if (s.getInit())
       if (emitStmt(s.getInit(), /*useCurrentScope=*/true).failed())
         return mlir::failure();

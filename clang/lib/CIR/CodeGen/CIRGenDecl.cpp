@@ -995,10 +995,17 @@ void CIRGenFunction::emitDecl(const Decl &d, bool evaluateConditionDecl) {
       emitVariablyModifiedType(ty);
     return;
   }
+  case Decl::CXXExpansionStmt: {
+    const auto *esd = cast<CXXExpansionStmtDecl>(&d);
+    assert(esd->getInstantiations() && "expansion statement not expanded?");
+    static_cast<void>(emitStmt(esd->getInstantiations(),
+                               /*useCurrentScope=*/true));
+    return;
+  }
+
   case Decl::ImplicitConceptSpecialization:
   case Decl::TopLevelStmt:
   case Decl::UsingPack:
-  case Decl::CXXExpansionStmt:
     cgm.errorNYI(d.getSourceRange(),
                  std::string("emitDecl: unhandled decl type: ") +
                      d.getDeclKindName());

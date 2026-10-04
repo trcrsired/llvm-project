@@ -310,6 +310,47 @@ public:
   /// The type of the condition for the emitting switch statement.
   llvm::SmallVector<mlir::Type, 2> condTypeStack;
 
+  /// Tracks what 'break' and 'continue' statements bind to while emitting
+  /// statements. Entries for ordinary loops and switches have empty label
+  /// names so that 'emitBreakStmt'/'emitContinueStmt' emit the usual
+  /// 'cir.break'/'cir.continue' ops, which FlattenCFG binds to the enclosing
+  /// breakable op. Expansion statements ('template for') are not backed by a
+  /// single loop-like CIR op, so 'break'/'continue' that bind to one are
+  /// instead lowered to 'cir.goto' of synthesized 'cir.label's, which are
+  /// resolved once FlattenCFG has merged all regions (see GotoSolver).
+  struct FlowControlTarget {
+    /// Label to 'cir.goto' for 'break'; empty means emit 'cir.break'.
+    std::string breakLabel;
+    /// Label to 'cir.goto' for 'continue'; empty means emit 'cir.continue'.
+    /// Only meaningful when 'bindsContinue' is true.
+    std::string continueLabel;
+    /// Whether 'continue' binds to this construct; false for 'switch'.
+    bool bindsContinue = true;
+  };
+  llvm::SmallVector<FlowControlTarget, 4> flowControlTargets;
+
+  /// Uniquifies the synthesized labels used for expansion statements within
+  /// a function.
+  unsigned expansionLabelId = 0;
+
+  /// Pushes a 'FlowControlTarget' on 'flowControlTargets' for the duration
+  /// of the emission of a loop, switch, or expansion-statement
+  /// instantiation.
+  class FlowControlTargetScope {
+    CIRGenFunction &cgf;
+
+  public:
+    FlowControlTargetScope(CIRGenFunction &cgf, std::string breakLabel = "",
+                           std::string continueLabel = "",
+                           bool bindsContinue = true)
+        : cgf(cgf) {
+      cgf.flowControlTargets.push_back({std::move(breakLabel),
+                                        std::move(continueLabel),
+                                        bindsContinue});
+    }
+    ~FlowControlTargetScope() { cgf.flowControlTargets.pop_back(); }
+  };
+
   clang::ASTContext &getContext() const { return cgm.getASTContext(); }
 
   CIRGenBuilderTy &getBuilder() { return builder; }
@@ -2073,6 +2114,15 @@ public:
                                mlir::Value thisVal, QualType thisTy,
                                mlir::Value implicitParam,
                                QualType implicitParamTy, const CallExpr *e);
+
+  mlir::LogicalResult emitCXXExpansionStmtInstantiation(
+      const clang::CXXExpansionStmtInstantiation &s);
+
+  /// Emits a 'cir.label' marker with the given name at the current insertion
+  /// point, branching to it from the current block if needed. Used for the
+  /// synthesized labels that expansion statements lower 'break'/'continue'
+  /// to.
+  void emitExpansionLabel(llvm::StringRef name, mlir::Location loc);
 
   mlir::LogicalResult emitCXXForRangeStmt(const CXXForRangeStmt &s,
                                           llvm::ArrayRef<const Attr *> attrs);

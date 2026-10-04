@@ -21,6 +21,7 @@
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/Support/SaveAndRestore.h"
 
 using namespace clang;
 
@@ -659,9 +660,23 @@ Sema::ComputeExpansionSize(CXXExpansionStmtPattern *Expansion) {
     DeclareBeginEnd.setLocation(Loc);
     DeclareBeginEnd.setAnnotationEndLoc(Loc);
 
-    // Build the lambda.
-    ExprResult Call = TokenInjectionHandler->ParseAsExpression(
-        R"c++(
+    // This may run during a template instantiation that was triggered while
+    // sema was checking an unrelated templated declaration; in that case
+    // 'CurScope' still belongs to that declaration and can contain a
+    // template-parameter scope that has nothing to do with this expansion
+    // statement. That stray template-parameter scope would cause the lambda
+    // parsed below to be considered dependent, which would leave the 'auto'
+    // return type of its 'operator()' undeduced, making the call
+    // type-dependent and this computation fail. Skip any template-parameter
+    // scopes in the current scope chain.
+    ExprResult Call;
+    {
+      Scope *S = CurScope;
+      while (S->getTemplateParamParent())
+        S = S->getParent();
+      SaveAndRestore<Scope *> _(CurScope, S);
+      Call = TokenInjectionHandler->ParseAsExpression(
+          R"c++(
         [&] consteval {
            __PTRDIFF_TYPE__ __result = 0;
            __expansion_stmt_declare_begin_end __begin __end
@@ -669,10 +684,11 @@ Sema::ComputeExpansionSize(CXXExpansionStmtPattern *Expansion) {
            return __result;
         }()
       )c++",
-        {
-            {"__expansion_stmt_declare_begin_end", DeclareBeginEnd},
-        },
-        Loc);
+          {
+              {"__expansion_stmt_declare_begin_end", DeclareBeginEnd},
+          },
+          Loc);
+    }
     if (Call.isInvalid() || Call.get()->isTypeDependent())
       return std::nullopt;
 

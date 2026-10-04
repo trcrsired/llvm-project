@@ -176,7 +176,8 @@ features cannot lower the translation-unit ABI level;
   and deprecate `memory_order::consume`) by removing support for the
   `[[carries_dependency]]` attribute.
 
-- Clang now supports iterating expansion statements.
+- Clang now supports iterating expansion statements, which isc part of [P1306R5](https://wg21.link/P1306R5) Expansion Statements. This
+  means that all three types of expansion statements (enumerating, iterating, and destructuring) are now supported.
 
 #### C++23 Feature Support
 
