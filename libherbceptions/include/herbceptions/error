@@ -533,8 +533,8 @@ namespace std {
 // evaluation — the constexpr evaluator intercepts the call and fabricates
 // a unique opaque domain; at runtime it resolves to the real
 // __cxa_error_domain_posix() singleton.
-constexpr auto error::release() noexcept -> cxx_std_error {
-  cxx_std_error __ec{__domain_opaque, __code_opaque};
+constexpr auto error::release() noexcept -> ::std::cxx_std_error {
+  ::std::cxx_std_error __ec{__domain_opaque, __code_opaque};
   __domain_opaque = ::std::error_domain<::std::errc>::domain();
   __code_opaque = 0;
 #if __has_cpp_attribute(assume)
