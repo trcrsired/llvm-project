@@ -8838,9 +8838,9 @@ def err_return_failure_only_free_function : Error<
   "'return_failure{...}' is a C-style feature and may only be attached to free "
   "(non-member) functions; it is not allowed on member functions (including "
   "static members), lambdas, or function templates">;
-def err_throws_not_allowed_in_coroutine : Error<
-  "'throws' is not allowed on coroutine functions; all herbceptions must be "
-  "caught within the coroutine body">;
+def err_coroutine_throws_requires_unhandled_herbception : Error<
+  "'throws' coroutine requires member 'unhandled_herbception' in promise "
+  "type %0">;
 def err_herbceptions_domain_nullptr : Error<
   "std::error_domain<T>::domain() must not return nullptr; the fabricated "
   "std::error dereferences the domain pointer">;

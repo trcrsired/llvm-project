@@ -717,17 +717,10 @@ bool Sema::ActOnCoroutineBodyStart(Scope *SC, SourceLocation KWLoc,
     }
   }
 
-  // Herbception `throws` is not allowed on coroutine functions. All
-  // herbceptions must be caught within the coroutine body.
-  if (getLangOpts().HerbExceptions && getLangOpts().CPlusPlus) {
-    if (const FunctionDecl *Fn = dyn_cast_or_null<FunctionDecl>(CurContext)) {
-      if (const auto *FPT = Fn->getType()->getAs<FunctionProtoType>();
-          FPT && FPT->hasBasicThrowsSpec()) {
-        Diag(KWLoc, diag::err_throws_not_allowed_in_coroutine);
-        const_cast<FunctionDecl *>(Fn)->setInvalidDecl();
-      }
-    }
-  }
+  // Herbception `throws` is allowed on coroutine functions: ramp-phase
+  // failures propagate to the caller through the channel, and herbception
+  // errors escaping the body are delivered to
+  // promise.unhandled_herbception (see CoroutineStmtBuilder::makeOnHerbception).
 
   // Support for coroutines is not stable on 32 bits windows
   // Warn about it.
@@ -1842,6 +1835,14 @@ bool CoroutineStmtBuilder::makeOnException() {
   assert(!IsPromiseDependentType &&
          "cannot make statement while the promise type is dependent");
 
+  // A `throws` coroutine does not use the legacy-EH body handler: both
+  // herbception errors and auto-converted legacy exceptions escaping the
+  // body are delivered to promise.unhandled_herbception instead.
+  if (S.getLangOpts().HerbExceptions)
+    if (const auto *FPT = FD.getType()->getAs<FunctionProtoType>();
+        FPT && FPT->hasBasicThrowsSpec())
+      return makeOnHerbception();
+
   const bool RequireUnhandledException = S.getLangOpts().CXXExceptions;
 
   if (!lookupMember(S, "unhandled_exception", PromiseRecordDecl, Loc)) {
@@ -1877,6 +1878,56 @@ bool CoroutineStmtBuilder::makeOnException() {
   }
 
   this->OnException = UnhandledException.get();
+  return true;
+}
+
+bool CoroutineStmtBuilder::makeOnHerbception() {
+  // A `throws` coroutine requires promise.unhandled_herbception: the hook
+  // that receives the {domain, code} pair of any herbception error or
+  // auto-converted legacy exception escaping the coroutine body.
+  assert(!IsPromiseDependentType &&
+         "cannot make statement while the promise type is dependent");
+
+  if (!lookupMember(S, "unhandled_herbception", PromiseRecordDecl, Loc)) {
+    S.Diag(Loc, diag::err_coroutine_throws_requires_unhandled_herbception)
+        << PromiseRecordDecl;
+    S.Diag(PromiseRecordDecl->getLocation(), diag::note_defined_here)
+        << PromiseRecordDecl;
+    return false;
+  }
+
+  // The handler is a synthesized `catch throws(__cxx_std_error e) {`
+  // `__promise.unhandled_herbception(e); }` around the coroutine body:
+  // the raw {domain, code} pair is passed through, so no std::error object
+  // (and its destructor) is ever materialized. A legacy C++ exception
+  // escaping the body is converted to the pair through the exception-ptr
+  // domain and reaches the same hook; a user-provided unhandled_exception
+  // is ignored in this mode.
+  QualType ErrTy = S.Context.getBuiltinCXXStdErrorType();
+  auto *VD = VarDecl::Create(
+      S.Context, &FD, Loc, Loc, &S.PP.getIdentifierTable().get("__error"),
+      ErrTy, S.Context.getTrivialTypeSourceInfo(ErrTy, Loc), SC_None);
+  VD->setImplicit();
+
+  ExprResult ERef = S.BuildDeclRefExpr(VD, ErrTy, VK_LValue, Loc);
+  if (ERef.isInvalid())
+    return false;
+
+  Expr *Arg = ERef.get();
+  ExprResult Call = buildPromiseCall(S, Fn.CoroutinePromise, Loc,
+                                     "unhandled_herbception", Arg);
+  if (Call.isInvalid())
+    return false;
+  Call = S.ActOnFinishFullExpr(Call.get(), Loc, /*DiscardedValue=*/false);
+  if (Call.isInvalid())
+    return false;
+
+  Stmt *HandlerBlock = CompoundStmt::Create(S.Context, Call.get(),
+                                          FPOptionsOverride(), Loc, Loc);
+  ExprResult Conv = S.BuildCxaExceptionErrorValue(Loc);
+  this->OnHerbception = new (S.Context) CXXCatchThrowsStmt(
+      Loc, Loc, VD, HandlerBlock,
+      /*LegacyErrorValue=*/Conv.isInvalid() ? nullptr : Conv.get());
   return true;
 }
 
