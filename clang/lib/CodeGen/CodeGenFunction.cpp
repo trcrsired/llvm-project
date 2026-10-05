@@ -1282,6 +1282,15 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       ReturnValue =
           CreateDefaultAlignTempAlloca(CurFnInfo->getHerbceptionErrorType(),
                                        "retval");
+      // In a coroutine, keep the return slot on the stack (not in the
+      // coroutine frame). The ramp writes the GRO result / error value into
+      // it and reads it back for the {T, i1} return; the resumable body never
+      // touches it (body errors go through the catch handler).
+      if (auto *Alloca =
+              dyn_cast<llvm::AllocaInst>(ReturnValue.getBasePointer()))
+        Alloca->setMetadata(
+            llvm::LLVMContext::MD_coro_outside_frame,
+            llvm::MDNode::get(CGM.getLLVMContext(), {}));
       // Herbception (throws): create a slot for the discriminant (the i1 of
       // the {T, i1} return). A plain `return` stores false; `throw throws` /
       // failure stores true. The epilogue reads it back.
@@ -1370,6 +1379,13 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       if (auto *ST = dyn_cast<llvm::StructType>(PayloadTy))
         PayloadTy = ST->getElementType(0);
       ReturnValue = CreateDefaultAlignTempAlloca(PayloadTy, "retval");
+      // In a coroutine, keep the return slot on the stack (not in the
+      // coroutine frame), alongside the discriminant.
+      if (auto *Alloca =
+              dyn_cast<llvm::AllocaInst>(ReturnValue.getBasePointer()))
+        Alloca->setMetadata(
+            llvm::LLVMContext::MD_coro_outside_frame,
+            llvm::MDNode::get(CGM.getLLVMContext(), {}));
     } else {
       ReturnValue = CreateIRTempWithoutCast(RetTy, "retval");
     }

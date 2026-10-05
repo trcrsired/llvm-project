@@ -1070,6 +1070,24 @@ void CodeGenFunction::EmitCoroutineBody(const CoroutineBodyStmt &S) {
       if (ContBB)
         EmitBlock(ContBB);
     }
+    else if (S.getHerbceptionHandler()) {
+      // `throws` coroutine: wrap the body in a `catch throws` handler so
+      // herbception errors (and auto-converted legacy exceptions) escaping
+      // the body are delivered to promise.unhandled_herbception, then the
+      // coroutine proceeds to final_suspend.
+      auto Loc = S.getBeginLoc();
+      auto *BodyCS = dyn_cast<CompoundStmt>(S.getBody());
+      if (!BodyCS)
+        BodyCS = CompoundStmt::Create(getContext(), S.getBody(),
+                                      FPOptionsOverride(), Loc, Loc);
+      Stmt *Handlers[] = {S.getHerbceptionHandler()};
+      auto *TryStmt =
+          CXXTryStmt::Create(getContext(), Loc, BodyCS, Handlers);
+      EmitCXXTryStmt(*TryStmt);
+      if (Builder.GetInsertBlock())
+        if (Stmt *OnFallthrough = S.getFallthroughHandler())
+          EmitStmt(OnFallthrough);
+    }
     else {
       emitBodyAndFallthrough(*this, S, S.getBody());
     }

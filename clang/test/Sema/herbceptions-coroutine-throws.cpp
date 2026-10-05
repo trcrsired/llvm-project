@@ -1,7 +1,11 @@
 // RUN: %clang_cc1 -std=c++20 -fherbceptions -fsyntax-only -verify %s
 
-// Coroutines must not use 'throws': all herbceptions must be caught within
-// the coroutine body.
+// A coroutine may declare 'throws': herbception errors escaping the body are
+// delivered to promise_type::unhandled_herbception(__cxx_std_error), and
+// ramp-phase failures propagate to the caller through the channel. The
+// promise must declare unhandled_herbception; unhandled_exception is optional
+// in that mode. A coroutine without 'throws' still requires
+// unhandled_exception().
 
 namespace std {
 template <typename... T> struct coroutine_traits;
@@ -22,12 +26,14 @@ struct suspend_never {
 };
 } // namespace std
 
+// promise with both hooks
 struct Task {
   struct promise_type {
     Task get_return_object() { return {}; }
     std::suspend_never initial_suspend() { return {}; }
     std::suspend_never final_suspend() noexcept { return {}; }
     void return_void() {}
+    void unhandled_herbception(__cxx_std_error) noexcept {}
     void unhandled_exception() {}
   };
 };
@@ -37,7 +43,59 @@ struct std::coroutine_traits<Task, int> {
   using promise_type = Task::promise_type;
 };
 
-// expected-error@+2 {{'throws' is not allowed on coroutine functions; all herbceptions must be caught within the coroutine body}}
+// promise with only unhandled_herbception: unhandled_exception is not
+// required for a 'throws' coroutine.
+struct TaskHerbOnly {
+  // expected-note@+1 {{'promise_type' defined here}}
+  struct promise_type {
+    TaskHerbOnly get_return_object() { return {}; }
+    std::suspend_never initial_suspend() { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void return_void() {}
+    void unhandled_herbception(__cxx_std_error) noexcept {}
+  };
+};
+
+template <>
+struct std::coroutine_traits<TaskHerbOnly, int> {
+  using promise_type = TaskHerbOnly::promise_type;
+};
+
+// promise without unhandled_herbception: usable only for non-'throws'
+// coroutines.
+struct TaskNoHook {
+  // expected-note@+1 {{'promise_type' defined here}}
+  struct promise_type {
+    TaskNoHook get_return_object() { return {}; }
+    std::suspend_never initial_suspend() { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void return_void() {}
+    void unhandled_exception() {}
+  };
+};
+
+template <>
+struct std::coroutine_traits<TaskNoHook, int> {
+  using promise_type = TaskNoHook::promise_type;
+};
+
+// 'throws' coroutine: OK when the promise declares unhandled_herbception.
 Task make_task(int x) throws {
+  co_return;
+}
+
+// 'throws' coroutine: unhandled_exception is not required.
+TaskHerbOnly make_task_herb_only(int x) throws {
+  co_return;
+}
+
+// expected-error@+1 {{'throws' coroutine requires member 'unhandled_herbception' in promise type}}
+TaskNoHook make_task_no_hook(int x) throws {
+  co_return;
+}
+
+// A non-'throws' coroutine still requires unhandled_exception().
+// expected-error@+1 {{'promise_type' is required to declare the member 'unhandled_exception()'}}
+TaskHerbOnly make_task_plain(int x) {
   co_return;
 }
