@@ -1,7 +1,8 @@
 // RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
 
-// Coroutines must not use 'throws'. This test verifies that a non-throws
-// coroutine still compiles correctly with -fherbceptions.
+// A non-throws coroutine still compiles with -fherbceptions, and a 'throws'
+// coroutine wraps its body so that an escaping herbception is delivered to
+// promise.unhandled_herbception(__cxx_std_error).
 // Self-contained: defines coroutine machinery manually.
 
 namespace std {
@@ -50,6 +51,36 @@ struct std::coroutine_traits<Task, int> {
 // CHECK: define{{.*}} @_Z9make_taski
 // CHECK: coroutine
 Task make_task(int x) {
+  co_return;
+}
+
+// 'throws' coroutine: the body is wrapped in a catch-throws handler so an
+// escaping error reaches promise.unhandled_herbception, and the return
+// union/discriminant stay on the ramp's stack (coro.outside.frame).
+struct HerbTask {
+  struct promise_type {
+    __cxx_std_error error{};
+    HerbTask get_return_object() { return {}; }
+    std::suspend_never initial_suspend() { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void return_void() {}
+    void unhandled_herbception(__cxx_std_error e) noexcept { error = e; }
+    void unhandled_exception() {}
+  };
+};
+
+template <>
+struct std::coroutine_traits<HerbTask, int> {
+  using promise_type = HerbTask::promise_type;
+};
+
+extern void some_throws() throws;
+
+// CHECK: define {{.*}} @_Z9herb_taskDri
+// CHECK: coro.outside.frame
+// CHECK: unhandled_herbception
+HerbTask herb_task(int x) throws {
+  some_throws();
   co_return;
 }
 
