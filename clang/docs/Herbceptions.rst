@@ -259,8 +259,8 @@ Restrictions
 * ``throws`` is only available in C++.
 * ``return_failure{E}`` is a C-style feature restricted to **free functions**: member
   functions, lambdas, and coroutines cannot declare it.
-* ``throws`` is **not allowed on coroutine declarations**; every herbception
-  must be caught within the coroutine body.
+* ``return_failure{E}`` is not allowed on coroutine declarations; a
+  coroutine may only declare ``throws``.
 * Destructors cannot be declared with a herbception specification.
 * Deallocation functions (``operator delete``/``operator delete[]``)
   cannot be declared with a herbception specification: they run on
@@ -775,9 +775,8 @@ constant evaluation:
 Coroutines
 ----------
 
-Today, coroutines cannot declare ``throws`` or ``return_failure{...}``; all
-herbceptions must be caught within the coroutine body. The planned model —
-not yet implemented — mirrors ``unhandled_exception``:
+A coroutine may declare ``throws`` (but not ``return_failure{...}``). The
+model mirrors ``unhandled_exception``:
 
 * A coroutine declared ``throws`` propagates *ramp-phase* failures —
   parameter copies, promise construction, and ``initial_suspend`` — to the
@@ -793,7 +792,8 @@ not yet implemented — mirrors ``unhandled_exception``:
   exactly as in a non-``throws`` function.
 * A legacy C++ exception escaping a ``throws`` coroutine body converts to
   a herbception error and also reaches ``unhandled_herbception``; a
-  user-provided ``unhandled_exception`` is ignored in that mode.
+  user-provided ``unhandled_exception`` is optional and is ignored in that
+  mode.
 
 Feature-test macros
 -------------------
