@@ -1006,6 +1006,12 @@ void coro::BaseCloner::create() {
     // original function.  This should include optimization settings and so on.
     NewAttrs = NewAttrs.addFnAttributes(
         Context, AttrBuilder(Context, OrigAttrs.getFnAttrs()));
+    // The split functions use the coroutine resume-function ABI — plain
+    // void(frame*) — and are never 'throws' themselves: herbception
+    // errors leave the body through the promise, not the return
+    // discriminant.  Keeping 'throws' would also mismatch the musttail
+    // symmetric-transfer calls emitted into these functions.
+    NewAttrs = NewAttrs.removeFnAttribute(Context, Attribute::Throws);
 
     addFramePointerAttrs(NewAttrs, Context, 0, Shape.FrameSize,
                          Shape.FrameAlign, /*NoAlias=*/false);
@@ -1029,6 +1035,10 @@ void coro::BaseCloner::create() {
     // Transfer the original function's attributes.
     auto FnAttrs = OrigF.getAttributes().getFnAttrs();
     NewAttrs = NewAttrs.addFnAttributes(Context, AttrBuilder(Context, FnAttrs));
+    // Same as for Switch: async continuation functions are plain
+    // resume functions and must not be 'throws' (their musttail calls
+    // carry no 'throws' call-site attribute).
+    NewAttrs = NewAttrs.removeFnAttribute(Context, Attribute::Throws);
     break;
   }
   case coro::ABI::Retcon:
