@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++20 -fherbceptions -fsyntax-only -verify %s
+// RUN: %clang_cc1 -std=c++20 -fherbceptions -fcxx-exceptions -fsyntax-only -verify %s
 
 // A coroutine may declare 'throws': herbception errors escaping the body are
 // delivered to promise_type::unhandled_herbception(__cxx_std_error), and
