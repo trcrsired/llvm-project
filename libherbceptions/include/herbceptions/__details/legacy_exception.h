@@ -25,8 +25,6 @@ __cxa_error_query_information_create so clone/free are safe across module
 boundaries), keeping what() noexcept and allocation-free.
 */
 
-#if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
-
 /*
 P3068 (C++26 constexpr exceptions) makes std::exception's members constexpr,
 which is the precondition for marking our virtual what()/destructor the
@@ -292,4 +290,3 @@ public:
 
 #undef __HERBCEPTIONS_CONSTEXPR_EXCEPTION
 
-#endif // _LIBHERBCEPTIONS_CPP_EXCEPTIONS
