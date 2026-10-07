@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-linux-gnu -std=c++26 -fherbceptions -fclangir -emit-llvm -discard-value-names -o - %s | FileCheck %s --check-prefix=CIR
 
 // A bare call to a `throws` function inside a `try { } catch throws(...)`
 // block that is itself inside a `throws` function must route the error to the
@@ -40,6 +41,10 @@ void bar() throws {
 // CHECK-SAME: ; preds = %try.err
 // CHECK: store %"struct.std::error" %{{.*}}, ptr %e, align 8
 // CHECK: br label %herb.try.cont
+// CIR: define dso_local { { ptr, i64 }, i8 } @_Z8test_barDrv()
+// CIR: {{call|invoke}} { { ptr, i64 }, i8 } @_Z3barDrv()
+// CIR: br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
+// CIR: store %"struct.std::error" %{{.*}}, ptr %{{.*}}, align 8
 
 void test_bar() throws try {
   bar();

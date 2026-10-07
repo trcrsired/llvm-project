@@ -623,6 +623,20 @@ mlir::LogicalResult ItaniumEHLowering::lowerEhInitiate(
                                   cir::CastKind::bitcast, callOp.getResult());
         op.getExnPtr().replaceAllUsesWith(castResult);
         op.erase();
+      } else if (auto op = mlir::dyn_cast<cir::EhExceptionPtrOp>(user)) {
+        // Yields the raw exception pointer itself (e.g. the Itanium
+        // `__cxa_exception` pointer), without beginning the catch.
+        auto [exnPtr, typeId] = ehTokenMap.lookup(op.getEhToken());
+        mlir::Value castResult = exnPtr;
+        mlir::Type expectedPtrType = op.getExceptionPtr().getType();
+        if (castResult.getType() != expectedPtrType) {
+          builder.setInsertionPoint(op);
+          castResult =
+              cir::CastOp::create(builder, op.getLoc(), expectedPtrType,
+                                  cir::CastKind::bitcast, exnPtr);
+        }
+        op.getExceptionPtr().replaceAllUsesWith(castResult);
+        op.erase();
       } else if (auto op = mlir::dyn_cast<cir::ConstructCatchParamOp>(user)) {
         auto [exnPtr, typeId] = ehTokenMap.lookup(op.getEhToken());
         if (mlir::failed(lowerConstructCatchParam(op, exnPtr)))

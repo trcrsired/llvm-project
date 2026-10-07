@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=ITANIUM
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -fclangir -emit-llvm -o - %s | FileCheck %s --check-prefix=CIR
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -emit-llvm -o - %s | FileCheck %s --check-prefix=MSVC
 // RUN: %if webassembly-registered-target %{ %clang_cc1 -triple wasm32-unknown-unknown -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -exception-model=wasm -emit-llvm -o - %s | FileCheck %s --check-prefix=WASM %}
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++26 -fherbceptions -fcxx-exceptions -fexceptions -exception-model=sjlj -emit-llvm -o - %s | FileCheck %s --check-prefix=SJLJ
@@ -38,6 +39,15 @@ extern "C" void *__cxa_error_domain_itanium_exception_ptr() noexcept;
 // ITANIUM: br label {{%herb\.legacy\.convert|%[0-9]+}}
 // ITANIUM: {{catch\.throws|[0-9]+}}:
 // ITANIUM: call void @_ZNSt5errorD1Ev(ptr {{.*}} {{%e|%[0-9]+}})
+
+// CIR-LABEL: define dso_local void @_Z3barv() #{{[0-9]+}} personality ptr @__gxx_personality_v0 {
+// CIR: invoke void @_Z3foov()
+// CIR: landingpad { ptr, i32 }
+// CIR:         catch ptr null
+// CIR-NOT: @__cxa_begin_catch
+// CIR: call ptr @__cxa_error_domain_itanium_exception_ptr()
+// CIR: call {{.*}}i64 @__cxa_error_code_itanium_exception_ptr(i64 noundef 1, ptr noundef %{{.*}}, ptr noundef null, ptr noundef null)
+// CIR: call void @_ZNSt5errorD1Ev(ptr
 void bar() {
   try {
     foo();
