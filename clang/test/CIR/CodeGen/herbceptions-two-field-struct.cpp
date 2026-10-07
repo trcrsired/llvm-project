@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++26 -fherbceptions -fexceptions -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-linux-gnu -std=c++26 -fherbceptions -fclangir -emit-llvm -o - %s | FileCheck %s --check-prefix=CIR
 
 // A genuine two-field struct return (e.g. an iovec-style status like
 // {size_t, size_t}) must not be mistaken for a throws call returning {T, i1}.
@@ -22,6 +23,10 @@ struct two_field_status {
 // CHECK: extractvalue { i64, i64 } %call, 0
 // CHECK: extractvalue { i64, i64 } %call, 1
 // CHECK: ret void
+// CIR-LABEL: define dso_local void @_Z6calleev()
+// CIR: call { i64, i64 } @_Z13two_field_funv()
+// CIR-NOT: br i1
+// CIR: ret void
 two_field_status two_field_fun();
 
 void callee() noexcept {

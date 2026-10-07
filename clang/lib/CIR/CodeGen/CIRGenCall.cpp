@@ -19,6 +19,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Attributes.h"
 #include "clang/Basic/DiagnosticFrontend.h"
+#include "clang/Basic/DiagnosticSema.h"
 #include "clang/CIR/ABIArgInfo.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/CodeGenUtils/CallUtils.h"
@@ -366,7 +367,13 @@ void CIRGenModule::constructAttributeList(
     attrs.set(name, mlir::UnitAttr::get(&getMLIRContext()));
   };
 
-  if (info.isNoReturn())
+  // Herbception `throws` functions return through the normal path with an
+  // error value, so they must not be marked noreturn in the IR even if the
+  // C++ declaration carries [[noreturn]]. The frontend still uses the
+  // [[noreturn]] attribute for diagnostics (ensuring every code path either
+  // throws or loops), but the IR must see a normal return so the error
+  // value can propagate.
+  if (info.isNoReturn() && !info.hasThrowsReturn())
     addUnitAttr(cir::CIRDialect::getNoReturnAttrName());
 
   // Herbception (throws): mark functions and call sites returning {T, i1} so
@@ -396,7 +403,7 @@ void CIRGenModule::constructAttributeList(
     // declarator, which ObjCMethodDecl seems to be the only way to get this to
     // happen.  We're including it here for completeness, but we should add a
     // test for this when we start generating ObjectiveC.
-    if (targetDecl->hasAttr<NoReturnAttr>())
+    if (targetDecl->hasAttr<NoReturnAttr>() && !info.hasThrowsReturn())
       addUnitAttr(cir::CIRDialect::getNoReturnAttrName());
     if (targetDecl->hasAttr<ReturnsTwiceAttr>())
       addUnitAttr(cir::CIRDialect::getReturnsTwiceAttrName());
@@ -423,7 +430,10 @@ void CIRGenModule::constructAttributeList(
       // Don't use [[noreturn]], _Noreturn or [[no_builtin]] for a call to a
       // virtual function. These attributes are not inherited by overloads.
       if (!(attrOnCallSite && isVirtualCall)) {
-        if (func->isNoReturn())
+        // Herbception `throws` functions return through the normal path with
+        // an error value, so they must not be marked noreturn at call sites
+        // even if the C++ declaration carries [[noreturn]].
+        if (func->isNoReturn() && !info.hasThrowsReturn())
           addUnitAttr(cir::CIRDialect::getNoReturnAttrName());
         nba = func->getAttr<NoBuiltinAttr>();
       }
@@ -1615,8 +1625,10 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
       // Continue emitting the success path after the conditional.
       builder.setInsertionPointAfter(routeIf);
     } else if (const auto *curFD = dyn_cast_or_null<FunctionDecl>(curFuncDecl);
-               curFD && curFD->isMain()) {
-      // main() traps on a propagating error.
+               curFD && curFD->isMain() && !herbceptionNoCatchTryDepth) {
+      // main() traps on a propagating error — unless the call sits inside a
+      // try whose handlers are all legacy `catch` clauses, in which case no
+      // `catch throws` can consume the error and the call is ill-formed.
       cir::IfOp trapIf = cir::IfOp::create(
           builder, loc, disc,
           /*withElseRegion=*/false,
@@ -1656,7 +1668,12 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
             });
         builder.setInsertionPointAfter(propIf);
       } else {
-        cgm.errorNYI(loc, "herbception error escaping a noexcept function");
+        // A bare throws call escaping a function that cannot propagate the
+        // error. Sema rejects most contexts but defers try bodies to
+        // CodeGen, so report the user-facing diagnostic here (as classic
+        // codegen does) rather than an internal NYI.
+        cgm.getDiags().Report(clangLoc.getBegin(),
+                              diag::err_herbceptions_non_throws_call_throws);
       }
     }
 

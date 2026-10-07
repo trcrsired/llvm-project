@@ -9224,6 +9224,34 @@ def CIR_BeginCatchOp : CIR_Op<"begin_catch"> {
 }
 
 //===----------------------------------------------------------------------===//
+// EH Operations: EhExceptionPtrOp
+//===----------------------------------------------------------------------===//
+
+def CIR_EhExceptionPtrOp : CIR_Op<"eh.get_exception_ptr"> {
+  let summary = "Get the raw in-flight exception pointer";
+  let description = [{
+    `cir.eh.get_exception_ptr` returns the raw exception pointer of the
+    in-flight exception represented by the `!cir.eh_token` operand. Unlike
+    `cir.begin_catch`, it does not mark the exception as caught: the
+    runtime exception object is left unclaimed. This is used when the
+    caught exception is consumed by a conversion rather than a normal
+    catch handler -- e.g. the herbception legacy-exception conversion,
+    which passes the raw `__cxa_exception` pointer to
+    `__cxa_error_code_*_exception_ptr`.
+  }];
+
+  let arguments = (ins CIR_EhTokenType:$eh_token);
+  let results = (outs CIR_PointerType:$exception_ptr);
+
+  let assemblyFormat = [{
+    $eh_token `:` type($eh_token) `->` qualified(type($exception_ptr))
+      attr-dict
+  }];
+
+  let hasLLVMLowering = false;
+}
+
+//===----------------------------------------------------------------------===//
 // EH Operations: EndCatchOp
 //===----------------------------------------------------------------------===//
 

@@ -1,4 +1,5 @@
 // RUN: %clang -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-linux-gnu -std=c++26 -fherbceptions -fclangir -emit-llvm -discard-value-names -o - %s | FileCheck %s --check-prefix=CIR
 
 // Herbception `catch return_failure(expr)`: the throws call returns {T, i1}, and the
 // expression builds the N2289 aggregate
@@ -6,9 +7,11 @@
 // with .failed = discriminant and .value/.error sourced from the payload slot.
 
 // CHECK: %struct.__herb_catch_fails = type { %union.anon, i8 }
+// CIR: %struct.__herb_catch_fails = type { %union.anon{{.*}}, i8 }
 
 // A return_failure{int} function returns {i32, i1} with the 'throws' attribute.
 // CHECK: define dso_local { i32, i1 } @_Z3barDEiEi(i32 noundef %0) #[[ATTR:[0-9]+]]
+// CIR: define dso_local { i32, i8 } @_Z3barDEiEi(i32 noundef %0) #[[CIRATTR:[0-9]+]]
 int bar(int x) return_failure{int} {
   if (x < 0) return_failure x;
   return x + 1;
@@ -17,6 +20,13 @@ int bar(int x) return_failure{int} {
 // catch return_failure(bar(x)) extracts the discriminant and builds the aggregate.
 // CHECK-LABEL: define dso_local noundef i32 @_Z3fooi(i32 noundef %0)
 // CHECK:         %{{.*}} = call { i32, i1 } @_Z3barDEiEi
+// CIR-LABEL: define dso_local noundef i32 @_Z3fooi(i32 noundef %0)
+// CIR:         %{{.*}} = call { i32, i8 } @_Z3barDEiEi
+// CIR:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 1
+// CIR:         zext i1 %{{.*}} to i8
+// CIR:         store i8 %{{.*}}, ptr %{{.*}}
+// CIR:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 0
+// CIR:         store i32 %{{.*}}, ptr %{{.*}}
 // CHECK:         %[[VAL:.*]] = extractvalue { i32, i1 } %{{.*}}, 0
 // CHECK:         %[[DISC:.*]] = extractvalue { i32, i1 } %{{.*}}, 1
 // CHECK:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 1
@@ -30,3 +40,4 @@ int foo(int x) {
 }
 
 // CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }
+// CIR: attributes #[[CIRATTR]] = { {{.*}}throws{{.*}} }
