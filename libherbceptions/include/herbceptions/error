@@ -58,10 +58,52 @@ and the do_to_errc signature use the standard std::errc type.
 // for ::std::exception (base of cxx_std_error_legacy_exception) and
 // ::std::terminate (the no-EH throw_legacy_exception fallback)
 #include <exception>
-// for ::std::type_info (the *_exception_ptr_cast ABI parameters). Cannot
-// be forward-declared: MSVC STL puts type_info in the global namespace and
-// imports it into std via a using-declaration.
+// for ::std::type_info (produced by the typeid in exception_cast_std_error).
+// Cannot be forward-declared: MSVC STL puts type_info in the global
+// namespace and imports it into std via a using-declaration.
 #include <typeinfo>
+
+/*
+Feature detection. Plain MSVC defines __cpp_rtti/__cpp_exceptions even when
+the switches are off, so there the STL's _HAS_RTTI/_HAS_EXCEPTIONS settings
+are the real signal; clang's __cpp_* spellings are already accurate on every
+target (including clang-cl).
+*/
+#pragma push_macro("_LIBHERBCEPTIONS_CPP_RTTI")
+#undef _LIBHERBCEPTIONS_CPP_RTTI
+#if defined(_MSC_VER) && !defined(__clang__)
+#if __cpp_rtti >= 199711L && _HAS_RTTI
+#define _LIBHERBCEPTIONS_CPP_RTTI
+#endif
+#else
+#if __cpp_rtti >= 199711L
+#define _LIBHERBCEPTIONS_CPP_RTTI
+#endif
+#endif
+
+#pragma push_macro("_LIBHERBCEPTIONS_CPP_EXCEPTIONS")
+#undef _LIBHERBCEPTIONS_CPP_EXCEPTIONS
+#if defined(_MSC_VER) && !defined(__clang__)
+#if __cpp_exceptions >= 199711L && _HAS_EXCEPTIONS
+#define _LIBHERBCEPTIONS_CPP_EXCEPTIONS
+#endif
+#else
+#if __cpp_exceptions >= 199711L
+#define _LIBHERBCEPTIONS_CPP_EXCEPTIONS
+#endif
+#endif
+
+/*
+std::exception_ptr is a library, not language, feature: it exists
+unconditionally on libstdc++ and libc++ even under -fno-exceptions, and only
+the MSVC STL removes it (with the rest of the EH machinery) under
+_HAS_EXCEPTIONS=0.
+*/
+#pragma push_macro("_LIBHERBCEPTIONS_STL_EXCEPTION_PTR")
+#undef _LIBHERBCEPTIONS_STL_EXCEPTION_PTR
+#if !defined(_MSVC_STL_UPDATE) || _HAS_EXCEPTIONS
+#define _LIBHERBCEPTIONS_STL_EXCEPTION_PTR
+#endif
 
 namespace std {
 
@@ -219,7 +261,7 @@ public:
   // boxes the {domain, code} pair into std::cxx_std_error_legacy_exception,
   // which must be complete first.
   [[noreturn]] void throw_legacy_exception() const
-#if defined(__cpp_exceptions)
+#if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
       ;
 #else
   {
@@ -233,7 +275,7 @@ public:
   // — and when the unwind edge provably folds back onto the channel, no
   // exception object is materialized at all.
   [[noreturn]] void throw_legacy_exception_no_what() const
-#if defined(__cpp_exceptions)
+#if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
       ;
 #else
   {
@@ -341,14 +383,14 @@ __cxa_error_domain_msvc_exception_ptr() noexcept;
 __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_msvc_exception_ptr(::std::size_t, void const *,
                                     void const *) noexcept;
-#if defined(__cpp_exceptions)
 // dynamic_cast-style probe on the boxed exception without rethrowing it:
-// __code must belong to the msvc exception_ptr domain. Matches the thrown
-// object's catchable types by decorated RTTI name and returns the adjusted
-// subobject pointer for *__ti; nullptr when there is no match.
+// __code must belong to the msvc exception_ptr domain and __ti must point
+// at the type_info of the requested type. Matches the thrown object's
+// catchable types by decorated RTTI name and returns the adjusted subobject
+// pointer for *__ti; nullptr when there is no match.
 __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
     ::std::error_domain_singleton const *__domain, ::std::size_t __code,
-    ::std::type_info const *__ti) noexcept;
+    void const *__ti) noexcept;
 // Copies a boxed exception code into the caller's std::exception_ptr
 // storage (__epstorage must point to sizeof(std::exception_ptr) bytes),
 // retaining the reference. __code must belong to the msvc exception_ptr
@@ -356,7 +398,6 @@ __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
 __HERBCEPTIONS_API_ALLOC void
 __cxa_error_code_msvc_exception_ptr_unbox(void *__epstorage,
                                           ::std::size_t __code) noexcept;
-#endif
 #else
 __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_itanium_exception_ptr() noexcept;
@@ -368,15 +409,14 @@ __cxa_error_domain_itanium_exception_ptr() noexcept;
 __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_itanium_exception_ptr(::std::size_t, void *, void *,
                                        void *) noexcept;
-#if defined(__cpp_exceptions)
 // dynamic_cast-style probe on the boxed exception without rethrowing it:
-// __code must belong to the itanium exception_ptr domain. Runs the
-// runtime's own catch matcher (__do_catch) against *__ti and returns the
-// adjusted subobject pointer; nullptr when there is no match.
+// __code must belong to the itanium exception_ptr domain and __ti must
+// point at the type_info of the requested type. Runs the runtime's own
+// catch matcher (__do_catch) against *__ti and returns the adjusted
+// subobject pointer; nullptr when there is no match.
 __HERBCEPTIONS_API void *__cxa_error_code_itanium_exception_ptr_cast(
     ::std::error_domain_singleton const *__domain, ::std::size_t __code,
-    ::std::type_info const *__ti) noexcept;
-#endif
+    void const *__ti) noexcept;
 #endif
 
 } // extern "C"
@@ -616,7 +656,7 @@ constexpr auto error::release() noexcept -> ::std::cxx_std_error {
 }
 #endif
 
-#if defined(__cpp_exceptions)
+#if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
 // Defined here, after __details/legacy_exception.h, because the fallback
 // throw needs the complete cxx_std_error_legacy_exception type.
 inline void error::throw_legacy_exception() const {

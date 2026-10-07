@@ -642,7 +642,7 @@ __cxa_error_domain_itanium_exception_ptr() noexcept {
 
 extern "C" __HERBCEPTIONS_API void *__cxa_error_code_itanium_exception_ptr_cast(
     ::std::error_domain_singleton const *__domain, ::std::size_t __cd,
-    ::std::type_info const *__ti) noexcept {
+    void const *__ti) noexcept {
   if (__domain != __builtin_addressof(
                       ::std::error_domains::itanium_exception_ptr_domain) ||
       __cd == 0 || __ti == nullptr) {
@@ -652,7 +652,8 @@ extern "C" __HERBCEPTIONS_API void *__cxa_error_code_itanium_exception_ptr_cast(
   void *subobj{};
   if (!::std::error_domains::itanium_cxa_try_catch(
           itanium_cxa_exception_from_thrown_object(thrown)->exceptionType,
-          thrown, *__ti, __builtin_addressof(subobj))) {
+          thrown, *static_cast<::std::type_info const *>(__ti),
+          __builtin_addressof(subobj))) {
     return nullptr;
   }
   return subobj;
