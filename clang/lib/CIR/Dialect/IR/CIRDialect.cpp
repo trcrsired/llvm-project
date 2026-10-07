@@ -5067,6 +5067,17 @@ LogicalResult cir::TryOp::verify() {
       continue;
     }
 
+    // A catch-all region that consumes the exception without beginning the
+    // catch -- e.g. the herbception legacy-exception conversion, which reads
+    // the raw exception pointer and fabricates a std::error out of it --
+    // starts with cir.eh.get_exception_ptr instead of cir.begin_catch.
+    if (mlir::isa<cir::EhExceptionPtrOp>(entryBlock.front())) {
+      if (!mlir::isa<cir::CatchAllAttr>(typeAttr))
+        return emitOpError("'cir.eh.get_exception_ptr' is only allowed in a "
+                           "catch-all handler region");
+      continue;
+    }
+
     // Nothing may run in a catch handler before cir.begin_catch, so it has to
     // be the handler region's first operation, with two exceptions.
     //

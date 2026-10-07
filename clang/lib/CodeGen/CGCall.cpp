@@ -2971,7 +2971,10 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
       FuncAttrs.addAttribute(llvm::Attribute::ReturnsTwice);
     if (TargetDecl->hasAttr<NoThrowAttr>())
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
-    if (TargetDecl->hasAttr<NoReturnAttr>())
+    // Herbception `throws` functions return through the normal path with an
+    // error value, so they must not be marked noreturn even if the
+    // declaration carries _Noreturn / __attribute__((noreturn)).
+    if (TargetDecl->hasAttr<NoReturnAttr>() && !FI.hasThrowsReturn())
       FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
     if (TargetDecl->hasAttr<ColdAttr>())
       FuncAttrs.addAttribute(llvm::Attribute::Cold);
@@ -4588,7 +4591,10 @@ llvm::Value *CodeGenFunction::EmitCMSEClearRecord(llvm::Value *Src,
 void CodeGenFunction::EmitFunctionEpilog(
     const CGFunctionInfo &FI, bool EmitRetDbgLoc, SourceLocation EndLoc,
     uint64_t RetKeyInstructionsSourceAtom) {
-  if (FI.isNoReturn()) {
+  // Herbception `throws` functions physically return the {T, i1} error pair,
+  // so a `noreturn` function type must still emit the ordinary return epilog;
+  // treating it as never-returning would drop the error value on the floor.
+  if (FI.isNoReturn() && !FI.hasThrowsReturn()) {
     // Noreturn functions don't return.
     EmitUnreachable(EndLoc);
     return;
