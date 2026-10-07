@@ -42,20 +42,26 @@ and the do_to_errc signature use the standard std::errc type.
 #include <cstdint>
 #include <type_traits>
 // for ::std::errc
-// avoid include system_error as much as we can to reduce compile time
-#if !defined(__cpp_exceptions) && defined(_LIBCPP_VERSION) &&                  \
-    __has_include(<__system_error/errc.h>)
+// avoid include system_error as much as we can to reduce compile time; the
+// legacy-EH fallback is std::cxx_std_error_legacy_exception, which only
+// needs <exception> on top of the errc enum.
+#if defined(_LIBCPP_VERSION) && __has_include(<__system_error/errc.h>)
 #include <__system_error/errc.h>
 #include <cerrno>
-#elif !defined(__cpp_exceptions) && defined(__GLIBCXX__) &&                    \
-    __has_include(<bits/error_constants.h>)
+#elif defined(__GLIBCXX__) && __has_include(<bits/error_constants.h>)
 #include <bits/error_constants.h>
-#elif !defined(__cpp_exceptions) && defined(_MSVC_STL_UPDATE) &&               \
-    __has_include(<xerrc.h>)
+#elif defined(_MSVC_STL_UPDATE) && __has_include(<xerrc.h>)
 #include <xerrc.h>
 #else
 #include <system_error>
 #endif
+// for ::std::exception (base of cxx_std_error_legacy_exception) and
+// ::std::terminate (the no-EH throw_legacy_exception fallback)
+#include <exception>
+// for ::std::type_info (the *_exception_ptr_cast ABI parameters). Cannot
+// be forward-declared: MSVC STL puts type_info in the global namespace and
+// imports it into std via a using-declaration.
+#include <typeinfo>
 
 namespace std {
 
@@ -209,22 +215,30 @@ public:
     return __domain_opaque->do_to_errc(__code_opaque);
   }
 
+  // Defined out-of-line after __details/legacy_exception.h: the fallback
+  // boxes the {domain, code} pair into std::cxx_std_error_legacy_exception,
+  // which must be complete first.
   [[noreturn]] void throw_legacy_exception() const
 #if defined(__cpp_exceptions)
-  {
-    auto __dothrow{__domain_opaque->do_throw_legacy_exception};
-    if (__dothrow) {
-      // If the function returns then the EH was not thrown for whatever
-      // reason; fall back to a generic error below.
-      __dothrow(static_cast<::std::size_t>(this->code()),
-                ::std::legacy_exception_abi::platform);
-    }
-    // EH throw failed by the domain vtable. throw a generic error by errc
-    throw ::std::system_error(static_cast<int>(this->to_errc()),
-                              ::std::generic_category());
-  }
+      ;
 #else
-      = delete; // exception throw disabled
+  {
+    // P1105R0: with exceptions disabled, a throw terminates instead of
+    // being ill-formed.
+    ::std::terminate();
+  }
+#endif
+  // Faster sibling: the boxed fallback skips the do_query_information
+  // message query (its what() is empty), so the throw site never allocates
+  // — and when the unwind edge provably folds back onto the channel, no
+  // exception object is materialized at all.
+  [[noreturn]] void throw_legacy_exception_no_what() const
+#if defined(__cpp_exceptions)
+      ;
+#else
+  {
+    ::std::terminate();
+  }
 #endif
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
@@ -254,7 +268,9 @@ static_assert(alignof(::std::error) == alignof(void *),
 
 namespace error_domains {
 #pragma push_macro("__HERBCEPTIONS_API")
+#pragma push_macro("__HERBCEPTIONS_API_ALLOC")
 #undef __HERBCEPTIONS_API
+#undef __HERBCEPTIONS_API_ALLOC
 #include "__details/macros_guard.h"
 extern "C" {
 __HERBCEPTIONS_API
@@ -281,6 +297,30 @@ __HERBCEPTIONS_API
 __HERBCEPTIONS_API
 ::std::error_domain_singleton const *__cxa_error_domain_http() noexcept;
 
+/*
+Legacy-EH boxing support: __cxa_error_query_information_* back the cached
+what() buffer of ::std::cxx_std_error_legacy_exception. create() drives the
+domain's do_query_information hook and returns a freshly allocated,
+NUL-terminated scatter (the NUL pad covers every supported encoding); clone()
+duplicates such a buffer; free() releases it. The buffer lives inside the
+runtime's allocator so clone/free stay correct across module/CRT
+boundaries.
+*/
+__HERBCEPTIONS_API_ALLOC
+::std::io_scatter_t __cxa_error_query_information_create(
+    ::std::error_domain_singleton const *__domain, ::std::size_t __code,
+    ::std::error_reporter_encoding __encoding,
+    ::std::error_query_information __info) noexcept;
+
+__HERBCEPTIONS_API_ALLOC
+::std::io_scatter_t
+__cxa_error_query_information_clone(void const *__base,
+                                    ::std::size_t __len) noexcept;
+
+__HERBCEPTIONS_API_ALLOC
+void __cxa_error_query_information_free(void const *__base,
+                                        ::std::size_t __len) noexcept;
+
 } // extern "C"
 
 // Values for the first (flags) parameter of
@@ -301,6 +341,22 @@ __cxa_error_domain_msvc_exception_ptr() noexcept;
 __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_msvc_exception_ptr(::std::size_t, void const *,
                                     void const *) noexcept;
+#if defined(__cpp_exceptions)
+// dynamic_cast-style probe on the boxed exception without rethrowing it:
+// __code must belong to the msvc exception_ptr domain. Matches the thrown
+// object's catchable types by decorated RTTI name and returns the adjusted
+// subobject pointer for *__ti; nullptr when there is no match.
+__HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
+    ::std::error_domain_singleton const *__domain, ::std::size_t __code,
+    ::std::type_info const *__ti) noexcept;
+// Copies a boxed exception code into the caller's std::exception_ptr
+// storage (__epstorage must point to sizeof(std::exception_ptr) bytes),
+// retaining the reference. __code must belong to the msvc exception_ptr
+// domain.
+__HERBCEPTIONS_API void
+__cxa_error_code_msvc_exception_ptr_unbox(void *__epstorage,
+                                          ::std::size_t __code) noexcept;
+#endif
 #else
 __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_itanium_exception_ptr() noexcept;
@@ -312,10 +368,21 @@ __cxa_error_domain_itanium_exception_ptr() noexcept;
 __HERBCEPTIONS_API ::std::size_t
 __cxa_error_code_itanium_exception_ptr(::std::size_t, void *, void *,
                                        void *) noexcept;
+#if defined(__cpp_exceptions)
+// dynamic_cast-style probe on the boxed exception without rethrowing it:
+// __code must belong to the itanium exception_ptr domain. Runs the
+// runtime's own catch matcher (__do_catch) against *__ti and returns the
+// adjusted subobject pointer; nullptr when there is no match.
+__HERBCEPTIONS_API void *__cxa_error_code_itanium_exception_ptr_cast(
+    ::std::error_domain_singleton const *__domain, ::std::size_t __code,
+    ::std::type_info const *__ti) noexcept;
+#endif
 #endif
 
 } // extern "C"
 #undef __HERBCEPTIONS_API
+#undef __HERBCEPTIONS_API_ALLOC
+#pragma pop_macro("__HERBCEPTIONS_API_ALLOC")
 #pragma pop_macro("__HERBCEPTIONS_API")
 } // namespace error_domains
 
@@ -513,6 +580,7 @@ struct has_herbceptions_throws_move_assign
 #include "__details/cmath_errc.h"
 #include "__details/exception_ptr.h"
 #include "__details/http.h"
+#include "__details/legacy_exception.h"
 #include "__details/parse.h"
 #include "__details/posix.h"
 
@@ -545,6 +613,41 @@ constexpr auto error::release() noexcept -> ::std::cxx_std_error {
   }
 #endif
   return __ec;
+}
+#endif
+
+#if defined(__cpp_exceptions)
+// Defined here, after __details/legacy_exception.h, because the fallback
+// throw needs the complete cxx_std_error_legacy_exception type.
+inline void error::throw_legacy_exception() const {
+  auto __dothrow{__domain_opaque->do_throw_legacy_exception};
+  if (__dothrow) {
+    // If the function returns then the EH was not thrown for whatever
+    // reason; fall back to boxing the {domain, code} pair below.
+    __dothrow(static_cast<::std::size_t>(this->code()),
+              ::std::legacy_exception_abi::platform);
+  }
+  // The std::error in the catch clause keeps ownership of its code and
+  // runs do_cleanup while the box unwinds past it, so the box borrows the
+  // pair (original-domain message, posix-demoted payload) instead of
+  // taking ownership.
+  throw ::std::cxx_std_error_legacy_exception(
+      ::std::cxx_std_error_legacy_exception::__borrowed_t{}, __domain_opaque,
+      static_cast<::std::size_t>(__code_opaque), true /*__query_what_message*/);
+}
+
+// Same control flow as throw_legacy_exception(), but the boxed fallback
+// skips the message query: no do_query_information calls, no allocation.
+inline void error::throw_legacy_exception_no_what() const {
+  auto __dothrow{__domain_opaque->do_throw_legacy_exception};
+  if (__dothrow) {
+    __dothrow(static_cast<::std::size_t>(this->code()),
+              ::std::legacy_exception_abi::platform);
+  }
+  throw ::std::cxx_std_error_legacy_exception(
+      ::std::cxx_std_error_legacy_exception::__borrowed_t{}, __domain_opaque,
+      static_cast<::std::size_t>(__code_opaque),
+      false /*__query_what_message*/);
 }
 #endif
 } // namespace std

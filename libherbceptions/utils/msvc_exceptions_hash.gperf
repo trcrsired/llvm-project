@@ -13,6 +13,7 @@ enum class msvc_exception_kind {
     msvc_overflow_error,
     msvc_underflow_error,
     msvc_bad_alloc,
+    msvc_cxx_std_error_legacy_exception,
 };
 %}
 
@@ -41,5 +42,6 @@ struct msvc_exception_entry {
 .?AVoverflow_error@std@@, msvc_exception_kind::msvc_overflow_error
 .?AVunderflow_error@std@@, msvc_exception_kind::msvc_underflow_error
 .?AVbad_alloc@std@@, msvc_exception_kind::msvc_bad_alloc
+.?AVcxx_std_error_legacy_exception@std@@, msvc_exception_kind::msvc_cxx_std_error_legacy_exception
 %%
 

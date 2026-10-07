@@ -41,6 +41,7 @@ set(LIBHERBCEPTIONS_SOURCES
   src/parse.cpp
   src/cmath_errc.cpp
   src/http_errc.cpp
+  src/query_information.cpp
   src/itanium_exception_ptr.cpp
   src/msvc_exception_ptr.cpp
   src/win32.cpp
