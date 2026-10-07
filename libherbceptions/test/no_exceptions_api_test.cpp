@@ -19,8 +19,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <herbceptions/error>
 #include <exception>
+#include <herbceptions/error>
 #include <typeinfo>
 
 struct api_base {
