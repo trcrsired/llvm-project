@@ -256,15 +256,31 @@ itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
   return static_cast<itanium_cxa_exception *>(thrown_object) - 1;
 }
 
+// The two Itanium C++ ABI libraries disagree about where referenceCount
+// lives inside the (otherwise binary-compatible) header that precedes
+// the thrown object: libc++abi keeps a `reserve` word first so
+// referenceCount sits at offset 8; libstdc++ puts its _Atomic_word
+// referenceCount at offset 0 (an int). The unwindHeader vendor stamp
+// picks the slot; callers abort on the foreign flavor before reaching
+// here.
+inline bool itanium_cxa_exception_is_gcc(itanium_cxa_exception *hdr) noexcept {
+  return classify_itanium_cxa_eh(&hdr->unwindHeader) ==
+         itanium_cxa_eh_flavor::gcc;
+}
+
 inline void
 __itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
-  __atomic_add_fetch(__builtin_addressof(
-                         itanium_cxa_exception_from_thrown_object(thrown_object)
-                             ->referenceCount),
-                     1u, __ATOMIC_SEQ_CST);
+  auto *hdr{itanium_cxa_exception_from_thrown_object(thrown_object)};
+  if (itanium_cxa_exception_is_gcc(hdr)) {
+    __atomic_add_fetch(reinterpret_cast<unsigned int *>(hdr), 1u,
+                       __ATOMIC_SEQ_CST);
+  } else {
+    __atomic_add_fetch(__builtin_addressof(hdr->referenceCount), 1u,
+                       __ATOMIC_SEQ_CST);
+  }
 }
 
 inline void
@@ -274,9 +290,17 @@ __itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   }
   auto exception_header{
       itanium_cxa_exception_from_thrown_object(thrown_object)};
-  size_t &referenceCount{exception_header->referenceCount};
-  if (!__atomic_add_fetch(__builtin_addressof(referenceCount),
-                          static_cast<::std::size_t>(-1), __ATOMIC_SEQ_CST)) {
+  bool zero;
+  if (itanium_cxa_exception_is_gcc(exception_header)) {
+    zero =
+        !__atomic_add_fetch(reinterpret_cast<unsigned int *>(exception_header),
+                            static_cast<unsigned int>(-1), __ATOMIC_SEQ_CST);
+  } else {
+    zero = !__atomic_add_fetch(
+        __builtin_addressof(exception_header->referenceCount),
+        static_cast<::std::size_t>(-1), __ATOMIC_SEQ_CST);
+  }
+  if (zero) {
     if (nullptr != exception_header->exceptionDestructor)
       exception_header->exceptionDestructor(thrown_object);
     ::__cxxabiv1::__cxa_free_exception(thrown_object);
@@ -405,8 +429,12 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
   void *thrown{static_cast<void *>(uh + 1)};
   if ((uh->exception_class & ~cxa_eh_vendor_mask) != 0) {
     // Dependent exception: the code names the primary's thrown object.
-    thrown = (static_cast<itanium_cxa_dependent_exception *>(thrown) - 1)
-                 ->primaryException;
+    // The dependent header carries primaryException first under GNUCC++
+    // (a 112-byte header, object at offset 112) or behind a reserve word
+    // under CLNGC++ (128-byte header, object at offset 128).
+    thrown = *(
+        static_cast<void **>(thrown) -
+        (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc ? 14 : 15));
   }
 #if defined(_LIBCPPABI_VERSION) || defined(__GLIBCXX__)
   // The conversion catches the exception without __cxa_begin_catch; retire
@@ -415,5 +443,13 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
   reinterpret_cast<itanium_cxa_eh_globals *>(::__cxxabiv1::__cxa_get_globals())
       ->uncaughtExceptions -= 1;
 #endif
+  // The code owns exactly one reference, which do_cleanup releases when
+  // the channel error dies. GNUCC++ counts the in-flight reference in
+  // referenceCount already — the code adopts it. CLNGC++ does not, so the
+  // reference has to be taken explicitly or the object would be freed
+  // under the code (and a dangling one on any refcount==0 cleanup).
+  if (classify_itanium_cxa_eh(uh) != itanium_cxa_eh_flavor::gcc) {
+    __itanium_cxa_increment_exception_refcount(thrown);
+  }
   return reinterpret_cast<::std::size_t>(thrown);
 }
