@@ -3368,6 +3368,10 @@ void CodeGenFunction::EmitAArch64MultiVersionResolver(
   llvm::BasicBlock *CurBlock = createBasicBlock("resolver_entry", Resolver);
 
   for (const FMVResolverOption &RO : Options) {
+    // Skip unreachable versions.
+    if (RO.Function == nullptr)
+      continue;
+
     Builder.SetInsertPoint(CurBlock);
     llvm::Value *Condition = FormAArch64ResolverCondition(RO);
 
@@ -3384,10 +3388,6 @@ void CodeGenFunction::EmitAArch64MultiVersionResolver(
       AArch64CpuInitialized = true;
       Builder.SetInsertPoint(CurBlock);
     }
-
-    // Skip unreachable versions.
-    if (RO.Function == nullptr)
-      continue;
 
     llvm::BasicBlock *RetBlock = createBasicBlock("resolver_return", Resolver);
     CGBuilderTy RetBuilder(CGM, RetBlock);
