@@ -52,7 +52,7 @@ public:
 template <typename __T>
   requires(::std::is_pointer_v<__T>)
 [[nodiscard]] inline __T
-exception_ptr_cast_from_std_error(::std::error const &__e) noexcept {
+exception_cast_std_error(::std::error const &__e) noexcept {
 #ifdef _MSC_VER
   return static_cast<__T>(
       ::std::error_domains::__cxa_error_code_msvc_exception_ptr_cast(

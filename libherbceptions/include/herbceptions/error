@@ -353,7 +353,7 @@ __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
 // storage (__epstorage must point to sizeof(std::exception_ptr) bytes),
 // retaining the reference. __code must belong to the msvc exception_ptr
 // domain.
-__HERBCEPTIONS_API void
+__HERBCEPTIONS_API_ALLOC void
 __cxa_error_code_msvc_exception_ptr_unbox(void *__epstorage,
                                           ::std::size_t __code) noexcept;
 #endif

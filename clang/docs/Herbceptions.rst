@@ -10,8 +10,9 @@ Herbceptions
 .. note::
 
    This is an **experimental** extension under active development. The
-   implementation is incomplete, the ABI is not stable, and the design may
-   change. Enable it with ``-fherbceptions``.
+   implementation is incomplete and the design may change. Enable it with
+   ``-fherbceptions``. See `ABI stability`_ for binary-compatibility
+   caveats.
 
    This document is the user guide. For the Clang/LLVM internals -- the
    ``{T, i1}`` lowering, per-target discriminant conventions, legacy-EH
@@ -746,7 +747,7 @@ Two helpers expose the boxed exception without paying for a rethrow:
 
    // dynamic_cast-style probe over the boxed object: returns a borrowed
    // pointer to the adjusted subobject, or nullptr. Pointer targets only.
-   if (auto const *se = std::exception_ptr_cast_from_std_error<
+   if (auto const *se = std::exception_cast_std_error<
                           std::system_error const *>(e))
      ...
 
@@ -774,20 +775,29 @@ The box preserves the payload in both directions:
 .. code-block:: cpp
 
    // inside a wrapper whose own callers expect legacy exceptions:
-   try {
-     io_call();                    // a throws function
-   } catch throws(std::error e) {
-     e.throw_legacy_exception_no_what();
-     // hops over the legacy boundary carrying {domain, code} and no
-     // message allocation; the outer code catches it as any exception.
+   void legacy_facing_wrapper() {   // a plain function — no throws channel
+     try {
+       io_call();                    // a throws function
+     } catch throws(std::error e) {
+       e.throw_legacy_exception_no_what();
+       // hops over the legacy boundary carrying {domain, code} and no
+       // message allocation; the outer code catches it as any exception.
+     }
    }
 
    // back on the channel:
-   try {
-     legacy_facing_wrapper();
-   } catch throws(std::error e) {
-     // the same {domain, code} arrives here through the exception-pointer
-     // domain, fully equivalent to the original error.
+   void on_channel() throws {
+     try {
+       legacy_facing_wrapper();
+     } catch throws(std::error e) {
+       // Did our own box come back? Probe without rethrowing.
+       if (auto *le = std::exception_cast_std_error<
+                          std::cxx_std_error_legacy_exception *>(e)) {
+         // le carries the original {domain, code} verbatim.
+         le->rethrow_herbception_if_error();
+       }
+       throw throws; // a foreign legacy exception: keep propagating
+     }
    }
 
 Choose between the two throw entry points by whether the legacy side can
@@ -819,15 +829,15 @@ reflight:
 
 .. code-block:: cpp
 
-   auto *box = std::exception_ptr_cast_from_std_error<
-       std::cxx_std_error_legacy_exception const *>(e);
+   auto *box = std::exception_cast_std_error<
+       std::cxx_std_error_legacy_exception *>(e);
    if (box != nullptr)
      // e's payload is a legacy box: inspect domain()/code() directly.
 
    // Or any other legacy type — e.g. extract a boxed std::system_error
    // without unwinding:
    if (auto const *se =
-         std::exception_ptr_cast_from_std_error<std::system_error const *>(e))
+         std::exception_cast_std_error<std::system_error const *>(e))
      handle(se->code());
 
 And when a callee genuinely needs a ``std::exception_ptr`` (STL storage or
@@ -1202,15 +1212,15 @@ MSVC-named one (``LIBHERBCEPTIONS_NO_LIB_PREFIX``), with the GNU-style
 names provided only as link-time conveniences. Ship one DLL; do not
 install both names where a mixed process could load each.
 
-Known limitations
-=================
+ABI stability
+=============
 
-* The ABI is experimental and not stable across compiler versions.
-* ``FastISel`` falls back to SelectionDAG for ``throws`` calls, so some
-  ``-O0`` paths are slightly slower than they would otherwise be.
-* Legacy C++ exception conversion depends on the ``libherbceptions``
-  runtime ABI symbols baked into the compiler; the linker hard-errors if
-  ``libherbceptions`` is not linked.
+The ABI is experimental and not stable across compiler versions: the
+``{T, i1}`` lowering, the ``__cxx_std_error`` record layout, the
+discriminant conventions and the ``libherbceptions`` ``__cxa_*`` entry
+points may all change without notice. Rebuild the whole program
+(application and library) with the same toolchain, and ship the matching
+``libherbceptions`` runtime — the linker hard-errors if it is missing.
 
 Related work
 ============

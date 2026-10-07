@@ -23,6 +23,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <system_error>
 
 static int failures = 0;
@@ -54,6 +55,49 @@ static void legacy_relay() throws {
   }
 }
 
+// The doc's bridge pattern: a plain (non-throws) wrapper forwards a channel
+// error through legacy EH; a throws function probes the result for our box
+// and puts the payload back on the channel.
+static void io_call() throws {
+  throw throws::std::errc::device_or_resource_busy;
+}
+
+static void legacy_facing_wrapper() {
+  try {
+    io_call();
+  } catch throws(::std::error e) {
+    e.throw_legacy_exception_no_what();
+  }
+}
+
+static void on_channel() throws {
+  try {
+    legacy_facing_wrapper();
+  } catch throws(::std::error e) {
+    if (auto *le{::std::exception_cast_std_error<
+            ::std::cxx_std_error_legacy_exception *>(e)}) {
+      le->rethrow_herbception_if_error();
+    }
+    throw throws;
+  }
+}
+
+// A foreign legacy exception escapes into the same handler: not our box,
+// so the channel error propagates unchanged.
+static void foreign_facing() { throw ::std::runtime_error("boom"); }
+
+static void on_channel_foreign() throws {
+  try {
+    foreign_facing();
+  } catch throws(::std::error e) {
+    if (auto *le{::std::exception_cast_std_error<
+            ::std::cxx_std_error_legacy_exception *>(e)}) {
+      le->rethrow_herbception_if_error();
+    }
+    throw throws;
+  }
+}
+
 int main() {
   // Fallback path: posix has no do_throw_legacy_exception, so the error is
   // boxed into std::cxx_std_error_legacy_exception carrying the {domain,
@@ -64,7 +108,7 @@ int main() {
   } catch throws(::std::error e) {
     // Not an exception_ptr code — the probe returns nullptr and
     // make_exception_ptr yields an empty exception_ptr.
-    CHECK(::std::exception_ptr_cast_from_std_error<
+    CHECK(::std::exception_cast_std_error<
               ::std::cxx_std_error_legacy_exception const *>(e) == nullptr);
     CHECK(::std::make_exception_ptr_from_std_error(e) == nullptr);
     try {
@@ -115,18 +159,17 @@ int main() {
     CHECK(e.to_errc() == ::std::errc::no_such_file_or_directory);
     // The generic probe reaches the boxed object without rethrowing:
     // exact type, public base, and a negative match.
-    if (auto const *se{::std::exception_ptr_cast_from_std_error<
-            ::std::system_error const *>(e)}) {
+    if (auto const *se{
+            ::std::exception_cast_std_error<::std::system_error const *>(e)}) {
       CHECK(se->code().value() ==
             static_cast<int>(::std::errc::no_such_file_or_directory));
     } else {
-      CHECK(false &&
-            "expected exception_ptr_cast_from_std_error<system_error>");
+      CHECK(false && "expected exception_cast_std_error<system_error>");
     }
-    CHECK(::std::exception_ptr_cast_from_std_error<::std::exception const *>(
-              e) != nullptr);
-    CHECK(::std::exception_ptr_cast_from_std_error<
-              ::std::invalid_argument const *>(e) == nullptr);
+    CHECK(::std::exception_cast_std_error<::std::exception const *>(e) !=
+          nullptr);
+    CHECK(::std::exception_cast_std_error<::std::invalid_argument const *>(e) ==
+          nullptr);
     // Materialize a real exception_ptr for STL interop.
     {
       auto ep{::std::make_exception_ptr_from_std_error(e)};
@@ -163,16 +206,16 @@ int main() {
     CHECK(e.to_errc() == ::std::errc::permission_denied);
     CHECK(e.equivalent(::std::errc::permission_denied));
     // The probe sees through the exception_ptr domain to the box itself.
-    if (auto const *box{::std::exception_ptr_cast_from_std_error<
+    if (auto const *box{::std::exception_cast_std_error<
             ::std::cxx_std_error_legacy_exception const *>(e)}) {
       CHECK(box->domain() == ::std::error_domains::__cxa_error_domain_posix());
       CHECK(box->code() ==
             static_cast<::std::size_t>(::std::errc::permission_denied));
     } else {
-      CHECK(false && "expected exception_ptr_cast_from_std_error<the box>");
+      CHECK(false && "expected exception_cast_std_error<the box>");
     }
-    CHECK(::std::exception_ptr_cast_from_std_error<::std::system_error const *>(
-              e) == nullptr);
+    CHECK(::std::exception_cast_std_error<::std::system_error const *>(e) ==
+          nullptr);
     {
       auto ep{::std::make_exception_ptr_from_std_error(e)};
       CHECK(ep != nullptr);
@@ -198,6 +241,29 @@ int main() {
     } catch (...) {
       CHECK(false && "expected std::cxx_std_error_legacy_exception");
     }
+  }
+
+  // The doc's bridge pattern: our box survives the
+  // throws -> legacy-EH -> throws hop and its payload rethrown by
+  // rethrow_herbception_if_error equals the original error.
+  try {
+    on_channel();
+    CHECK(false && "unreached");
+  } catch throws(::std::error e) {
+    CHECK(e.equivalent(::std::errc::device_or_resource_busy));
+  }
+
+  // A foreign exception is not our box: the probe misses and the
+  // exception_ptr-domain error propagates unchanged through throw throws.
+  try {
+    on_channel_foreign();
+    CHECK(false && "unreached");
+  } catch throws(::std::error e) {
+    CHECK(e.is_code_of<::std::exception_ptr>());
+    CHECK(::std::exception_cast_std_error<
+              ::std::cxx_std_error_legacy_exception *>(e) == nullptr);
+    CHECK(::std::exception_cast_std_error<::std::runtime_error const *>(e) !=
+          nullptr);
   }
 
   if (failures == 0)

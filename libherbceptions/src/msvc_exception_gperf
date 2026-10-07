@@ -1,6 +1,6 @@
 /* C++ code produced by gperf version 3.3 */
-/* Command-line: gperf ./msvc_exceptions_hash.gperf  */
-/* Computed positions: -k'5' */
+/* Command-line: gperf msvc_exceptions_hash.gperf  */
+/* Computed positions: -k'5,20,23' */
 
 #if !((' ' == 32) && ('!' == 33) && ('"' == 34) && ('#' == 35) \
       && ('%' == 37) && ('&' == 38) && ('\'' == 39) && ('(' == 40) \
@@ -29,7 +29,7 @@
 #error "gperf generated tables don't work with this execution character set. Please report a bug to <bug-gperf@gnu.org>."
 #endif
 
-#line 1 "./msvc_exceptions_hash.gperf"
+#line 1 "msvc_exceptions_hash.gperf"
 
 enum class msvc_exception_kind {
     none,
@@ -47,18 +47,18 @@ enum class msvc_exception_kind {
     msvc_bad_alloc,
     msvc_cxx_std_error_legacy_exception,
 };
-#line 27 "./msvc_exceptions_hash.gperf"
+#line 27 "msvc_exceptions_hash.gperf"
 struct msvc_exception_entry {
     char const* name;
     msvc_exception_kind value;
 };
 
-#define TOTAL_KEYWORDS 13
+#define TOTAL_KEYWORDS 17
 #define MIN_WORD_LENGTH 19
 #define MAX_WORD_LENGTH 40
 #define MIN_HASH_VALUE 19
-#define MAX_HASH_VALUE 40
-/* maximum key range = 22, duplicates = 0 */
+#define MAX_HASH_VALUE 52
+/* maximum key range = 34, duplicates = 0 */
 
 class Perfect_Hash
 {
@@ -73,34 +73,74 @@ Perfect_Hash::msvc_exception_hash (const char *str, size_t len)
 {
   static const unsigned char asso_values[] =
     {
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41,  5, 41, 41,  0,  0,
-      15, 41, 41, 41, 41,  5, 41, 41,  5, 41,
-      41,  0, 41, 41,  0, 10, 41,  0, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41, 41, 41, 41, 41,
-      41, 41, 41, 41, 41, 41
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 10,
+       0, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53,  0, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53,  5, 53, 53,  0,  5,
+      15,  0, 53, 53, 53, 15, 53, 53, 10, 53,
+       5,  5, 53, 53,  0,  0,  0,  0, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53, 53, 53, 53, 53,
+      53, 53, 53, 53, 53, 53
     };
-  return len + asso_values[static_cast<unsigned char>(str[4])];
+  unsigned int hval = len;
+
+  switch (hval)
+    {
+      default:
+        hval += asso_values[static_cast<unsigned char>(str[22])];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
+      /*FALLTHROUGH*/
+      case 22:
+      case 21:
+      case 20:
+        hval += asso_values[static_cast<unsigned char>(str[19])];
+#if (defined __cplusplus && (__cplusplus >= 201703L || (__cplusplus >= 201103L && defined __clang__ && __clang_major__ + (__clang_minor__ >= 9) > 3))) || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 202000L && ((defined __GNUC__ && __GNUC__ >= 10) || (defined __clang__ && __clang_major__ >= 9)))
+      [[fallthrough]];
+#elif (defined __GNUC__ && __GNUC__ >= 7) || (defined __clang__ && __clang_major__ >= 10)
+      __attribute__ ((__fallthrough__));
+#endif
+      /*FALLTHROUGH*/
+      case 19:
+      case 18:
+      case 17:
+      case 16:
+      case 15:
+      case 14:
+      case 13:
+      case 12:
+      case 11:
+      case 10:
+      case 9:
+      case 8:
+      case 7:
+      case 6:
+      case 5:
+        hval += asso_values[static_cast<unsigned char>(str[4])];
+        break;
+    }
+  return hval;
 }
 
 const struct msvc_exception_entry *
@@ -115,36 +155,52 @@ Perfect_Hash::msvc_exception_lookup (const char *str, size_t len)
       {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
       {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
       {""},
-#line 44 "./msvc_exceptions_hash.gperf"
+#line 48 "msvc_exceptions_hash.gperf"
       {".?AVbad_alloc@std@@", msvc_exception_kind::msvc_bad_alloc},
       {""},
-#line 41 "./msvc_exceptions_hash.gperf"
+#line 45 "msvc_exceptions_hash.gperf"
       {".?AVrange_error@std@@", msvc_exception_kind::msvc_range_error},
-#line 39 "./msvc_exceptions_hash.gperf"
-      {".?AVout_of_range@std@@", msvc_exception_kind::msvc_out_of_range},
-#line 40 "./msvc_exceptions_hash.gperf"
+      {""},
+#line 44 "msvc_exceptions_hash.gperf"
       {".?AVruntime_error@std@@", msvc_exception_kind::msvc_runtime_error},
-#line 42 "./msvc_exceptions_hash.gperf"
-      {".?AVoverflow_error@std@@", msvc_exception_kind::msvc_overflow_error},
-#line 43 "./msvc_exceptions_hash.gperf"
-      {".?AVunderflow_error@std@@", msvc_exception_kind::msvc_underflow_error},
-#line 35 "./msvc_exceptions_hash.gperf"
-      {".?AVlogic_error@std@@", msvc_exception_kind::msvc_logic_error},
-#line 38 "./msvc_exceptions_hash.gperf"
-      {".?AVlength_error@std@@", msvc_exception_kind::msvc_length_error},
-#line 33 "./msvc_exceptions_hash.gperf"
+      {""}, {""},
+#line 36 "msvc_exceptions_hash.gperf"
+      {".?AVsystem_error@__2@std@@", msvc_exception_kind::msvc_system_error},
+      {""},
+#line 33 "msvc_exceptions_hash.gperf"
       {".?AV_System_error@std@@", msvc_exception_kind::msvc_system_error},
+#line 46 "msvc_exceptions_hash.gperf"
+      {".?AVoverflow_error@std@@", msvc_exception_kind::msvc_overflow_error},
+      {""},
+#line 39 "msvc_exceptions_hash.gperf"
+      {".?AVlogic_error@std@@", msvc_exception_kind::msvc_logic_error},
       {""}, {""},
-#line 37 "./msvc_exceptions_hash.gperf"
-      {".?AVinvalid_argument@std@@", msvc_exception_kind::msvc_invalid_argument},
-#line 34 "./msvc_exceptions_hash.gperf"
+#line 38 "msvc_exceptions_hash.gperf"
+      {".?AVsystem_error@__ndk2@std@@", msvc_exception_kind::msvc_system_error},
+      {""},
+#line 35 "msvc_exceptions_hash.gperf"
+      {".?AVsystem_error@__1@std@@", msvc_exception_kind::msvc_system_error},
+#line 34 "msvc_exceptions_hash.gperf"
       {".?AVsystem_error@std@@", msvc_exception_kind::msvc_system_error},
-      {""}, {""}, {""}, {""},
-#line 36 "./msvc_exceptions_hash.gperf"
-      {".?AVdomain_error@std@@", msvc_exception_kind::msvc_domain_error},
       {""}, {""},
-#line 45 "./msvc_exceptions_hash.gperf"
-      {".?AVcxx_std_error_legacy_exception@std@@", msvc_exception_kind::msvc_cxx_std_error_legacy_exception}
+#line 47 "msvc_exceptions_hash.gperf"
+      {".?AVunderflow_error@std@@", msvc_exception_kind::msvc_underflow_error},
+#line 41 "msvc_exceptions_hash.gperf"
+      {".?AVinvalid_argument@std@@", msvc_exception_kind::msvc_invalid_argument},
+#line 43 "msvc_exceptions_hash.gperf"
+      {".?AVout_of_range@std@@", msvc_exception_kind::msvc_out_of_range},
+      {""},
+#line 37 "msvc_exceptions_hash.gperf"
+      {".?AVsystem_error@__ndk1@std@@", msvc_exception_kind::msvc_system_error},
+      {""}, {""},
+#line 42 "msvc_exceptions_hash.gperf"
+      {".?AVlength_error@std@@", msvc_exception_kind::msvc_length_error},
+      {""}, {""},
+#line 49 "msvc_exceptions_hash.gperf"
+      {".?AVcxx_std_error_legacy_exception@std@@", msvc_exception_kind::msvc_cxx_std_error_legacy_exception},
+      {""},
+#line 40 "msvc_exceptions_hash.gperf"
+      {".?AVdomain_error@std@@", msvc_exception_kind::msvc_domain_error}
     };
 #if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
 #pragma GCC diagnostic pop
@@ -164,6 +220,6 @@ Perfect_Hash::msvc_exception_lookup (const char *str, size_t len)
     }
   return static_cast<struct msvc_exception_entry *> (0);
 }
-#line 46 "./msvc_exceptions_hash.gperf"
+#line 50 "msvc_exceptions_hash.gperf"
 
 

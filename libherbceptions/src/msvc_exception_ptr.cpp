@@ -277,7 +277,9 @@ struct try_match_msvc_eh_result {
 //   24 runtime_error  : adds no members = 24 _System_error  : +
 //   error_code{_Myval(4), pad, _Mycat(8)} => _Mycode @ 24
 // std::system_error adds no data members over _System_error, so the same
-// prefix holds for it; sizeof is asserted as a layout tripwire.
+// prefix holds for it; libc++'s std::__1/__2/__ndkN::system_error has the
+// identical layout under the vcruntime ABI (only the decorated name in
+// the throw record differs). sizeof is asserted as a layout tripwire.
 struct msvc_system_error_raw {
   void *exception_prefix[3]; // vptr, _What, _DoFree+pad
   ::std::int_least32_t myval;
@@ -761,8 +763,11 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
       case msvc_exception_kind::msvc_system_error:
         [[fallthrough]];
       case msvc_exception_kind::msvc__System_error:
-        // Both std::system_error and its internal base _System_error store
-        // the error_code at the same prefix offset; read it raw.
+        // std::system_error, its internal base _System_error, and the
+        // libc++ spellings (std::__1/__2/__ndkN::system_error — same
+        // {vptr, exception_data, error_code} layout under the vcruntime
+        // ABI, only the decorated name differs) all store the error_code
+        // at the same prefix offset; read it raw.
         {
           ::std::int_least32_t val{};
           ::std::error_category const *cat{};
@@ -790,9 +795,11 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
       default:
         return ::std::errc::io_error;
       }
-    },
-    .do_throw_legacy_exception =
+    }
 #if defined(__cpp_exceptions) && defined(_MSC_VER)
+    ,
+    .do_throw_legacy_exception =
+
         [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
           if (__ehabi != ::std::legacy_exception_abi::platform)
             return;
@@ -801,8 +808,6 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
             return;
           ::std::error_domains::__details::__ExceptionPtrRethrow(__epstorage);
         }
-#else
-        [](::std::size_t, ::std::legacy_exception_abi) noexcept {}
 #endif
 };
   struct error_domain_msvc_eh_ptr {

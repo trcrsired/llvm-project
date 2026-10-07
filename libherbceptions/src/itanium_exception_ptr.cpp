@@ -593,9 +593,10 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
       // runtime_error, system_error, std::exception itself and unknown
       // user types carry no errc meaning here.
       return ::std::errc::io_error;
-    },
-    .do_throw_legacy_exception =
+    }
 #if defined(__cpp_exceptions) && !defined(_MSC_VER)
+    ,
+    .do_throw_legacy_exception =
         [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
           if (__ehabi != ::std::legacy_exception_abi::platform)
             return;
@@ -609,21 +610,24 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           // Raise the primary directly, deliberately NOT through
           // std::rethrow_exception: the eh_ptr machinery would wrap it in a
           // dependent exception whose cleanup releases references behind
-          // this domain's back. The minted reference is the flight
-          // reference here -- the catching runtime consumes it inside
-          // __cxa_end_catch. A failed unwind falls through, letting
-          // std::error::throw_legacy_exception raise its system_error
-          // fallback instead.
+          // this domain's back. The catching runtime consumes the flight
+          // reference inside __cxa_end_catch, so a fresh one is minted —
+          // spending the code's own reference would leave the channel
+          // error owning a freed object. A failed unwind falls through,
+          // letting std::error::throw_legacy_exception raise its
+          // system_error fallback instead.
           auto *hdr{itanium_cxa_exception_from_thrown_object(__obj)};
           auto *globals{reinterpret_cast<itanium_cxa_eh_globals *>(
               ::__cxxabiv1::__cxa_get_globals())};
           ++globals->uncaughtExceptions;
+          __itanium_cxa_increment_exception_refcount(__obj);
+          // Returns only when the raise fails; on success control leaves
+          // through the unwind and never comes back here.
           _Unwind_RaiseException(&hdr->unwindHeader);
           --globals->uncaughtExceptions;
+          __itanium_cxa_decrement_exception_refcount(__obj);
 #endif
         }
-#else
-        [](::std::size_t, ::std::legacy_exception_abi) noexcept {}
 #endif
 };
 } // namespace

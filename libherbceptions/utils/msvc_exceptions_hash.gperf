@@ -32,6 +32,10 @@ struct msvc_exception_entry {
 %%
 .?AV_System_error@std@@, msvc_exception_kind::msvc_system_error
 .?AVsystem_error@std@@, msvc_exception_kind::msvc_system_error
+.?AVsystem_error@__1@std@@, msvc_exception_kind::msvc_system_error
+.?AVsystem_error@__2@std@@, msvc_exception_kind::msvc_system_error
+.?AVsystem_error@__ndk1@std@@, msvc_exception_kind::msvc_system_error
+.?AVsystem_error@__ndk2@std@@, msvc_exception_kind::msvc_system_error
 .?AVlogic_error@std@@, msvc_exception_kind::msvc_logic_error
 .?AVdomain_error@std@@, msvc_exception_kind::msvc_domain_error
 .?AVinvalid_argument@std@@, msvc_exception_kind::msvc_invalid_argument

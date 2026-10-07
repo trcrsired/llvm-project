@@ -113,14 +113,13 @@ buffer contract:
   a string in every supported encoding (utf8/utf16/utf32/gb18030/EBCDIC).
   ``free()`` is a no-op on it, and callers must never pass it to free.
 
-``create()`` drives the domain's ``do_query_information`` hook **twice**:
-a sizing pass that accumulates every scatter length across *all* reporter
-callbacks (the reporter is an appendable I/O device — the hook may invoke
-the cookie function arbitrarily many times), then a copying pass that
-appends every scatter fragment sequentially. If the second pass produces
-zero bytes after the first reported nonzero, the allocation is released
-before returning the shared empty buffer. Second-pass overflow is clamped
-to the allocated size. Allocation failure terminates via ``_or_die``.
+``create()`` drives the domain's ``do_query_information`` hook **once**
+with an appendable cookie: every emit callback appends its scatter
+fragments onto a growable buffer — the cookie is, in effect, a
+``std::string`` — starting from 256 bytes and doubling (capacity always
+reserves the 4-byte NUL pad; overflow terminates). A ``len == 0`` outcome
+releases whatever was allocated and returns the shared empty buffer.
+Allocation failure terminates via ``_or_die``.
 
 Why ``__HERBCEPTIONS_API_ALLOC`` exists
 ```````````````````````````````````````
@@ -243,5 +242,5 @@ Testing
 ``test/legacy_exception_test.cpp`` covers: box payload + cached
 ``what()``, the no-query fast path, the double-hop
 (``throws → throw_legacy_exception → catch throws``) forwarding, the
-``exception_ptr_cast_from_std_error`` probe (exact type, public base,
+``exception_cast_std_error`` probe (exact type, public base,
 negative, non-domain), and ``make_exception_ptr_from_std_error``.

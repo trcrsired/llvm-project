@@ -295,6 +295,7 @@ if(LIBHERBCEPTIONS_BUILD_FUZZERS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
   endfunction()
 
   add_herbceptions_fuzzer(error_codes_fuzzer)
+  add_herbceptions_fuzzer(query_information_fuzzer)
   if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
       add_herbceptions_fuzzer(msvc_exception_record_fuzzer)
