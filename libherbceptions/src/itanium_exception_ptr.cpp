@@ -264,6 +264,23 @@ inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
   return itanium_cxa_try_catch(exc_ti, obj, kind, &unused);
 }
 
+// Detect our own legacy-EH box: when the thrown object is (or derives from)
+// std::cxx_std_error_legacy_exception the {domain, code} it carries is the
+// real error, so the vtable hooks below forward into it instead of
+// reporting the box itself. Returns the box subobject or nullptr.
+inline ::std::cxx_std_error_legacy_exception const *
+itanium_cxa_legacy_error_box(void *thrown,
+                             itanium_cxa_exception const *hdr) noexcept {
+  void *subobj{};
+  if (thrown == nullptr || hdr == nullptr ||
+      !itanium_cxa_try_catch(hdr->exceptionType, thrown,
+                             typeid(::std::cxx_std_error_legacy_exception),
+                             &subobj)) {
+    return nullptr;
+  }
+  return static_cast<::std::cxx_std_error_legacy_exception const *>(subobj);
+}
+
 constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
         [](::std::size_t cd) noexcept {
@@ -273,6 +290,26 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_equivalent = [](::std::size_t cd,
                         ::std::error_domain_singleton const *other,
                         ::std::size_t othercd) noexcept -> bool {
+      void *thrown{reinterpret_cast<void *>(cd)};
+      auto *hdr{thrown ? itanium_cxa_exception_from_thrown_object(thrown)
+                       : nullptr};
+      // Our own box: the carried {domain, code} is the real error, so
+      // equivalence is the inner domain's business.
+      if (auto *__box{itanium_cxa_legacy_error_box(thrown, hdr)};
+          __box != nullptr) {
+        auto *__inner{__box->domain()};
+        if (__inner == nullptr) {
+          return false; // empty box equals nothing
+        }
+        if (__inner->do_equivalent != nullptr) {
+          return __inner->do_equivalent(__box->code(), other, othercd);
+        }
+        if (__inner->do_to_errc != nullptr) {
+          return __inner->do_to_errc(__box->code()) ==
+                 other->do_to_errc(othercd);
+        }
+        return false;
+      }
       return itanium_exception_ptr_domain.do_to_errc(cd) ==
              other->do_to_errc(othercd);
     },
@@ -293,6 +330,18 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           auto *hdr{thrown ? itanium_cxa_exception_from_thrown_object(thrown)
                            : nullptr};
           bool const is_itanium_cxx_eh{hdr != nullptr};
+          // Our own box: forward the report into the carried domain so the
+          // original name/message survive the legacy-EH hop.
+          if (auto *__box{itanium_cxa_legacy_error_box(thrown, hdr)};
+              __box != nullptr) {
+            if (auto *__inner{__box->domain()};
+                __inner != nullptr &&
+                __inner->do_query_information != nullptr) {
+              __inner->do_query_information(__box->code(), query, encoding,
+                                            cookie, cookfun);
+              return;
+            }
+          }
           if constexpr (::std::error_domains::__herbceptions_detail::
                             __messages_disabled) {
             /*
@@ -483,6 +532,15 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
         return ::std::errc::io_error;
       }
       auto *hdr{itanium_cxa_exception_from_thrown_object(thrown)};
+      // Our own box: the carried {domain, code} is the real error.
+      if (auto *__box{itanium_cxa_legacy_error_box(thrown, hdr)};
+          __box != nullptr) {
+        if (auto *__inner{__box->domain()};
+            __inner != nullptr && __inner->do_to_errc != nullptr) {
+          return __inner->do_to_errc(__box->code());
+        }
+        return ::std::errc::io_error;
+      }
       // system_error carries its own mapping: when the code belongs to the
       // generic category, the value IS the errc (errno) number.
       {
@@ -491,7 +549,11 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                                   typeid(::std::system_error), &se_subobj)) {
           auto *se{static_cast<::std::system_error *>(se_subobj)};
           ::std::error_code const &ec{se->code()};
-          if (ec.category() == ::std::generic_category()) {
+          // Comparing ec.category() against std::generic_category() would
+          // drag the STL's category singleton (vtable + message machinery)
+          // into this TU; its name is "generic" in every STL, which is
+          // good enough.
+          if (::std::strcmp(ec.category().name(), "generic") == 0) {
             return static_cast<::std::errc>(ec.value());
           }
           // Custom-category system_error: no errc meaning.
@@ -548,17 +610,22 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           // Raise the primary directly, deliberately NOT through
           // std::rethrow_exception: the eh_ptr machinery would wrap it in a
           // dependent exception whose cleanup releases references behind
-          // this domain's back. The minted reference is the flight
-          // reference here -- the catching runtime consumes it inside
-          // __cxa_end_catch. A failed unwind falls through, letting
-          // std::error::throw_legacy_exception raise its system_error
-          // fallback instead.
+          // this domain's back. The catching runtime consumes the flight
+          // reference inside __cxa_end_catch, so a fresh one is minted —
+          // spending the code's own reference would leave the channel
+          // error owning a freed object. A failed unwind falls through,
+          // letting std::error::throw_legacy_exception raise its
+          // system_error fallback instead.
           auto *hdr{itanium_cxa_exception_from_thrown_object(__obj)};
           auto *globals{reinterpret_cast<itanium_cxa_eh_globals *>(
               ::__cxxabiv1::__cxa_get_globals())};
           ++globals->uncaughtExceptions;
+          __itanium_cxa_increment_exception_refcount(__obj);
+          // Returns only when the raise fails; on success control leaves
+          // through the unwind and never comes back here.
           _Unwind_RaiseException(&hdr->unwindHeader);
           --globals->uncaughtExceptions;
+          __itanium_cxa_decrement_exception_refcount(__obj);
 #endif
         }
 #endif
@@ -571,6 +638,24 @@ extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_itanium_exception_ptr() noexcept {
   return __builtin_addressof(
       ::std::error_domains::itanium_exception_ptr_domain);
+}
+
+extern "C" __HERBCEPTIONS_API void *__cxa_error_code_itanium_exception_ptr_cast(
+    ::std::error_domain_singleton const *__domain, ::std::size_t __cd,
+    ::std::type_info const *__ti) noexcept {
+  if (__domain != __builtin_addressof(
+                      ::std::error_domains::itanium_exception_ptr_domain) ||
+      __cd == 0 || __ti == nullptr) {
+    return nullptr;
+  }
+  void *thrown{reinterpret_cast<void *>(__cd)};
+  void *subobj{};
+  if (!::std::error_domains::itanium_cxa_try_catch(
+          itanium_cxa_exception_from_thrown_object(thrown)->exceptionType,
+          thrown, *__ti, __builtin_addressof(subobj))) {
+    return nullptr;
+  }
+  return subobj;
 }
 
 #endif

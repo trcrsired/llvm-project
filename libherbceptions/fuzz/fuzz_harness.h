@@ -10,7 +10,7 @@
 /*
 Shared plumbing for the libherbceptions fuzz targets: a bounded output
 collector plus a standalone replay driver used when the target is not
-linked against a fuzzing engine (build with HERBCEPTIONS_FUZZ_ENGINE=ON
+linked against a fuzzing engine (build with LIBHERBCEPTIONS_FUZZ_ENGINE=ON
 to get a -fsanitize=fuzzer binary instead; then any corpus directory /
 single inputs work as usual).
 */
@@ -52,7 +52,7 @@ inline void capture_cookfun(void *cookie, ::std::io_scatter_t const *v,
 
 } // namespace herbceptions_fuzz
 
-#ifndef HERBCEPTIONS_HAVE_FUZZ_ENGINE
+#ifndef LIBHERBCEPTIONS_HAVE_FUZZ_ENGINE
 
 /*
 Standalone driver: without arguments it replays stdin once. Otherwise:
@@ -64,8 +64,8 @@ loads every seed file and then runs a self-contained mutation loop
 seeds through LLVMFuzzerTestOneInput. A crash is a finding; rerun with the
 saved input to reproduce it.
 */
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <random>
 #include <vector>
@@ -89,14 +89,11 @@ inline void mutate(::std::vector<::std::uint8_t> &v,
       break;
     }
     case 2: { // interesting byte
-      constexpr ::std::uint8_t const kInteresting[]{
-          0,          1,          0x7F,       0x80,       0xFF,
-          'H',        'E',        '.',        '?',        '@',
-          '(',        ')',        '[',        ']',        '\\'};
-      v[rng() % v.size()] =
-          kInteresting[static_cast<::std::size_t>(rng() %
-                                                 (sizeof(kInteresting) /
-                                                  sizeof(kInteresting[0])))];
+      constexpr ::std::uint8_t const kInteresting[]{0,   1,   0x7F, 0x80, 0xFF,
+                                                    'H', 'E', '.',  '?',  '@',
+                                                    '(', ')', '[',  ']',  '\\'};
+      v[rng() % v.size()] = kInteresting[static_cast<::std::size_t>(
+          rng() % (sizeof(kInteresting) / sizeof(kInteresting[0])))];
       break;
     }
     case 3: { // truncate
@@ -159,8 +156,7 @@ int main(int argc, char **argv) {
 
   ::std::mt19937_64 rng{0x20260823ull};
   for (::std::size_t i = 0; i != iterations; ++i) {
-    ::std::vector<::std::uint8_t> input{
-        seeds[rng() % seeds.size()]};
+    ::std::vector<::std::uint8_t> input{seeds[rng() % seeds.size()]};
     herbceptions_fuzz::mutate(input, rng);
     LLVMFuzzerTestOneInput(input.data(), input.size());
     if ((i + 1u) % 10000u == 0u) {

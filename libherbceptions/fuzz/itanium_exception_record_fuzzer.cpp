@@ -74,16 +74,20 @@ extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *data,
     g_buf[i] = 0;
   }
 
-  ::std::size_t const thrown_off{
-      (sizeof(itanium_cxa_exception) + 15u) & ~::std::size_t{15u}};
+  ::std::size_t const thrown_off{(sizeof(itanium_cxa_exception) + 15u) &
+                                 ~::std::size_t{15u}};
   auto *hdr{reinterpret_cast<itanium_cxa_exception *>(g_buf)};
   void *const obj{g_buf + thrown_off};
-  place_object(data[3], obj);
+  // The header's exceptionType is the domain's ONLY source of truth for
+  // the object's dynamic type — a header claiming a different type than
+  // the object placed here would make downstream type-driven reads
+  // (system_error::code(), what()) read the wrong layout. Keep the
+  // selector shared so the fabricated record stays self-consistent.
+  place_object(data[2], obj);
 
   hdr->reserve = nullptr;
   hdr->referenceCount = 1;
-  hdr->exceptionType =
-      const_cast<::std::type_info *>(&type_for(data[2]));
+  hdr->exceptionType = const_cast<::std::type_info *>(&type_for(data[2]));
   hdr->exceptionDestructor = nullptr;
   hdr->unexpectedHandler = nullptr;
   hdr->terminateHandler = nullptr;
@@ -120,13 +124,15 @@ extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *data,
     }
   }
   domain->do_to_errc(cd);
+  // The placed exception owns its what() string; destroy it so the
+  // allocation doesn't leak between inputs.
+  static_cast<::std::exception *>(obj)->~exception();
   return 0;
 }
 
 #else
 
-extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *,
-                                      ::std::size_t) {
+extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *, ::std::size_t) {
   return 0;
 }
 
