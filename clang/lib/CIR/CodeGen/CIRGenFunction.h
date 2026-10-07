@@ -2246,6 +2246,11 @@ private:
   };
   /// The stack of active herbception catch-throws scopes.
   llvm::SmallVector<HerbceptionCatchScope, 4> herbceptionCatchScopes;
+  /// Nonzero while emitting the body of a `try` whose handlers are all
+  /// traditional `catch` clauses. A bare `throws`/`fails` call inside that
+  /// body can never be routed to a herbception handler, so the main()
+  /// trap-on-escape concession does not apply: the call is ill-formed.
+  unsigned herbceptionNoCatchTryDepth = 0;
   /// Counter used to generate unique labels for herbception handlers.
   unsigned herbceptionTryCounter = 0;
   /// While emitting the operand of a `try(expr)` / `catch fails(expr)`
@@ -2263,6 +2268,14 @@ private:
 
 public:
   mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
+
+  /// Emit a `try` that mixes traditional `catch` clauses with herbception
+  /// `catch throws`/`catch fails` handlers. The two channels dispatch
+  /// independently: legacy exceptions match the traditional clauses in
+  /// their relative order while herbception errors scan the herbception
+  /// handlers in their relative order.
+  mlir::LogicalResult
+  emitMixedHerbceptionCatchTry(const clang::CXXTryStmt &s);
 
   /// Herbception: emit a `try(expr)` expression. Evaluates the throws/fails
   /// call and auto-propagates its error on failure. Returns the success value.

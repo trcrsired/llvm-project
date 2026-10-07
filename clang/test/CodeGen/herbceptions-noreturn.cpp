@@ -1,4 +1,5 @@
 // RUN: %clang -std=c++26 -fherbceptions -fno-exceptions -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -std=c++26 -fherbceptions -fno-exceptions -S -emit-llvm -x c++ - -o - < %s | FileCheck %s --check-prefix=NORET --allow-unused-prefixes
 
 // A function declared with `throws` return type must not be marked noreturn
 // in the LLVM IR, even if it never returns normally (e.g. always throws).
@@ -35,3 +36,44 @@ void always_throws() throws {
 void caller() throws {
   always_throws();
 }
+
+// An explicit [[noreturn]] declaration on a throws function must likewise not
+// produce the IR noreturn attribute: the function physically returns the
+// {payload, i1} pair, and marking it noreturn lets LLVM treat the post-call
+// error check as unreachable and silently drop the throw.
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z8die_declDrv()
+// CHECK-NOT: unreachable
+// CHECK: ret { { ptr, i64 }, i1 }
+[[noreturn]] void die_decl() throws {
+  throw throws ::std::errc::io_error;
+}
+
+// Same for the GNU spelling, which also marks the function type noreturn.
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z7die_gnuDrv()
+// CHECK-NOT: unreachable
+// CHECK: ret { { ptr, i64 }, i1 }
+__attribute__((noreturn)) void die_gnu() throws {
+  throw throws ::std::errc::io_error;
+}
+
+// Call sites to noreturn throws functions must not be marked noreturn either:
+// the discriminant must be checked after the call returns.
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z9call_declDrv()
+// CHECK: call { { ptr, i64 }, i1 } @_Z8die_declDrv()
+// CHECK-NOT: unreachable
+// CHECK: ret { { ptr, i64 }, i1 }
+void call_decl() throws {
+  die_decl();
+}
+
+// CHECK-LABEL: define dso_local { { ptr, i64 }, i1 } @_Z8call_gnuDrv()
+// CHECK: call { { ptr, i64 }, i1 } @_Z7die_gnuDrv()
+// CHECK-NOT: unreachable
+// CHECK: ret { { ptr, i64 }, i1 }
+void call_gnu() throws {
+  die_gnu();
+}
+
+// The noreturn attribute must appear nowhere in the output: not on the
+// function definitions and not in any attribute group.
+// NORET-NOT: noreturn

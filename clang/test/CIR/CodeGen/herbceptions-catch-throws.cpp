@@ -1,4 +1,5 @@
 // RUN: %clang -fherbceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-linux-gnu -std=c++26 -fherbceptions -fclangir -emit-llvm -discard-value-names -o - %s | FileCheck %s --check-prefix=CIR
 
 // Herbception `catch throws(E e) { ... }` block handler: a bare call to a
 // throws function inside the try block returns {T, i1}, and on failure the
@@ -24,6 +25,10 @@ struct error {
 // CHECK: br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
 // CHECK: store {{.*}} %{{.*}}, ptr %{{.*}}, align 8
 // CHECK: call void @_ZNSt5errorD1Ev(ptr {{.*}} %{{.*}})
+// CIR-LABEL: define dso_local void @_Z6calleem(i64 noundef %0)
+// CIR: {{call|invoke}} { { ptr, i64 }, i8 } @_Z3barDrm
+// CIR: br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
+// CIR: call void @_ZNSt5errorD1Ev(ptr {{.*}} %{{.*}})
 void bar(size_t i) throws {
   if (i == 0) throw throws std::error{nullptr, 4};
 }

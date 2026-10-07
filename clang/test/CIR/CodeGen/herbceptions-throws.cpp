@@ -1,4 +1,5 @@
 // RUN: %clang -std=c++20 -fherbceptions -fno-exceptions -S -fdiscard-value-names -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-linux-gnu -std=c++26 -fherbceptions -fclangir -emit-llvm -discard-value-names -o - %s | FileCheck %s --check-prefix=CIR
 // RUN: not %clang -std=c++20 -S -emit-llvm %s 2>&1 | FileCheck %s --check-prefix=DISABLED
 
 // Herbception (throws): a function declared 'throws' is lowered to a {T, i1}
@@ -27,6 +28,9 @@ public:
 // CHECK: define dso_local { { ptr, i64 }, i1 } @_Z3fooDri(i32 noundef %0) #[[ATTR:[0-9]+]]
 // CHECK-NOT: call void @__cxa_throw
 // CHECK: ret { { ptr, i64 }, i1 }
+// CIR: define dso_local { { ptr, i64 }, i8 } @_Z3fooDri(i32 noundef %0) #[[CIRATTR:[0-9]+]]
+// CIR-NOT: call void @__cxa_throw
+// CIR: ret { { ptr, i64 }, i8 }
 int foo(int x) throws {
   if (x < 0) throw throws std::my_errc{x};
   return x + 1;
@@ -34,6 +38,7 @@ int foo(int x) throws {
 
 // Plain functions (no throws) are unchanged.
 // CHECK-LABEL: define dso_local noundef i32 @_Z4plinii(i32 noundef %0, i32 noundef %1)
+// CIR-LABEL: define dso_local noundef i32 @_Z4plinii(i32 noundef %0, i32 noundef %1)
 int plin(int a, int b) { return a + b; }
 
 // try(expr) auto-propagates the error of a throws call. The caller extracts
@@ -42,11 +47,15 @@ int plin(int a, int b) { return a + b; }
 // CHECK:         call { { ptr, i64 }, i1 } @_Z3fooDri
 // CHECK:         extractvalue { { ptr, i64 }, i1 } %{{.*}}, 1
 // CHECK:         br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
+// CIR-LABEL: define dso_local { { ptr, i64 }, i8 } @_Z6callerDri(i32 noundef %0)
+// CIR:         call { { ptr, i64 }, i8 } @_Z3fooDri
+// CIR:         br i1 %{{.*}}, label %{{.*}}, label %{{.*}}
 int caller(int x) throws {
   return try(foo(x));
 }
 
 // CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }
+// CIR: attributes #[[CIRATTR]] = { {{.*}}throws{{.*}} }
 
 // Without -fherbceptions, 'throws' is not a keyword.
 // DISABLED: error: expected function body after function declarator
