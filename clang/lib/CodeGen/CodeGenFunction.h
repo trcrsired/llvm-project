@@ -635,6 +635,12 @@ public:
   /// The stack of active herbception catch-throws scopes.
   SmallVector<HerbceptionCatchScope, 4> HerbceptionCatchScopes;
 
+  /// Depth of enclosing `try` bodies whose try statement has no
+  /// `catch throws`/`catch fails` handler. A bare throws call inside such a
+  /// body can never be routed to a herbception handler, so the main()
+  /// trap-on-escape concession does not apply: the call is ill-formed.
+  unsigned HerbceptionNoCatchTryDepth = 0;
+
   /// The herbception catch variable of the handler body currently being
   /// emitted, if any, and whether its error still has to be destroyed.
   ///
