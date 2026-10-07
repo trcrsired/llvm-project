@@ -25,7 +25,7 @@ __cxa_error_query_information_create so clone/free are safe across module
 boundaries), keeping what() noexcept and allocation-free.
 */
 
-#if defined(__cpp_exceptions)
+#if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
 
 /*
 P3068 (C++26 constexpr exceptions) makes std::exception's members constexpr,
@@ -292,4 +292,4 @@ public:
 
 #undef __HERBCEPTIONS_CONSTEXPR_EXCEPTION
 
-#endif // __cpp_exceptions
+#endif // _LIBHERBCEPTIONS_CPP_EXCEPTIONS

@@ -866,7 +866,7 @@ __cxa_error_code_msvc_exception_ptr_unbox(void *__epstorage,
 
 extern "C" __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
     ::std::error_domain_singleton const *__domain, ::std::size_t __cd,
-    ::std::type_info const *__ti) noexcept {
+    void const *__ti) noexcept {
   if (__domain != __builtin_addressof(msvc_exception_ptr_domain) ||
       __cd == 0 || __ti == nullptr) {
     return nullptr;

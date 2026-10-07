@@ -12,6 +12,7 @@
 
 namespace std {
 
+#if defined(_LIBHERBCEPTIONS_STL_EXCEPTION_PTR)
 // The compiler (-fherbceptions) emits direct references to the
 // __cxa_error_code_*/__cxa_error_domain_* symbols above when catching
 // legacy C++ exceptions; it does not consult this specialization on that
@@ -41,18 +42,20 @@ public:
 #endif
   }
 };
+#endif
 
-#if defined(__cpp_exceptions)
 // dynamic_cast-style probe on a legacy-EH object boxed under the platform
 // exception_ptr domain, without paying for a rethrow: returns the adjusted
 // subobject pointer when the channel error's thrown object is catchable as
-// remove_pointer_t<T>, nullptr otherwise. Only pointer targets are
+// remove_pointer_t<T>, nullptr otherwise — including when RTTI is disabled,
+// where no type_info exists to probe with. Only pointer targets are
 // accepted, mirroring dynamic_cast<T*>. The pointer is borrowed — the
 // channel error keeps ownership.
 template <typename __T>
   requires(::std::is_pointer_v<__T>)
 [[nodiscard]] inline __T
 exception_cast_std_error(::std::error const &__e) noexcept {
+#if defined(_LIBHERBCEPTIONS_CPP_RTTI)
 #ifdef _MSC_VER
   return static_cast<__T>(
       ::std::error_domains::__cxa_error_code_msvc_exception_ptr_cast(
@@ -64,8 +67,12 @@ exception_cast_std_error(::std::error const &__e) noexcept {
           __e.domain(), __e.code(),
           __builtin_addressof(typeid(::std::remove_pointer_t<__T>))));
 #endif
+#else
+  return nullptr;
+#endif
 }
 
+#if defined(_LIBHERBCEPTIONS_STL_EXCEPTION_PTR)
 // Materializes a real std::exception_ptr from a channel error, for callers
 // that need one (std::rethrow_exception, exception_ptr storage, STL
 // interop). When the error belongs to the platform exception_ptr domain a
