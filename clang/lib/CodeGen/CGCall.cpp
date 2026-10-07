@@ -7208,11 +7208,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     } else if (!CurFnInfo->hasThrowsReturn()) {
       // A bare throws call escaping into a function that cannot propagate the
       // error (noexcept or plain). This is only valid in main(), which traps
-      // on error; anywhere else it is a compile-time error (handled by Sema,
-      // enforced here defensively).
+      // on error — and only outside any `try` body whose handlers are all
+      // legacy `catch` clauses, since then no `catch throws` can consume the
+      // error and the trapping concession does not apply. Anywhere else it is
+      // a compile-time error (handled by Sema, enforced here defensively).
       const FunctionDecl *CurFD =
           dyn_cast_or_null<FunctionDecl>(CurFuncDecl);
-      if (CurFD && CurFD->isMain()) {
+      if (CurFD && CurFD->isMain() && !HerbceptionNoCatchTryDepth) {
         llvm::BasicBlock *OkBB = createBasicBlock("herb.main.ok");
         llvm::BasicBlock *TrapBB = createBasicBlock("herb.main.trap");
         // Trapping on an escaped error is the cold path.

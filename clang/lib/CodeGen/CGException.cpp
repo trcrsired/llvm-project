@@ -655,7 +655,13 @@ void CodeGenFunction::EmitCXXTryStmt(const CXXTryStmt &S) {
       (CGM.getLangOpts().OpenMPIsTargetDevice && T.isGPU());
   if (!IsTargetDevice)
     EnterCXXTryStmt(S);
+  // This try has no `catch throws`/`catch fails` handler, so a bare throws
+  // call in the body can never be routed to a herbception handler.
+  // (An enclosing catch-throws scope still claims it first; the depth only
+  // matters once HerbceptionCatchScopes is empty.)
+  ++HerbceptionNoCatchTryDepth;
   EmitStmt(S.getTryBlock());
+  --HerbceptionNoCatchTryDepth;
   if (!IsTargetDevice)
     ExitCXXTryStmt(S);
 }
