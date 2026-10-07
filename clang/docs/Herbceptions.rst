@@ -10,8 +10,9 @@ Herbceptions
 .. note::
 
    This is an **experimental** extension under active development. The
-   implementation is incomplete, the ABI is not stable, and the design may
-   change. Enable it with ``-fherbceptions``.
+   implementation is incomplete and the design may change. Enable it with
+   ``-fherbceptions``. See `ABI stability`_ for binary-compatibility
+   caveats.
 
    This document is the user guide. For the Clang/LLVM internals -- the
    ``{T, i1}`` lowering, per-target discriminant conventions, legacy-EH
@@ -712,6 +713,142 @@ callee -- is delivered to callers as a ``std::error``, never as an unwind:
      }
    }
 
+Legacy-exception interop surface
+````````````````````````````````
+
+When the domain's ``do_throw_legacy_exception`` hook is absent or declines,
+``std::error::throw_legacy_exception()`` throws
+``std::cxx_std_error_legacy_exception`` — a ``std::exception``-derived box
+(declared in ``<herbceptions/error>``) that carries the ``{domain, code}``
+pair verbatim plus a cached NUL-terminated ``what()`` message holding the
+domain's ``name_message`` report in the TU's narrow execution charset
+(utf8, GB18030, or EBCDIC detected at compile time). Unlike
+``std::system_error`` it pulls in no error_category machinery, and it can be
+put back on the channel with ``release()`` or
+``rethrow_herbception_if_error() throws``.
+
+``error::throw_legacy_exception_no_what()`` is the faster sibling: it skips
+the ``do_query_information`` message query entirely — no report calls, no
+allocation, ``what()`` returns ``""`` — while carrying the same
+``{domain, code}`` payload. It is intended for hops where the exception
+exists only to cross legacy EH and come back onto the channel, and leaves
+very little for a folded unwind edge. Under ``-fno-exceptions`` both entry
+points call ``std::terminate()`` rather than being ill-formed (P1105R0).
+
+On the way back in, the platform exception-pointer domain recognizes a
+boxed ``cxx_std_error_legacy_exception`` and forwards ``do_to_errc``,
+``do_equivalent`` and ``do_query_information`` into the carried
+``{domain, code}``, so a ``throws`` → legacy EH → ``throws`` round trip
+keeps full error semantics.
+
+Two helpers expose the boxed exception without paying for a rethrow:
+
+.. code-block:: cpp
+
+   // dynamic_cast-style probe over the boxed object: returns a borrowed
+   // pointer to the adjusted subobject, or nullptr. Pointer targets only.
+   if (auto const *se = std::exception_cast_std_error<
+                          std::system_error const *>(e))
+     ...
+
+   // A retained std::exception_ptr for STL interop; empty when the error
+   // is not an exception_ptr-domain code.
+   std::exception_ptr ep = std::make_exception_ptr_from_std_error(e);
+
+The probe dispatches to
+``__cxa_error_code_{itanium,msvc}_exception_ptr_cast``: on itanium it runs
+the runtime's own catch matcher (``__do_catch`` or the
+single-inheritance RTTI walk); on MSVC it matches the thrown object's
+catchable types by decorated RTTI name — no exception is ever raised. The
+exception_ptr decode uses the ``flags==0`` retain path on itanium and
+``__cxa_error_code_msvc_exception_ptr_unbox`` on MSVC, so no unwinding
+happens in either.
+
+Bridging legacy-EH-only APIs
+``````````````````````````````
+
+The canonical use is routing a ``std::error`` through APIs that can only
+report failure as C++ exceptions — standard library facilities such as
+``<random>`` engine adapters or ``<fstream>`` where no error channel exists.
+The box preserves the payload in both directions:
+
+.. code-block:: cpp
+
+   // inside a wrapper whose own callers expect legacy exceptions:
+   void legacy_facing_wrapper() {   // a plain function — no throws channel
+     try {
+       io_call();                    // a throws function
+     } catch throws(std::error e) {
+       e.throw_legacy_exception_no_what();
+       // hops over the legacy boundary carrying {domain, code} and no
+       // message allocation; the outer code catches it as any exception.
+     }
+   }
+
+   // back on the channel:
+   void on_channel() throws {
+     try {
+       legacy_facing_wrapper();
+     } catch throws(std::error e) {
+       // Did our own box come back? Probe without rethrowing.
+       if (auto *le = std::exception_cast_std_error<
+                          std::cxx_std_error_legacy_exception *>(e)) {
+         // le carries the original {domain, code} verbatim.
+         le->rethrow_herbception_if_error();
+       }
+       throw throws; // a foreign legacy exception: keep propagating
+     }
+   }
+
+Choose between the two throw entry points by whether the legacy side can
+observe ``what()``:
+
+* ``throw_legacy_exception()`` — caches the domain's ``name_message`` into
+  the exception's ``what()``; pick it when the exception may escape to a
+  ``catch (std::exception const &e)`` that prints the message.
+* ``throw_legacy_exception_no_what()`` — no query, no allocation,
+  ``what()`` is ``""``; pick it for pure relays where the exception is
+  guaranteed (or expected) to fold back onto the channel.
+
+On the legacy side the box answers the usual queries and round-trips:
+
+.. code-block:: cpp
+
+   try {
+     legacy_facing_wrapper();
+   } catch (std::cxx_std_error_legacy_exception const &le) {
+     // le.what()      — "[posix](13)Permission denied"-style text
+     // le.domain()    — the original domain singleton
+     // le.code()      — the original code
+     le.rethrow_herbception_if_error(); // straight back onto the channel
+   }
+
+Checking the boxed type without rethrowing costs nothing — useful when
+deciding whether an exception_ptr-domain error is ours before paying for a
+reflight:
+
+.. code-block:: cpp
+
+   auto *box = std::exception_cast_std_error<
+       std::cxx_std_error_legacy_exception *>(e);
+   if (box != nullptr)
+     // e's payload is a legacy box: inspect domain()/code() directly.
+
+   // Or any other legacy type — e.g. extract a boxed std::system_error
+   // without unwinding:
+   if (auto const *se =
+         std::exception_cast_std_error<std::system_error const *>(e))
+     handle(se->code());
+
+And when a callee genuinely needs a ``std::exception_ptr`` (STL storage or
+``std::rethrow_exception``):
+
+.. code-block:: cpp
+
+   std::exception_ptr ep = std::make_exception_ptr_from_std_error(e);
+   // nullptr when e is not an exception_ptr-domain error; otherwise a
+   // retained copy of the boxed exception — still no rethrow.
+
 Templates and concepts
 ----------------------
 
@@ -1075,15 +1212,15 @@ MSVC-named one (``LIBHERBCEPTIONS_NO_LIB_PREFIX``), with the GNU-style
 names provided only as link-time conveniences. Ship one DLL; do not
 install both names where a mixed process could load each.
 
-Known limitations
-=================
+ABI stability
+=============
 
-* The ABI is experimental and not stable across compiler versions.
-* ``FastISel`` falls back to SelectionDAG for ``throws`` calls, so some
-  ``-O0`` paths are slightly slower than they would otherwise be.
-* Legacy C++ exception conversion depends on the ``libherbceptions``
-  runtime ABI symbols baked into the compiler; the linker hard-errors if
-  ``libherbceptions`` is not linked.
+The ABI is experimental and not stable across compiler versions: the
+``{T, i1}`` lowering, the ``__cxx_std_error`` record layout, the
+discriminant conventions and the ``libherbceptions`` ``__cxa_*`` entry
+points may all change without notice. Rebuild the whole program
+(application and library) with the same toolchain, and ship the matching
+``libherbceptions`` runtime — the linker hard-errors if it is missing.
 
 Related work
 ============

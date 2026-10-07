@@ -267,7 +267,8 @@ try_get_std_exception_what(EXCEPTION_RECORD const &ehrec) noexcept {
 
 struct try_match_msvc_eh_result {
   msvc_exception_kind kind{};
-  void *system_error_obj{}; // we only catch system_error
+  void *matched_obj{}; // filled for the kinds that need the subobject:
+                       // system_error and cxx_std_error_legacy_exception
 };
 
 // Raw view of the std::_System_error prefix on x64 MSVC STL, used to
@@ -276,7 +277,9 @@ struct try_match_msvc_eh_result {
 //   24 runtime_error  : adds no members = 24 _System_error  : +
 //   error_code{_Myval(4), pad, _Mycat(8)} => _Mycode @ 24
 // std::system_error adds no data members over _System_error, so the same
-// prefix holds for it; sizeof is asserted as a layout tripwire.
+// prefix holds for it; libc++'s std::__1/__2/__ndkN::system_error has the
+// identical layout under the vcruntime ABI (only the decorated name in
+// the throw record differs). sizeof is asserted as a layout tripwire.
 struct msvc_system_error_raw {
   void *exception_prefix[3]; // vptr, _What, _DoFree+pad
   ::std::int_least32_t myval;
@@ -293,7 +296,10 @@ try_get_msvc_system_error_code(void const *obj, ::std::int_least32_t &val,
   }
   auto *raw{static_cast<msvc_system_error_raw const *>(obj)};
   cat = static_cast<::std::error_category const *>(raw->mycat);
-  if (!cat || !(*cat == ::std::generic_category())) {
+  // Comparing cat against std::generic_category() would drag the STL's
+  // category singleton (vtable + message machinery) into this TU; its
+  // name() is "generic" in every STL, which is good enough.
+  if (!cat || ::std::strcmp(cat->name(), "generic") != 0) {
     return false; // custom category: no errc meaning
   }
   val = raw->myval;
@@ -332,7 +338,8 @@ try_match_msvc_exceptions(EXCEPTION_RECORD const &ehrec) noexcept {
     if (lookupres) {
       auto kind{lookupres->value};
       if (kind == msvc_exception_kind::msvc_system_error ||
-          kind == msvc_exception_kind::msvc__System_error) {
+          kind == msvc_exception_kind::msvc__System_error ||
+          kind == msvc_exception_kind::msvc_cxx_std_error_legacy_exception) {
         return {kind, get_this_pointer(&cti->offsets, obj)};
       }
       return {kind};
@@ -492,6 +499,28 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
     .do_equivalent = [](::std::size_t cd,
                         ::std::error_domain_singleton const *domain,
                         ::std::size_t othercd) noexcept -> bool {
+      if (cd) {
+        EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
+        auto [kind, matched_obj] = try_match_msvc_exceptions(ehrec);
+        if (kind ==
+            msvc_exception_kind::msvc_cxx_std_error_legacy_exception) {
+          // Our own box: equivalence is the carried domain's business.
+          auto const *__box{static_cast<
+              ::std::cxx_std_error_legacy_exception const *>(matched_obj)};
+          auto *__inner{__box ? __box->domain() : nullptr};
+          if (__inner == nullptr) {
+            return false; // empty box equals nothing
+          }
+          if (__inner->do_equivalent != nullptr) {
+            return __inner->do_equivalent(__box->code(), domain, othercd);
+          }
+          if (__inner->do_to_errc != nullptr) {
+            return __inner->do_to_errc(__box->code()) ==
+                   domain->do_to_errc(othercd);
+          }
+          return false;
+        }
+      }
       return msvc_exception_ptr_domain.do_to_errc(cd) ==
              domain->do_to_errc(othercd);
     },
@@ -527,6 +556,24 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
                    : nullptr};
             bool const ismsvccxxeh{
                 ehrecptr && ehrecptr->ExceptionCode == 0xe06d7363};
+            if (ismsvccxxeh) {
+              // Our own legacy-EH box: forward the report into the carried
+              // domain so the original name/message survive the hop.
+              auto [__kind, __obj]{try_match_msvc_exceptions(*ehrecptr)};
+              if (__kind ==
+                  msvc_exception_kind::msvc_cxx_std_error_legacy_exception) {
+                auto const *__box{
+                    static_cast<::std::cxx_std_error_legacy_exception const *>(
+                        __obj)};
+                if (auto *__inner{__box ? __box->domain() : nullptr};
+                    __inner != nullptr &&
+                    __inner->do_query_information != nullptr) {
+                  __inner->do_query_information(__box->code(), query,
+                                                encoding, cookie, cookfun);
+                  return;
+                }
+              }
+            }
             char const *ehname{};
             ::std::size_t ehname_len{};
             char const *ehmessage{};
@@ -597,6 +644,24 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
                  : nullptr};
           bool const ismsvccxxeh{
               ehrecptr && ehrecptr->ExceptionCode == 0xe06d7363};
+          if (ismsvccxxeh) {
+            // Our own legacy-EH box: forward the report into the carried
+            // domain so the original name/message survive the hop.
+            auto [__kind, __obj]{try_match_msvc_exceptions(*ehrecptr)};
+            if (__kind ==
+                msvc_exception_kind::msvc_cxx_std_error_legacy_exception) {
+              auto const *__box{
+                  static_cast<::std::cxx_std_error_legacy_exception const *>(
+                      __obj)};
+              if (auto *__inner{__box ? __box->domain() : nullptr};
+                  __inner != nullptr &&
+                  __inner->do_query_information != nullptr) {
+                __inner->do_query_information(__box->code(), query, encoding,
+                                              cookie, cookfun);
+                return;
+              }
+            }
+          }
           if (ismsvccxxeh) // is msvc C++ ehcode
           {
             auto const *typeinfo{get_msvc_cppeh_type_info(*ehrecptr)};
@@ -680,17 +745,33 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
       if (!cd)
         return ::std::errc::io_error;
       EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(cd)};
-      auto [kind, system_error_obj] = try_match_msvc_exceptions(ehrec);
+      auto [kind, matched_obj] = try_match_msvc_exceptions(ehrec);
       switch (kind) {
+      case msvc_exception_kind::msvc_cxx_std_error_legacy_exception: {
+        // Our own legacy-EH box: the carried {domain, code} is the real
+        // error, so its errc comes from the inner domain.
+        if (auto const *__box{static_cast<
+                ::std::cxx_std_error_legacy_exception const *>(matched_obj)};
+            __box != nullptr) {
+          if (auto *__inner{__box->domain()};
+              __inner != nullptr && __inner->do_to_errc != nullptr) {
+            return __inner->do_to_errc(__box->code());
+          }
+        }
+        return ::std::errc::io_error;
+      }
       case msvc_exception_kind::msvc_system_error:
         [[fallthrough]];
       case msvc_exception_kind::msvc__System_error:
-        // Both std::system_error and its internal base _System_error store
-        // the error_code at the same prefix offset; read it raw.
+        // std::system_error, its internal base _System_error, and the
+        // libc++ spellings (std::__1/__2/__ndkN::system_error — same
+        // {vptr, exception_data, error_code} layout under the vcruntime
+        // ABI, only the decorated name differs) all store the error_code
+        // at the same prefix offset; read it raw.
         {
           ::std::int_least32_t val{};
           ::std::error_category const *cat{};
-          if (try_get_msvc_system_error_code(system_error_obj, val, cat)) {
+          if (try_get_msvc_system_error_code(matched_obj, val, cat)) {
             return static_cast<::std::errc>(val);
           }
         }
@@ -718,6 +799,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
 #if defined(__cpp_exceptions) && defined(_MSC_VER)
     ,
     .do_throw_legacy_exception =
+
         [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
           if (__ehabi != ::std::legacy_exception_abi::platform)
             return;
@@ -771,6 +853,31 @@ __cxa_error_code_msvc_exception_ptr(::std::size_t flags, void const *a,
 extern "C" __HERBCEPTIONS_API ::std::error_domain_singleton const *
 __cxa_error_domain_msvc_exception_ptr() noexcept {
   return __builtin_addressof(msvc_exception_ptr_domain);
+}
+
+extern "C" __HERBCEPTIONS_API void
+__cxa_error_code_msvc_exception_ptr_unbox(void *__epstorage,
+                                          ::std::size_t __cd) noexcept {
+  // __cd is a heap __std_exception_ptr box; __ExceptionPtrCopy retains it
+  // into the caller's exception_ptr storage.
+  ::std::error_domains::__details::__ExceptionPtrCopy(
+      __epstorage, reinterpret_cast<void const *>(__cd));
+}
+
+extern "C" __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
+    ::std::error_domain_singleton const *__domain, ::std::size_t __cd,
+    ::std::type_info const *__ti) noexcept {
+  if (__domain != __builtin_addressof(msvc_exception_ptr_domain) ||
+      __cd == 0 || __ti == nullptr) {
+    return nullptr;
+  }
+  EXCEPTION_RECORD &ehrec{**reinterpret_cast<EXCEPTION_RECORD **>(__cd)};
+  // On the MSVC ABI a std::type_info IS the throw machinery's
+  // _TypeDescriptor; the decorated name sits inline at the same offset as
+  // msvc_raw_type_info::mangled, so no member call on the foreign type_info
+  // is needed.
+  auto const *__raw{reinterpret_cast<msvc_raw_type_info const *>(__ti)};
+  return try_get_cpp_exception_with_mangled_name(ehrec, __raw->mangled);
 }
 
 #endif

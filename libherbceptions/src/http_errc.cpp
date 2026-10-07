@@ -125,6 +125,17 @@ inline void __http_query_information(
   alignas(char32_t) char unsigned __numbuf
       [__format_decimal_value_max_size_with_brackets<::std::uint_least32_t> *
        sizeof(char32_t)];
+  /*
+  Message text lives in a fixed table; transcode it into the requested
+  encoding through __buffer. The scatter referencing it is consumed by
+  the cookfun call at the end of this function, so __buffer must be
+  declared at function scope. With __messages_disabled only "[http](code)"
+  is ever reported and the buffer stays unused.
+  */
+  constexpr ::std::size_t __max_message_bytes{HTTP_ERRC_MAX_SIZE *
+                                              sizeof(char32_t)};
+  [[maybe_unused]] alignas(
+      char32_t) char unsigned __buffer[__max_message_bytes];
   switch (query) {
   case ::std::error_query_information::name: {
     *__scatters = __http_name_message_range(encoding, 1u, 4u);
@@ -141,14 +152,6 @@ inline void __http_query_information(
     __scatters[__scatterlen] = __http_code_scatter(encoding, __code, __numbuf);
     ++__scatterlen;
     if constexpr (!__messages_disabled) {
-      /*
-      Message text lives in a fixed table; transcode it into the requested
-      encoding through __buffer. With __messages_disabled only
-      "[http](code)" is ever reported.
-      */
-      constexpr ::std::size_t __max_message_bytes{HTTP_ERRC_MAX_SIZE *
-                                                  sizeof(char32_t)};
-      alignas(char32_t) char unsigned __buffer[__max_message_bytes];
       auto __scatter{__to_u8scatter_from_http_errc(__code)};
       char unsigned const *__from_first{
           reinterpret_cast<char unsigned const *>(__scatter.base)};
