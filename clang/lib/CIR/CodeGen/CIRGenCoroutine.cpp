@@ -473,6 +473,27 @@ CIRGenFunction::emitCoroutineBody(const CoroutineBodyStmt &s) {
         } else if (coroutineBodyExceptionHelper(*this, s).failed()) {
           return mlir::failure();
         }
+      } else if (s.getHerbceptionHandler()) {
+        // `throws` coroutine: wrap the body in a `catch throws` handler so
+        // herbception errors (and auto-converted legacy exceptions) escaping
+        // the body are delivered to promise.unhandled_herbception, then the
+        // coroutine proceeds to final_suspend.
+        auto loc = s.getBeginLoc();
+        auto *bodyCS = dyn_cast<CompoundStmt>(s.getBody());
+        if (!bodyCS)
+          bodyCS = CompoundStmt::Create(getContext(), s.getBody(),
+                                        FPOptionsOverride(), loc, loc);
+        Stmt *handlers[] = {s.getHerbceptionHandler()};
+        auto *tryStmt =
+            CXXTryStmt::Create(getContext(), loc, bodyCS, handlers);
+        if (emitCXXTryStmt(*tryStmt).failed())
+          return mlir::failure();
+        // The catch-throws handler path rejoins the continuation even when
+        // the body itself always co_returns, so the implicit fallthrough
+        // co_return is emitted unconditionally.
+        if (Stmt *onFallthrough = s.getFallthroughHandler())
+          if (emitStmt(onFallthrough, /*useCurrentScope=*/true).failed())
+            return mlir::failure();
       } else if (emitBodyAndFallthrough(*this, s, s.getBody(), curLexScope)
                      .failed()) {
         return mlir::failure();
