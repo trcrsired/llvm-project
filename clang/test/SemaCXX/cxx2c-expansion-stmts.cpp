@@ -1783,3 +1783,22 @@ void default_arg_in_redecl() {
 
 
 } // namespace decl_context_issues
+
+namespace invalid_init_error_recovery {
+// When the expansion-initializer is invalid, the expansion variable's 'auto'
+// type is never deduced; it must be marked invalid so uses in the body don't
+// crash evaluating e.g. 'sizeof(a)' in an 'if constexpr' condition.
+template <typename... Args>
+consteval unsigned count_eight_byte(Args... args) {
+  unsigned n = 0;
+  template for (constexpr auto const& a : args...) // expected-error {{expected ')'}} \
+                                                   // expected-note {{to match this '('}} \
+                                                   // expected-error {{expression contains unexpanded parameter pack 'args'}}
+  {
+    if constexpr (sizeof(a) == 8) { // no-crash: 'a' must not keep an undeduced 'auto' type
+      ++n;
+    }
+  }
+  return n;
+}
+}

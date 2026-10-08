@@ -342,14 +342,23 @@ StmtResult Sema::ActOnCXXExpansionStmtPattern(
     Expr *ExpansionInitializer, SourceLocation LParenLoc,
     SourceLocation ColonLoc, SourceLocation RParenLoc,
     ArrayRef<MaterializeTemporaryExpr *> LifetimeExtendTemps) {
+  auto markExpansionVarError = [&] {
+    if (auto *DS = dyn_cast_or_null<DeclStmt>(ExpansionVarStmt))
+      if (DS->isSingleDecl())
+        ActOnInitializerError(DS->getSingleDecl());
+  };
+
   if (!ExpansionInitializer || ExpansionInitializer->containsErrors() ||
-      !ExpansionVarStmt)
+      !ExpansionVarStmt) {
+    markExpansionVarError();
     return StmtError();
+  }
 
   assert(CurContext->isExpansionStmt());
   auto *DS = cast<DeclStmt>(ExpansionVarStmt);
   if (!DS->isSingleDecl()) {
     Diag(DS->getBeginLoc(), diag::err_type_defined_in_for_range);
+    markExpansionVarError();
     return StmtError();
   }
 
@@ -372,13 +381,17 @@ StmtResult Sema::ActOnCXXExpansionStmtPattern(
 
   if (ExpansionInitializer->hasPlaceholderType()) {
     ExprResult R = CheckPlaceholderExpr(ExpansionInitializer);
-    if (R.isInvalid())
+    if (R.isInvalid()) {
+      ActOnInitializerError(ExpansionVar);
       return StmtError();
+    }
     ExpansionInitializer = R.get();
   }
 
-  if (DiagnoseUnexpandedParameterPack(ExpansionInitializer))
+  if (DiagnoseUnexpandedParameterPack(ExpansionInitializer)) {
+    ActOnInitializerError(ExpansionVar);
     return StmtError();
+  }
 
   return BuildNonEnumeratingCXXExpansionStmtPattern(
       ESD, Init, DS, ExpansionInitializer, LParenLoc, ColonLoc, RParenLoc,
@@ -404,6 +417,7 @@ StmtResult Sema::BuildNonEnumeratingCXXExpansionStmtPattern(
   if (auto *RD = ExpansionInitializer->getType()->getAsCXXRecordDecl();
       RD && RD->isLambda()) {
     Diag(ExpansionInitializer->getBeginLoc(), diag::err_expansion_stmt_lambda);
+    ActOnInitializerError(ExpansionVar);
     return StmtError();
   }
 
@@ -416,12 +430,15 @@ StmtResult Sema::BuildNonEnumeratingCXXExpansionStmtPattern(
 
   if (RequireCompleteType(ExpansionInitializer->getExprLoc(),
                           ExpansionInitializer->getType(),
-                          diag::err_expansion_stmt_incomplete))
+                          diag::err_expansion_stmt_incomplete)) {
+    ActOnInitializerError(ExpansionVar);
     return StmtError();
+  }
 
   if (ExpansionInitializer->getType()->isVariableArrayType()) {
     Diag(ExpansionInitializer->getExprLoc(), diag::err_expansion_stmt_vla)
         << ExpansionInitializer->getType();
+    ActOnInitializerError(ExpansionVar);
     return StmtError();
   }
 
@@ -473,8 +490,10 @@ StmtResult Sema::BuildNonEnumeratingCXXExpansionStmtPattern(
 
   auto *DS = DecompDeclStmt.getAs<DeclStmt>();
   auto *DD = cast<DecompositionDecl>(DS->getSingleDecl());
-  if (DD->isInvalidDecl())
+  if (DD->isInvalidDecl()) {
+    ActOnInitializerError(ExpansionVar);
     return StmtError();
+  }
 
   // Synthesise an InitListExpr to store the bindings; this essentially lets us
   // desugar the expansion of a destructuring expansion statement to that of an
