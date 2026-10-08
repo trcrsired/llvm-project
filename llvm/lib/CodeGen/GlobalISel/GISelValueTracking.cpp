@@ -1750,16 +1750,25 @@ void GISelValueTracking::computeKnownFPClass(Register R,
     Register Val = MI.getOperand(1).getReg();
     KnownFPClass KnownSrc;
     FPClassTest InterestedSrcs = InterestedClasses;
-    if (InterestedSrcs & fcPosFinite)
-      InterestedSrcs |= fcPosFinite;
+
+    // Negative round ups towards zero produce negative zero.
     if (InterestedSrcs & fcNegFinite)
       InterestedSrcs |= fcNegFinite;
+
+    // Negative subnormals may flush to positive zero.
+    if (InterestedSrcs & fcPosFinite)
+      InterestedSrcs |= fcPosFinite | fcNegSubnormal;
+
     computeKnownFPClass(Val, DemandedElts, InterestedSrcs, KnownSrc, Depth + 1);
 
-    // TODO: handle multi unit FPTypes once LLT FPInfo lands
-    bool IsTrunc = Opcode == TargetOpcode::G_INTRINSIC_TRUNC;
-    Known = KnownFPClass::roundToIntegral(KnownSrc, IsTrunc,
-                                          /*IsMultiUnitFPType=*/false);
+    LLT Ty = MRI.getType(Val).getScalarType();
+    const fltSemantics &FltSem = getFltSemanticForLLT(Ty);
+    DenormalMode Mode = MF->getDenormalMode(FltSem);
+    const bool IsMultiUnitFPType = &FltSem == &APFloat::PPCDoubleDouble();
+
+    const bool IsTrunc = Opcode == TargetOpcode::G_INTRINSIC_TRUNC;
+    Known = KnownFPClass::roundToIntegral(KnownSrc, IsTrunc, IsMultiUnitFPType,
+                                          Mode);
     break;
   }
   case TargetOpcode::G_FEXP:
@@ -2844,6 +2853,23 @@ unsigned GISelValueTracking::computeNumSignBits(Register R,
     // Add can have at most one carry bit.  Thus we know that the output
     // is, at worst, one more bit than the inputs.
     FirstAnswer = std::min(Src1NumSignBits, Src2NumSignBits) - 1;
+    break;
+  }
+  case TargetOpcode::G_MUL: {
+    unsigned Src2NumSignBits =
+        computeNumSignBits(MI.getOperand(2).getReg(), DemandedElts, Depth + 1);
+    if (Src2NumSignBits == 1)
+      break;
+    unsigned Src1NumSignBits =
+        computeNumSignBits(MI.getOperand(1).getReg(), DemandedElts, Depth + 1);
+    if (Src1NumSignBits == 1)
+      break;
+
+    // The product needs at most the sum of the operands' signed widths.
+    unsigned OutValidBits =
+        (TyBits - Src1NumSignBits + 1) + (TyBits - Src2NumSignBits + 1);
+    if (OutValidBits <= TyBits)
+      FirstAnswer = TyBits - OutValidBits + 1;
     break;
   }
   case TargetOpcode::G_FCMP:

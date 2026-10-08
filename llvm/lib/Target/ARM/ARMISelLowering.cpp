@@ -10677,16 +10677,16 @@ void ARMTargetLowering::SetupEntryBlockForSjLj(MachineInstr &MI,
     // Set the low bit because of thumb mode.
     Register NewVReg2 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::t2ORRri), NewVReg2)
-        .addReg(NewVReg1, RegState::Kill)
+        .addReg(NewVReg1)
         .addImm(0x01)
         .add(predOps(ARMCC::AL))
         .add(condCodeOp());
     Register NewVReg3 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::tPICADD), NewVReg3)
-      .addReg(NewVReg2, RegState::Kill)
-      .addImm(PCLabelId);
+        .addReg(NewVReg2)
+        .addImm(PCLabelId);
     BuildMI(*MBB, MI, dl, TII->get(ARM::t2STRi12))
-        .addReg(NewVReg3, RegState::Kill)
+        .addReg(NewVReg3)
         .addFrameIndex(FI)
         .addImm(36) // &jbuf[1] :: pc
         .addMemOperand(FIMMOSt)
@@ -10706,8 +10706,8 @@ void ARMTargetLowering::SetupEntryBlockForSjLj(MachineInstr &MI,
         .add(predOps(ARMCC::AL));
     Register NewVReg2 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::tPICADD), NewVReg2)
-      .addReg(NewVReg1, RegState::Kill)
-      .addImm(PCLabelId);
+        .addReg(NewVReg1)
+        .addImm(PCLabelId);
     // Set the low bit because of thumb mode.
     Register NewVReg3 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::tMOVi8), NewVReg3)
@@ -10717,16 +10717,16 @@ void ARMTargetLowering::SetupEntryBlockForSjLj(MachineInstr &MI,
     Register NewVReg4 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::tORR), NewVReg4)
         .addReg(ARM::CPSR, RegState::Define)
-        .addReg(NewVReg2, RegState::Kill)
-        .addReg(NewVReg3, RegState::Kill)
+        .addReg(NewVReg2)
+        .addReg(NewVReg3)
         .add(predOps(ARMCC::AL));
     Register NewVReg5 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::tADDframe), NewVReg5)
             .addFrameIndex(FI)
             .addImm(36); // &jbuf[1] :: pc
     BuildMI(*MBB, MI, dl, TII->get(ARM::tSTRi))
-        .addReg(NewVReg4, RegState::Kill)
-        .addReg(NewVReg5, RegState::Kill)
+        .addReg(NewVReg4)
+        .addReg(NewVReg5)
         .addImm(0)
         .addMemOperand(FIMMOSt)
         .add(predOps(ARMCC::AL));
@@ -10743,11 +10743,11 @@ void ARMTargetLowering::SetupEntryBlockForSjLj(MachineInstr &MI,
         .add(predOps(ARMCC::AL));
     Register NewVReg2 = MRI->createVirtualRegister(TRC);
     BuildMI(*MBB, MI, dl, TII->get(ARM::PICADD), NewVReg2)
-        .addReg(NewVReg1, RegState::Kill)
+        .addReg(NewVReg1)
         .addImm(PCLabelId)
         .add(predOps(ARMCC::AL));
     BuildMI(*MBB, MI, dl, TII->get(ARM::STRi12))
-        .addReg(NewVReg2, RegState::Kill)
+        .addReg(NewVReg2)
         .addFrameIndex(FI)
         .addImm(36) // &jbuf[1] :: pc
         .addMemOperand(FIMMOSt)
@@ -10900,16 +10900,16 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
 
     Register NewVReg4 = MRI->createVirtualRegister(TRC);
     BuildMI(DispContBB, dl, TII->get(ARM::t2ADDrs), NewVReg4)
-        .addReg(NewVReg3, RegState::Kill)
+        .addReg(NewVReg3)
         .addReg(NewVReg1)
         .addImm(ARM_AM::getSORegOpc(ARM_AM::lsl, 2))
         .add(predOps(ARMCC::AL))
         .add(condCodeOp());
 
     BuildMI(DispContBB, dl, TII->get(ARM::t2BR_JT))
-      .addReg(NewVReg4, RegState::Kill)
-      .addReg(NewVReg1)
-      .addJumpTableIndex(MJTI);
+        .addReg(NewVReg4)
+        .addReg(NewVReg1)
+        .addJumpTableIndex(MJTI);
   } else if (Subtarget->isThumb()) {
     Register NewVReg1 = MRI->createVirtualRegister(TRC);
     BuildMI(DispatchBB, dl, TII->get(ARM::tLDRspi), NewVReg1)
@@ -10963,7 +10963,7 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
     Register NewVReg4 = MRI->createVirtualRegister(TRC);
     BuildMI(DispContBB, dl, TII->get(ARM::tADDrr), NewVReg4)
         .addReg(ARM::CPSR, RegState::Define)
-        .addReg(NewVReg2, RegState::Kill)
+        .addReg(NewVReg2)
         .addReg(NewVReg3)
         .add(predOps(ARMCC::AL));
 
@@ -10973,7 +10973,7 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
 
     Register NewVReg5 = MRI->createVirtualRegister(TRC);
     BuildMI(DispContBB, dl, TII->get(ARM::tLDRi), NewVReg5)
-        .addReg(NewVReg4, RegState::Kill)
+        .addReg(NewVReg4)
         .addImm(0)
         .addMemOperand(JTMMOLd)
         .add(predOps(ARMCC::AL));
@@ -10983,14 +10983,14 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
       NewVReg6 = MRI->createVirtualRegister(TRC);
       BuildMI(DispContBB, dl, TII->get(ARM::tADDrr), NewVReg6)
           .addReg(ARM::CPSR, RegState::Define)
-          .addReg(NewVReg5, RegState::Kill)
+          .addReg(NewVReg5)
           .addReg(NewVReg3)
           .add(predOps(ARMCC::AL));
     }
 
     BuildMI(DispContBB, dl, TII->get(ARM::tBR_JTr))
-      .addReg(NewVReg6, RegState::Kill)
-      .addJumpTableIndex(MJTI);
+        .addReg(NewVReg6)
+        .addJumpTableIndex(MJTI);
   } else {
     Register NewVReg1 = MRI->createVirtualRegister(TRC);
     BuildMI(DispatchBB, dl, TII->get(ARM::LDRi12), NewVReg1)
@@ -11040,7 +11040,7 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
           .add(predOps(ARMCC::AL));
       BuildMI(DispatchBB, dl, TII->get(ARM::CMPrr))
           .addReg(NewVReg1)
-          .addReg(VReg1, RegState::Kill)
+          .addReg(VReg1)
           .add(predOps(ARMCC::AL));
     }
 
@@ -11065,7 +11065,7 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
                                  MachineMemOperand::MOLoad, 4, Align(4));
     Register NewVReg5 = MRI->createVirtualRegister(TRC);
     BuildMI(DispContBB, dl, TII->get(ARM::LDRrs), NewVReg5)
-        .addReg(NewVReg3, RegState::Kill)
+        .addReg(NewVReg3)
         .addReg(NewVReg4)
         .addImm(0)
         .addMemOperand(JTMMOLd)
@@ -11073,13 +11073,13 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
 
     if (IsPositionIndependent) {
       BuildMI(DispContBB, dl, TII->get(ARM::BR_JTadd))
-        .addReg(NewVReg5, RegState::Kill)
-        .addReg(NewVReg4)
-        .addJumpTableIndex(MJTI);
+          .addReg(NewVReg5)
+          .addReg(NewVReg4)
+          .addJumpTableIndex(MJTI);
     } else {
       BuildMI(DispContBB, dl, TII->get(ARM::BR_JTr))
-        .addReg(NewVReg5, RegState::Kill)
-        .addJumpTableIndex(MJTI);
+          .addReg(NewVReg5)
+          .addJumpTableIndex(MJTI);
     }
   }
 
@@ -11586,7 +11586,7 @@ ARMTargetLowering::EmitLowered__chkstk(MachineInstr &MI,
         .addExternalSymbol(ChkStk);
     BuildMI(*MBB, MI, DL, TII.get(gettBLXrOpcode(*MBB->getParent())))
         .add(predOps(ARMCC::AL))
-        .addReg(Reg, RegState::Kill)
+        .addReg(Reg)
         .setOperandDead(3) // implicit-def $lr
         .addReg(ARM::R4, RegState::Implicit | RegState::Kill)
         .addReg(ARM::R4, RegState::Implicit | RegState::Define)
@@ -11690,14 +11690,14 @@ static Register genTPEntry(MachineBasicBlock *TpEntry,
 
   Register LsrDestReg = MRI.createVirtualRegister(&ARM::rGPRRegClass);
   BuildMI(TpEntry, Dl, TII->get(ARM::t2LSRri), LsrDestReg)
-      .addUse(AddDestReg, RegState::Kill)
+      .addUse(AddDestReg)
       .addImm(4)
       .add(predOps(ARMCC::AL))
       .addReg(0);
 
   Register TotalIterationsReg = MRI.createVirtualRegister(&ARM::GPRlrRegClass);
   BuildMI(TpEntry, Dl, TII->get(ARM::t2WhileLoopSetup), TotalIterationsReg)
-      .addUse(LsrDestReg, RegState::Kill);
+      .addUse(LsrDestReg);
 
   BuildMI(TpEntry, Dl, TII->get(ARM::t2WhileLoopStart))
       .addUse(TotalIterationsReg)
@@ -21595,7 +21595,7 @@ ARMTargetLowering::preferredShiftLegalizationStrategy(
 Value *ARMTargetLowering::emitLoadLinked(IRBuilderBase &Builder, Type *ValueTy,
                                          Value *Addr,
                                          AtomicOrdering Ord) const {
-  Module *M = Builder.GetInsertBlock()->getParent()->getParent();
+  Module *M = Builder.getModule();
   bool IsAcquire = isAcquireOrStronger(Ord);
 
   // Since i64 isn't legal and intrinsics don't get type-lowered, the ldrexd
@@ -21637,7 +21637,7 @@ void ARMTargetLowering::emitAtomicCmpXchgNoStoreLLBalance(
 Value *ARMTargetLowering::emitStoreConditional(IRBuilderBase &Builder,
                                                Value *Val, Value *Addr,
                                                AtomicOrdering Ord) const {
-  Module *M = Builder.GetInsertBlock()->getParent()->getParent();
+  Module *M = Builder.getModule();
   bool IsRelease = isReleaseOrStronger(Ord);
 
   // Since the intrinsics must have legal type, the i64 intrinsics take two
