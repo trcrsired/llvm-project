@@ -3897,7 +3897,15 @@ void MicrosoftCXXNameMangler::mangleType(const DependentNameType *T, Qualifiers,
 
 void MicrosoftCXXNameMangler::mangleType(const PackExpansionType *T, Qualifiers,
                                          SourceRange Range) {
-  Error(Range.getBegin(), "pack expansion") << Range;
+  // Mangling can be requested for instantiations produced in unevaluated
+  // contexts (e.g. while checking constraints); those never produce a real
+  // symbol, but still need a stable synthetic name. MSVC has no real mangling
+  // for a pack expansion type, so mangle it as a synthetic name containing the
+  // expansion pattern -- the same approach as TemplateTypeParmType above.
+  Out << '?';
+  mangleSourceName("<PET>");
+  mangleType(T->getPattern(), Range, QMM_Drop);
+  Out << '@';
 }
 
 void MicrosoftCXXNameMangler::mangleType(const PackIndexingType *T,
