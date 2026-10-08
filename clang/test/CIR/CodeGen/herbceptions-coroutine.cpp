@@ -1,8 +1,9 @@
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fherbceptions -fclangir -emit-cir %s -o %t.cir
 // RUN: FileCheck --input-file=%t.cir %s -check-prefix=CIR
 
-// Coroutines must not use 'throws'. This test verifies that a non-throws
-// coroutine still compiles correctly with -fherbceptions.
+// A non-throws coroutine still compiles with -fherbceptions, and a 'throws'
+// coroutine wraps its body so that an escaping herbception is delivered to
+// promise.unhandled_herbception(__cxx_std_error).
 // Self-contained: defines coroutine machinery manually.
 
 namespace std {
@@ -53,6 +54,39 @@ struct std::coroutine_traits<Task, int> {
 Task make_task(int x) {
   co_return;
 }
+
+// 'throws' coroutine: the body is wrapped in a catch-throws handler so an
+// escaping error reaches promise.unhandled_herbception.
+struct HerbTask {
+  struct promise_type {
+    __cxx_std_error error{};
+    HerbTask get_return_object() { return {}; }
+    std::suspend_never initial_suspend() { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void return_void() {}
+    void unhandled_herbception(__cxx_std_error e) noexcept { error = e; }
+  };
+};
+
+template <>
+struct std::coroutine_traits<HerbTask, int> {
+  using promise_type = HerbTask::promise_type;
+};
+
+extern void some_throws() throws;
+
+// CIR-LABEL: cir.func coroutine{{.*}} @_Z9herb_taskDri
+// CIR: cir.throws
+HerbTask herb_task(int x) throws {
+  // CIR: cir.try {
+  // CIR: cir.call @_Z11some_throwsDrv() {cir.throws}
+  // CIR: cir.goto "catch.throws
+  some_throws();
+  co_return;
+}
+
+// CIR: cir.label "catch.throws
+// CIR: cir.call @_ZN8HerbTask12promise_type21unhandled_herbceptionE15__cxx_std_error
 
 int main() {
   return 0;
