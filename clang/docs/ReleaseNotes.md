@@ -301,6 +301,14 @@ features cannot lower the translation-unit ABI level;
   matching on the presumed source location (accounting for macro expansions
   and `#line` directives). (#GH194210)
 
+- Added the AArch64 option `-mharden-pac-ret=load-return-address` to harden
+  return address signing against PACMAN attacks. The option requires return
+  address signing to be enabled and emits a load from the return address before
+  returning, reducing the cache side channel used to guess pointer
+  authentication codes. See
+  {doc}`Return Address Authentication Hardening <ReturnAddressAuthenticationHardening>`
+  for more information.
+
 ### Deprecated Compiler Flags
 
 ### Modified Compiler Flags
@@ -606,6 +614,8 @@ features cannot lower the translation-unit ABI level;
   keyword, such as when deferring the last statement of a block; when
   used as the body of a conditional; or when it immediately precedes
   a `break`/`continue` statement or a `return` with no argument.
+ 
+- Clang now diagnoses arrays whose size is deduced from an initializer list when they exceed the maximum object size
 
 ### Improvements to Clang's time-trace
 
