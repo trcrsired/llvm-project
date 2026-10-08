@@ -84,7 +84,7 @@ static cl::opt<int>
               cl::init(3));
 
 static cl::opt<bool>
-    ReassocShlAddiAdd("reassoc-shl-addi-add", cl::Hidden,
+    ReassocShlAddiAdd("riscv-reassoc-shl-addi-add", cl::Hidden,
                       cl::desc("Swap add and addi in cases where the add may "
                                "be combined with a shift"),
                       cl::init(true));
@@ -1110,6 +1110,8 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
       setOperationPromotedToType(
           {ISD::VECTOR_SPLICE_LEFT, ISD::VECTOR_SPLICE_RIGHT}, VT,
           MVT::getVectorVT(MVT::i8, VT.getVectorElementCount()));
+
+      setOperationAction(ISD::MASK_BEFOREFIRST, VT, Legal);
     }
 
     for (MVT VT : IntVecVTs) {
@@ -13153,7 +13155,6 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
       return DAG.getNode(Opc, DL, VT, Rs1, Rs2);
     }
 
-    MVT XLenVT = Subtarget.getXLenVT();
     SDValue Shift = DAG.getTargetConstant(0, DL, XLenVT);
     if (VT == MVT::v4i8) {
       unsigned ClipOpc = IsSigned ? RISCVISD::PNCLIP : RISCVISD::PNCLIPU;
@@ -13199,7 +13200,6 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     SDValue Rd = Op.getOperand(1);
     SDValue Rs1 = Op.getOperand(2);
     SDValue Rs2 = Op.getOperand(3);
-    MVT XLenVT = Subtarget.getXLenVT();
 
     if (VT == MVT::v2i32 && Rs1.getSimpleValueType() == MVT::v4i16) {
       if (Subtarget.is64Bit()) {
@@ -13246,7 +13246,6 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     // scalar mulq/mulqr (matched by the RV32 PatGprGpr patterns).
     if (!Subtarget.is64Bit()) {
       if (VT == MVT::v2i32) {
-        MVT XLenVT = Subtarget.getXLenVT();
         SDValue Lo1 = DAG.getExtractVectorElt(DL, XLenVT, Rs1, 0);
         SDValue Lo2 = DAG.getExtractVectorElt(DL, XLenVT, Rs2, 0);
         SDValue Hi1 = DAG.getExtractVectorElt(DL, XLenVT, Rs1, 1);
