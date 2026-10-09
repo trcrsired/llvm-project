@@ -990,7 +990,7 @@ ExprResult Sema::ActOnCXXThrowThrows(Scope *S, SourceLocation OpLoc,
     return ExprError();
   }
 
-  const FunctionDecl *CurFD = getCurFunctionDecl();
+  const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true);
 
   // Determine whether we are inside a `try` block (whose `catch throws` handler
   // is parsed after the body, so it is not visible here yet). The handler
@@ -1502,7 +1502,7 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   // catch handler a `catch throws` handler receives it (routability of the
   // latter is verified at CodeGen, since the handlers are parsed after the
   // try body).
-  const FunctionDecl *CurFD = getCurFunctionDecl();
+  const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true);
   const FunctionProtoType *CurFPT =
       CurFD && !CurFD->getType().isNull()
           ? CurFD->getType()->getAs<FunctionProtoType>()
@@ -1632,7 +1632,7 @@ ExprResult Sema::ActOnHerbceptionReturnFailure(SourceLocation FailureLoc, Expr *
 
   // `failure(expr)` is only valid inside a `return_failure{E}` function, and the operand
   // must be of the explicit error type E.
-  const FunctionDecl *CurFD = getCurFunctionDecl();
+  const FunctionDecl *CurFD = getCurFunctionDecl(/*AllowLambda=*/true);
   const FunctionProtoType *CurFPT =
       CurFD ? (CurFD->getType().isNull() ? nullptr : CurFD->getType()->getAs<FunctionProtoType>()) : nullptr;
   if (!CurFPT || !CurFPT->hasReturnFailureSpec()) {

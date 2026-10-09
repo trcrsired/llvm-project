@@ -339,6 +339,13 @@ bool X86CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
                                 Info.CallConv == CallingConv::X86_64_SysV))
     return false;
 
+  // Herbception (throws) calls return the discriminant in EFLAGS.CF, which
+  // GlobalISel has no mechanism to read here — bail to SelectionDAG, same as
+  // X86FastISel does for these calls.
+  if (Info.CanLowerReturn && !Info.OrigRet.Ty->isVoidTy() &&
+      !Info.OrigRet.Flags.empty() && Info.OrigRet.Flags[0].isThrows())
+    return false;
+
   unsigned AdjStackDown = TII.getCallFrameSetupOpcode();
   auto CallSeqStart = MIRBuilder.buildInstr(AdjStackDown);
 
