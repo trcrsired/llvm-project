@@ -3038,8 +3038,11 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
     if (const auto *RA = TargetDecl->getAttr<RestrictAttr>();
         RA && RA->getDeallocator() == nullptr)
       RetAttrs.addAttribute(llvm::Attribute::NoAlias);
+    // herbceptions: the LLVM return of a throws/fails function is the error
+    // channel ({E, i1} or the lone discriminant), not the C++ return value —
+    // nonnull does not apply to it.
     if (TargetDecl->hasAttr<ReturnsNonNullAttr>() &&
-        !CodeGenOpts.NullPointerIsValid)
+        !CodeGenOpts.NullPointerIsValid && !FI.hasThrowsReturn())
       RetAttrs.addAttribute(llvm::Attribute::NonNull);
     if (TargetDecl->hasAttr<AnyX86NoCallerSavedRegistersAttr>())
       FuncAttrs.addAttribute("no_caller_saved_registers");
@@ -4851,6 +4854,12 @@ void CodeGenFunction::EmitFunctionEpilog(
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {
   // A current decl may not be available when emitting vtable thunks.
   if (!CurCodeDecl)
+    return;
+
+  // A herbception (throws/fails) function's LLVM return value is the error
+  // channel — the {E, i1} aggregate or, in discriminant-only mode, the bare
+  // i1 — not the C++ return value; there is nothing to null-check.
+  if (CurFnInfo && CurFnInfo->hasThrowsReturn())
     return;
 
   // If the return block isn't reachable, neither is this check, so don't emit
