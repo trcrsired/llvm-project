@@ -466,8 +466,11 @@ void CIRGenModule::constructAttributeList(
     // TODO(cir): Add noalias to returns for malloc-like functions
     // (__attribute__((malloc)) / __declspec(restrict)).
 
+    // herbceptions: the LLVM return of a throws/fails function is the error
+    // channel ({E, i1} or the lone discriminant), not the C++ return value —
+    // nonnull does not apply to it.
     if (targetDecl->hasAttr<ReturnsNonNullAttr>() &&
-        !codeGenOpts.NullPointerIsValid)
+        !codeGenOpts.NullPointerIsValid && !info.hasThrowsReturn())
       retAttrs.set(mlir::LLVM::LLVMDialect::getNonNullAttrName(),
                    mlir::UnitAttr::get(&getMLIRContext()));
     if (targetDecl->hasAttr<AnyX86NoCallerSavedRegistersAttr>())
