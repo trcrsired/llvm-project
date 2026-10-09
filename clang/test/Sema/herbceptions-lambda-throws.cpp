@@ -28,6 +28,28 @@ inline constexpr void caller3() throws {
   lam();
 }
 
+// A lambda marked 'throws' inside a function that is NOT 'throws' is also
+// allowed: the lambda's own spec governs what its body may do, and the call
+// site is responsible for handling the error (e.g. with a try/catch throws
+// block). Previously getCurFunctionDecl() skipped the lambda context and
+// the enclosing function's missing spec caused a spurious rejection.
+inline constexpr void caller4() {
+  auto lam = []() throws { inner(); };
+  try {
+    lam();
+  } catch throws(int) {
+  }
+}
+
+// `throw throws` inside a throws lambda nested in a non-throws function.
+inline constexpr void caller5() {
+  auto lam = []() throws { throw throws 0; };
+  try {
+    lam();
+  } catch throws(int) {
+  }
+}
+
 int main() {
   caller();
   caller2();

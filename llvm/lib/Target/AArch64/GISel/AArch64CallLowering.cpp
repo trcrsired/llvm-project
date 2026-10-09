@@ -1568,6 +1568,17 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   // symmetry with the arguments, the physical register must be an
   // implicit-define of the call instruction.
   if (Info.CanLowerReturn  && !Info.OrigRet.Ty->isVoidTy()) {
+    // Herbception (throws): the last return leaf is the discriminant and it
+    // rides NZCV.C — the callee writes it with a compare folded into RET, not
+    // a return register. Take it out of the register assignment and read the
+    // flag explicitly below; the call's NZCV write is modeled with an
+    // implicit-def.
+    bool HasThrowsDiscriminant =
+        !InArgs.empty() && InArgs.back().Flags[0].isThrows();
+    ArgInfo ThrowsDisc;
+    if (HasThrowsDiscriminant)
+      ThrowsDisc = InArgs.pop_back_val();
+
     CCAssignFn *RetAssignFn = TLI.CCAssignFnForReturn(Info.CallConv);
     CallReturnHandler Handler(MIRBuilder, MRI, MIB);
     bool UsingReturnedArg =
@@ -1586,6 +1597,14 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
             UsingReturnedArg ? ArrayRef(OutArgs[0].Regs)
                              : ArrayRef<Register>()))
       return false;
+
+    if (HasThrowsDiscriminant) {
+      MIB.addDef(AArch64::NZCV, RegState::Implicit);
+      Register Wide = MRI.createGenericVirtualRegister(LLT::scalar(32));
+      MRI.setRegClass(Wide, &AArch64::GPR32RegClass);
+      MIRBuilder.buildInstr(AArch64::HERB_CSETWr, {Wide}, {});
+      MIRBuilder.buildTrunc(ThrowsDisc.Regs[0], Wide);
+    }
   }
 
   if (Info.SwiftErrorVReg) {
