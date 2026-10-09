@@ -29,7 +29,7 @@ option(LIBHERBCEPTIONS_FREESTANDING "Build with -ffreestanding" OFF)
 option(LIBHERBCEPTIONS_ENABLE_EXCEPTIONS "Enable C++ dynamic exception handling (not herbceptions)" ON)
 option(LIBHERBCEPTIONS_ENABLE_RTTI "Enable C++ RTTI" ON)
 option(LIBHERBCEPTIONS_ENABLE_EBCDIC "Build with EBCDIC support for guard against -fexec-charset= EBCDIC charsets" OFF)
-option(LIBHERBCEPTIONS_NO_MESSAGES "Strip domain message text; errors report only \"[domain](numeric code)\"" OFF)
+option(LIBHERBCEPTIONS_NO_MESSAGES "Strip domain message text; errors report only \"[domain](numeric code)\"" ${LIBHERBCEPTIONS_FREESTANDING})
 option(LIBHERBCEPTIONS_NO_LIB_PREFIX "Emit the shared library without the 'lib' prefix (herbceptions.so/herbceptions.dll)" OFF)
 option(LIBHERBCEPTIONS_BUILD_BOTH_SHARED_NAMES "Emit both prefixed and unprefixed names for the shared library (libherbceptions.so and herbceptions.so / libherbceptions.dll and herbceptions.dll)" OFF)
 option(LIBHERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
@@ -41,6 +41,7 @@ set(LIBHERBCEPTIONS_SOURCES
   src/parse.cpp
   src/cmath_errc.cpp
   src/http_errc.cpp
+  src/tls_alert.cpp
   src/query_information.cpp
   src/itanium_exception_ptr.cpp
   src/msvc_exception_ptr.cpp
@@ -296,6 +297,7 @@ if(LIBHERBCEPTIONS_BUILD_FUZZERS AND NOT LIBHERBCEPTIONS_HEADERS_ONLY)
 
   add_herbceptions_fuzzer(error_codes_fuzzer)
   add_herbceptions_fuzzer(query_information_fuzzer)
+  add_herbceptions_fuzzer(tls_alert_fuzzer)
   if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
       add_herbceptions_fuzzer(msvc_exception_record_fuzzer)

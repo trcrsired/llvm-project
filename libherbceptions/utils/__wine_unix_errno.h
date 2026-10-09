@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 ﻿#pragma once
+// clang-format off: errno tables stay dense, one define per line
 /*
 Referenced from Linux Kernel Header File
 */
@@ -161,3 +162,4 @@ Referenced from Linux Kernel Header File
 #define __WINE_UNIX_ERRNO_ERFKILL 132 /* Operation not possible due to RF-kill */
 
 #define __WINE_UNIX_ERRNO_EHWPOISON 133 /* Memory page has hardware error */
+// clang-format on
