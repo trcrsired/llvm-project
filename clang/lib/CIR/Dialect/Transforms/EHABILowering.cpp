@@ -152,7 +152,8 @@ private:
   mlir::LogicalResult
   lowerEhInitiate(cir::EhInitiateOp initiateOp,
                   llvm::ArrayRef<cir::EhDispatchOp> reachedDispatches,
-                  bool reachesCleanup, EhTokenMap &ehTokenMap);
+                  bool reachesCleanup, EhTokenMap &ehTokenMap,
+                  llvm::SmallVectorImpl<mlir::BlockArgument> &tokenArgsToErase);
   void lowerDispatch(cir::EhDispatchOp dispatch, mlir::Value exnPtr,
                      mlir::Value typeId);
   mlir::LogicalResult lowerConstructCatchParam(cir::ConstructCatchParamOp op,
@@ -417,11 +418,13 @@ mlir::LogicalResult ItaniumEHLowering::lowerFunc(cir::FuncOp funcOp) {
   }
 
   EhTokenMap ehTokenMap;
+  llvm::SmallVector<mlir::BlockArgument> tokenArgsToErase;
   for (cir::EhInitiateOp initiateOp : initiateOps) {
     const InitiateEHInfo &info = initiateInfo[initiateOp.getOperation()];
     if (mlir::failed(lowerEhInitiate(initiateOp,
                                      info.reachedDispatches.getArrayRef(),
-                                     info.reachesCleanup, ehTokenMap)))
+                                     info.reachesCleanup, ehTokenMap,
+                                     tokenArgsToErase)))
       return mlir::failure();
   }
 
@@ -437,12 +440,21 @@ mlir::LogicalResult ItaniumEHLowering::lowerFunc(cir::FuncOp funcOp) {
   }
 
   // Remove the !cir.eh_token block arguments that were replaced by (ptr, u32)
-  // pairs. Iterate in reverse to preserve argument indices during removal.
-  for (mlir::Block &block : funcOp.getBody()) {
-    for (int i = block.getNumArguments() - 1; i >= 0; --i) {
-      if (mlir::isa<cir::EhTokenType>(block.getArgument(i).getType()))
-        block.eraseArgument(i);
-    }
+  // pairs. The set is collected at registration time in lowerEhInitiate:
+  // ehTokenMap keys cannot be re-derived here because the map also stores the
+  // initiate ops' OpResults, which dangle once the initiates are erased, and
+  // because token arguments the traversal never reached (e.g. the catch
+  // region entry argument of a cir.try that could not be flattened) are still
+  // live and must be left alone. Erase indices in descending order per block
+  // to preserve the remaining argument indices.
+  llvm::DenseMap<mlir::Block *, llvm::SmallVector<unsigned>>
+      tokenArgsByBlock;
+  for (mlir::BlockArgument arg : tokenArgsToErase)
+    tokenArgsByBlock[arg.getOwner()].push_back(arg.getArgNumber());
+  for (auto &[block, indices] : tokenArgsByBlock) {
+    llvm::sort(indices, std::greater<unsigned>());
+    for (unsigned i : indices)
+      block->eraseArgument(i);
   }
 
   // Lower any cir.init_catch_param ops in this function. These materialize
@@ -494,7 +506,8 @@ mlir::LogicalResult ItaniumEHLowering::lowerFunc(cir::FuncOp funcOp) {
 mlir::LogicalResult ItaniumEHLowering::lowerEhInitiate(
     cir::EhInitiateOp initiateOp,
     llvm::ArrayRef<cir::EhDispatchOp> reachedDispatches, bool reachesCleanup,
-    EhTokenMap &ehTokenMap) {
+    EhTokenMap &ehTokenMap,
+    llvm::SmallVectorImpl<mlir::BlockArgument> &tokenArgsToErase) {
   mlir::Value rootToken = initiateOp.getEhToken();
 
   // The catch clauses for this landing pad come from the dispatches its
@@ -583,6 +596,7 @@ mlir::LogicalResult ItaniumEHLowering::lowerEhInitiate(
             mlir::Value ptrArg = succ->addArgument(voidPtrType, arg.getLoc());
             mlir::Value u32Arg = succ->addArgument(u32Type, arg.getLoc());
             ehTokenMap[arg] = {ptrArg, u32Arg};
+            tokenArgsToErase.push_back(arg);
           }
           worklist.push_back(arg);
         }
