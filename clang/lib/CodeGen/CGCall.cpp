@@ -1037,6 +1037,16 @@ void CodeGenModule::computeABIInfoUsingLib(CGFunctionInfo &FI) {
                      << ")";
       });
       break;
+    case ABIArgInfo::CoerceAndExpand:
+      Check(Target.getUnpaddedCoerceAndExpandType() ==
+                Res.getUnpaddedCoerceAndExpandType(),
+            [&]() {
+              llvm::dbgs() << "UnpaddedCoerceAndExpandType mismatch (expected: "
+                           << *Target.getUnpaddedCoerceAndExpandType()
+                           << ", given: "
+                           << *Res.getUnpaddedCoerceAndExpandType() << ")";
+            });
+      break;
     default:
       break;
     }
@@ -1110,6 +1120,13 @@ ABIArgInfo CodeGenModule::convertABIArgInfo(const llvm::abi::ArgInfo &AbiInfo,
   }
   case llvm::abi::ArgInfo::Ignore:
     return ABIArgInfo::getIgnore();
+  case llvm::abi::ArgInfo::CoerceAndExpand: {
+    llvm::StructType *CoercedType = llvm::cast<llvm::StructType>(
+        AbiReverseMapper->convertType(AbiInfo.getCoerceToType()));
+    llvm::Type *UnpaddedType =
+        AbiReverseMapper->convertType(AbiInfo.getUnpaddedCoerceAndExpandType());
+    return ABIArgInfo::getCoerceAndExpand(CoercedType, UnpaddedType);
+  }
   }
   llvm_unreachable("Unexpected llvm::abi::ArgInfo kind");
 }
