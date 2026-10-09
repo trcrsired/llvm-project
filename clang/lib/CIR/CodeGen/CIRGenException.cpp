@@ -1561,7 +1561,7 @@ RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
   assert(curFnInfo && curFnInfo->hasThrowsReturn() &&
          "herbception try outside a throws function");
 
-  const Expr *sub = E->getSubExpr()->IgnoreParenImpCasts();
+  const Expr *sub = E->getSubExpr()->IgnoreImplicit();
   const CallExpr *call = cast<CallExpr>(sub);
   QualType callTy = call->getType();
 
@@ -1821,7 +1821,7 @@ CIRGenFunction::emitFailsErrorToStdError(const CXXTryExpr *E,
 }
 
 RValue CIRGenFunction::emitHerbceptionCatchReturnFailure(const CXXCatchReturnFailureExpr *E) {
-  const Expr *sub = E->getSubExpr()->IgnoreParenImpCasts();
+  const Expr *sub = E->getSubExpr()->IgnoreImplicit();
   const CallExpr *call = cast<CallExpr>(sub);
 
   // Emit the call. It returns {T, i1}; suppress routing to an enclosing
