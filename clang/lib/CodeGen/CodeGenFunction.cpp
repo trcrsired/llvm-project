@@ -718,6 +718,11 @@ void CodeGenFunction::markAsIgnoreThreadCheckingAtRuntime(llvm::Function *Fn) {
 
 /// Check if the return value of this function requires sanitization.
 bool CodeGenFunction::requiresReturnValueCheck() const {
+  // A herbception (throws/fails) function's LLVM return value is the error
+  // channel — the {E, i1} aggregate or, in discriminant-only mode, the bare
+  // i1 — not the C++ return value, so a null check cannot run on it.
+  if (CurFnInfo && CurFnInfo->hasThrowsReturn())
+    return false;
   return requiresReturnValueNullabilityCheck() ||
          (SanOpts.has(SanitizerKind::ReturnsNonnullAttribute) && CurCodeDecl &&
           CurCodeDecl->getAttr<ReturnsNonNullAttr>());
@@ -1068,7 +1073,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 
   // If we're checking nullability, we need to know whether we can check the
   // return value. Initialize the flag to 'true' and refine it in EmitParmDecl.
-  if (SanOpts.has(SanitizerKind::NullabilityReturn)) {
+  // A herbception (throws/fails) function never gets the check: its LLVM
+  // return value is the error channel, not the C++ return value.
+  if (SanOpts.has(SanitizerKind::NullabilityReturn) &&
+      !(CurFnInfo && CurFnInfo->hasThrowsReturn())) {
     auto Nullability = FnRetTy->getNullability();
     if (Nullability && *Nullability == NullabilityKind::NonNull &&
         !FnRetTy->isRecordType()) {
