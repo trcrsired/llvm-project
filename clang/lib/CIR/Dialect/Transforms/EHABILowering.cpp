@@ -222,6 +222,8 @@ void ItaniumEHLowering::ensureRuntimeDecls(mlir::Location loc) {
 ///     unreachable;
 ///   }
 void ItaniumEHLowering::ensureClangCallTerminate(mlir::Location loc) {
+  // TODO(cir): set the runtime calling convention on the runtime calls below.
+  assert(!cir::MissingFeatures::opFuncCallingConv());
   if (clangCallTerminateFunc)
     return;
 
@@ -303,6 +305,8 @@ void ItaniumEHLowering::ensureCxaCallUnexpectedDecl(mlir::Location loc) {
 /// Create a terminate landing pad block at the end of the specified function.
 mlir::Block *ItaniumEHLowering::buildTerminateBlock(cir::FuncOp funcOp,
                                                     mlir::Location loc) {
+  // TODO(cir): set the runtime calling convention on the runtime calls below.
+  assert(!cir::MissingFeatures::opFuncCallingConv());
   assert(clangCallTerminateFunc &&
          "ensureClangCallTerminate must run before buildTerminateBlock");
   mlir::Region &body = funcOp.getRegion();
@@ -508,6 +512,8 @@ mlir::LogicalResult ItaniumEHLowering::lowerEhInitiate(
     llvm::ArrayRef<cir::EhDispatchOp> reachedDispatches, bool reachesCleanup,
     EhTokenMap &ehTokenMap,
     llvm::SmallVectorImpl<mlir::BlockArgument> &tokenArgsToErase) {
+  // TODO(cir): set the runtime calling convention on the runtime calls below.
+  assert(!cir::MissingFeatures::opFuncCallingConv());
   mlir::Value rootToken = initiateOp.getEhToken();
 
   // The catch clauses for this landing pad come from the dispatches its
@@ -854,6 +860,8 @@ ItaniumEHLowering::resolveCatchCopyThunk(cir::ConstructCatchParamOp op) {
 mlir::LogicalResult
 ItaniumEHLowering::lowerConstructCatchParam(cir::ConstructCatchParamOp op,
                                             mlir::Value exnPtr) {
+  // TODO(cir): set the runtime calling convention on the runtime calls below.
+  assert(!cir::MissingFeatures::opFuncCallingConv());
   mlir::Location loc = op.getLoc();
   mlir::Value paramAddr = op.getParamAddr();
   cir::PointerType paramAddrType =
@@ -941,6 +949,8 @@ ItaniumEHLowering::lowerConstructCatchParam(cir::ConstructCatchParamOp op,
 /// type_info and dtor pointers from their symbol attributes, bitcasting
 /// each to !cir.ptr<!void> as required by the runtime function signature.
 mlir::LogicalResult ItaniumEHLowering::lowerTryThrow(cir::TryThrowOp op) {
+  // TODO(cir): set the runtime calling convention on the runtime calls below.
+  assert(!cir::MissingFeatures::opFuncCallingConv());
   mlir::Location loc = op.getLoc();
   mlir::Block *normalDest = op.getNormalDest();
   mlir::Block *unwindDest = op.getUnwindDest();
