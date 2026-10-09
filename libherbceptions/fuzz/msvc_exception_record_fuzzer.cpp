@@ -119,8 +119,10 @@ void run_queries(::std::error_domain_singleton const *domain, void *storage) {
       ::std::error_query_information::name_message,
   };
   constexpr ::std::error_reporter_encoding kEncodings[] = {
-      ::std::error_reporter_encoding::utf8,    ::std::error_reporter_encoding::utf16,
-      ::std::error_reporter_encoding::utf32,   ::std::error_reporter_encoding::gb18030,
+      ::std::error_reporter_encoding::utf8,
+      ::std::error_reporter_encoding::utf16,
+      ::std::error_reporter_encoding::utf32,
+      ::std::error_reporter_encoding::gb18030,
       ::std::error_reporter_encoding::utfebcdic,
   };
   for (auto const q : kQueries) {
@@ -213,8 +215,7 @@ extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *data,
 
 #else
 
-extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *,
-                                      ::std::size_t) {
+extern "C" int LLVMFuzzerTestOneInput(::std::uint8_t const *, ::std::size_t) {
   return 0;
 }
 
