@@ -1,0 +1,44 @@
+// RUN: cir-opt %s -cir-eh-abi-lowering -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+// Test that the !cir.eh_token block-argument sweep visits nested regions.
+// EH bookkeeping blocks may live inside structured ops that FlattenCFG
+// cannot dissolve (e.g. cir.coroutine body regions); here a cir.if stands
+// in for a still-nested region at eh-abi-lowering time. The token argument
+// must be replaced by the (ptr, u32) pair in place, not left dangling:
+// a stale token argument whose predecessors no longer supply it leaves a
+// successor/argument arity mismatch downstream.
+
+!s32i = !cir.int<s, 32>
+!void = !cir.void
+#true = #cir.bool<true> : !cir.bool
+
+module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
+
+cir.func private @dtor() attributes {nothrow}
+
+cir.func @nested_token() {
+  %c = cir.const #true
+  cir.if %c {
+    %tok = cir.eh.initiate cleanup : !cir.eh_token
+    cir.br ^cleanup(%tok : !cir.eh_token)
+  ^cleanup(%arg: !cir.eh_token):
+    %ct = cir.begin_cleanup %arg : !cir.eh_token -> !cir.cleanup_token
+    cir.call @dtor() : () -> ()
+    cir.end_cleanup %ct : !cir.cleanup_token
+    cir.br ^done
+  ^done:
+    cir.yield
+  }
+  cir.return
+}
+
+}
+// CHECK: cir.func @nested_token()
+// CHECK: cir.if
+// CHECK: %[[EXN:.*]], %[[SEL:.*]] = cir.eh.inflight_exception cleanup
+// CHECK: cir.br ^[[CLEANUP:.*]](%[[EXN]], %[[SEL]] : !cir.ptr<!void>, !u32i)
+// CHECK: ^[[CLEANUP]](%[[A1:.*]]: !cir.ptr<!void>, %[[A2:.*]]: !u32i):
+// CHECK-NEXT: cir.call @dtor()
+// CHECK-NEXT: cir.br
+// CHECK-NOT: eh_token

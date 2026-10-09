@@ -155,8 +155,16 @@ static mlir::LogicalResult
 emitBodyAndFallthrough(CIRGenFunction &cgf, const CoroutineBodyStmt &s,
                        Stmt *body,
                        const CIRGenFunction::LexicalScope *currLexScope) {
-  if (cgf.emitStmt(body, /*useCurrentScope=*/true).failed())
-    return mlir::failure();
+  {
+    // Destroy the body's local variables, and the temporaries they extend, when
+    // the body ends, before the fall-through handler, the implicit
+    // `co_return;`, calls return_void(). The body stays in the current lexical
+    // scope so that a co_return at its top level is recorded in currLexScope.
+    CIRGenFunction::RunCleanupsScope bodyScope(cgf);
+    if (cgf.emitStmt(body, /*useCurrentScope=*/true).failed())
+      return mlir::failure();
+  }
+
   // Note that classic codegen checks CanFallthrough by looking into the
   // availability of the insert block which is kinda brittle and unintuitive,
   // seems to be related with how landing pads are handled.
@@ -480,6 +488,27 @@ CIRGenFunction::emitCoroutineBody(const CoroutineBodyStmt &s) {
         } else if (coroutineBodyExceptionHelper(*this, s).failed()) {
           return mlir::failure();
         }
+      } else if (s.getHerbceptionHandler()) {
+        // `throws` coroutine: wrap the body in a `catch throws` handler so
+        // herbception errors (and auto-converted legacy exceptions) escaping
+        // the body are delivered to promise.unhandled_herbception, then the
+        // coroutine proceeds to final_suspend.
+        auto loc = s.getBeginLoc();
+        auto *bodyCS = dyn_cast<CompoundStmt>(s.getBody());
+        if (!bodyCS)
+          bodyCS = CompoundStmt::Create(getContext(), s.getBody(),
+                                        FPOptionsOverride(), loc, loc);
+        Stmt *handlers[] = {s.getHerbceptionHandler()};
+        auto *tryStmt =
+            CXXTryStmt::Create(getContext(), loc, bodyCS, handlers);
+        if (emitCXXTryStmt(*tryStmt).failed())
+          return mlir::failure();
+        // The catch-throws handler path rejoins the continuation even when
+        // the body itself always co_returns, so the implicit fallthrough
+        // co_return is emitted unconditionally.
+        if (Stmt *onFallthrough = s.getFallthroughHandler())
+          if (emitStmt(onFallthrough, /*useCurrentScope=*/true).failed())
+            return mlir::failure();
       } else if (emitBodyAndFallthrough(*this, s, s.getBody(), curLexScope)
                      .failed()) {
         return mlir::failure();

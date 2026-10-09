@@ -3122,6 +3122,17 @@ bool AArch64FastISel::finishCall(CallLoweringInfo &CLI, unsigned NumBytes) {
     if (CopyVT.isVector() && !Subtarget->isLittleEndian())
       return false;
 
+    // Herbception (throws): the discriminant rides NZCV.C, not a return
+    // register — the callee writes it with a compare folded into RET, so the
+    // leaf's CC-assigned register (W2 under the plain AAPCS fallback) is
+    // garbage. Emit the NZCV.C read instead; the peephole can still fold it
+    // into a following B.cc/B.cs.
+    if (i < CLI.Ins.size() && CLI.Ins[i].Flags.isThrows()) {
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
+              TII.get(AArch64::HERB_CSETWr), CopyReg);
+      continue;
+    }
+
     // Copy result out of their specified physreg.
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD, TII.get(TargetOpcode::COPY),
             CopyReg)
@@ -3280,6 +3291,11 @@ bool AArch64FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   // Add a register mask with the call-preserved registers.
   // Proper defs for return values will be added by setPhysRegsDeadExcept().
   MIB.addRegMask(TRI.getCallPreservedMask(*FuncInfo.MF, CC));
+
+  // Herbception (throws): the callee returns the discriminant in NZCV.C —
+  // model the flag write so the discriminant read in finishCall has a def.
+  if (CLI.IsThrows)
+    MIB.addReg(AArch64::NZCV, RegState::ImplicitDefine);
 
   CLI.Call = MIB;
 
