@@ -1,6 +1,6 @@
 set(LLVM_LINK_COMPONENTS)
 
-if (NOT WIN32 OR NOT LLVM_LINK_LLVM_DYLIB)
+if (NOT WIN32 OR NOT (LLVM_LINK_LLVM_DYLIB OR BUILD_SHARED_LIBS))
   llvm_add_library(
       ClangdFeatureModuleExample
       MODULE FeatureModuleExample.cpp
