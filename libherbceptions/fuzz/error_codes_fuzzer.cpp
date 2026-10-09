@@ -28,10 +28,8 @@ constexpr ::std::error_query_information kQueries[] = {
 };
 
 constexpr ::std::error_reporter_encoding kEncodings[] = {
-    error_reporter_encoding::utf8,
-    error_reporter_encoding::utf16,
-    error_reporter_encoding::utf32,
-    error_reporter_encoding::gb18030,
+    error_reporter_encoding::utf8,      error_reporter_encoding::utf16,
+    error_reporter_encoding::utf32,     error_reporter_encoding::gb18030,
     error_reporter_encoding::utfebcdic,
 };
 

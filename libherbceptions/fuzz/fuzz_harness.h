@@ -66,6 +66,7 @@ saved input to reproduce it.
 */
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <random>
 #include <vector>

@@ -122,16 +122,15 @@ template <char8_t __asciicp, typename __chartype>
 inline constexpr __chartype __char_literal_v{__asciicp};
 
 /*
-In Freestanding Mode we do not print message, only the code
-value to avoid Heap Allocation routines and stack overflow.
-__HERBCEPTIONS_NO_MESSAGES (LIBHERBCEPTIONS_NO_MESSAGES in the CMake
-build) opts a hosted build into the same mode: do_query_information
-reports only "[domain](numeric code)" and the message tables/text are
-never touched, saving the table bytes.
+Whether the domain query functions report message text. Purely a build
+knob: the LIBHERBCEPTIONS_NO_MESSAGES cmake option (passed to the TU as
+__HERBCEPTIONS_NO_MESSAGES) is the only switch; LIBHERBCEPTIONS_
+FREESTANDING merely defaults that option on. In this mode
+do_query_information reports only "[domain](numeric code)" and the
+message tables/text are never touched, saving the table bytes.
 */
 inline constexpr bool __messages_disabled{
-#if __STDC_HOSTED__ == 0 || _KERNEL_MODE == 1 ||                               \
-    defined(__HERBCEPTIONS_NO_MESSAGES)
+#if defined(__HERBCEPTIONS_NO_MESSAGES)
     true
 #endif
 };
@@ -240,29 +239,28 @@ inline constexpr ::std::size_t __format_decimal_value_max_size_with_brackets{
         __format_decimal_value_max_size_no_sign<T> +
     2u};
 
+template <typename T>
+inline constexpr ::std::size_t
+    __format_decimal_pair_value_max_size_with_brackets{
+        ::std::error_domains::__herbceptions_detail::
+                __format_decimal_value_max_size_no_sign<T> *
+            2u +
+        3u};
+
 /*
-Writes "(<decimal digits>)" in the requested charset (ASCII/UTF-8 family or
-EBCDIC). T must be unsigned. Returns one past the last written character.
+Writes "<decimal digits>" (no brackets) in the requested charset
+(ASCII/UTF-8 family or EBCDIC). T must be unsigned. Returns one past the
+last written character.
 */
 template <bool isebcdic, typename Chtype, typename T>
-inline constexpr Chtype *
-__format_decimal_value_full_with_bracket(Chtype *dest, T val) noexcept {
+inline constexpr Chtype *__format_decimal_value_full(Chtype *dest,
+                                                     T val) noexcept {
   using unsignedchtype = ::std::make_unsigned_t<Chtype>;
   static_assert(::std::is_integral_v<T>);
   static_assert(!::std::is_signed_v<T>);
-  constexpr Chtype leftbracket{
-      isebcdic ? static_cast<Chtype>(0x4D)  // EBCDIC '('
-               : static_cast<Chtype>(u8'(') // ASCII/UTF‑8 '('
-  };
-  constexpr Chtype rightbracket{
-      isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
-               : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
-  };
   constexpr unsignedchtype chzero{isebcdic
                                       ? static_cast<unsignedchtype>(0xF0)
                                       : static_cast<unsignedchtype>(u8'0')};
-  *dest = leftbracket;
-  ++dest;
   ::std::size_t ndigits{1u};
   {
     T v{val};
@@ -284,9 +282,68 @@ __format_decimal_value_full_with_bracket(Chtype *dest, T val) noexcept {
       }
     }
   }
-  *destend = rightbracket;
-  ++destend;
   return destend;
+}
+
+/*
+Writes "(<decimal digits>)" in the requested charset (ASCII/UTF-8 family or
+EBCDIC). T must be unsigned. Returns one past the last written character.
+*/
+template <bool isebcdic, typename Chtype, typename T>
+inline constexpr Chtype *
+__format_decimal_value_full_with_bracket(Chtype *dest, T val) noexcept {
+  constexpr Chtype leftbracket{
+      isebcdic ? static_cast<Chtype>(0x4D)  // EBCDIC '('
+               : static_cast<Chtype>(u8'(') // ASCII/UTF‑8 '('
+  };
+  constexpr Chtype rightbracket{
+      isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
+               : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
+  };
+  *dest = leftbracket;
+  ++dest;
+  dest =
+      ::std::error_domains::__herbceptions_detail::__format_decimal_value_full<
+          isebcdic, Chtype>(dest, val);
+  *dest = rightbracket;
+  ++dest;
+  return dest;
+}
+
+/*
+Writes "(<decimal a>:<decimal b>)" in the requested charset
+(ASCII/UTF-8 family or EBCDIC) -- for wire codes that are a fixed pair
+of numbers, like the TLS alert (level, description). T must be
+unsigned. Returns one past the last written character.
+*/
+template <bool isebcdic, typename Chtype, typename T>
+inline constexpr Chtype *
+__format_decimal_pair_value_full_with_bracket(Chtype *dest, T a, T b) noexcept {
+  constexpr Chtype leftbracket{
+      isebcdic ? static_cast<Chtype>(0x4D)  // EBCDIC '('
+               : static_cast<Chtype>(u8'(') // ASCII/UTF‑8 '('
+  };
+  constexpr Chtype rightbracket{
+      isebcdic ? static_cast<Chtype>(0x5D)  // EBCDIC ')'
+               : static_cast<Chtype>(u8')') // ASCII/UTF‑8 ')'
+  };
+  constexpr Chtype colon{
+      isebcdic ? static_cast<Chtype>(0x7A)  // EBCDIC ':'
+               : static_cast<Chtype>(u8':') // ASCII/UTF‑8 ':'
+  };
+  *dest = leftbracket;
+  ++dest;
+  dest =
+      ::std::error_domains::__herbceptions_detail::__format_decimal_value_full<
+          isebcdic, Chtype>(dest, a);
+  *dest = colon;
+  ++dest;
+  dest =
+      ::std::error_domains::__herbceptions_detail::__format_decimal_value_full<
+          isebcdic, Chtype>(dest, b);
+  *dest = rightbracket;
+  ++dest;
+  return dest;
 }
 
 } // namespace std::error_domains::__herbceptions_detail
