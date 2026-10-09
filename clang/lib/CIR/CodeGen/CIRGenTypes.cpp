@@ -780,6 +780,8 @@ CIRGenTypes::clangCallConvToCIRCallConv(clang::CallingConv cc) {
     return cir::CallingConv::X86WinCall;
   default:
     // TODO(cir): Support the remaining target-specific calling conventions.
+    cgm.errorNYI(SourceLocation(), "calling convention",
+                 FunctionType::getNameForCallConv(cc));
     return cir::CallingConv::C;
   }
 }
