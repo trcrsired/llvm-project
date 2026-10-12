@@ -5268,13 +5268,17 @@ bool Sema::CheckTemplateTypeArgument(
     // expression; see if maybe it is missing the "typename" keyword.
     CXXScopeSpec SS;
     DeclarationNameInfo NameInfo;
+    TemplateArgument Pattern = Arg;
+    if (Pattern.isPackExpansion())
+      Pattern = Pattern.getPackExpansionPattern();
+    Expr *E = Pattern.getAsExpr();
 
-   if (DependentScopeDeclRefExpr *ArgExpr =
-               dyn_cast<DependentScopeDeclRefExpr>(Arg.getAsExpr())) {
+    if (DependentScopeDeclRefExpr *ArgExpr =
+            dyn_cast<DependentScopeDeclRefExpr>(E)) {
       SS.Adopt(ArgExpr->getQualifierLoc());
       NameInfo = ArgExpr->getNameInfo();
     } else if (CXXDependentScopeMemberExpr *ArgExpr =
-               dyn_cast<CXXDependentScopeMemberExpr>(Arg.getAsExpr())) {
+                   dyn_cast<CXXDependentScopeMemberExpr>(E)) {
       if (ArgExpr->isImplicitAccess()) {
         SS.Adopt(ArgExpr->getQualifierLoc());
         NameInfo = ArgExpr->getMemberNameInfo();
@@ -5305,6 +5309,12 @@ bool Sema::CheckTemplateTypeArgument(
         TL.setElaboratedKeywordLoc(SourceLocation(/*synthesized*/));
         TL.setQualifierLoc(SS.getWithLocInContext(Context));
         TL.setNameLoc(NameInfo.getLoc());
+        if (Arg.isPackExpansion()) {
+          ArgType = Context.getPackExpansionType(ArgType, std::nullopt);
+          PackExpansionTypeLoc TL = TLB.push<PackExpansionTypeLoc>(ArgType);
+          TL.setEllipsisLoc(
+              cast<PackExpansionExpr>(Arg.getAsExpr())->getEllipsisLoc());
+        }
         TSI = TLB.getTypeSourceInfo(Context, ArgType);
 
         // Overwrite our input TemplateArgumentLoc so that we can recover
@@ -11978,10 +11988,10 @@ private:
       return;
 
     auto From = SD->getSpecializedTemplateOrPartial();
-    if (auto *TD = From.dyn_cast<ClassTemplateDecl *>())
+    if (auto *TD = dyn_cast<ClassTemplateDecl *>(From))
       checkTemplate(TD);
     else if (auto *TD =
-                 From.dyn_cast<ClassTemplatePartialSpecializationDecl *>()) {
+                 dyn_cast<ClassTemplatePartialSpecializationDecl *>(From)) {
       if (!CheckDeclaration(TD))
         diagnose(TD, true);
       checkTemplate(TD);
@@ -11994,10 +12004,10 @@ private:
       return;
 
     auto From = SD->getSpecializedTemplateOrPartial();
-    if (auto *TD = From.dyn_cast<VarTemplateDecl *>())
+    if (auto *TD = dyn_cast<VarTemplateDecl *>(From))
       checkTemplate(TD);
     else if (auto *TD =
-                 From.dyn_cast<VarTemplatePartialSpecializationDecl *>()) {
+                 dyn_cast<VarTemplatePartialSpecializationDecl *>(From)) {
       if (!CheckDeclaration(TD))
         diagnose(TD, true);
       checkTemplate(TD);
