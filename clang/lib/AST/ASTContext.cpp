@@ -8745,60 +8745,33 @@ QualType ASTContext::getCatchReturnFailureType(QualType T, QualType E) const {
   if (It != CatchReturnFailureTypes.end())
     return getCanonicalTagType(It->second);
 
-  // N2289: struct { union { T value; E error; }; bool failed; }.
+  // N2289: struct { T value; E error; bool failed; }.
+  //
+  // The members are laid out side by side rather than as a discriminant-
+  // managed union.  A union holding a non-trivial member (any class type
+  // with a destructor: files, buffers, strings, RAII handles) would give
+  // this aggregate an implicitly-deleted destructor, so `catch
+  // return_failure(expr)` would be rejected for the overwhelmingly common
+  // case of a non-trivial success type.  Only the member selected by
+  // `failed` is meaningful; the other is a raw copy of the same payload
+  // slot.  This matches GCC's representation.
   RecordDecl *RD = buildImplicitRecord("__herb_catch_fails");
   RD->startDefinition();
 
-  // The anonymous union member { T value; E error; }. It must be truly
-  // unnamed: buildImplicitRecord("") would mint an empty IdentifierInfo,
-  // whose zero-length entry corrupts the module/PCH identifier lookup table.
-  RecordDecl *Union = buildImplicitRecord("", RecordDecl::TagKind::Union);
-  Union->setDeclName(DeclarationName());
-  Union->setAnonymousStructOrUnion(true);
-  Union->startDefinition();
-  for (const auto &F : {std::pair<const char *, QualType>{"value", T},
-                        std::pair<const char *, QualType>{"error", E}}) {
+  // A void success type has no value member; GCC gives `value` the error
+  // type in that case, and we do the same (a real `void` field would make
+  // the record's layout degenerate to a SIZE_MAX-sized array).
+  QualType ValueTy = T->isVoidType() ? E : T;
+  for (const auto &F : {std::pair<const char *, QualType>{"value", ValueTy},
+                        std::pair<const char *, QualType>{"error", E},
+                        std::pair<const char *, QualType>{"failed", BoolTy}}) {
     FieldDecl *Field = FieldDecl::Create(
-        *this, Union, SourceLocation(), SourceLocation(), &Idents.get(F.first),
+        *this, RD, SourceLocation(), SourceLocation(), &Idents.get(F.first),
         F.second, /*TInfo=*/nullptr, /*BitWidth=*/nullptr, /*Mutable=*/false,
         ICIS_NoInit);
     Field->setAccess(AS_public);
-    Union->addDecl(Field);
+    RD->addDecl(Field);
   }
-  Union->completeDefinition();
-
-  FieldDecl *UnionField = FieldDecl::Create(
-      *this, RD, SourceLocation(), SourceLocation(),
-      /*Id=*/nullptr, getTypeDeclType(static_cast<const TypeDecl *>(Union)),
-      /*TInfo=*/nullptr,
-      /*BitWidth=*/nullptr, /*Mutable=*/false, ICIS_NoInit);
-  UnionField->setImplicit();
-  UnionField->setAccess(AS_public);
-  RD->addDecl(UnionField);
-
-  // Inject `value`/`error` as IndirectFieldDecls so `r.value` / `r.error`
-  // resolve through the anonymous union.
-  for (const FieldDecl *Sub : Union->fields()) {
-    if (!Sub->getDeclName())
-      continue;
-    auto *Chain =
-        new (*const_cast<ASTContext *>(this)) NamedDecl *[2];
-    Chain[0] = UnionField;
-    Chain[1] = const_cast<FieldDecl *>(Sub);
-    IndirectFieldDecl *Ind = IndirectFieldDecl::Create(
-        *const_cast<ASTContext *>(this), RD, Sub->getLocation(),
-        Sub->getIdentifier(), Sub->getType(), {Chain, 2});
-    Ind->setImplicit();
-    Ind->setAccess(AS_public);
-    RD->addDecl(Ind);
-  }
-
-  FieldDecl *FailedField = FieldDecl::Create(
-      *this, RD, SourceLocation(), SourceLocation(), &Idents.get("failed"),
-      BoolTy, /*TInfo=*/nullptr, /*BitWidth=*/nullptr, /*Mutable=*/false,
-      ICIS_NoInit);
-  FailedField->setAccess(AS_public);
-  RD->addDecl(FailedField);
 
   RD->completeDefinition();
   CatchReturnFailureTypes[Key] = RD;

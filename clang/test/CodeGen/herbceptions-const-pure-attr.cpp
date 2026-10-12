@@ -11,6 +11,15 @@ struct error {
   void *d;
   __SIZE_TYPE__ c;
 };
+// `coff` below is a `return_failure{int}` callee auto-propagated into the
+// std::error channel of a `throws` function, which requires converting its
+// int payload through std::error_domain<int>.
+template <class T> class error_domain;
+template <> class error_domain<int> {
+public:
+  static error_domain_singleton *domain() noexcept;
+  static __SIZE_TYPE__ code(int) noexcept;
+};
 } // namespace std
 
 struct Big { long long a, b, c, d, e, f, g, h; }; // ABI-indirect payload
