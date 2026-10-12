@@ -3632,6 +3632,13 @@ ABIArgInfo WinX86_64ABIInfo::classify(QualType Ty, unsigned &FreeSSERegs,
   }
 
   if (RT || Ty->isAnyComplexType() || Ty->isMemberPointerType()) {
+    // Herbception (throws): an empty C++ record is carried as zero register
+    // leaves, matching the backend's "empty structs decompose to zero
+    // leaves" rule.  Do not coerce it to an i8 and consume a GPR.  (The
+    // plain MS x64 ABI keeps the i8; only the throws convention elides it.)
+    if (IsThrows && Kind != ClassifyKind::Return &&
+        isEmptyRecord(getContext(), Ty, /*AllowArrays=*/true))
+      return ABIArgInfo::getIgnore();
     // MS x64 ABI requirement: "Any argument that doesn't fit in 8 bytes, or is
     // not 1, 2, 4, or 8 bytes, must be passed by reference."
     if (Width > 64 || !llvm::isPowerOf2_64(Width)) {

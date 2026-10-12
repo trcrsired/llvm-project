@@ -1236,6 +1236,22 @@ CGFunctionInfo *CodeGenTypes::findOrInsertCGFunctionInfo(
   // reference kind.
   if (HasThrowsReturn) {
     llvm::Type *RetTy = ConvertType(FI->getReturnType());
+    // Win64 throws: WinX86_64ABIInfo::classify coerces small aggregates to
+    // register-sized scalars and a trivially-copyable <=16-byte aggregate to
+    // {i64,i64}.  Use that ABI classification for the payload; the raw record
+    // type can decompose into more leaves than the three-register-per-class
+    // return budget allows, which aborts in CCState::AnalyzeReturn ("unable
+    // to allocate function return #3").  This is a Win64-family target
+    // property (the backend keys the throws return/argument conventions on
+    // isTargetWin64() + the throws attribute, and the CF write on the throws
+    // attribute alone), not the function's calling convention, so gate on the
+    // target: 64-bit x86 Windows/UEFI.  Cygwin/MSYS are included because they
+    // normalize to windows-cygnus/-msys with OS==Win32.  Other targets keep
+    // the payload spelling they already used.
+    if (!retInfo.isIndirect() && CGM.getTriple().isX86_64() &&
+        CGM.getTriple().isOSWindowsOrUEFI())
+      if (llvm::Type *Coerced = retInfo.getCoerceToType())
+        RetTy = Coerced;
     if (RetTy->isVoidTy())
       RetTy = ErrorType;
     if (ErrorType &&
