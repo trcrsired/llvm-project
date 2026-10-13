@@ -2479,8 +2479,8 @@ mlir::LogicalResult CIRToLLVMLoadOpLowering::matchAndRewrite(
   mlir::LLVM::LoadOp newLoad = mlir::LLVM::LoadOp::create(
       rewriter, op->getLoc(), llvmTy, adaptor.getAddr(), alignment,
       op.getIsVolatile(), /*isNonTemporal=*/op.getIsNontemporal(),
-      /*isInvariant=*/op.getInvariant(), /*isInvariantGroup=*/false, ordering,
-      llvmSyncScope.value_or(std::string()));
+      /*isInvariant=*/op.getInvariant(), /*isInvariantGroup=*/false,
+      /*isNoundef=*/false, ordering, llvmSyncScope.value_or(std::string()));
   if (mlir::Attribute domain = op->getAttr("cir.riscv_nontemporal_domain"))
     newLoad->setAttr("cir.riscv_nontemporal_domain", domain);
 
@@ -5426,6 +5426,18 @@ mlir::LogicalResult CIRToLLVMMatrixColumnMajorStoreOpLowering::matchAndRewrite(
       rewriter.getBoolAttr(op.getIsVolatile()),
       rewriter.getI32IntegerAttr(matrixTy.getNumRows()),
       rewriter.getI32IntegerAttr(matrixTy.getNumColumns()));
+  return mlir::success();
+}
+
+mlir::LogicalResult CIRToLLVMMatrixMultiplyOpLowering::matchAndRewrite(
+    cir::MatrixMultiplyOp op, OpAdaptor adaptor,
+    mlir::ConversionPatternRewriter &rewriter) const {
+  cir::MatrixType lhsTy = op.getLhs().getType();
+  cir::MatrixType rhsTy = op.getRhs().getType();
+  mlir::Type resultTy = typeConverter->convertType(op.getResult().getType());
+  rewriter.replaceOpWithNewOp<mlir::LLVM::MatrixMultiplyOp>(
+      op, resultTy, adaptor.getLhs(), adaptor.getRhs(), lhsTy.getNumRows(),
+      lhsTy.getNumColumns(), rhsTy.getNumColumns());
   return mlir::success();
 }
 
