@@ -2706,7 +2706,7 @@ private:
   isGatherShuffledEntry(
       const TreeEntry *TE, ArrayRef<Value *> VL, SmallVectorImpl<int> &Mask,
       SmallVectorImpl<SmallVector<const TreeEntry *>> &Entries,
-      unsigned NumParts, bool ForOrder = false);
+      unsigned NumParts, Type *ScalarTy, bool ForOrder = false);
 
   /// \returns the cost of gathering (inserting) the values in \p VL into a
   /// vector.
@@ -5765,7 +5765,7 @@ BoUpSLP::findReusedOrderedScalars(const BoUpSLP::TreeEntry &TE,
       tryToGatherExtractElements(GatheredScalars, ExtractMask, NumParts);
   SmallVector<std::optional<TargetTransformInfo::ShuffleKind>> GatherShuffles =
       isGatherShuffledEntry(&TE, GatheredScalars, Mask, Entries, NumParts,
-                            /*ForOrder=*/true);
+                            ScalarTy, /*ForOrder=*/true);
   // The internal gathers of the splat gather subtrees are not used as shuffle
   // sources, do not reorder the tree to match them.
   if (hasSplatSubtreeGather(Entries)) {
@@ -22089,7 +22089,7 @@ SmallVector<std::optional<TargetTransformInfo::ShuffleKind>>
 BoUpSLP::isGatherShuffledEntry(
     const TreeEntry *TE, ArrayRef<Value *> VL, SmallVectorImpl<int> &Mask,
     SmallVectorImpl<SmallVector<const TreeEntry *>> &Entries, unsigned NumParts,
-    bool ForOrder) {
+    Type *ScalarTy, bool ForOrder) {
   assert(NumParts > 0 && NumParts < VL.size() &&
          "Expected positive number of registers.");
   Entries.clear();
@@ -22104,8 +22104,8 @@ BoUpSLP::isGatherShuffledEntry(
   Mask.assign(VL.size(), PoisonMaskElem);
   assert((TE->UserTreeIndex || TE == &getRootNode()) &&
          "Expected only single user of the gather node.");
-  unsigned PWSz = getFullVectorNumberOfElements(*TTI, VL.front()->getType(),
-                                                VL.size(), SLPReVec);
+  unsigned PWSz =
+      getFullVectorNumberOfElements(*TTI, ScalarTy, VL.size(), SLPReVec);
   if (TE->UserTreeIndex && TE->UserTreeIndex.UserTE->isGather() &&
       TE->UserTreeIndex.EdgeIdx == UINT_MAX &&
       (TE->Idx == 0 ||
@@ -23433,8 +23433,8 @@ ResTy BoUpSLP::processBuildVector(const TreeEntry *E, Type *ScalarTy,
         all_of(E->Scalars, [this](Value *V) { return isVectorized(V); }) ||
         isSplat(E->Scalars) ||
         (E->Scalars != GatheredScalars && GatheredScalars.size() <= 2)) {
-      GatherShuffles =
-          isGatherShuffledEntry(E, GatheredScalars, Mask, Entries, NumParts);
+      GatherShuffles = isGatherShuffledEntry(E, GatheredScalars, Mask, Entries,
+                                             NumParts, ScalarTy);
     }
     // The splat gather subtrees are speculative: the keep/drop check may
     // delete them and does not track reuse of their internal gathers by other
@@ -36753,27 +36753,31 @@ bool SLPVectorizerPass::vectorizeChainsInBlock(
     }
   }
 
-  if (PoorThroughputSeeds.size() >= 2) {
-    SmallVector<Value *> Seeds;
-    SmallDenseMap<Value *, SeedGroupKey> SeedKeys;
-    for (Instruction *I :
-         make_filter_range(PoorThroughputSeeds, [&](Instruction *I) {
-           return !R.isDeleted(I) &&
-                  isValidElementType(getValueType(I, SLPReVec), SLPReVec) &&
-                  !R.hasResolvedUser(I);
-         })) {
-      SeedKeys.try_emplace(I, getSeedGroupKey(I, *TLI));
-      Seeds.push_back(I);
-    }
-    Changed |= vectorizeSeeds(
-        Seeds,
-        [&](Value *V1, Value *V2) {
-          return SeedKeys.at(V1).less(SeedKeys.at(V2));
-        },
-        R);
-  }
+  Changed |= vectorizePoorThroughputSeeds(PoorThroughputSeeds.getArrayRef(), R);
 
   return Changed;
+}
+
+bool SLPVectorizerPass::vectorizePoorThroughputSeeds(
+    ArrayRef<Instruction *> Candidates, BoUpSLP &R) {
+  if (Candidates.size() < 2)
+    return false;
+  SmallVector<Value *> Seeds;
+  SmallDenseMap<Value *, SeedGroupKey> SeedKeys;
+  for (Instruction *I : make_filter_range(Candidates, [&](Instruction *I) {
+         return !R.isDeleted(I) &&
+                isValidElementType(getValueType(I, SLPReVec), SLPReVec) &&
+                !R.hasResolvedUser(I);
+       })) {
+    SeedKeys.try_emplace(I, getSeedGroupKey(I, *TLI));
+    Seeds.push_back(I);
+  }
+  return vectorizeSeeds(
+      Seeds,
+      [&](Value *V1, Value *V2) {
+        return SeedKeys.at(V1).less(SeedKeys.at(V2));
+      },
+      R);
 }
 
 bool SLPVectorizerPass::vectorizeSeeds(

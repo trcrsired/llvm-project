@@ -944,17 +944,9 @@ public:
           GEPNoWrapFlags::fromRaw(GEPFlagsStorage));
       break;
     case OperationType::FPMathOp:
-    case OperationType::FCmp: {
-      const FastMathFlagsTy &F = getFMFsRef();
-      I.setHasAllowReassoc(F.AllowReassoc);
-      I.setHasNoNaNs(F.NoNaNs);
-      I.setHasNoInfs(F.NoInfs);
-      I.setHasNoSignedZeros(F.NoSignedZeros);
-      I.setHasAllowReciprocal(F.AllowReciprocal);
-      I.setHasAllowContract(F.AllowContract);
-      I.setHasApproxFunc(F.ApproxFunc);
+    case OperationType::FCmp:
+      I.copyFastMathFlags(getFastMathFlagsOrNone());
       break;
-    }
     case OperationType::NonNegOp:
       I.setNonNeg(NonNegFlags.NonNeg);
       break;
@@ -1457,7 +1449,8 @@ private:
       return true;
 
     return Instruction::isCast(Opcode) || Opcode == Instruction::PHI ||
-           Opcode == Instruction::GetElementPtr;
+           Opcode == Instruction::GetElementPtr ||
+           Opcode == Instruction::ExtractValue;
   }
 
 public:
@@ -1573,7 +1566,8 @@ public:
 
   /// Returns true if the recipe only uses scalars of operand \p Op.
   bool usesScalars(const VPValue *Op) const override {
-    return isSingleScalar() || usesFirstLaneOnly(Op);
+    return isSingleScalar() || getOpcode() == VPInstruction::PtrAdd ||
+           usesFirstLaneOnly(Op);
   }
 
   /// Returns true if the recipe only uses the first part of operand \p Op.

@@ -8681,6 +8681,11 @@ public:
   /// 'herbceptions_cxx_std_error': exactly two fields, a pointer followed by
   /// an integer of pointer width.
   bool isCXXStdErrorLayout(const RecordDecl *RD);
+  /// Whether \p T is already in the std::error channel's ABI form -- the
+  /// compiler-fabricated std::error type itself, or a struct marked
+  /// 'herbceptions_cxx_std_error'. Such payloads need no
+  /// std::error_domain<T> conversion when routed to a std::error channel.
+  bool isCXXStdErrorCompatType(QualType T);
   /// Build a DeclRefExpr referring to the static member function \p Fn.
   DeclRefExpr *BuildDeclRefExprForStaticMember(CXXMethodDecl *Fn,
                                                SourceLocation Loc);
