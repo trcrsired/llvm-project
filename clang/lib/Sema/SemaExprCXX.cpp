@@ -1215,6 +1215,25 @@ bool Sema::isCXXStdErrorLayout(const RecordDecl *RD) {
   return It == RD->field_end();
 }
 
+/// Whether \p T is already in the std::error channel's ABI form -- the
+/// compiler-fabricated std::error type itself, or a struct marked
+/// 'herbceptions_cxx_std_error'. Such payloads need no
+/// std::error_domain<T> conversion when routed to a std::error channel.
+bool Sema::isCXXStdErrorCompatType(QualType T) {
+  if (const auto *RT = T->getAsRecordDecl())
+    if (RT->hasAttr<HerbceptionsCXXStdErrorAttr>())
+      return true;
+  if (NamespaceDecl *Std = getStdNamespace()) {
+    LookupResult R(*this, &PP.getIdentifierTable().get("error"),
+                   SourceLocation(), LookupTagName);
+    if (LookupQualifiedName(R, Std))
+      if (RecordDecl *RD = R.getAsSingle<RecordDecl>())
+        return Context.hasSameUnqualifiedType(
+            T, Context.getTypeDeclType(static_cast<const TypeDecl *>(RD)));
+  }
+  return false;
+}
+
 /// Build the compiler-fabricated `std::error` value for `throw throws e`.
 ExprResult Sema::BuildErrorValueExpr(SourceLocation Loc, Expr *Operand) {
   QualType T = Operand->getType();
@@ -1540,16 +1559,44 @@ ExprResult Sema::ActOnHerbceptionTry(SourceLocation TryLoc, Expr *Ex) {
   // whether the conversion applies: a `return_failure{E2}` function propagates the raw
   // E payload through its own E2 channel.
   CXXRecordDecl *ErrorDomain = nullptr;
-  if ((CurFPT && CurFPT->hasBasicThrowsSpec()) || HerbceptionTryBodyDepth > 0 ||
+  if ((CurFPT && CurFPT->hasThrowsSpec()) || HerbceptionTryBodyDepth > 0 ||
       HerbceptionCatchDepth > 0 || HerbceptionCatchClauseDepth > 0) {
-    if (const CallExpr *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+    if (const CallExpr *Call = dyn_cast<CallExpr>(
+            skipHerbceptionTemporaryWrappers(Ex)))
       if (const FunctionDecl *FD =
               dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
         if (const auto *CalleeFPT =
                 FD->getType()->getAs<FunctionProtoType>();
-            CalleeFPT && CalleeFPT->hasReturnFailureSpec())
-          ErrorDomain = lookupErrorDomain(TryLoc,
-                                          CalleeFPT->getExceptionType(0));
+            CalleeFPT && CalleeFPT->hasReturnFailureSpec()) {
+          QualType ErrTy = CalleeFPT->getExceptionType(0);
+          ErrorDomain = lookupErrorDomain(TryLoc, ErrTy);
+
+          // A `return_failure{E}` payload can only reach a channel whose
+          // payload type differs from E -- the implicit std::error channel of
+          // a `throws` function / `catch throws` handler, or a mismatched
+          // `return_failure{E2}` channel -- through std::error_domain<E>.
+          // Without a visible specialization the raw E payload would be
+          // bit-copied into the channel slot (a miscompile); diagnose it the
+          // same way `throw throws E` does. A payload already in the
+          // std::error ABI form and (best effort -- the enclosing handler is
+          // not known here) a matching `return_failure{E}` destination need
+          // no conversion.
+          if (!ErrorDomain && !ErrTy->isDependentType() &&
+              !isCXXStdErrorCompatType(ErrTy)) {
+            const bool StdErrorDest =
+                (CurFPT && CurFPT->hasBasicThrowsSpec()) ||
+                HerbceptionCatchDepth > 0 || HerbceptionCatchClauseDepth > 0;
+            const bool MatchingReturnFailure =
+                CurFPT && CurFPT->hasReturnFailureSpec() &&
+                !CurFPT->getExceptionType(0)->isDependentType() &&
+                Context.hasSameUnqualifiedType(
+                    ErrTy, CurFPT->getExceptionType(0));
+            if (StdErrorDest || !MatchingReturnFailure)
+              Diag(Call->getBeginLoc(),
+                   diag::err_throw_throws_no_error_domain)
+                  << ErrTy;
+          }
+        }
   }
 
   // Preserve reference identity: a `T&` / `T&&` return through `throws` is
@@ -1588,7 +1635,8 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
   // it cannot flow through a `catch fails` aggregate. Reject it here.
   if (!Ex->isTypeDependent()) {
     const FunctionDecl *FD = nullptr;
-    if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+    if (const auto *Call = dyn_cast<CallExpr>(
+            skipHerbceptionTemporaryWrappers(Ex)))
       FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl());
     if (const auto *FPT = FD ? FD->getType()->getAs<FunctionProtoType>()
                              : nullptr;
@@ -1604,7 +1652,8 @@ ExprResult Sema::ActOnHerbceptionCatchReturnFailure(SourceLocation CatchLoc,
   // handler), so E is always the explicit `return_failure{E}` error type.
   QualType ValueTy = Ex->getType();
   QualType ErrorTy = ValueTy;
-  if (const auto *Call = dyn_cast<CallExpr>(Ex->IgnoreParenImpCasts()))
+  if (const auto *Call =
+          dyn_cast<CallExpr>(skipHerbceptionTemporaryWrappers(Ex)))
     if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Call->getCalleeDecl()))
       if (const auto *CalleeFPT =
               FD->getType()->getAs<FunctionProtoType>()) {

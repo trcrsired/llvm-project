@@ -3,11 +3,13 @@
 
 // Herbception `catch return_failure(expr)`: the throws call returns {T, i1}, and the
 // expression builds the N2289 aggregate
-//   struct { union { T value; E error; }; bool failed; }
+//   struct { T value; E error; bool failed; }
 // with .failed = discriminant and .value/.error sourced from the payload slot.
+// The members are side by side (not a union) so that a non-trivial success
+// type does not give the aggregate a deleted destructor.
 
-// CHECK: %struct.__herb_catch_fails = type { %union.anon, i8 }
-// CIR: %struct.__herb_catch_fails = type { %union.anon{{.*}}, i8 }
+// CHECK: %struct.__herb_catch_fails = type { i32, i32, i8 }
+// CIR: %struct.__herb_catch_fails = type { i32, i32, i8 }
 
 // A return_failure{int} function returns {i32, i1} with the 'throws' attribute.
 // CHECK: define dso_local { i32, i1 } @_Z3barDEiEi(i32 noundef %0) #[[ATTR:[0-9]+]]
@@ -22,14 +24,14 @@ int bar(int x) return_failure{int} {
 // CHECK:         %{{.*}} = call { i32, i1 } @_Z3barDEiEi
 // CIR-LABEL: define dso_local noundef i32 @_Z3fooi(i32 noundef %0)
 // CIR:         %{{.*}} = call { i32, i8 } @_Z3barDEiEi
-// CIR:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 1
+// CIR:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 2
 // CIR:         zext i1 %{{.*}} to i8
 // CIR:         store i8 %{{.*}}, ptr %{{.*}}
 // CIR:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 0
 // CIR:         store i32 %{{.*}}, ptr %{{.*}}
 // CHECK:         %[[VAL:.*]] = extractvalue { i32, i1 } %{{.*}}, 0
 // CHECK:         %[[DISC:.*]] = extractvalue { i32, i1 } %{{.*}}, 1
-// CHECK:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 1
+// CHECK:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 2
 // CHECK:         %[[FAILED:.*]] = zext i1 %[[DISC]] to i8
 // CHECK:         store i8 %[[FAILED]], ptr %{{.*}}, align 4
 // CHECK:         getelementptr inbounds nuw %struct.__herb_catch_fails, ptr %{{.*}}, i32 0, i32 0
