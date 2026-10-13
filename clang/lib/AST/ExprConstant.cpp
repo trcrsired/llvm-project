@@ -9148,41 +9148,35 @@ public:
     if (!Call || !handleCallExpr(Call, Result, nullptr, ErrorPtr))
       return Error(E);
 
-    // Build the catch-fails aggregate {union{T value; E error}; bool failed}.
+    // Build the catch-fails aggregate {T value; E error; bool failed}.
     const RecordDecl *RD = E->getType()->getAsRecordDecl();
     if (!RD)
       return Error(E);
-    const FieldDecl *UnionField = nullptr;
-    const FieldDecl *FailedField = nullptr;
-    for (const FieldDecl *F : RD->fields()) {
-      if (F->getName() == "failed")
-        FailedField = F;
-      else
-        UnionField = F; // the anonymous union
-    }
-    if (!UnionField || !FailedField)
-      return Error(E);
-    const RecordDecl *UR = UnionField->getType()->getAsRecordDecl();
     const FieldDecl *ValueField = nullptr;
     const FieldDecl *ErrorField = nullptr;
-    if (UR)
-      for (const FieldDecl *F : UR->fields()) {
-        if (F->getName() == "value")
-          ValueField = F;
-        else if (F->getName() == "error")
-          ErrorField = F;
-      }
-    if (!ValueField || !ErrorField)
+    const FieldDecl *FailedField = nullptr;
+    for (const FieldDecl *F : RD->fields()) {
+      if (F->getName() == "value")
+        ValueField = F;
+      else if (F->getName() == "error")
+        ErrorField = F;
+      else if (F->getName() == "failed")
+        FailedField = F;
+    }
+    if (!ValueField || !ErrorField || !FailedField)
       return Error(E);
 
-    APValue UnionVal(ErrorPtr->hasValue() ? ErrorField : ValueField,
-                     ErrorPtr->hasValue() ? ErrorVal : Result);
-    APValue CatchResult(APValue::UninitStruct(), /*NumBases=*/0,
-                        /*NumMembers=*/2);
-    CatchResult.getStructField(0) = UnionVal;
-    // `.failed` is a _Bool (unsigned, width 1).
+    // The inactive member is left uninitialized; only the one selected by
+    // `failed` is ever read.
     bool Failed = ErrorPtr->hasValue();
-    CatchResult.getStructField(1) =
+    APValue CatchResult(APValue::UninitStruct(), /*NumBases=*/0,
+                        /*NumMembers=*/3);
+    CatchResult.getStructField(ValueField->getFieldIndex()) =
+        Failed ? APValue() : Result;
+    CatchResult.getStructField(ErrorField->getFieldIndex()) =
+        Failed ? ErrorVal : APValue();
+    // `.failed` is a _Bool (unsigned, width 1).
+    CatchResult.getStructField(FailedField->getFieldIndex()) =
         APValue(APSInt(APInt(1, Failed ? 1 : 0), /*isUnsigned=*/true));
     return DerivedSuccess(CatchResult, E);
   }
