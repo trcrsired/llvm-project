@@ -298,7 +298,12 @@ KnownFPClass KnownFPClass::bitcast(const fltSemantics &FltSemantics,
   else if (Bits.isNegative())
     Known.signBitMustBeOne();
 
-  if (APFloat::isIEEELikeFP(FltSemantics)) {
+  switch (APFloatBase::SemanticsToEnum(FltSemantics)) {
+  case APFloatBase::S_IEEEhalf:
+  case APFloatBase::S_BFloat:
+  case APFloatBase::S_IEEEsingle:
+  case APFloatBase::S_IEEEdouble:
+  case APFloatBase::S_IEEEquad: {
     const unsigned MantissaBits = FltSemantics.precision - 1;
     const APInt ExponentMask = APInt::getBitsSet(
         FltSemantics.sizeInBits, MantissaBits, FltSemantics.sizeInBits - 1);
@@ -342,6 +347,80 @@ KnownFPClass KnownFPClass::bitcast(const fltSemantics &FltSemantics,
       Known.knownNot(fcSNan);
     else if (QuietBitKnownClear)
       Known.knownNot(fcQNan);
+
+    break;
+  }
+  case APFloatBase::S_x87DoubleExtended: {
+    // Layout of the x87 floating point type:
+    // [0:62] fraction
+    // [63] explicit integer bit
+    // [64:78] exponent
+    // [79] sign bit
+    // APFloat treats the x87 pseudo encodings as documented in
+    // fltSemantics::hasExplicitIntegerBit.
+    constexpr unsigned BitWidth = 80;
+    constexpr unsigned FractionBits = 63;
+    constexpr unsigned IntegerBitIndex = FractionBits;
+    const APInt FractionMask = APInt::getLowBitsSet(BitWidth, FractionBits);
+    const APInt ExponentMask =
+        APInt::getBitsSet(BitWidth, FractionBits + 1, BitWidth - 1);
+
+    const bool ExponentKnownAllZeros =
+        (Bits.Zero & ExponentMask) == ExponentMask;
+    const bool ExponentKnownAllOnes = (Bits.One & ExponentMask) == ExponentMask;
+    const bool ExponentKnownNotAllZeros = !(Bits.One & ExponentMask).isZero();
+    const bool ExponentKnownNotAllOnes = !(Bits.Zero & ExponentMask).isZero();
+    const bool FractionKnownAllZeros =
+        (Bits.Zero & FractionMask) == FractionMask;
+    const bool FractionKnownNotAllZeros = !(Bits.One & FractionMask).isZero();
+    const bool IntegerBitKnownSet = Bits.One[IntegerBitIndex];
+    const bool IntegerBitKnownClear = Bits.Zero[IntegerBitIndex];
+
+    // zero and subnormal require an exponent with all zero bits and a cleared
+    // integer bit.
+    if (ExponentKnownNotAllZeros || IntegerBitKnownSet)
+      Known.knownNot(fcZero | fcSubnormal);
+
+    // Zero requires a zero fraction.
+    if (FractionKnownNotAllZeros)
+      Known.knownNot(fcZero);
+
+    // Infinity requires an exponent with all one bits, a set integer bit, and
+    // a zero fraction.
+    if (ExponentKnownNotAllOnes || IntegerBitKnownClear ||
+        FractionKnownNotAllZeros)
+      Known.knownNot(fcInf);
+
+    // A normal x87 value has its integer bit set. A zero exponent with that
+    // bit set is the x87 pseudodenormal encoding, which APFloat treats as
+    // normal.
+    if (IntegerBitKnownClear || ExponentKnownAllOnes)
+      Known.knownNot(fcNormal);
+
+    // A subnormal has a nonzero fraction; NaNs are possible with a zero
+    // fraction through pseudoinfinity and unnormal encodings.
+    if (FractionKnownAllZeros)
+      Known.knownNot(fcSubnormal);
+
+    // We can rule out NaN if the value has all exponent bits set to zero, or
+    // if the value is a canonical normal or infinity.
+    if (ExponentKnownAllZeros ||
+        (IntegerBitKnownSet &&
+         (ExponentKnownNotAllOnes || FractionKnownAllZeros)))
+      Known.knownNot(fcNan);
+
+    const bool QuietBitKnownSet = Bits.One[FractionBits - 1];
+    const bool QuietBitKnownClear = Bits.Zero[FractionBits - 1];
+
+    if (QuietBitKnownSet)
+      Known.knownNot(fcSNan);
+    else if (QuietBitKnownClear)
+      Known.knownNot(fcQNan);
+
+    break;
+  }
+  default:
+    llvm_unreachable("unhandled supported type");
   }
 
   return Known;
@@ -912,8 +991,18 @@ KnownFPClass KnownFPClass::tanh(const KnownFPClass &KnownSrc) {
   Known.knownNot(fcInf);
 
   // tanh is sign-preserving: tanh(x) < 0 iff x < 0.
-  if (KnownSrc.isKnownNever(fcNegative))
-    Known.knownNot(fcNegative);
+  if (KnownSrc.isKnownNever(fcNegSubnormal | fcNegNormal | fcNegInf)) {
+    Known.knownNot(fcNegSubnormal | fcNegNormal);
+
+    // -0.0 is preserved: tanh(-0.0) = -0.0.
+    if (KnownSrc.isKnownNeverNegZero())
+      Known.knownNot(fcNegZero);
+  }
+
+  // Likewise, tanh(x) > 0 iff x > 0. Zero is not ruled out: tanh(+-0.0) =
+  // +-0.0, and a flushed subnormal may become +0.0.
+  if (KnownSrc.isKnownNever(fcPosSubnormal | fcPosNormal | fcPosInf))
+    Known.knownNot(fcPosSubnormal | fcPosNormal);
 
   Known.propagateNonNaN(KnownSrc);
 

@@ -4380,7 +4380,8 @@ def LockReturned : InheritableAttr {
   let LateParsed = LateAttrParseStandard;
   let TemplateDependent = 1;
   let ParseArgumentsAsUnevaluated = 1;
-  let Subjects = SubjectList<[Function]>;
+  let ParseArgsInFunctionScope = 1;
+  let Subjects = SubjectList<[Function, Var, Field]>;
   let Documentation = [Undocumented];
 }
 
