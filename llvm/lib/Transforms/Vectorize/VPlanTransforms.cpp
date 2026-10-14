@@ -20,6 +20,7 @@
 #include "VPlanHelpers.h"
 #include "VPlanPatternMatch.h"
 #include "VPlanUtils.h"
+#include "VectorizeOptions.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
@@ -38,7 +39,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/ProfDataUtils.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Support/TypeSize.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 
@@ -47,6 +48,37 @@ using namespace LoopVectorizationUtils;
 using namespace VPlanPatternMatch;
 using namespace SCEVPatternMatch;
 
+void VPlanTransforms::verifyIfRequested(VPlan &Plan) {
+  if (VectorizeOptions::Global.vplan_verify_each && !verifyVPlanIsValid(Plan))
+    report_fatal_error("Broken VPlan found, compilation aborted!");
+}
+
+#ifndef NDEBUG
+bool VPlanTransforms::isPrintingRequested() {
+  const VectorizeOptions &Opts = VectorizeOptions::Global;
+  return Opts.vplan_print_before_all || Opts.vplan_print_after_all ||
+         !Opts.vplan_print_before.empty() || !Opts.vplan_print_after.empty();
+}
+
+void VPlanTransforms::printIfRequested(VPlan &Plan, Function *Fn,
+                                       StringRef NumberedPassName, bool After) {
+  const VectorizeOptions &Opts = VectorizeOptions::Global;
+  bool All = After ? Opts.vplan_print_after_all : Opts.vplan_print_before_all;
+  ArrayRef<StringRef> Passes =
+      After ? Opts.vplan_print_after : Opts.vplan_print_before;
+  if (!All && none_of(Passes, [&](StringRef Entry) {
+        return Regex(Entry).match(NumberedPassName);
+      }))
+    return;
+  dbgs() << "VPlan for loop in '" << Fn->getName() << "' "
+         << (After ? "after" : "before") << " " << NumberedPassName << '\n';
+  if (Opts.vplan_print_vector_region_scope && Plan.getVectorLoopRegion())
+    Plan.getVectorLoopRegion()->print(dbgs());
+  else
+    dbgs() << Plan << '\n';
+}
+#endif
+
 /// Returns the metadata attached to \p R, or an empty set for a recipe that
 /// does not carry any.
 static VPIRMetadata getMetadataOf(VPRecipeBase *R) {
@@ -54,13 +86,6 @@ static VPIRMetadata getMetadataOf(VPRecipeBase *R) {
     return *MD;
   return {};
 }
-
-// TODO: Remove this once the partial reduction intrinsics are no worse than
-//       normal vector operations.
-static cl::opt<bool> UsePartialReductionsByDefault(
-    "use-partial-reductions-by-default", cl::init(false), cl::Hidden,
-    cl::desc("Use partial reduction intrinsics for "
-             "all supported unordered reductions."));
 
 bool VPlanTransforms::tryToConvertVPInstructionsToVPRecipes(
     VPlan &Plan, const TargetLibraryInfo &TLI, PredicatedScalarEvolution &PSE,
@@ -1157,9 +1182,7 @@ void VPlanTransforms::optimizeInductionLiveOutUsers(
   }
 }
 
-/// Remove redundant ExpandSCEVRecipes in \p Plan's entry block by replacing
-/// them with already existing recipes expanding the same SCEV expression.
-static void removeRedundantExpandSCEVRecipes(VPlan &Plan) {
+void VPlanTransforms::removeRedundantExpandSCEVRecipes(VPlan &Plan) {
   DenseMap<const SCEV *, VPValue *> SCEV2VPV;
 
   for (VPExpandSCEVRecipe &ExpR :
@@ -2745,7 +2768,6 @@ void VPlanTransforms::optimize(VPlan &Plan) {
   RUN_VPLAN_PASS(simplifyBlends, Plan);
   RUN_VPLAN_PASS(legalizeAndOptimizeInductions, Plan);
   RUN_VPLAN_PASS(narrowToSingleScalarRecipes, Plan);
-  RUN_VPLAN_PASS(removeRedundantExpandSCEVRecipes, Plan);
   RUN_VPLAN_PASS(reassociateHeaderMask, Plan);
   RUN_VPLAN_PASS(combineRecipes, Plan);
   RUN_VPLAN_PASS(removeBranchOnConst, Plan, /*OnlyLatches=*/false);
@@ -5662,7 +5684,7 @@ void VPlanTransforms::createPartialReductions(VPlan &Plan,
        make_isa_range<VPReductionPHIRecipe>(HeaderVPBB->phis())) {
     if (auto Chain = getScaledReductionChain(&RedPhiR))
       PhiToChain.try_emplace(&RedPhiR, std::move(*Chain));
-    else if (UsePartialReductionsByDefault &&
+    else if (CostCtx.Opts.use_partial_reductions_by_default &&
              (RedPhiR.getRecurrenceKind() == RecurKind::Add ||
               (RedPhiR.getRecurrenceKind() == RecurKind::FAdd &&
                !RedPhiR.isOrdered() && !RedPhiR.isInLoop())))
