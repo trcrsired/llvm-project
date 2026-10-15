@@ -10937,11 +10937,11 @@ CharUnits GetAlignOfExpr(const ASTContext &Ctx, const Expr *E,
   // to 1 in those cases.
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E))
     return Ctx.getDeclAlign(DRE->getDecl(),
-                            /*RefAsPointee*/ true);
+                            /*ForAlignOf=*/true);
 
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(E))
     return Ctx.getDeclAlign(ME->getMemberDecl(),
-                            /*RefAsPointee*/ true);
+                            /*ForAlignOf=*/true);
 
   return GetAlignOfType(Ctx, E->getType(), ExprKind);
 }
@@ -17526,7 +17526,9 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
 
   case Builtin::BI__builtin_dynamic_object_size:
   case Builtin::BI__builtin_object_size: {
-    APSInt TypeValue = E->getArg(1)->EvaluateKnownConstInt(Info.Ctx);
+    APSInt TypeValue;
+    if (!EvaluateInteger(E->getArg(1), TypeValue, Info))
+      return false;
     if (TypeValue < 0 || TypeValue > 3) {
       Info.FFDiag(E->getArg(1), diag::note_constexpr_builtin_arg_out_of_range)
           << TypeValue << 0 << 3;
@@ -17856,7 +17858,7 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
         MaxTokensOpt.value_or(0) ? *MaxTokensOpt : (~0ULL >> (64 - BitWidth));
     auto MaybeToken = llvm::getAllocToken(Mode, *ATMD, MaxTokens);
     if (!MaybeToken)
-      return Error(E, diag::note_constexpr_infer_alloc_token_stateful_mode);
+      return Error(E, diag::note_constexpr_infer_alloc_token_unsupported_mode);
     return Success(llvm::APInt(BitWidth, *MaybeToken), E);
   }
 

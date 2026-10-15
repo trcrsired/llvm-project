@@ -234,31 +234,39 @@ private:
   const NamedDecl *Template;
 };
 
-/// If the given expression is of a form that permits the deduction
-/// of a non-type template parameter, return the declaration of that
-/// non-type template parameter.
+/// If the given expression is of a form that names a non-type template
+/// parameter, return the declaration of that parameter. A null \p Depth
+/// accepts a parameter at any depth.
 static NonTypeOrVarTemplateParmDecl
-getDeducedNTTParameterFromExpr(const Expr *E, unsigned Depth) {
+getNTTParameterFromExpr(const Expr *E, UnsignedOrNone Depth) {
   // If we are within an alias template, the expression may have undergone
   // any number of parameter substitutions already.
   E = unwrapExpressionForDeduction(E);
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
     if (const auto *NTTP = dyn_cast<NonTypeTemplateParmDecl>(DRE->getDecl()))
-      if (NTTP->getDepth() == Depth)
+      if (!Depth || NTTP->getDepth() == *Depth)
         return NTTP;
 
   // A pack-index-template-name is not deducible.
   if (const auto *DTI = dyn_cast<DependentTemplateIdExpr>(E))
     if (!DTI->getTemplateName().getAsPackIndexingTemplate() &&
-        DTI->getParameter()->getDepth() == Depth)
+        (!Depth || DTI->getParameter()->getDepth() == *Depth))
       return DTI->getParameter();
 
   return nullptr;
 }
 
+QualType Sema::getTypeOfConstantTemplateParameter(const TemplateArgument &Arg) {
+  if (Arg.getKind() == TemplateArgument::Expression)
+    if (NonTypeOrVarTemplateParmDecl NTTP =
+            getNTTParameterFromExpr(Arg.getAsExpr(), std::nullopt))
+      return NTTP.getType();
+  return QualType();
+}
+
 static const NonTypeOrVarTemplateParmDecl
-getDeducedNTTParameterFromExpr(TemplateDeductionInfo &Info, Expr *E) {
-  return getDeducedNTTParameterFromExpr(E, Info.getDeducedDepth());
+getNTTParameterFromExpr(TemplateDeductionInfo &Info, Expr *E) {
+  return getNTTParameterFromExpr(E, Info.getDeducedDepth());
 }
 
 /// Determine whether two declaration pointers refer to the same
@@ -2006,7 +2014,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
       // Determine the array bound is something we can deduce.
       NonTypeOrVarTemplateParmDecl NTTP =
-          getDeducedNTTParameterFromExpr(Info, DAP->getSizeExpr());
+          getNTTParameterFromExpr(Info, DAP->getSizeExpr());
       if (!NTTP)
         return TemplateDeductionResult::Success;
 
@@ -2070,7 +2078,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
       // type. libstdc++ relies on this.
       Expr *NoexceptExpr = FPP->getNoexceptExpr();
       if (NonTypeOrVarTemplateParmDecl NTTP =
-              NoexceptExpr ? getDeducedNTTParameterFromExpr(Info, NoexceptExpr)
+              NoexceptExpr ? getNTTParameterFromExpr(Info, NoexceptExpr)
                            : nullptr) {
         assert(NTTP.getDepth() == Info.getDeducedDepth() &&
                "saw non-type template parameter with wrong depth");
@@ -2262,7 +2270,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
         // Perform deduction on the vector size, if we can.
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, VP->getSizeExpr());
+            getNTTParameterFromExpr(Info, VP->getSizeExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2288,7 +2296,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
         // Perform deduction on the vector size, if we can.
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, VP->getSizeExpr());
+            getNTTParameterFromExpr(Info, VP->getSizeExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2317,7 +2325,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
         // Perform deduction on the vector size, if we can.
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, VP->getSizeExpr());
+            getNTTParameterFromExpr(Info, VP->getSizeExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2342,7 +2350,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
         // Perform deduction on the vector size, if we can.
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, VP->getSizeExpr());
+            getNTTParameterFromExpr(Info, VP->getSizeExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2419,7 +2427,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
             }
 
             NonTypeOrVarTemplateParmDecl NTTP =
-                getDeducedNTTParameterFromExpr(Info, ParamExpr);
+                getNTTParameterFromExpr(Info, ParamExpr);
             if (!NTTP)
               return TemplateDeductionResult::Success;
 
@@ -2466,7 +2474,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
         // Perform deduction on the address space, if we can.
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, ASP->getAddrSpaceExpr());
+            getNTTParameterFromExpr(Info, ASP->getAddrSpaceExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2491,7 +2499,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
 
         // Perform deduction on the address space, if we can.
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, ASP->getAddrSpaceExpr());
+            getNTTParameterFromExpr(Info, ASP->getAddrSpaceExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2511,7 +2519,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
           return TemplateDeductionResult::NonDeducedMismatch;
 
         NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, IP->getNumBitsExpr());
+            getNTTParameterFromExpr(Info, IP->getNumBitsExpr());
         if (!NTTP)
           return TemplateDeductionResult::Success;
 
@@ -2574,7 +2582,7 @@ static QualType getTypeOfTemplateArgumentValue(TemplateDeductionInfo &Info,
                                                const TemplateArgument &A) {
   const Expr *E = A.getAsExpr();
   if (NonTypeOrVarTemplateParmDecl NTTP =
-          getDeducedNTTParameterFromExpr(E, Info.getDeducedDepth()))
+          getNTTParameterFromExpr(E, Info.getDeducedDepth()))
     return NTTP.getType();
   return unwrapExpressionForDeduction(E)->getType();
 }
@@ -2660,7 +2668,7 @@ DeduceTemplateArguments(Sema &S, TemplateParameterList *TemplateParams,
 
   case TemplateArgument::Expression:
     if (NonTypeOrVarTemplateParmDecl NTTP =
-            getDeducedNTTParameterFromExpr(Info, P.getAsExpr())) {
+            getNTTParameterFromExpr(Info, P.getAsExpr())) {
       switch (A.getKind()) {
       case TemplateArgument::Expression: {
         return DeduceNonTypeTemplateArgument(
@@ -4581,8 +4589,8 @@ static TemplateDeductionResult DeduceFromInitializerList(
   //   from the length of the initializer list.
   if (auto *DependentArrTy = dyn_cast_or_null<DependentSizedArrayType>(ArrTy)) {
     // Determine the array bound is something we can deduce.
-    if (NonTypeOrVarTemplateParmDecl NTTP = getDeducedNTTParameterFromExpr(
-            Info, DependentArrTy->getSizeExpr())) {
+    if (NonTypeOrVarTemplateParmDecl NTTP =
+            getNTTParameterFromExpr(Info, DependentArrTy->getSizeExpr())) {
       // We can perform template argument deduction for the given non-type
       // template parameter.
       // C++ [temp.deduct.type]p13:
@@ -5517,7 +5525,8 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *Init, QualType &Result,
           DeducedFromInitRange = Init->getSourceRange();
       }
     } else {
-      if (!getLangOpts().CPlusPlus && Init->refersToBitField()) {
+      if (!getLangOpts().CPlusPlus && Init->refersToBitField() &&
+          AT->getKeyword() == AutoTypeKeyword::GNUAutoType) {
         Diag(Loc, diag::err_auto_bitfield);
         return TemplateDeductionResult::AlreadyDiagnosed;
       }
@@ -6940,8 +6949,7 @@ MarkUsedTemplateParameters(ASTContext &Ctx,
     return;
   }
 
-  const NonTypeOrVarTemplateParmDecl NTTP =
-      getDeducedNTTParameterFromExpr(E, Depth);
+  const NonTypeOrVarTemplateParmDecl NTTP = getNTTParameterFromExpr(E, Depth);
   if (!NTTP)
     return;
   if (NTTP.getDepth() == Depth)
