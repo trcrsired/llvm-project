@@ -1137,9 +1137,7 @@ public:
   QualType RebuildDecltypeType(Expr *Underlying, SourceLocation Loc);
 
   QualType RebuildPackIndexingType(QualType Pattern, Expr *IndexExpr,
-                                   SourceLocation Loc,
-                                   SourceLocation EllipsisLoc,
-                                   bool FullySubstituted,
+                                   SourceLocation Loc, bool FullySubstituted,
                                    ArrayRef<QualType> Expansions = {});
 
   /// Build a new C++11 auto type.
@@ -7334,8 +7332,7 @@ TreeTransform<Derived>::TransformPackIndexingType(TypeLocBuilder &TLB,
       if (NotYetExpanded) {
         FullySubstituted = false;
         QualType Out = getDerived().RebuildPackIndexingType(
-            Pack, IndexExpr.get(), SourceLocation(), TL.getEllipsisLoc(),
-            FullySubstituted);
+            Pack, IndexExpr.get(), TL.getBeginLoc(), FullySubstituted);
         if (Out.isNull())
           return QualType();
 
@@ -7373,8 +7370,8 @@ TreeTransform<Derived>::TransformPackIndexingType(TypeLocBuilder &TLB,
   QualType Result = getDerived().TransformType(TLB, TL.getPatternLoc());
 
   QualType Out = getDerived().RebuildPackIndexingType(
-      Result, IndexExpr.get(), SourceLocation(), TL.getEllipsisLoc(),
-      FullySubstituted, SubtitutedTypes);
+      Result, IndexExpr.get(), TL.getBeginLoc(), FullySubstituted,
+      SubtitutedTypes);
   if (Out.isNull())
     return Out;
 
@@ -15511,7 +15508,7 @@ TreeTransform<Derived>::TransformCXXDefaultInitExpr(CXXDefaultInitExpr *E) {
 
   if (!getDerived().AlwaysRebuild() && Field == E->getField() &&
       E->getUsedContext() == SemaRef.CurContext &&
-      InitRes.get() == E->getRewrittenExpr())
+      InitRes.get() == E->getExpr())
     return E;
 
   return getDerived().RebuildCXXDefaultInitExpr(E->getExprLoc(), Field,
@@ -18560,9 +18557,8 @@ QualType TreeTransform<Derived>::RebuildDecltypeType(Expr *E, SourceLocation) {
 template <typename Derived>
 QualType TreeTransform<Derived>::RebuildPackIndexingType(
     QualType Pattern, Expr *IndexExpr, SourceLocation Loc,
-    SourceLocation EllipsisLoc, bool FullySubstituted,
-    ArrayRef<QualType> Expansions) {
-  return SemaRef.BuildPackIndexingType(Pattern, IndexExpr, Loc, EllipsisLoc,
+    bool FullySubstituted, ArrayRef<QualType> Expansions) {
+  return SemaRef.BuildPackIndexingType(Pattern, IndexExpr, Loc,
                                        FullySubstituted, Expansions);
 }
 
