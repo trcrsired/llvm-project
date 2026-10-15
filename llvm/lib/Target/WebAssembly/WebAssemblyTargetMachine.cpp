@@ -313,6 +313,8 @@ void WebAssemblyPassConfig::addIRPasses() {
   addPass(createWebAssemblyGlobalsTaggingPass());
   addPass(createWebAssemblyStackTaggingPass());
 
+  // Wasm SjLj shares Emscripten SjLj's transformation, so it is handled here.
+  // Without Wasm or Emscripten EH, this also lowers invokes.
   addPass(createWebAssemblyLowerEmscriptenEHSjLjLegacyPass());
 
   // Expand indirectbr instructions to switches.
