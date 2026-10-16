@@ -24,6 +24,11 @@ struct suspend_never {
   void await_suspend(coroutine_handle<>) noexcept {}
   void await_resume() noexcept {}
 };
+// the error channel type a `catch throws` handler binds
+struct error {
+  void *domain;
+  unsigned long code;
+};
 } // namespace std
 
 // promise with both hooks
@@ -97,5 +102,31 @@ TaskNoHook make_task_no_hook(int x) throws {
 // A non-'throws' coroutine still requires unhandled_exception().
 // expected-error@+1 {{'promise_type' is required to declare the member 'unhandled_exception()'}}
 TaskHerbOnly make_task_plain(int x) {
+  co_return;
+}
+
+// A `catch throws` handler is not an unwinding handler: the error has already
+// been returned to the caller, so suspending inside it is as safe as inside a
+// plain block, and the handler restriction of [expr.await]p2 does not apply.
+// Regression test: a missing Herbception carve-out made Sema reject this.
+Task await_in_catch_throws(int x) throws {
+  try {
+    co_await std::suspend_never{};
+  } catch throws(std::error e) {
+    co_await std::suspend_never{};
+    (void)e.code;
+  }
+  co_return;
+}
+
+// A legacy C++ exception handler may run while the stack unwinds, so it still
+// may not suspend — the carve-out is only for `catch throws`.
+Task await_in_cxx_catch(int x) {
+  try {
+    co_await std::suspend_never{};
+  } catch (...) {
+    // expected-error@+1 {{'co_await' cannot be used in the handler of a try block}}
+    co_await std::suspend_never{};
+  }
   co_return;
 }
