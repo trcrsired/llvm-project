@@ -218,7 +218,12 @@ constinit ::std::error_domain_singleton tls_error_domain{
       case ::std::tls_alert::alert_description::unknown_ca:
         return ::std::errc::permission_denied;
       case ::std::tls_alert::alert_description::record_overflow:
+#ifdef EMSGSIZE
         return ::std::errc::message_size;
+#else
+        return ::std::errc::value_too_large;
+#endif
+#ifdef EPROTONOSUPPORT
       case ::std::tls_alert::alert_description::protocol_version:
       case ::std::tls_alert::alert_description::insufficient_security:
       case ::std::tls_alert::alert_description::unsupported_extension:
@@ -227,14 +232,19 @@ constinit ::std::error_domain_singleton tls_error_domain{
       case ::std::tls_alert::alert_description::unrecognized_name:
       case ::std::tls_alert::alert_description::inappropriate_fallback:
         return ::std::errc::protocol_not_supported;
+#endif
       case ::std::tls_alert::alert_description::internal_error:
       case ::std::tls_alert::alert_description::general_error:
         return ::std::errc::io_error;
       default:
-        /* handshake_failure, decode_error, decrypt_error, bad_record_mac,
-           unexpected_message, illegal_parameter, unknown_psk_identity and
-           every unassigned code are peer-protocol failures */
+    /* handshake_failure, decode_error, decrypt_error, bad_record_mac,
+       unexpected_message, illegal_parameter, unknown_psk_identity and
+       every unassigned code are peer-protocol failures */
+#ifdef EPROTO
         return ::std::errc::protocol_error;
+#else
+        return ::std::errc::io_error;
+#endif
       }
     }};
 } // namespace
