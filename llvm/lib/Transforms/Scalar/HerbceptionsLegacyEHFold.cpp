@@ -175,7 +175,8 @@ static bool isAllowedConvInst(Instruction &I, ThrowABI ABI,
   }
   if (isa<CatchPadInst, CatchSwitchInst, LandingPadInst>(I) ||
       isa<ExtractValueInst, PHINode, CatchReturnInst>(I) ||
-      I.isDebugOrPseudoInst() || I.isLifetimeStartOrEnd()) {
+      isa<DbgInfoIntrinsic, PseudoProbeInst>(I) ||
+      I.isLifetimeStartOrEnd()) {
     ConvInsts.insert(&I);
     return true;
   }
@@ -203,7 +204,7 @@ followFuncletExit(BasicBlock *Cont, SmallPtrSetImpl<Instruction *> &ConvInsts,
       return nullptr;
     for (Instruction &I : *Cont)
       if (!isa<CleanupPadInst, CleanupReturnInst>(I) &&
-          !I.isDebugOrPseudoInst())
+          !isa<DbgInfoIntrinsic, PseudoProbeInst>(I))
         return nullptr;
     for (Instruction &I : *Cont)
       ConvInsts.insert(&I);
