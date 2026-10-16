@@ -825,7 +825,11 @@ static bool checkSuspensionContext(Sema &S, SourceLocation Loc,
   }
 
   // Second emphasis of [expr.await]p2: must be outside of an exception handler.
-  if (isWithinCatchScope(S.getCurScope())) {
+  // Herbception: a `catch throws` handler is not an unwinding handler — the
+  // error value has already been returned to the caller — so a suspension
+  // inside it is as safe as inside a plain block and the restriction is not
+  // needed there.
+  if (S.HerbceptionCatchDepth == 0 && isWithinCatchScope(S.getCurScope())) {
     S.Diag(Loc, diag::err_coroutine_within_handler) << Keyword;
     return false;
   }
