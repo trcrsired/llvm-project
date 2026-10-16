@@ -237,11 +237,15 @@ constinit ::std::error_domain_singleton http_error_domain{
       case ::std::http_errc::not_found:
       case ::std::http_errc::gone:
         return ::std::errc::no_such_file_or_directory;
+#ifdef EOPNOTSUPP
       case ::std::http_errc::method_not_allowed:
         return ::std::errc::operation_not_supported;
+#endif
+#ifdef ETIMEDOUT
       case ::std::http_errc::request_timeout:
       case ::std::http_errc::gateway_timeout:
-        return ::std::errc::timed_out;
+        return ::std::errc::io_error;
+#endif
       case ::std::http_errc::conflict:
         return ::std::errc::file_exists;
       case ::std::http_errc::content_too_large:
@@ -257,11 +261,15 @@ constinit ::std::error_domain_singleton http_error_domain{
         return ::std::errc::resource_unavailable_try_again;
       case ::std::http_errc::request_header_fields_too_large:
         return ::std::errc::argument_list_too_long;
+#ifdef ENOSYS
       case ::std::http_errc::not_implemented:
         return ::std::errc::function_not_supported;
+#endif
+#ifdef EPROTONOSUPPORT
       case ::std::http_errc::http_version_not_supported:
       case ::std::http_errc::not_extended:
         return ::std::errc::protocol_not_supported;
+#endif
       case ::std::http_errc::insufficient_storage:
         return ::std::errc::no_space_on_device;
       case ::std::http_errc::loop_detected:
@@ -273,9 +281,11 @@ constinit ::std::error_domain_singleton http_error_domain{
         if (cd < 400) {
           return ::std::errc{};
         }
+#ifdef EPROTO
         if (cd < 500) {
           return ::std::errc::protocol_error;
         }
+#endif
         return ::std::errc::io_error;
       }
       }
