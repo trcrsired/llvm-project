@@ -2389,7 +2389,7 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
     return BackendProcess->wait();
   };
 
-  if (!cgdata::thinLTOTwoRounds()) {
+  if (!cgdata::thinLTOTwoRounds(RegularLTO.Ctx.getLibraryOptions())) {
     std::unique_ptr<ThinBackendProc> BackendProc =
         ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
                         AddStream, Cache, BitcodeLibFuncs);
@@ -2420,7 +2420,8 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
     return E;
 
   LLVM_DEBUG(dbgs() << "[TwoRounds] Merging codegen data\n");
-  auto CombinedHashOrErr = cgdata::mergeCodeGenData(*CG.getResult());
+  auto CombinedHashOrErr = cgdata::mergeCodeGenData(
+      RegularLTO.Ctx.getLibraryOptions(), *CG.getResult());
   if (Error E = CombinedHashOrErr.takeError())
     return E;
   auto CombinedHash = *CombinedHashOrErr;

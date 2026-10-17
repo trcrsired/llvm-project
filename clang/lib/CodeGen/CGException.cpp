@@ -1659,6 +1659,9 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
     // Catch the exception if this isn't a catch-all.
     const CXXCatchStmt *C = S.getCatchHandler(I-1);
 
+    ApplyDebugLocation DebugLoc = ApplyDebugLocation::CreateDefaultArtificial(
+        *this, C->getHandlerBlock()->getBeginLoc());
+
     // Enter a cleanup scope, including the catch variable and the
     // end-catch.
     RunCleanupsScope CatchScope(*this);
