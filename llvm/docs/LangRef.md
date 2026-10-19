@@ -26932,7 +26932,7 @@ The '`llvm.ubsantrap`' intrinsic.
 
 ##### Arguments:
 
-An integer describing the kind of failure detected.
+An unsigned integer describing the kind of failure detected.
 
 ##### Semantics:
 

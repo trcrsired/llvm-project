@@ -22,6 +22,7 @@
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/StmtSYCL.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/CodeGenUtils/LoopAttributes.h"
 #include "clang/CodeGenUtils/StmtUtils.h"
 #include "llvm/Support/SaveAndRestore.h"
 
@@ -257,11 +258,11 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   case Stmt::SwitchStmtClass:
     return emitSwitchStmt(cast<SwitchStmt>(*s));
   case Stmt::ForStmtClass:
-    return emitForStmt(cast<ForStmt>(*s));
+    return emitForStmt(cast<ForStmt>(*s), attr);
   case Stmt::WhileStmtClass:
-    return emitWhileStmt(cast<WhileStmt>(*s));
+    return emitWhileStmt(cast<WhileStmt>(*s), attr);
   case Stmt::DoStmtClass:
-    return emitDoStmt(cast<DoStmt>(*s));
+    return emitDoStmt(cast<DoStmt>(*s), attr);
   case Stmt::CXXTryStmtClass:
     return emitCXXTryStmt(cast<CXXTryStmt>(*s));
   case Stmt::CXXForRangeStmtClass:
@@ -1030,12 +1031,83 @@ mlir::LogicalResult CIRGenFunction::emitSwitchCase(const SwitchCase &s,
   llvm_unreachable("expect case or default stmt");
 }
 
+cir::LoopHintAttr CIRGenFunction::getLoopHints(ArrayRef<const Attr *> attrs,
+                                               bool mustProgress) {
+  // Determine the state of the hints, the same way classic codegen does.
+  CodeGenUtils::LoopAttributes loopAttrs;
+  CodeGenUtils::updateLoopAttributes(loopAttrs, getContext(),
+                                     cgm.getCodeGenOpts(), attrs, mustProgress);
+
+  // Memory accesses in a `parallel` loop are tagged as parallel accesses when
+  // CIR is lowered.
+  assert(!cir::MissingFeatures::loopInfoStack());
+  mlir::MLIRContext *ctx = &getMLIRContext();
+
+  auto convertFlag = [&](bool set) {
+    return set ? mlir::UnitAttr::get(ctx) : mlir::UnitAttr();
+  };
+  auto convertStateToBool =
+      [&](CodeGenUtils::LoopAttributes::LVEnableState state) {
+        switch (state) {
+        case CodeGenUtils::LoopAttributes::LVEnableState::Unspecified:
+          return mlir::BoolAttr();
+        case CodeGenUtils::LoopAttributes::LVEnableState::Enable:
+          return mlir::BoolAttr::get(ctx, true);
+        case CodeGenUtils::LoopAttributes::LVEnableState::Disable:
+          return mlir::BoolAttr::get(ctx, false);
+        case CodeGenUtils::LoopAttributes::LVEnableState::Full:
+          llvm_unreachable("'full' only applies to unrolling");
+        }
+        llvm_unreachable("unknown bool state");
+      };
+
+  auto convertUnrollMode = [](CodeGenUtils::LoopAttributes::LVEnableState state)
+      -> std::optional<cir::LoopUnrollMode> {
+    switch (state) {
+    case CodeGenUtils::LoopAttributes::LVEnableState::Unspecified:
+      return std::nullopt;
+    case CodeGenUtils::LoopAttributes::LVEnableState::Enable:
+      return cir::LoopUnrollMode::Enable;
+    case CodeGenUtils::LoopAttributes::LVEnableState::Disable:
+      return cir::LoopUnrollMode::Disable;
+    case CodeGenUtils::LoopAttributes::LVEnableState::Full:
+      return cir::LoopUnrollMode::Full;
+    }
+
+    llvm_unreachable("unknown unroll state");
+  };
+
+  // Only OMP seems to generate this, so leave as an NYI for now.
+  if (loopAttrs.VectorizeEnable ==
+          CodeGenUtils::LoopAttributes::LVEnableState::Disable ||
+      loopAttrs.VectorizeEnable ==
+          CodeGenUtils::LoopAttributes::LVEnableState::Full)
+    cgm.errorNYI(SourceLocation{}, "unsupported vector-enable loop state");
+
+  bool vectorizeEnable = loopAttrs.VectorizeEnable ==
+                         CodeGenUtils::LoopAttributes::LVEnableState::Enable;
+  auto hints = cir::LoopHintAttr::get(
+      ctx, convertFlag(loopAttrs.MustProgress), convertFlag(vectorizeEnable),
+      loopAttrs.VectorizeWidth, convertStateToBool(loopAttrs.VectorizeScalable),
+      convertStateToBool(loopAttrs.VectorizePredicateEnable),
+      loopAttrs.InterleaveCount, convertUnrollMode(loopAttrs.UnrollEnable),
+      loopAttrs.UnrollCount, convertUnrollMode(loopAttrs.UnrollAndJamEnable),
+      loopAttrs.UnrollAndJamCount,
+      convertStateToBool(loopAttrs.DistributeEnable),
+      convertFlag(loopAttrs.PipelineDisabled),
+      loopAttrs.PipelineInitiationInterval, convertFlag(loopAttrs.LICMDisabled),
+      convertFlag(loopAttrs.IsParallel), loopAttrs.CodeAlign);
+
+  if (hints.isEmpty())
+    return {};
+  return hints;
+}
+
 mlir::LogicalResult
 CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
                                     ArrayRef<const Attr *> forAttrs) {
   cir::ForOp forOp;
 
-  // TODO(cir): pass in array of attributes.
   auto forStmtBuilder = [&]() -> mlir::LogicalResult {
     FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
@@ -1050,7 +1122,10 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
     if (emitStmt(s.getEndStmt(), /*useCurrentScope=*/true).failed())
       return mlir::failure();
 
-    assert(!cir::MissingFeatures::loopInfoStack());
+    // FIXME: Classic codegen never sets 'must progress' on these loops, but
+    // probably could?
+    cir::LoopHintAttr loopHints =
+        getLoopHints(forAttrs, /*mustProgress=*/false);
 
     forOp = builder.createFor(
         getLoc(s.getSourceRange()),
@@ -1081,6 +1156,7 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
               loopRes = mlir::failure();
           builder.createYield(loc);
         });
+    forOp.setLoopHintsAttr(loopHints);
     return loopRes;
   };
 
@@ -1184,10 +1260,10 @@ mlir::LogicalResult CIRGenFunction::emitCXXExpansionStmtInstantiation(
   return res;
 }
 
-mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
+mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s,
+                                                ArrayRef<const Attr *> attrs) {
   cir::ForOp forOp;
 
-  // TODO: pass in an array of attributes.
   auto forStmtBuilder = [&]() -> mlir::LogicalResult {
     FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
@@ -1195,8 +1271,9 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
     if (s.getInit())
       if (emitStmt(s.getInit(), /*useCurrentScope=*/true).failed())
         return mlir::failure();
-    assert(!cir::MissingFeatures::loopInfoStack());
-    checkIfLoopMustProgress(s.getCond(), CodeGenUtils::hasEmptyLoopBody(s));
+    bool mustProgress =
+        checkIfLoopMustProgress(s.getCond(), CodeGenUtils::hasEmptyLoopBody(s));
+    cir::LoopHintAttr loopHints = getLoopHints(attrs, mustProgress);
 
     // A condition variable's lifetime is a single iteration, so capture its
     // destructor and lifetime-end cleanups, and those of the temporaries that
@@ -1264,6 +1341,8 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
       forOp = builder.createFor(getLoc(s.getSourceRange()), condBuilder,
                                 bodyBuilder, stepBuilder);
     }
+
+    forOp.setLoopHintsAttr(loopHints);
     return loopRes;
   };
 
@@ -1283,15 +1362,16 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   return mlir::success();
 }
 
-mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s) {
+mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s,
+                                               ArrayRef<const Attr *> attrs) {
   cir::DoWhileOp doWhileOp;
 
-  // TODO: pass in array of attributes.
   auto doStmtBuilder = [&]() -> mlir::LogicalResult {
     FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
-    assert(!cir::MissingFeatures::loopInfoStack());
-    checkIfLoopMustProgress(s.getCond(), CodeGenUtils::hasEmptyLoopBody(s));
+    bool mustProgress =
+        checkIfLoopMustProgress(s.getCond(), CodeGenUtils::hasEmptyLoopBody(s));
+    cir::LoopHintAttr loopHints = getLoopHints(attrs, mustProgress);
 
     doWhileOp = builder.createDoWhile(
         getLoc(s.getSourceRange()),
@@ -1313,6 +1393,7 @@ mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s) {
             loopRes = mlir::failure();
           emitStopPoint(&s);
         });
+    doWhileOp.setLoopHintsAttr(loopHints);
     return loopRes;
   };
 
@@ -1332,15 +1413,17 @@ mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s) {
   return mlir::success();
 }
 
-mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s) {
+mlir::LogicalResult
+CIRGenFunction::emitWhileStmt(const WhileStmt &s,
+                              ArrayRef<const Attr *> attrs) {
   cir::WhileOp whileOp;
 
-  // TODO: pass in array of attributes.
   auto whileStmtBuilder = [&]() -> mlir::LogicalResult {
     FlowControlTargetScope targetScope{*this};
     mlir::LogicalResult loopRes = mlir::success();
-    assert(!cir::MissingFeatures::loopInfoStack());
-    checkIfLoopMustProgress(s.getCond(), CodeGenUtils::hasEmptyLoopBody(s));
+    bool mustProgress =
+        checkIfLoopMustProgress(s.getCond(), CodeGenUtils::hasEmptyLoopBody(s));
+    cir::LoopHintAttr loopHints = getLoopHints(attrs, mustProgress);
 
     // A condition variable's lifetime is a single iteration, so capture its
     // destructor and lifetime-end cleanups, and those of the temporaries that
@@ -1395,6 +1478,7 @@ mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s) {
       whileOp = builder.createWhile(getLoc(s.getSourceRange()), condBuilder,
                                     bodyBuilder);
     }
+    whileOp.setLoopHintsAttr(loopHints);
     return loopRes;
   };
 
