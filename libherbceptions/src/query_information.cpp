@@ -23,7 +23,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if defined(__cpp_exceptions)
+// The buffer ABI is hosted-only: a freestanding build has no heap-backed
+// query text to cache. MSVC /kernel defines _KERNEL_MODE but leaves
+// __STDC_HOSTED__ at 1.
+#if __STDC_HOSTED__ == 1 && !defined(_KERNEL_MODE)
+
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "libherbceptions.h"
 #include <cstdlib>

@@ -39,6 +39,13 @@ __declspec(dllimport) void *__stdcall HeapAlloc(void *heap,
 __declspec(dllimport) int __stdcall
 HeapFree(void *heap, ::std::uint_least32_t flags, void *ptr) noexcept;
 __declspec(dllimport) void *__stdcall LocalFree(void *mem) noexcept;
+__declspec(dllimport) void __stdcall
+RaiseException(::std::uint_least32_t exception_code,
+               ::std::uint_least32_t exception_flags,
+               ::std::uint_least32_t number_parameters,
+               ::std::uintptr_t const *exception_information) noexcept;
+__declspec(dllimport) void *__stdcall GetProcAddress(void *module,
+                                                     char const *name) noexcept;
 __declspec(dllimport) void *__stdcall
 GetModuleHandleA(char const *name) noexcept;
 __declspec(dllimport) void *__stdcall
