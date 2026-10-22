@@ -727,13 +727,8 @@ domain's ``name_message`` report in the TU's narrow execution charset
 put back on the channel with ``release()`` or
 ``rethrow_herbception_if_error() throws``.
 
-``error::throw_legacy_exception_no_what()`` is the faster sibling: it skips
-the ``do_query_information`` message query entirely — no report calls, no
-allocation, ``what()`` returns ``""`` — while carrying the same
-``{domain, code}`` payload. It is intended for hops where the exception
-exists only to cross legacy EH and come back onto the channel, and leaves
-very little for a folded unwind edge. Under ``-fno-exceptions`` both entry
-points call ``std::terminate()`` rather than being ill-formed (P1105R0).
+Under ``-fno-exceptions`` the call is ill-formed rather than terminating:
+P1105R0 only covers ``throw``, whose termination is defined.
 
 On the way back in, the platform exception-pointer domain recognizes a
 boxed ``cxx_std_error_legacy_exception`` and forwards ``do_to_errc``,
@@ -779,9 +774,9 @@ The box preserves the payload in both directions:
      try {
        io_call();                    // a throws function
      } catch throws(std::error e) {
-       e.throw_legacy_exception_no_what();
-       // hops over the legacy boundary carrying {domain, code} and no
-       // message allocation; the outer code catches it as any exception.
+       e.throw_legacy_exception();
+       // hops over the legacy boundary carrying {domain, code}; the outer
+       // code catches it as any exception.
      }
    }
 
@@ -799,16 +794,6 @@ The box preserves the payload in both directions:
        throw throws; // a foreign legacy exception: keep propagating
      }
    }
-
-Choose between the two throw entry points by whether the legacy side can
-observe ``what()``:
-
-* ``throw_legacy_exception()`` — caches the domain's ``name_message`` into
-  the exception's ``what()``; pick it when the exception may escape to a
-  ``catch (std::exception const &e)`` that prints the message.
-* ``throw_legacy_exception_no_what()`` — no query, no allocation,
-  ``what()`` is ``""``; pick it for pure relays where the exception is
-  guaranteed (or expected) to fold back onto the channel.
 
 On the legacy side the box answers the usual queries and round-trips:
 

@@ -30,6 +30,7 @@ if (LIBCXXABI_ENABLE_EXCEPTIONS)
   list(APPEND LIBCXXABI_SOURCES
     cxa_exception.cpp
     cxa_personality.cpp
+    itanium_exception_ptr.cpp
   )
 else()
   list(APPEND LIBCXXABI_SOURCES
@@ -52,6 +53,15 @@ endif()
 
 # Some files depend on libc++ internals.
 include_directories("${LIBCXXABI_LIBCXX_PATH}/src")
+
+# The Itanium exception_ptr error domain consumes the herbception headers
+# (header-only here) and the catch matcher in private_typeinfo.h. Its exported
+# entry points must be emitted as weak default-visibility definitions, which
+# is what the runtime-build define selects.
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../../libherbceptions/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../../libherbceptions/src")
+set_source_files_properties(itanium_exception_ptr.cpp PROPERTIES
+  COMPILE_DEFINITIONS "_HERBCEPTIONS_BUILDING_RUNTIME=1")
 
 if (LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL)
   add_definitions(-DHAVE___CXA_THREAD_ATEXIT_IMPL)

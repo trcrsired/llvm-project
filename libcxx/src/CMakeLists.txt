@@ -35,7 +35,6 @@ set(LIBCXX_SOURCES
   include/ryu/ryu.h
   include/to_chars_floating_point.h
   include/from_chars_floating_point.h
-  itanium_exception_ptr.cpp
   memory.cpp
   memory_resource.cpp
   new_handler.cpp
@@ -183,11 +182,7 @@ include(FindLibcCommonUtils)
 if (LIBCXX_SUPPORTS_SHARED_LIBRARY)
   add_library(cxx_shared SHARED ${LIBCXX_SOURCES} ${LIBCXX_HEADERS})
   target_include_directories(cxx_shared PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../libherbceptions/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../libherbceptions/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../libcxxabi/src)
-  target_compile_definitions(cxx_shared PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
+    ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(cxx_shared PUBLIC cxx-headers runtimes-libc-shared
                                    PRIVATE ${LIBCXX_LIBRARIES}
                                    PRIVATE llvm-libc-common-utilities)
@@ -276,11 +271,7 @@ set(CMAKE_STATIC_LIBRARY_PREFIX "lib")
 # Build the static library.
 add_library(cxx_static STATIC ${LIBCXX_SOURCES} ${LIBCXX_HEADERS})
 target_include_directories(cxx_static PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../libherbceptions/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../libherbceptions/src
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../libcxxabi/src)
-target_compile_definitions(cxx_static PRIVATE _HERBCEPTIONS_BUILDING_RUNTIME=1)
+  ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cxx_static PUBLIC cxx-headers runtimes-libc-static
                                   PRIVATE ${LIBCXX_LIBRARIES}
                                   PRIVATE libcxx-abi-static
