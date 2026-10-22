@@ -21,15 +21,24 @@ Two heap flavors live side by side:
   - The NT flavor goes straight to ntdll's RtlAllocateHeap/RtlFreeHeap with
     the process heap handle read out of the PEB through the TEB ("register"
     part), so no kernel32 import is needed for it. Used by the exception
-    domains, which only ever run on NT-family kernels. The declarations
-    mirror fast_io_core_impl/allocation/nt_preliminary_definition.h.
+    domains when there is no hosted C library to fall back on: the standalone
+    runtime, a freestanding libstdc++, and the other C++ runtimes.
   - The win32 flavor uses kernel32's HeapAlloc/HeapFree, which exists since
-    Windows 95; used by the win32/com message machinery and by the itanium
-    domain so they keep working everywhere.
+    Windows 95; used by the win32/com message machinery.
+  - A hosted libstdc++ (the Itanium domain is vendored into libsupc++ there)
+    uses ::std::malloc/::std::free, so libstdc++ does not acquire an ntdll
+    import. Such a build needs ntdll only when it is freestanding, where
+    _GLIBCXX_HOSTED is 0.
 
 Every imported function is declared noexcept so no exception semantics can
 bite across the C ABI boundary.
 */
+#if defined(_WIN32) && (!defined(_GLIBCXX_HOSTED) || _GLIBCXX_HOSTED != 1)
+#define __HERBCEPTIONS_USE_NT_HEAP 1
+#else
+#define __HERBCEPTIONS_USE_NT_HEAP 0
+#endif
+
 namespace std::error_domains::__herbceptions_detail {
 
 #ifdef _WIN32
@@ -92,10 +101,10 @@ inline void __win32_heap_free(void *__bufferptr) noexcept {
 
 #endif
 
-// Dispatchers used by the runtime code: the nt flavor for the exception
-// domains, the win32 flavor elsewhere.
+// Dispatchers used by the runtime code: the C library malloc/free for a
+// hosted libstdc++ build, the nt flavor for the exception domains elsewhere.
 inline void *__malloc_or_heap_alloc_or_die(::std::size_t __sz) noexcept {
-#ifdef _WIN32
+#if __HERBCEPTIONS_USE_NT_HEAP
   return __nt_heap_alloc_or_die(__sz);
 #else
   void *__bufferptr = ::std::malloc(__sz);
@@ -105,7 +114,7 @@ inline void *__malloc_or_heap_alloc_or_die(::std::size_t __sz) noexcept {
 #endif
 }
 inline void __free_or_heap_dealloc(void *__bufferptr) noexcept {
-#ifdef _WIN32
+#if __HERBCEPTIONS_USE_NT_HEAP
   __nt_heap_free(__bufferptr);
 #else
   if (__bufferptr != nullptr) {
