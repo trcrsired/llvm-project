@@ -1,4 +1,4 @@
-//===--- itanium_exception_ptr.cpp - itanium exception_ptr domain --------===//
+//===--- msvc_exception_ptr.cpp - MSVC exception_ptr error domain --------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,19 +6,24 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Implements the itanium exception_ptr error_domain_singleton vtable and the
-// weak __cxa_error_domain_itanium_exception_ptr ABI entry point. Available on
-// all platforms. The code is the thrown-object pointer (the __cxa catch
-// value); the vtable releases it on cleanup and rethrows it via the ABI.
+// Implements the msvc exception_ptr error_domain_singleton vtable and the
+// weak __cxa_error_domain_msvc_exception_ptr ABI entry point. The code is an
+// MSVC std::exception_ptr box ({EXCEPTION_RECORD *, refcount *}) and the
+// domain inspects the MSVC C++ EH record (0xE06D7363) it carries.
 //
-// The __cxa_* ABI (allocate/free/refcount/rethrow) exists only on Itanium-ABI
-// targets (Linux, macOS, Cygwin, MinGW). The MSVC ABI (indicated by _MSC_VER)
-// uses __CxxFrameHandler3/_CxxThrowException instead, so the vtable degrades
-// gracefully there (no refcount/rethrow support).
+// _MSC_VER builds call the __ExceptionPtr* helpers imported from msvcp140.dll.
+// GNU/MinGW builds get self-contained equivalents below, modeled on Wine's
+// msvcrt and msvcp90: the box layout and process-heap allocation are ABI with
+// msvcp140, so either runtime can release a box the other created. Rethrowing
+// is a plain RaiseException; SEH delivers the record to the MSVC personalities
+// above no matter which toolchain compiled the rethrowing module, so
+// throw_legacy_exception works from -windows-gnu code too. That is why this
+// translation unit keeps unwind tables although the rest of the runtime does
+// not.
 //
 //===----------------------------------------------------------------------===//
 
-#if defined(_MSC_VER) && (defined(_WIN32) || defined(__CYGWIN__))
+#if defined(_WIN32) || defined(__CYGWIN__)
 
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "libherbceptions.h"
@@ -32,6 +37,7 @@
 using ::std::error_domains::__herbceptions_detail::EXCEPTION_RECORD;
 namespace win32 = ::std::error_domains::__herbceptions_detail::win32;
 
+#if defined(_MSC_VER)
 namespace std::error_domains::__details {
 void __cdecl __ExceptionPtrCurrentException(void *) noexcept
 #if defined(__clang__) || defined(__GNUC__)
@@ -105,6 +111,7 @@ void __cdecl __ExceptionPtrCopyException(void *, void const *,
         ;
 
 } // namespace std::error_domains::__details
+#endif
 
 namespace {
 
@@ -484,6 +491,192 @@ inline constexpr msvc_exception_writestr_return msvc_exception_writestr(
   return {{name, namelen}, {message, messagelen}};
 }
 
+struct error_domain_msvc_eh_ptr {
+  void *rec;
+  void *ref;
+};
+
+/*
+The two halves of the MSVC std::exception_ptr ABI used by this domain.
+Wine's msvcrt and msvcp90 implement the same functions over EXCEPTION_RECORDs
+with the same {record, refcount} box. Keeping their semantics (process-heap
+boxes, Interlocked refcounts, throw-info driven copy and destruction) lets
+msvcp140 and herbceptions share exception_ptr instances in either direction.
+*/
+#if defined(_MSC_VER)
+inline void msvc_eh_ptr_destroy(void *p) noexcept {
+  ::std::error_domains::__details::__ExceptionPtrDestroy(p);
+}
+inline void msvc_eh_ptr_copy(void *dst, void const *src) noexcept {
+  ::std::error_domains::__details::__ExceptionPtrCopy(dst, src);
+}
+inline void msvc_eh_ptr_copy_exception(void *dst, void const *object,
+                                       void const *type) noexcept {
+  ::std::error_domains::__details::__ExceptionPtrCopyException(dst, object,
+                                                               type);
+}
+inline void msvc_eh_ptr_current_exception(void *p) noexcept {
+  ::std::error_domains::__details::__ExceptionPtrCurrentException(p);
+}
+inline void msvc_eh_ptr_rethrow(void *p) {
+  ::std::error_domains::__details::__ExceptionPtrRethrow(p);
+}
+#else
+inline void *msvc_eh_ptr_alloc(::std::size_t size) noexcept {
+  return win32::HeapAlloc(win32::GetProcessHeap(), 0, size);
+}
+inline void msvc_eh_ptr_free(void *ptr) noexcept {
+  if (ptr != nullptr)
+    win32::HeapFree(win32::GetProcessHeap(), 0, ptr);
+}
+inline void msvc_eh_ptr_call_copy_ctor(void *fn, void *dest, void *src,
+                                       bool has_virtual_base) noexcept {
+#if defined(__i386__)
+  if (has_virtual_base)
+    reinterpret_cast<void (__thiscall *)(void *, void *, int)>(fn)(dest, src, 1);
+  else
+    reinterpret_cast<void (__thiscall *)(void *, void *)>(fn)(dest, src);
+#else
+  if (has_virtual_base)
+    reinterpret_cast<void (*)(void *, void *, int)>(fn)(dest, src, 1);
+  else
+    reinterpret_cast<void (*)(void *, void *)>(fn)(dest, src);
+#endif
+}
+inline void msvc_eh_ptr_call_dtor(void *fn, void *object) noexcept {
+#if defined(__i386__)
+  reinterpret_cast<void (__thiscall *)(void *)>(fn)(object);
+#else
+  reinterpret_cast<void (*)(void *)>(fn)(object);
+#endif
+}
+inline void msvc_eh_ptr_copy_object(void *object, void *dest,
+                                    cxx_type_info const *type,
+                                    uintptr_t base) noexcept {
+  if (type->flags & 0x1u /* CLASS_IS_SIMPLE_TYPE */) {
+    __builtin_memmove(dest, object, type->size);
+    if (type->size == sizeof(void *))
+      *static_cast<void **>(dest) =
+          get_this_pointer(&type->offsets, *static_cast<void **>(dest));
+  } else if (type->copy_ctor) {
+    msvc_eh_ptr_call_copy_ctor(
+        cxx_rva(type->copy_ctor, base), dest,
+        get_this_pointer(&type->offsets, object),
+        (type->flags & 0x4u /* CLASS_HAS_VIRTUAL_BASE_CLASS */) != 0);
+  } else {
+    __builtin_memmove(dest, get_this_pointer(&type->offsets, object),
+                      type->size);
+  }
+}
+inline void msvc_eh_ptr_destruct_object(EXCEPTION_RECORD const &rec) noexcept {
+  auto const *et = reinterpret_cast<msvc_cxx_exception_type const *>(
+      rec.ExceptionInformation[2]);
+  if (et == nullptr || et->destructor == 0)
+    return;
+  uintptr_t base = architecture_use_rva ? rec.ExceptionInformation[3] : 0;
+  msvc_eh_ptr_call_dtor(cxx_rva(et->destructor, base),
+                        reinterpret_cast<void *>(rec.ExceptionInformation[1]));
+}
+inline void msvc_eh_ptr_destroy(void *p) noexcept {
+  auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
+  if (ep == nullptr || ep->rec == nullptr)
+    return;
+  if (__atomic_sub_fetch(static_cast<long *>(ep->ref), 1, __ATOMIC_SEQ_CST) ==
+      0) {
+    auto *rec = static_cast<EXCEPTION_RECORD *>(ep->rec);
+    if (rec->ExceptionCode == 0xe06d7363u) {
+      void *object = reinterpret_cast<void *>(rec->ExceptionInformation[1]);
+      msvc_eh_ptr_destruct_object(*rec);
+      msvc_eh_ptr_free(object);
+    }
+    msvc_eh_ptr_free(rec);
+    msvc_eh_ptr_free(ep->ref);
+  }
+  ep->rec = nullptr;
+  ep->ref = nullptr;
+}
+inline void msvc_eh_ptr_copy(void *dst, void const *src) noexcept {
+  auto *d = static_cast<error_domain_msvc_eh_ptr *>(dst);
+  auto const *s = static_cast<error_domain_msvc_eh_ptr const *>(src);
+  *d = *s;
+  if (d->ref != nullptr)
+    __atomic_add_fetch(static_cast<long *>(d->ref), 1, __ATOMIC_SEQ_CST);
+}
+inline void msvc_eh_ptr_copy_exception(void *p, void const *object,
+                                       void const *type_ptr) noexcept {
+  auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
+  auto const *type = static_cast<msvc_cxx_exception_type const *>(type_ptr);
+  uintptr_t base = cxx_rva_base(type);
+  msvc_eh_ptr_destroy(ep);
+  auto *rec = static_cast<EXCEPTION_RECORD *>(
+      msvc_eh_ptr_alloc(sizeof(EXCEPTION_RECORD)));
+  auto *ref = static_cast<long *>(msvc_eh_ptr_alloc(sizeof(long)));
+  __builtin_memset(rec, 0, sizeof(*rec));
+  rec->ExceptionCode = 0xe06d7363u;
+  rec->ExceptionFlags = 0x1u /* EXCEPTION_NONCONTINUABLE */;
+  rec->NumberParameters = architecture_use_rva ? 4u : 3u;
+  rec->ExceptionInformation[0] = 0x19930520u /* VC6 frame magic */;
+  rec->ExceptionInformation[2] = reinterpret_cast<::std::uintptr_t>(type);
+  if constexpr (architecture_use_rva)
+    rec->ExceptionInformation[3] = base;
+  auto const *table = reinterpret_cast<cxx_type_info_table const *>(
+      cxx_rva(type->type_info_table, base));
+  auto const *ti =
+      reinterpret_cast<cxx_type_info const *>(cxx_rva(table->info[0], base));
+  void *copy = msvc_eh_ptr_alloc(ti->size);
+  msvc_eh_ptr_copy_object(const_cast<void *>(object), copy, ti, base);
+  rec->ExceptionInformation[1] = reinterpret_cast<::std::uintptr_t>(copy);
+  *ref = 1;
+  ep->rec = rec;
+  ep->ref = ref;
+}
+using msvc_eh_ptr_current_fn = void (__cdecl *)(void *) noexcept;
+inline msvc_eh_ptr_current_fn msvc_eh_ptr_lookup_current() noexcept {
+  /*
+  The current-exception slot lives in msvcp140's per-thread state and is
+  reachable only through the runtime's own __ExceptionPtrCurrentException.
+  That runtime is loaded whenever MSVC code that can own a current exception
+  is on the stack; without it there is no current MSVC exception to capture.
+  */
+  constexpr char const *module_names[] = {"msvcp140.dll", "msvcp_win.dll"};
+#if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
+    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
+  constexpr char const *symbol = "?__ExceptionPtrCurrentException@@YAXPAX@Z";
+#else
+  constexpr char const *symbol = "?__ExceptionPtrCurrentException@@YAXPEAX@Z";
+#endif
+  for (char const *name : module_names) {
+    void *module = win32::GetModuleHandleA(name);
+    if (module == nullptr)
+      continue;
+    auto fn = reinterpret_cast<msvc_eh_ptr_current_fn>(
+        win32::GetProcAddress(module, symbol));
+    if (fn != nullptr)
+      return fn;
+  }
+  return nullptr;
+}
+inline void msvc_eh_ptr_current_exception(void *p) noexcept {
+  if (auto fn = msvc_eh_ptr_lookup_current(); fn != nullptr) {
+    fn(p);
+    return;
+  }
+  auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
+  ep->rec = nullptr;
+  ep->ref = nullptr;
+}
+inline void msvc_eh_ptr_rethrow(void *p) {
+  auto const *ep = static_cast<error_domain_msvc_eh_ptr const *>(p);
+  if (ep == nullptr || ep->rec == nullptr)
+    return; // empty: let throw_legacy_exception box its fallback
+  auto const *rec = static_cast<EXCEPTION_RECORD const *>(ep->rec);
+  win32::RaiseException(rec->ExceptionCode,
+                        rec->ExceptionFlags & ~0x2u /* EXCEPTION_UNWINDING */,
+                        rec->NumberParameters, rec->ExceptionInformation);
+  __builtin_unreachable();
+}
+#endif
+
 constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
 
     .do_cleanup =
@@ -491,7 +684,7 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
           void *__epstorage = reinterpret_cast<void *>(__cd);
           if (__epstorage == nullptr)
             return;
-          ::std::error_domains::__details::__ExceptionPtrDestroy(__epstorage);
+          msvc_eh_ptr_destroy(__epstorage);
           ::std::error_domains::__herbceptions_detail::__free_or_heap_dealloc(
               __epstorage);
         },
@@ -796,24 +989,21 @@ constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
         return ::std::errc::io_error;
       }
     }
-#if defined(__cpp_exceptions) && defined(_MSC_VER)
     ,
     .do_throw_legacy_exception =
-
-        [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
-          if (__ehabi != ::std::legacy_exception_abi::platform)
-            return;
+        [](::std::size_t __cd, ::std::legacy_exception_abi) {
+          /*
+          The domain only exists on SEH platforms. Both the MSVC and the GNU
+          toolchains request the platform ABI here, and SEH hands the saved
+          MSVC exception record to the MSVC personalities above regardless of
+          which toolchain raised it, so rethrow unconditionally.
+          */
           void *__epstorage = reinterpret_cast<void *>(__cd);
           if (__epstorage == nullptr)
             return;
-          ::std::error_domains::__details::__ExceptionPtrRethrow(__epstorage);
+          msvc_eh_ptr_rethrow(__epstorage);
         }
-#endif
 };
-  struct error_domain_msvc_eh_ptr {
-    void *rec;
-    void *ref;
-  };
  
 } // namespace
 
@@ -823,13 +1013,13 @@ __cxa_error_code_msvc_exception_ptr(::std::size_t flags, void const *a,
   void *ehptr_storage = ::std::error_domains::__herbceptions_detail::
       __malloc_or_heap_alloc_or_die(sizeof(error_domain_msvc_eh_ptr));
   // The fresh box always starts as a valid empty exception_ptr:
-  // __ExceptionPtrCopyException releases whatever ep already holds, and a
+  // msvc_eh_ptr_copy_exception releases whatever ep already holds, and a
   // zeroed box stays well-formed for cleanup on every path.
   __builtin_memset(ehptr_storage, 0, sizeof(error_domain_msvc_eh_ptr));
   switch (flags) {
   case 0:
     // a is an existing exception_ptr box; copy it into the fresh box.
-    ::std::error_domains::__details::__ExceptionPtrCopy(ehptr_storage, a);
+    msvc_eh_ptr_copy(ehptr_storage, a);
     return reinterpret_cast<::std::size_t>(ehptr_storage);
   case 1:
     break;
@@ -839,14 +1029,12 @@ __cxa_error_code_msvc_exception_ptr(::std::size_t flags, void const *a,
     // site: no exception is ever raised, so there is no in-flight record
     // for __ExceptionPtrCurrentException to capture. a/b are the
     // _CxxThrowException operands (object, _ThrowInfo*).
-    ::std::error_domains::__details::__ExceptionPtrCopyException(
-        ehptr_storage, a, b);
+    msvc_eh_ptr_copy_exception(ehptr_storage, a, b);
     return reinterpret_cast<::std::size_t>(ehptr_storage);
   default:
     ::std::abort();
   }
-  ::std::error_domains::__details::__ExceptionPtrCurrentException(
-      ehptr_storage);
+  msvc_eh_ptr_current_exception(ehptr_storage);
   return reinterpret_cast<::std::size_t>(ehptr_storage);
 }
 
@@ -858,10 +1046,9 @@ __cxa_error_domain_msvc_exception_ptr() noexcept {
 extern "C" __HERBCEPTIONS_API void
 __cxa_error_code_msvc_exception_ptr_unbox(void *__epstorage,
                                           ::std::size_t __cd) noexcept {
-  // __cd is a heap __std_exception_ptr box; __ExceptionPtrCopy retains it
+  // __cd is a heap __std_exception_ptr box; msvc_eh_ptr_copy retains it
   // into the caller's exception_ptr storage.
-  ::std::error_domains::__details::__ExceptionPtrCopy(
-      __epstorage, reinterpret_cast<void const *>(__cd));
+  msvc_eh_ptr_copy(__epstorage, reinterpret_cast<void const *>(__cd));
 }
 
 extern "C" __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(

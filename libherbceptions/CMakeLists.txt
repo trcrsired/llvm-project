@@ -31,10 +31,20 @@ option(LIBHERBCEPTIONS_ENABLE_RTTI "Enable C++ RTTI" ON)
 option(LIBHERBCEPTIONS_ENABLE_EBCDIC "Build with EBCDIC support for guard against -fexec-charset= EBCDIC charsets" OFF)
 option(LIBHERBCEPTIONS_NO_MESSAGES "Strip domain message text; errors report only \"[domain](numeric code)\"" ${LIBHERBCEPTIONS_FREESTANDING})
 option(LIBHERBCEPTIONS_NO_LIB_PREFIX "Emit the shared library without the 'lib' prefix (herbceptions.so/herbceptions.dll)" OFF)
+option(LIBHERBCEPTIONS_ENABLE_ITANIUM_EXCEPTION_PTR_DOMAIN "Build the Itanium exception_ptr error domain into libherbceptions instead of relying on the C++ runtime (libsupc++/libc++abi)" OFF)
 option(LIBHERBCEPTIONS_BUILD_BOTH_SHARED_NAMES "Emit both prefixed and unprefixed names for the shared library (libherbceptions.so and herbceptions.so / libherbceptions.dll and herbceptions.dll)" OFF)
 option(LIBHERBCEPTIONS_BUILD_TESTS "Build the tests" OFF)
 option(LIBHERBCEPTIONS_BUILD_FUZZERS "Build the fuzz targets" OFF)
 option(LIBHERBCEPTIONS_FUZZ_ENGINE "Link fuzz targets against libFuzzer" OFF)
+
+# Windows built with the MSVC frontend (clang-cl or MSVC) does not accept
+# GCC-style flags; the GNU frontend (MinGW) does.
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND
+   CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  set(LIBHERBCEPTIONS_MSVC_ABI ON)
+else()
+  set(LIBHERBCEPTIONS_MSVC_ABI OFF)
+endif()
 
 set(LIBHERBCEPTIONS_SOURCES
   src/posix.cpp
@@ -43,7 +53,6 @@ set(LIBHERBCEPTIONS_SOURCES
   src/http_errc.cpp
   src/tls_alert.cpp
   src/query_information.cpp
-  src/itanium_exception_ptr.cpp
   src/msvc_exception_ptr.cpp
   src/win32.cpp
   src/nt.cpp
@@ -89,10 +98,42 @@ if(LIBHERBCEPTIONS_HEADERS_ONLY)
   return()
 endif()
 
-if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
-  add_library(herbceptions SHARED ${LIBHERBCEPTIONS_SOURCES})
+# The Itanium exception_ptr error domain normally lives in the C++ runtime
+# (libsupc++ / libc++abi), so a single herbceptions.dll can serve both the
+# GNU and MSVC ABIs. The in-tree implementation remains available for
+# standalone or freestanding builds.
+if(LIBHERBCEPTIONS_ENABLE_ITANIUM_EXCEPTION_PTR_DOMAIN)
+  add_library(herbceptions_itanium_exception_ptr OBJECT
+    src/itanium_exception_ptr.cpp
+  )
+  target_link_libraries(herbceptions_itanium_exception_ptr PRIVATE herbceptions_headers)
+  target_include_directories(herbceptions_itanium_exception_ptr PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_definitions(herbceptions_itanium_exception_ptr PRIVATE
+    _HERBCEPTIONS_BUILDING_RUNTIME=1)
+  if(LIBHERBCEPTIONS_NO_MESSAGES)
+    target_compile_definitions(herbceptions_itanium_exception_ptr PRIVATE
+      __HERBCEPTIONS_NO_MESSAGES=1)
+  endif()
+  if(NOT LIBHERBCEPTIONS_MSVC_ABI)
+    target_compile_options(herbceptions_itanium_exception_ptr PRIVATE
+      -fexceptions -frtti)
+  endif()
+  set_target_properties(herbceptions_itanium_exception_ptr PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+  )
+  set(LIBHERBCEPTIONS_DOMAIN_OBJECTS
+    $<TARGET_OBJECTS:herbceptions_itanium_exception_ptr>)
+else()
+  set(LIBHERBCEPTIONS_DOMAIN_OBJECTS)
 endif()
-add_library(herbceptions_static STATIC ${LIBHERBCEPTIONS_SOURCES})
+
+if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
+  add_library(herbceptions SHARED ${LIBHERBCEPTIONS_SOURCES} ${LIBHERBCEPTIONS_DOMAIN_OBJECTS})
+endif()
+add_library(herbceptions_static STATIC ${LIBHERBCEPTIONS_SOURCES} ${LIBHERBCEPTIONS_DOMAIN_OBJECTS})
 if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
   set(HERBCEPTIONS_TARGETS herbceptions herbceptions_static)
 else()
@@ -108,6 +149,21 @@ foreach(target IN LISTS HERBCEPTIONS_TARGETS)
   if(LIBHERBCEPTIONS_FREESTANDING)
     target_compile_options(${target} PRIVATE -ffreestanding)
   endif()
+  # These domains never raise or inspect C++ EH/RTTI. Only the Itanium
+  # exception_ptr domain needs exception machinery, and it is built
+  # separately when enabled.
+  if(NOT LIBHERBCEPTIONS_MSVC_ABI)
+    target_compile_options(${target} PRIVATE
+      -fno-exceptions -fno-rtti -fno-unwind-tables
+      -fno-asynchronous-unwind-tables -fno-ident)
+  endif()
+  if(WIN32 AND NOT LIBHERBCEPTIONS_MSVC_ABI)
+    # Rethrowing a Microsoft-ABI legacy exception calls RaiseException; the
+    # frames between the raise and the caller must be unwindable, so this one
+    # translation unit needs unwind tables despite the flags above.
+    set_source_files_properties(src/msvc_exception_ptr.cpp PROPERTIES
+      COMPILE_OPTIONS "-funwind-tables")
+  endif()
   set_target_properties(${target} PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
@@ -122,8 +178,10 @@ if(LIBHERBCEPTIONS_BUILD_SHARED AND NOT LIBHERBCEPTIONS_FREESTANDING)
   # On Unix-like toolchains shared libraries carry a "lib" prefix
   # (libherbceptions.so / libherbceptions.dll); clearing it emits
   # herbceptions.so / herbceptions.dll instead — the same name the MSVC
-  # build produces on Windows, and a valid spelling elsewhere.
-  if(LIBHERBCEPTIONS_NO_LIB_PREFIX)
+  # build produces on Windows, and a valid spelling elsewhere. Windows
+  # always uses the unprefixed name so the GNU and MSVC ABI builds share
+  # one herbceptions.dll.
+  if(LIBHERBCEPTIONS_NO_LIB_PREFIX OR WIN32)
     set_target_properties(herbceptions PROPERTIES
       PREFIX ""
       IMPORT_PREFIX ""

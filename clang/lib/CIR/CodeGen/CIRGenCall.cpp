@@ -1914,7 +1914,7 @@ RValue CIRGenFunction::emitAnyExprToTemp(const Expr *e) {
 void CIRGenFunction::emitCallArgs(
     CallArgList &args, PrototypeWrapper prototype,
     llvm::iterator_range<clang::CallExpr::const_arg_iterator> argRange,
-    AbstractCallee callee, unsigned paramsToSkip) {
+    AbstractCallee callee, unsigned paramsToSkip, EvaluationOrder order) {
   llvm::SmallVector<QualType, 16> argTypes;
 
   assert(!cir::MissingFeatures::opCallCallConv());
@@ -1938,11 +1938,11 @@ void CIRGenFunction::emitCallArgs(
 
   // We must evaluate arguments from right to left in the MS C++ ABI, because
   // arguments are destroyed left to right in the callee. As a special case,
-  // there are certain language constructs taht require left-to-right
+  // there are certain language constructs that require left-to-right
   // evaluation, and in those cases we consider the evaluation order requirement
   // to trump the "destruction order is reverse construction order" guarantee.
-  auto leftToRight = true;
-  assert(!cir::MissingFeatures::msabi());
+  bool leftToRight = CodeGenUtils::shouldEvaluateArgsLeftToRight(
+      order, getTarget().getCXXABI());
 
   auto maybeEmitImplicitObjectSize = [&](size_t i, const Expr *arg,
                                          RValue emittedArg) {
@@ -1987,9 +1987,13 @@ void CIRGenFunction::emitCallArgs(
       assert(!cir::MissingFeatures::sanitizers());
       maybeEmitImplicitObjectSize(idx, *currentArg, rvArg);
     }
+  }
 
-    if (!leftToRight)
-      std::reverse(args.begin() + callArgsStart, args.end());
+  if (!leftToRight) {
+    // Un-reverse the arguments we just evaluated so they match up with the
+    // callee's parameter order.
+    std::reverse(args.begin() + callArgsStart, args.end());
+    assert(!cir::MissingFeatures::writebacks());
   }
 }
 

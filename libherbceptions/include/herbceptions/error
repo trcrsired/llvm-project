@@ -264,11 +264,16 @@ public:
 #if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
       ;
 #else
-  {
-    // P1105R0: with exceptions disabled, a throw terminates instead of
-    // being ill-formed.
-    ::std::terminate();
-  }
+  // With EH disabled there is no mechanism to raise the legacy exception,
+  // so the call is ill-formed at compile time instead of terminating
+  // (P1105R0 only covers `throw`, whose termination is defined).
+#if defined(__cpp_deleted_function) && __cpp_deleted_function >= 202403L
+      = delete ("std::error::throw_legacy_exception requires C++ exception "
+                "handling; this translation unit is built with exceptions "
+                "disabled (-fno-exceptions)");
+#else
+      = delete;
+#endif
 #endif
   // Faster sibling: the boxed fallback skips the do_query_information
   // message query (its what() is empty), so the throw site never allocates
@@ -278,9 +283,13 @@ public:
 #if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
       ;
 #else
-  {
-    ::std::terminate();
-  }
+#if defined(__cpp_deleted_function) && __cpp_deleted_function >= 202403L
+      = delete ("std::error::throw_legacy_exception_no_what requires C++ "
+                "exception handling; this translation unit is built with "
+                "exceptions disabled (-fno-exceptions)");
+#else
+      = delete;
+#endif
 #endif
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
