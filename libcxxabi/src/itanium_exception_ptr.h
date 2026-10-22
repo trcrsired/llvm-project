@@ -42,6 +42,20 @@ struct __si_class_type_info : __class_type_info {
 } // namespace __cxxabiv1
 #endif
 
+/*
+Built inside libsupc++ the real EH headers are reachable: unwind-cxx.h owns
+the refcounted exception layout and eh_atomics.h owns the atomic helpers
+exception_ptr::_M_addref/_M_release use. Prefer them over the mirrored
+layout whenever they are visible; they are private headers, so standalone
+builds keep the fallback.
+*/
+#if defined(__GLIBCXX__) && __has_include("unwind-cxx.h") &&                   \
+                                          __has_include("eh_atomics.h")
+#define __hb_itanium_libsupcxx_internals
+#include "eh_atomics.h"
+#include "unwind-cxx.h"
+#endif
+
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
     !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
 #define _LIBHERBCEPTIONS_ARM_EHABI
@@ -286,8 +300,16 @@ __itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
   }
   auto *hdr{itanium_cxa_exception_from_thrown_object(thrown_object)};
   if (itanium_cxa_exception_is_gcc(hdr)) {
+#if defined(__hb_itanium_libsupcxx_internals)
+    // The increment exception_ptr::_M_addref performs.
+    auto *refcounted{::__cxxabiv1::__get_refcounted_exception_header_from_obj(
+        thrown_object)};
+    ::__gnu_cxx::__eh_atomic_inc(
+        __builtin_addressof(refcounted->referenceCount));
+#else
     __atomic_add_fetch(reinterpret_cast<unsigned int *>(hdr), 1u,
                        __ATOMIC_SEQ_CST);
+#endif
   } else {
     __atomic_add_fetch(__builtin_addressof(hdr->referenceCount), 1u,
                        __ATOMIC_SEQ_CST);
@@ -299,8 +321,23 @@ __itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
-  auto exception_header{
+  auto *exception_header{
       itanium_cxa_exception_from_thrown_object(thrown_object)};
+#if defined(__hb_itanium_libsupcxx_internals)
+  if (itanium_cxa_exception_is_gcc(exception_header)) {
+    // The release exception_ptr::_M_release performs.
+    auto *refcounted{::__cxxabiv1::__get_refcounted_exception_header_from_obj(
+        thrown_object)};
+    if (::__gnu_cxx::__eh_atomic_dec(
+            __builtin_addressof(refcounted->referenceCount))) {
+      if (refcounted->exc.exceptionDestructor != nullptr) {
+        refcounted->exc.exceptionDestructor(thrown_object);
+      }
+      ::__cxxabiv1::__cxa_free_exception(thrown_object);
+    }
+    return;
+  }
+#endif
   bool zero;
   if (itanium_cxa_exception_is_gcc(exception_header)) {
     zero =
