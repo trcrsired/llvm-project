@@ -16,80 +16,103 @@
 #include <unwind.h>
 
 /*
-libc++abi's public <cxxabi.h> does not expose the RTTI classes either, but
-unlike libc++'s stub, libc++abi has the real __class_type_info hierarchy in
-private_typeinfo.h. Use those definitions (the ODR-correct ones) instead of
-the layout-compatible stand-ins below.
-*/
-#if defined(_LIBCPPABI_VERSION) && !defined(__GLIBCXX__)
-#  define __hb_itanium_rtti_fallback
-#  include "private_typeinfo.h"
-#endif
+Type matching must be the personality routine's own: the C++ runtime knows
+how to walk its RTTI (multiple and virtual inheritance included), while a
+hand-rolled graph walk is only an approximation.
 
-/*
-libc++'s <cxxabi.h> stub does not declare the Itanium RTTI helper classes
-that libstdc++ and libcxxabi provide. When neither is visible, declare
-layout-compatible stand-ins ourselves: the code only reads __base_type
-chains, it never calls their virtuals.
+libstdc++ exposes the matcher as std::type_info::__do_catch through its
+public <cxxabi.h>. libc++abi keeps the equivalent __shim_type_info::can_catch
+in private_typeinfo.h, which ships next to its sources and is therefore
+visible whenever this file is built as part of the runtime. Fall back to a
+conservative single-inheritance walk (over layout-compatible stand-ins) only
+when neither matcher is available.
 */
-#if !defined(__GLIBCXX__) && !defined(__hb_itanium_rtti_fallback)
-#  define __hb_itanium_rtti_fallback
+#if defined(__GLIBCXX__)
+// <cxxabi.h> above declares std::type_info::__do_catch.
+#elif defined(_LIBCPPABI_VERSION) && __has_include("private_typeinfo.h")
+#define __hb_itanium_rtti_libcxxabi
+#include "private_typeinfo.h"
+#else
+#define __hb_itanium_rtti_si_walk
 namespace __cxxabiv1 {
 struct __class_type_info : ::std::type_info {};
 struct __si_class_type_info : __class_type_info {
-  const __class_type_info* __base_type;
+  const __class_type_info *__base_type;
 };
 } // namespace __cxxabiv1
 #endif
 
-#if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
-#  define _LIBHERBCEPTIONS_ARM_EHABI
+/*
+Built inside libsupc++ the real EH headers are reachable: unwind-cxx.h owns
+the refcounted exception layout and eh_atomics.h owns the atomic helpers
+exception_ptr::_M_addref/_M_release use. Prefer them over the mirrored
+layout whenever they are visible; they are private headers, so standalone
+builds keep the fallback.
+*/
+#if defined(__GLIBCXX__) && __has_include("unwind-cxx.h") &&                   \
+                                          __has_include("eh_atomics.h")
+#define __hb_itanium_libsupcxx_internals
+#include "eh_atomics.h"
+#include "unwind-cxx.h"
+#endif
+
+#if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
+    !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
+#define _LIBHERBCEPTIONS_ARM_EHABI
 #endif
 
 #if __has_feature(ptrauth_calls)
 
 // ptrauth_string_discriminator("__cxa_exception::actionRecord") == 0xFC91
-#  define __ptrauth_libherbceptions_action_record __ptrauth(ptrauth_key_process_dependent_data, 1, 0xFC91)
+#define __ptrauth_libherbceptions_action_record                                \
+  __ptrauth(ptrauth_key_process_dependent_data, 1, 0xFC91)
 
 // ptrauth_string_discriminator("__cxa_exception::languageSpecificData") ==
 // 0xE8EE
-#  define __ptrauth_libherbceptions_lsd __ptrauth(ptrauth_key_process_dependent_data, 1, 0xE8EE)
+#define __ptrauth_libherbceptions_lsd                                          \
+  __ptrauth(ptrauth_key_process_dependent_data, 1, 0xE8EE)
 
 // ptrauth_string_discriminator("__cxa_exception::catchTemp") == 0xFA58
-#  define __ptrauth_libherbceptions_catch_temp_disc 0xFA58
-#  define __ptrauth_libherbceptions_catch_temp_key ptrauth_key_process_dependent_data
-#  define __ptrauth_libherbceptions_catch_temp                                                                         \
-    __ptrauth(__ptrauth_libherbceptions_catch_temp_key, 1, __ptrauth_libherbceptions_catch_temp_disc)
+#define __ptrauth_libherbceptions_catch_temp_disc 0xFA58
+#define __ptrauth_libherbceptions_catch_temp_key                               \
+  ptrauth_key_process_dependent_data
+#define __ptrauth_libherbceptions_catch_temp                                   \
+  __ptrauth(__ptrauth_libherbceptions_catch_temp_key, 1,                       \
+            __ptrauth_libherbceptions_catch_temp_disc)
 
 // ptrauth_string_discriminator("__cxa_exception::adjustedPtr") == 0x99E4
-#  define __ptrauth_libherbceptions_adjusted_ptr __ptrauth(ptrauth_key_process_dependent_data, 1, 0x99E4)
+#define __ptrauth_libherbceptions_adjusted_ptr                                 \
+  __ptrauth(ptrauth_key_process_dependent_data, 1, 0x99E4)
 
 // ptrauth_string_discriminator("__cxa_exception::unexpectedHandler") == 0x99A9
-#  define __ptrauth_libherbceptions_unexpected_handler __ptrauth(ptrauth_key_function_pointer, 1, 0x99A9)
+#define __ptrauth_libherbceptions_unexpected_handler                           \
+  __ptrauth(ptrauth_key_function_pointer, 1, 0x99A9)
 
 // ptrauth_string_discriminator("__cxa_exception::terminateHandler") == 0x0886)
-#  define __ptrauth_libherbceptions_terminate_handler __ptrauth(ptrauth_key_function_pointer, 1, 0x886)
+#define __ptrauth_libherbceptions_terminate_handler                            \
+  __ptrauth(ptrauth_key_function_pointer, 1, 0x886)
 
 // ptrauth_string_discriminator("__cxa_exception::exceptionDestructor") ==
 // 0xC088
-#  define __ptrauth_libherbceptions_exception_destructor __ptrauth(ptrauth_key_function_pointer, 1, 0xC088)
+#define __ptrauth_libherbceptions_exception_destructor                         \
+  __ptrauth(ptrauth_key_function_pointer, 1, 0xC088)
 
 #else
 
-#  define __ptrauth_libherbceptions_action_record
-#  define __ptrauth_libherbceptions_lsd
-#  define __ptrauth_libherbceptions_catch_temp
-#  define __ptrauth_libherbceptions_adjusted_ptr
-#  define __ptrauth_libherbceptions_unexpected_handler
-#  define __ptrauth_libherbceptions_terminate_handler
-#  define __ptrauth_libherbceptions_exception_destructor
+#define __ptrauth_libherbceptions_action_record
+#define __ptrauth_libherbceptions_lsd
+#define __ptrauth_libherbceptions_catch_temp
+#define __ptrauth_libherbceptions_adjusted_ptr
+#define __ptrauth_libherbceptions_unexpected_handler
+#define __ptrauth_libherbceptions_terminate_handler
+#define __ptrauth_libherbceptions_exception_destructor
 
 #endif
 
 #if defined(_WIN32)
-#  define _LIBHERBCEPTIONS_DTOR_FUNC __thiscall
+#define _LIBHERBCEPTIONS_DTOR_FUNC __thiscall
 #else
-#  define _LIBHERBCEPTIONS_DTOR_FUNC
+#define _LIBHERBCEPTIONS_DTOR_FUNC
 #endif
 
 namespace {
@@ -98,7 +121,7 @@ struct itanium_cxa_exception {
   // Now _Unwind_Exception is marked with __attribute__((aligned)),
   // which implies __cxa_exception is also aligned. Insert padding
   // in the beginning of the struct, rather than before unwindHeader.
-  void* reserve;
+  void *reserve;
 
   // This is a new field to support C++11 exception_ptr.
   // For binary compatibility it is at the start of this
@@ -108,32 +131,35 @@ struct itanium_cxa_exception {
 #endif
 
   //  Manage the exception object itself.
-  std::type_info* exceptionType;
+  std::type_info *exceptionType;
 #ifdef __wasm__
   // In Wasm, a destructor returns its argument
-  void*(_LIBHERBCEPTIONS_DTOR_FUNC* exceptionDestructor)(void*);
+  void *(_LIBHERBCEPTIONS_DTOR_FUNC *exceptionDestructor)(void *);
 #else
-  void(_LIBHERBCEPTIONS_DTOR_FUNC* __ptrauth_libherbceptions_exception_destructor exceptionDestructor)(void*);
+  void(
+      _LIBHERBCEPTIONS_DTOR_FUNC *__ptrauth_libherbceptions_exception_destructor
+          exceptionDestructor)(void *);
 #endif
-  void* __ptrauth_libherbceptions_unexpected_handler unexpectedHandler;
-  void* __ptrauth_libherbceptions_terminate_handler terminateHandler;
+  void *__ptrauth_libherbceptions_unexpected_handler unexpectedHandler;
+  void *__ptrauth_libherbceptions_terminate_handler terminateHandler;
 
-  itanium_cxa_exception* nextException;
+  itanium_cxa_exception *nextException;
 
   int handlerCount;
 
 #if defined(_LIBHERBCEPTIONS_ARM_EHABI)
-  itanium_cxa_exception* nextPropagatingException;
+  itanium_cxa_exception *nextPropagatingException;
   int propagationCount;
 #else
   int handlerSwitchValue;
-  const unsigned char* actionRecord;
-  const unsigned char* languageSpecificData;
-  void* __ptrauth_libherbceptions_catch_temp catchTemp;
-  void* __ptrauth_libherbceptions_adjusted_ptr adjustedPtr;
+  const unsigned char *actionRecord;
+  const unsigned char *languageSpecificData;
+  void *__ptrauth_libherbceptions_catch_temp catchTemp;
+  void *__ptrauth_libherbceptions_adjusted_ptr adjustedPtr;
 #endif
 
-#if !defined(__LP64__) && !defined(_WIN64) && !defined(_LIBHERBCEPTIONS_ARM_EHABI)
+#if !defined(__LP64__) && !defined(_WIN64) &&                                  \
+    !defined(_LIBHERBCEPTIONS_ARM_EHABI)
   // This is a new field to support C++11 exception_ptr.
   // For binary compatibility it is placed where the compiler
   // previously added padding to 64-bit align unwindHeader.
@@ -145,32 +171,36 @@ struct itanium_cxa_exception {
 
 struct itanium_cxa_dependent_exception {
 #if defined(__LP64__) || defined(_WIN64) || defined(_LIBHERBCEPTIONS_ARM_EHABI)
-  void* reserve; // padding.
-  void* primaryException;
+  void *reserve; // padding.
+  void *primaryException;
 #endif
 
-  std::type_info* exceptionType;
-  void(_LIBHERBCEPTIONS_DTOR_FUNC* __ptrauth_libherbceptions_exception_destructor exceptionDestructor)(void*);
-  void* __ptrauth_libherbceptions_unexpected_handler unexpectedHandler;
-  std::terminate_handler __ptrauth_libherbceptions_terminate_handler terminateHandler;
+  std::type_info *exceptionType;
+  void(
+      _LIBHERBCEPTIONS_DTOR_FUNC *__ptrauth_libherbceptions_exception_destructor
+          exceptionDestructor)(void *);
+  void *__ptrauth_libherbceptions_unexpected_handler unexpectedHandler;
+  std::terminate_handler __ptrauth_libherbceptions_terminate_handler
+      terminateHandler;
 
-  itanium_cxa_exception* nextException;
+  itanium_cxa_exception *nextException;
 
   int handlerCount;
 
 #if defined(_LIBHERBCEPTIONS_ARM_EHABI)
-  itanium_cxa_exception* nextPropagatingException;
+  itanium_cxa_exception *nextPropagatingException;
   int propagationCount;
 #else
   int handlerSwitchValue;
-  const unsigned char* __ptrauth_libherbceptions_action_record actionRecord;
-  const unsigned char* __ptrauth_libherbceptions_lsd languageSpecificData;
-  void* __ptrauth_libherbceptions_catch_temp catchTemp;
-  void* __ptrauth_libherbceptions_adjusted_ptr adjustedPtr;
+  const unsigned char *__ptrauth_libherbceptions_action_record actionRecord;
+  const unsigned char *__ptrauth_libherbceptions_lsd languageSpecificData;
+  void *__ptrauth_libherbceptions_catch_temp catchTemp;
+  void *__ptrauth_libherbceptions_adjusted_ptr adjustedPtr;
 #endif
 
-#if !defined(__LP64__) && !defined(_WIN64) && !defined(_LIBHERBCEPTIONS_ARM_EHABI)
-  void* primaryException;
+#if !defined(__LP64__) && !defined(_WIN64) &&                                  \
+    !defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  void *primaryException;
 #endif
   _Unwind_Exception unwindHeader;
 };
@@ -189,13 +219,14 @@ inline constexpr ::std::uint64_t clang_cxx_eh_class{0x434C4E47432B2B00ULL};
 // Mirror of the runtimes' __cxa_eh_globals (the public type is opaque);
 // layout stable since the ABI's inception.
 struct itanium_cxa_eh_globals {
-  void* caughtExceptions;
+  void *caughtExceptions;
   unsigned int uncaughtExceptions;
 };
 
 enum class itanium_cxa_eh_flavor { foreign, gcc, clang };
 
-inline itanium_cxa_eh_flavor classify_itanium_cxa_eh(_Unwind_Exception const* uh) noexcept {
+inline itanium_cxa_eh_flavor
+classify_itanium_cxa_eh(_Unwind_Exception const *uh) noexcept {
   auto cls{uh->exception_class & cxa_eh_vendor_mask};
   if (cls == gnu_ccpp_eh_class) {
     return itanium_cxa_eh_flavor::gcc;
@@ -215,35 +246,39 @@ namespace __cxxabiv1 {
 // an extern "C" ABI entry point returning the opaque __cxa_eh_globals.
 // This declaration matches the one in libc++abi's private cxa_exception.h.
 struct __cxa_eh_globals;
-extern "C" __cxa_eh_globals* __cxa_get_globals();
+extern "C" __cxa_eh_globals *__cxa_get_globals();
 } // namespace __cxxabiv1
 
 namespace {
 
-inline void __itanium_cxa_increment_exception_refcount(void* thrown_object) noexcept {
+inline void
+__itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
   ::__cxxabiv1::__cxa_increment_exception_refcount(thrown_object);
 }
 
-inline void __itanium_cxa_decrement_exception_refcount(void* thrown_object) noexcept {
+inline void
+__itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   ::__cxxabiv1::__cxa_decrement_exception_refcount(thrown_object);
 }
 
-inline itanium_cxa_exception* itanium_cxa_exception_from_thrown_object(void* thrown_object) noexcept {
-  return static_cast<itanium_cxa_exception*>(thrown_object) - 1;
+inline itanium_cxa_exception *
+itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
+  return static_cast<itanium_cxa_exception *>(thrown_object) - 1;
 }
 } // namespace
 
 #else
 
-#  if __cplusplus >= 201103L
+#if __cplusplus >= 201103L && !defined(__GLIBCXX__)
 namespace std {
-void* get_unexpected() noexcept;
+void *get_unexpected() noexcept;
 }
-#  endif
+#endif
 namespace {
 
-inline itanium_cxa_exception* itanium_cxa_exception_from_thrown_object(void* thrown_object) noexcept {
-  return static_cast<itanium_cxa_exception*>(thrown_object) - 1;
+inline itanium_cxa_exception *
+itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
+  return static_cast<itanium_cxa_exception *>(thrown_object) - 1;
 }
 
 // The two Itanium C++ ABI libraries disagree about where referenceCount
@@ -253,34 +288,65 @@ inline itanium_cxa_exception* itanium_cxa_exception_from_thrown_object(void* thr
 // referenceCount at offset 0 (an int). The unwindHeader vendor stamp
 // picks the slot; callers abort on the foreign flavor before reaching
 // here.
-inline bool itanium_cxa_exception_is_gcc(itanium_cxa_exception* hdr) noexcept {
-  return classify_itanium_cxa_eh(&hdr->unwindHeader) == itanium_cxa_eh_flavor::gcc;
+inline bool itanium_cxa_exception_is_gcc(itanium_cxa_exception *hdr) noexcept {
+  return classify_itanium_cxa_eh(&hdr->unwindHeader) ==
+         itanium_cxa_eh_flavor::gcc;
 }
 
-inline void __itanium_cxa_increment_exception_refcount(void* thrown_object) noexcept {
+inline void
+__itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
-  auto* hdr{itanium_cxa_exception_from_thrown_object(thrown_object)};
+  auto *hdr{itanium_cxa_exception_from_thrown_object(thrown_object)};
   if (itanium_cxa_exception_is_gcc(hdr)) {
-    __atomic_add_fetch(reinterpret_cast<unsigned int*>(hdr), 1u, __ATOMIC_SEQ_CST);
+#if defined(__hb_itanium_libsupcxx_internals)
+    // The increment exception_ptr::_M_addref performs.
+    auto *refcounted{::__cxxabiv1::__get_refcounted_exception_header_from_obj(
+        thrown_object)};
+    ::__gnu_cxx::__eh_atomic_inc(
+        __builtin_addressof(refcounted->referenceCount));
+#else
+    __atomic_add_fetch(reinterpret_cast<unsigned int *>(hdr), 1u,
+                       __ATOMIC_SEQ_CST);
+#endif
   } else {
-    __atomic_add_fetch(__builtin_addressof(hdr->referenceCount), 1u, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(__builtin_addressof(hdr->referenceCount), 1u,
+                       __ATOMIC_SEQ_CST);
   }
 }
 
-inline void __itanium_cxa_decrement_exception_refcount(void* thrown_object) noexcept {
+inline void
+__itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
-  auto exception_header{itanium_cxa_exception_from_thrown_object(thrown_object)};
+  auto *exception_header{
+      itanium_cxa_exception_from_thrown_object(thrown_object)};
+#if defined(__hb_itanium_libsupcxx_internals)
+  if (itanium_cxa_exception_is_gcc(exception_header)) {
+    // The release exception_ptr::_M_release performs.
+    auto *refcounted{::__cxxabiv1::__get_refcounted_exception_header_from_obj(
+        thrown_object)};
+    if (::__gnu_cxx::__eh_atomic_dec(
+            __builtin_addressof(refcounted->referenceCount))) {
+      if (refcounted->exc.exceptionDestructor != nullptr) {
+        refcounted->exc.exceptionDestructor(thrown_object);
+      }
+      ::__cxxabiv1::__cxa_free_exception(thrown_object);
+    }
+    return;
+  }
+#endif
   bool zero;
   if (itanium_cxa_exception_is_gcc(exception_header)) {
-    zero = !__atomic_add_fetch(
-        reinterpret_cast<unsigned int*>(exception_header), static_cast<unsigned int>(-1), __ATOMIC_SEQ_CST);
+    zero =
+        !__atomic_add_fetch(reinterpret_cast<unsigned int *>(exception_header),
+                            static_cast<unsigned int>(-1), __ATOMIC_SEQ_CST);
   } else {
     zero = !__atomic_add_fetch(
-        __builtin_addressof(exception_header->referenceCount), static_cast<::std::size_t>(-1), __ATOMIC_SEQ_CST);
+        __builtin_addressof(exception_header->referenceCount),
+        static_cast<::std::size_t>(-1), __ATOMIC_SEQ_CST);
   }
   if (zero) {
     if (nullptr != exception_header->exceptionDestructor)
@@ -289,7 +355,7 @@ inline void __itanium_cxa_decrement_exception_refcount(void* thrown_object) noex
   }
 }
 
-#  if 0
+#if 0
 
 inline void setDependentExceptionClass(_Unwind_Exception* unwind_exception) noexcept {
     unwind_exception->exception_class
@@ -321,27 +387,28 @@ void __itanium_cxa_rethrow_primary_exception(void* thrown_object)
         setDependentExceptionClass(&dep_exception_header->unwindHeader);
         ::__cxxabiv1::__cxa_get_globals()->uncaughtExceptions += 1;
         dep_exception_header->unwindHeader.exception_cleanup = dependent_exception_cleanup;
-#    ifdef __USING_SJLJ_EXCEPTIONS__
+#ifdef __USING_SJLJ_EXCEPTIONS__
         _Unwind_SjLj_RaiseException(&dep_exception_header->unwindHeader);
-#    else
+#else
         _Unwind_RaiseException(&dep_exception_header->unwindHeader);
-#    endif
+#endif
         // Some sort of unwinding error.  Note that terminate is a handler.
         ::__cxxabiv1::__cxa_begin_catch(&dep_exception_header->unwindHeader);
     }
     // If we return client will call terminate()
 }
-#  endif
+#endif
 } // namespace
 #endif
 
 namespace {
 
-inline void fail_fast_for_none_cxx_eh(void* eh) noexcept {
+inline void fail_fast_for_none_cxx_eh(void *eh) noexcept {
   if (eh == nullptr)
     ::std::abort();
-  auto* hdr{itanium_cxa_exception_from_thrown_object(eh)};
-  if (itanium_cxa_eh_flavor::foreign == classify_itanium_cxa_eh(&hdr->unwindHeader)) {
+  auto *hdr{itanium_cxa_exception_from_thrown_object(eh)};
+  if (itanium_cxa_eh_flavor::foreign ==
+      classify_itanium_cxa_eh(&hdr->unwindHeader)) {
     // Refuse to mint a code for foreign EH so no foreign exception can
     // ever enter this domain.
     ::std::abort();
@@ -357,13 +424,15 @@ namespace __cxxabiv1 {
 // bits/cxxabi_init_exception.h returning __cxa_refcounted_exception*, so
 // the declaration must match when that header leaks in.
 class __cxa_refcounted_exception;
-extern "C" __cxa_refcounted_exception*
-__cxa_init_primary_exception(void*, ::std::type_info*, decltype(itanium_cxa_exception::exceptionDestructor)) noexcept;
+extern "C" __cxa_refcounted_exception *__cxa_init_primary_exception(
+    void *, ::std::type_info *,
+    decltype(itanium_cxa_exception::exceptionDestructor)) noexcept;
 } // namespace __cxxabiv1
 #endif
 
 extern "C" __HERBCEPTIONS_API ::std::size_t
-__cxa_error_code_itanium_exception_ptr(::std::size_t flags, void* eh, void* tinfo, void* dtor) noexcept {
+__cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
+                                       void *tinfo, void *dtor) noexcept {
   if (eh == nullptr) {
     ::std::abort();
   }
@@ -385,9 +454,9 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void* eh, void* tinf
     // reference -- without touching uncaughtExceptions and without
     // raising.
     ::__cxxabiv1::__cxa_init_primary_exception(
-        eh,
-        static_cast<::std::type_info*>(tinfo),
-        reinterpret_cast<decltype(itanium_cxa_exception::exceptionDestructor)>(dtor));
+        eh, static_cast<::std::type_info *>(tinfo),
+        reinterpret_cast<decltype(itanium_cxa_exception::exceptionDestructor)>(
+            dtor));
     __itanium_cxa_increment_exception_refcount(eh);
     return reinterpret_cast<::std::size_t>(eh);
   default:
@@ -397,7 +466,7 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void* eh, void* tinf
   // to the compiler-fabricated conversion site -- the landing pad's exn
   // value on Itanium, wasm.get.exception on Wasm (both are
   // &__cxa_exception::unwindHeader) -- NOT the thrown object pointer.
-  auto* uh{static_cast<_Unwind_Exception*>(eh)};
+  auto *uh{static_cast<_Unwind_Exception *>(eh)};
   // Refuse to mint a code for foreign EH so no foreign exception can
   // ever enter this domain. Dependent exceptions (rethrown
   // std::exception_ptr) stamp the same vendor class with the low byte
@@ -405,19 +474,22 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void* eh, void* tinf
   if (itanium_cxa_eh_flavor::foreign == classify_itanium_cxa_eh(uh)) {
     ::std::abort();
   }
-  void* thrown{static_cast<void*>(uh + 1)};
+  void *thrown{static_cast<void *>(uh + 1)};
   if ((uh->exception_class & ~cxa_eh_vendor_mask) != 0) {
     // Dependent exception: the code names the primary's thrown object.
     // The dependent header carries primaryException first under GNUCC++
     // (a 112-byte header, object at offset 112) or behind a reserve word
     // under CLNGC++ (128-byte header, object at offset 128).
-    thrown = *(static_cast<void**>(thrown) - (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc ? 14 : 15));
+    thrown = *(
+        static_cast<void **>(thrown) -
+        (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc ? 14 : 15));
   }
 #if defined(_LIBCPPABI_VERSION) || defined(__GLIBCXX__)
   // The conversion catches the exception without __cxa_begin_catch; retire
   // the count __cxa_throw added so std::uncaught_exceptions() stays
   // accurate. do_throw_legacy_exception re-adds it on rethrow.
-  reinterpret_cast<itanium_cxa_eh_globals*>(::__cxxabiv1::__cxa_get_globals())->uncaughtExceptions -= 1;
+  reinterpret_cast<itanium_cxa_eh_globals *>(::__cxxabiv1::__cxa_get_globals())
+      ->uncaughtExceptions -= 1;
 #endif
   // The code owns exactly one reference, which do_cleanup releases when
   // the channel error dies. GNUCC++ counts the in-flight reference in
