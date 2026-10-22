@@ -86,20 +86,6 @@ detects it at compile time, mirroring fast_io's
   ``"GB18030"``/``"GBK"`` → ``gb18030``
 * otherwise ``utf8``
 
-Fast path
-`````````
-
-``throw_legacy_exception_no_what()`` constructs the borrowed box with the
-message query skipped: no ``do_query_information`` calls and no
-allocation, ``what()`` returns ``""``. The ``{domain, code}`` payload is
-identical, so the reboxed error keeps full semantics — only the cached
-legacy-side message is skipped. When the compiler proves the unwind edge
-folds back onto the channel, the trivial constructor leaves almost no code
-behind.
-
-Under ``-fno-exceptions`` both throw entry points call ``std::terminate()``
-rather than being ill-formed, following P1105R0.
-
 Query-information buffer ABI
 ----------------------------
 
@@ -240,7 +226,7 @@ Testing
 -------
 
 ``test/legacy_exception_test.cpp`` covers: box payload + cached
-``what()``, the no-query fast path, the double-hop
+``what()``, the double-hop
 (``throws → throw_legacy_exception → catch throws``) forwarding, the
 ``exception_cast_std_error`` probe (exact type, public base,
 negative, non-domain), and ``make_exception_ptr_from_std_error``.

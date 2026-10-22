@@ -275,22 +275,6 @@ public:
       = delete;
 #endif
 #endif
-  // Faster sibling: the boxed fallback skips the do_query_information
-  // message query (its what() is empty), so the throw site never allocates
-  // — and when the unwind edge provably folds back onto the channel, no
-  // exception object is materialized at all.
-  [[noreturn]] void throw_legacy_exception_no_what() const
-#if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
-      ;
-#else
-#if defined(__cpp_deleted_function) && __cpp_deleted_function >= 202403L
-      = delete ("std::error::throw_legacy_exception_no_what requires C++ "
-                "exception handling; this translation unit is built with "
-                "exceptions disabled (-fno-exceptions)");
-#else
-      = delete;
-#endif
-#endif
   template <typename __Other>
     requires(::std::is_class_v<__Other> || ::std::is_enum_v<__Other>)
   inline constexpr bool is_code_of() const noexcept {
@@ -686,21 +670,7 @@ inline void error::throw_legacy_exception() const {
   // taking ownership.
   throw ::std::cxx_std_error_legacy_exception(
       ::std::cxx_std_error_legacy_exception::__borrowed_t{}, __domain_opaque,
-      static_cast<::std::size_t>(__code_opaque), true /*__query_what_message*/);
-}
-
-// Same control flow as throw_legacy_exception(), but the boxed fallback
-// skips the message query: no do_query_information calls, no allocation.
-inline void error::throw_legacy_exception_no_what() const {
-  auto __dothrow{__domain_opaque->do_throw_legacy_exception};
-  if (__dothrow) {
-    __dothrow(static_cast<::std::size_t>(this->code()),
-              ::std::legacy_exception_abi::platform);
-  }
-  throw ::std::cxx_std_error_legacy_exception(
-      ::std::cxx_std_error_legacy_exception::__borrowed_t{}, __domain_opaque,
-      static_cast<::std::size_t>(__code_opaque),
-      false /*__query_what_message*/);
+      static_cast<::std::size_t>(__code_opaque));
 }
 #endif
 } // namespace std
