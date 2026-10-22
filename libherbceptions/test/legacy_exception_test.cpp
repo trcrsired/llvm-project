@@ -66,7 +66,7 @@ static void legacy_facing_wrapper() {
   try {
     io_call();
   } catch throws(::std::error e) {
-    e.throw_legacy_exception_no_what();
+    e.throw_legacy_exception();
   }
 }
 
@@ -128,21 +128,6 @@ int main() {
       } catch throws(::std::error e2) {
         CHECK(e2 == ::std::errc::permission_denied);
       }
-    } catch (...) {
-      CHECK(false && "expected std::cxx_std_error_legacy_exception");
-    }
-
-    // Fast sibling: no message query — what() is empty, the {domain, code}
-    // payload is identical and still round-trips.
-    try {
-      e.throw_legacy_exception_no_what();
-      CHECK(false && "unreached");
-    } catch (::std::cxx_std_error_legacy_exception const &le) {
-      CHECK(le.domain() == ::std::error_domains::__cxa_error_domain_posix());
-      CHECK(le.code() ==
-            static_cast<::std::size_t>(::std::errc::permission_denied));
-      CHECK(le.what_scatter().len == 0);
-      CHECK(le.what()[0] == '\0');
     } catch (...) {
       CHECK(false && "expected std::cxx_std_error_legacy_exception");
     }

@@ -36,21 +36,22 @@ namespace std::error_domains {
 namespace {
 using namespace __herbceptions_detail;
 
-// Walk the Itanium RTTI base-class graph WITHOUT touching the thrown
-// object. True iff dst is reachable through single-inheritance (non-virtual)
-// links only. Such primary-chain bases all sit at offset 0 within the
-// complete object, so a successful answer both locates the std::exception
-// subobject at the thrown-object address and guarantees polymorphism
-// (std::exception is polymorphic), making virtual dispatch safe on throws
-// of any type -- including ints and plain structs, which fail the walk.
+#if defined(__hb_itanium_rtti_si_walk)
+// Fallback for runtimes whose catch matcher is not visible: walk the Itanium
+// RTTI base-class graph WITHOUT touching the thrown object. True iff dst is
+// reachable through single-inheritance (non-virtual) links only. Such
+// primary-chain bases all sit at offset 0 within the complete object, so a
+// successful answer also guarantees polymorphism (std::exception is
+// polymorphic), making virtual dispatch safe on throws of any type --
+// including ints and plain structs, which fail the walk.
 //
 // Shape discrimination compares the type_info's own vptr against reference
 // RTTI objects from this TU: typeid(std::exception) has no bases (plain
 // __class_type_info), typeid(std::logic_error) has exactly one base
 // (__si_class_type_info). Multiple/virtual-inheritance (__vmi) and foreign
-// shapes are rejected conservatively -> name-only reporting. (GCC's
-// __dynamic_cast cannot be used here: its contract is downcast-oriented,
-// and passing the dynamic type as src_type yields NULL.)
+// shapes are rejected conservatively -> name-only reporting. (__dynamic_cast
+// cannot be used here: its contract is downcast-oriented, and passing the
+// dynamic type as src_type yields NULL.)
 inline void const *ti_vptr(::std::type_info const &ti) noexcept {
   return *static_cast<void const *const *>(static_cast<void const *>(&ti));
 }
@@ -76,6 +77,7 @@ inline bool rtti_si_derives_from(::std::type_info const *ti,
     return false;
   }
 }
+#endif
 
 // Encoding-specific wrapper fragments carved out of the base literal
 // "[itanium_exception](?)" (22 code units), mirroring the MSVC sibling:
@@ -220,42 +222,44 @@ inline itanium_exception_writestr_return itanium_exception_writestr(
   return {{name, namelen}, {message, messagelen}};
 }
 
-// True iff a thrown object whose dynamic RTTI is exc_ti could be caught
-// as Kind -- i.e. the dynamic_cast<Kind> question, answered with the
-// runtime's own catch matcher: kind.__do_catch(exc_ti, &obj), the very
-// call chain the personality routine uses (get_adjusted_ptr). Public API,
-// no internal structures. Class-kind matching walks typeinfo graphs and
-// does pointer arithmetic only; pointer-kind catches deref obj once.
-#if defined(__GLIBCXX__)
+// True iff a thrown object whose dynamic RTTI is exc_ti could be caught as
+// Kind, with *out set to the Kind subobject address. This is the
+// dynamic_cast<Kind> question answered with the runtime's own catch matcher
+// -- the very code the personality routine runs -- so multiple and virtual
+// inheritance behave exactly as in a real catch clause. Class-kind matching
+// only walks typeinfo graphs; pointer-kind matching derefs obj once, exactly
+// like a pointer catch does.
 inline bool itanium_cxa_try_catch(::std::type_info const *exc_ti,
                                   void const *obj, ::std::type_info const &kind,
                                   void **out) noexcept {
   if (!exc_ti) {
     return false;
   }
-  void const *adjusted{obj};
-  if (!kind.__do_catch(
-          exc_ti, const_cast<void **>(__builtin_addressof(adjusted)), 0u)) {
+  void *adjusted{const_cast<void *>(obj)};
+#if defined(__GLIBCXX__)
+  // get_adjusted_ptr in eh_personality.cc and
+  // exception_ptr::_M_exception_ptr_cast both call __do_catch with outer 1.
+  if (!kind.__do_catch(exc_ti, __builtin_addressof(adjusted), 1u)) {
     return false;
   }
-  // The catch matcher left the Kind subobject address in adjusted.
-  *out = const_cast<void *>(adjusted);
-  return true;
-}
+#elif defined(__hb_itanium_rtti_libcxxabi)
+  // The call cxa_personality.cpp makes: can_catch leaves the adjusted
+  // thrown-object address in adjustedPtr.
+  if (!static_cast<::__cxxabiv1::__shim_type_info const *>(
+           __builtin_addressof(kind))
+           ->can_catch(
+               static_cast<::__cxxabiv1::__shim_type_info const *>(exc_ti),
+               adjusted)) {
+    return false;
+  }
 #else
-inline bool itanium_cxa_try_catch(::std::type_info const *exc_ti,
-                                  void const *obj, ::std::type_info const &kind,
-                                  void **out) noexcept {
-  // Non-libstdc++ runtimes ship different catch virtuals; restrict to
-  // single-inheritance chains, where the base subobject provably sits
-  // at offset 0.
   if (!rtti_si_derives_from(exc_ti, __builtin_addressof(kind))) {
     return false;
   }
-  *out = const_cast<void *>(obj);
+#endif
+  *out = adjusted;
   return true;
 }
-#endif
 
 inline bool itanium_cxa_catchable(::std::type_info const *exc_ti,
                                   void const *obj,
@@ -370,14 +374,12 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
                 ehname_len = ::std::strlen(ehname);
               }
               // what() lives on the std::exception subobject, not on
-              // type_info. When the RTTI graph proves a single-inheritance
-              // path to std::exception, that subobject sits at offset 0 of
-              // the thrown object, so dispatch directly through it.
+              // type_info; let the runtime's matcher locate that subobject.
+              void *se_subobj{};
               if (printable_encoding && thrown &&
-                  rtti_si_derives_from(
-                      hdr->exceptionType,
-                      __builtin_addressof(typeid(::std::exception)))) {
-                auto *se{static_cast<::std::exception *>(thrown)};
+                  itanium_cxa_try_catch(hdr->exceptionType, thrown,
+                                        typeid(::std::exception), &se_subobj)) {
+                auto *se{static_cast<::std::exception *>(se_subobj)};
                 ehmessage = se->what();
                 if (ehmessage) {
                   ehmessage_len = ::std::strlen(ehmessage);
@@ -439,16 +441,14 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
               }
 
               // what() lives on the std::exception subobject, not on
-              // type_info. When the RTTI graph proves a single-inheritance
-              // path to std::exception, that subobject sits at offset 0 of
-              // the thrown object, so dispatch directly through it.
+              // type_info; let the runtime's matcher locate that subobject.
               char const *ehmessage{};
               ::std::size_t ehmessage_len{};
+              void *se_subobj{};
               if (thrown && ::std::error_query_information::name != query &&
-                  rtti_si_derives_from(
-                      hdr->exceptionType,
-                      __builtin_addressof(typeid(::std::exception)))) {
-                auto *se{static_cast<::std::exception *>(thrown)};
+                  itanium_cxa_try_catch(hdr->exceptionType, thrown,
+                                        typeid(::std::exception), &se_subobj)) {
+                auto *se{static_cast<::std::exception *>(se_subobj)};
                 ehmessage = se->what();
                 if (ehmessage) {
                   ehmessage_len = ::std::strlen(ehmessage);
@@ -541,8 +541,12 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
         }
         return ::std::errc::io_error;
       }
+#if !defined(_LIBCPPABI_VERSION)
       // system_error carries its own mapping: when the code belongs to the
-      // generic category, the value IS the errc (errno) number.
+      // generic category, the value IS the errc (errno) number. Its RTTI and
+      // key function belong to the C++ standard library proper, so only an
+      // STL-resident build may reference them: libc++abi is linked ahead of
+      // libc++ and must not depend on symbols libc++ owns.
       {
         void *se_subobj{};
         if (itanium_cxa_try_catch(hdr->exceptionType, thrown,
@@ -560,6 +564,7 @@ constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
           return ::std::errc::io_error;
         }
       }
+#endif
       // Catch-ladder semantics: the first kind the thrown object could be
       // caught as decides the errc mapping.
       if (itanium_cxa_catchable(hdr->exceptionType, thrown,

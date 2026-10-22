@@ -16,19 +16,44 @@
 #include <unwind.h>
 
 /*
-libc++'s <cxxabi.h> stub does not declare the Itanium RTTI helper classes
-that libstdc++ and libcxxabi provide. When neither is visible, declare
-layout-compatible stand-ins ourselves: the code only reads __base_type
-chains, it never calls their virtuals.
+Type matching must be the personality routine's own: the C++ runtime knows
+how to walk its RTTI (multiple and virtual inheritance included), while a
+hand-rolled graph walk is only an approximation.
+
+libstdc++ exposes the matcher as std::type_info::__do_catch through its
+public <cxxabi.h>. libc++abi keeps the equivalent __shim_type_info::can_catch
+in private_typeinfo.h, which ships next to its sources and is therefore
+visible whenever this file is built as part of the runtime. Fall back to a
+conservative single-inheritance walk (over layout-compatible stand-ins) only
+when neither matcher is available.
 */
-#if !defined(__GLIBCXX__) && !defined(__hb_itanium_rtti_fallback)
-#define __hb_itanium_rtti_fallback
+#if defined(__GLIBCXX__)
+// <cxxabi.h> above declares std::type_info::__do_catch.
+#elif defined(_LIBCPPABI_VERSION) && __has_include("private_typeinfo.h")
+#define __hb_itanium_rtti_libcxxabi
+#include "private_typeinfo.h"
+#else
+#define __hb_itanium_rtti_si_walk
 namespace __cxxabiv1 {
 struct __class_type_info : ::std::type_info {};
 struct __si_class_type_info : __class_type_info {
   const __class_type_info *__base_type;
 };
 } // namespace __cxxabiv1
+#endif
+
+/*
+Built inside libsupc++ the real EH headers are reachable: unwind-cxx.h owns
+the refcounted exception layout and eh_atomics.h owns the atomic helpers
+exception_ptr::_M_addref/_M_release use. Prefer them over the mirrored
+layout whenever they are visible; they are private headers, so standalone
+builds keep the fallback.
+*/
+#if defined(__GLIBCXX__) && __has_include("unwind-cxx.h") &&                   \
+                                          __has_include("eh_atomics.h")
+#define __hb_itanium_libsupcxx_internals
+#include "eh_atomics.h"
+#include "unwind-cxx.h"
 #endif
 
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) &&                 \
@@ -244,7 +269,7 @@ itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
 
 #else
 
-#if __cplusplus >= 201103L
+#if __cplusplus >= 201103L && !defined(__GLIBCXX__)
 namespace std {
 void *get_unexpected() noexcept;
 }
@@ -275,8 +300,16 @@ __itanium_cxa_increment_exception_refcount(void *thrown_object) noexcept {
   }
   auto *hdr{itanium_cxa_exception_from_thrown_object(thrown_object)};
   if (itanium_cxa_exception_is_gcc(hdr)) {
+#if defined(__hb_itanium_libsupcxx_internals)
+    // The increment exception_ptr::_M_addref performs.
+    auto *refcounted{::__cxxabiv1::__get_refcounted_exception_header_from_obj(
+        thrown_object)};
+    ::__gnu_cxx::__eh_atomic_inc(
+        __builtin_addressof(refcounted->referenceCount));
+#else
     __atomic_add_fetch(reinterpret_cast<unsigned int *>(hdr), 1u,
                        __ATOMIC_SEQ_CST);
+#endif
   } else {
     __atomic_add_fetch(__builtin_addressof(hdr->referenceCount), 1u,
                        __ATOMIC_SEQ_CST);
@@ -288,8 +321,23 @@ __itanium_cxa_decrement_exception_refcount(void *thrown_object) noexcept {
   if (thrown_object == nullptr) {
     return;
   }
-  auto exception_header{
+  auto *exception_header{
       itanium_cxa_exception_from_thrown_object(thrown_object)};
+#if defined(__hb_itanium_libsupcxx_internals)
+  if (itanium_cxa_exception_is_gcc(exception_header)) {
+    // The release exception_ptr::_M_release performs.
+    auto *refcounted{::__cxxabiv1::__get_refcounted_exception_header_from_obj(
+        thrown_object)};
+    if (::__gnu_cxx::__eh_atomic_dec(
+            __builtin_addressof(refcounted->referenceCount))) {
+      if (refcounted->exc.exceptionDestructor != nullptr) {
+        refcounted->exc.exceptionDestructor(thrown_object);
+      }
+      ::__cxxabiv1::__cxa_free_exception(thrown_object);
+    }
+    return;
+  }
+#endif
   bool zero;
   if (itanium_cxa_exception_is_gcc(exception_header)) {
     zero =
