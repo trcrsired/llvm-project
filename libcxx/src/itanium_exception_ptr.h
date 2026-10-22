@@ -1,0 +1,431 @@
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#pragma once
+
+#include "libherbceptions.h"
+#include <cstdint>
+#include <cstdlib>
+#include <cxxabi.h>
+#include <exception>
+#include <unwind.h>
+
+/*
+libc++abi's public <cxxabi.h> does not expose the RTTI classes either, but
+unlike libc++'s stub, libc++abi has the real __class_type_info hierarchy in
+private_typeinfo.h. Use those definitions (the ODR-correct ones) instead of
+the layout-compatible stand-ins below.
+*/
+#if defined(_LIBCPPABI_VERSION) && !defined(__GLIBCXX__)
+#  define __hb_itanium_rtti_fallback
+#  include "private_typeinfo.h"
+#endif
+
+/*
+libc++'s <cxxabi.h> stub does not declare the Itanium RTTI helper classes
+that libstdc++ and libcxxabi provide. When neither is visible, declare
+layout-compatible stand-ins ourselves: the code only reads __base_type
+chains, it never calls their virtuals.
+*/
+#if !defined(__GLIBCXX__) && !defined(__hb_itanium_rtti_fallback)
+#  define __hb_itanium_rtti_fallback
+namespace __cxxabiv1 {
+struct __class_type_info : ::std::type_info {};
+struct __si_class_type_info : __class_type_info {
+  const __class_type_info* __base_type;
+};
+} // namespace __cxxabiv1
+#endif
+
+#if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
+#  define _LIBHERBCEPTIONS_ARM_EHABI
+#endif
+
+#if __has_feature(ptrauth_calls)
+
+// ptrauth_string_discriminator("__cxa_exception::actionRecord") == 0xFC91
+#  define __ptrauth_libherbceptions_action_record __ptrauth(ptrauth_key_process_dependent_data, 1, 0xFC91)
+
+// ptrauth_string_discriminator("__cxa_exception::languageSpecificData") ==
+// 0xE8EE
+#  define __ptrauth_libherbceptions_lsd __ptrauth(ptrauth_key_process_dependent_data, 1, 0xE8EE)
+
+// ptrauth_string_discriminator("__cxa_exception::catchTemp") == 0xFA58
+#  define __ptrauth_libherbceptions_catch_temp_disc 0xFA58
+#  define __ptrauth_libherbceptions_catch_temp_key ptrauth_key_process_dependent_data
+#  define __ptrauth_libherbceptions_catch_temp                                                                         \
+    __ptrauth(__ptrauth_libherbceptions_catch_temp_key, 1, __ptrauth_libherbceptions_catch_temp_disc)
+
+// ptrauth_string_discriminator("__cxa_exception::adjustedPtr") == 0x99E4
+#  define __ptrauth_libherbceptions_adjusted_ptr __ptrauth(ptrauth_key_process_dependent_data, 1, 0x99E4)
+
+// ptrauth_string_discriminator("__cxa_exception::unexpectedHandler") == 0x99A9
+#  define __ptrauth_libherbceptions_unexpected_handler __ptrauth(ptrauth_key_function_pointer, 1, 0x99A9)
+
+// ptrauth_string_discriminator("__cxa_exception::terminateHandler") == 0x0886)
+#  define __ptrauth_libherbceptions_terminate_handler __ptrauth(ptrauth_key_function_pointer, 1, 0x886)
+
+// ptrauth_string_discriminator("__cxa_exception::exceptionDestructor") ==
+// 0xC088
+#  define __ptrauth_libherbceptions_exception_destructor __ptrauth(ptrauth_key_function_pointer, 1, 0xC088)
+
+#else
+
+#  define __ptrauth_libherbceptions_action_record
+#  define __ptrauth_libherbceptions_lsd
+#  define __ptrauth_libherbceptions_catch_temp
+#  define __ptrauth_libherbceptions_adjusted_ptr
+#  define __ptrauth_libherbceptions_unexpected_handler
+#  define __ptrauth_libherbceptions_terminate_handler
+#  define __ptrauth_libherbceptions_exception_destructor
+
+#endif
+
+#if defined(_WIN32)
+#  define _LIBHERBCEPTIONS_DTOR_FUNC __thiscall
+#else
+#  define _LIBHERBCEPTIONS_DTOR_FUNC
+#endif
+
+namespace {
+struct itanium_cxa_exception {
+#if defined(__LP64__) || defined(_WIN64) || defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  // Now _Unwind_Exception is marked with __attribute__((aligned)),
+  // which implies __cxa_exception is also aligned. Insert padding
+  // in the beginning of the struct, rather than before unwindHeader.
+  void* reserve;
+
+  // This is a new field to support C++11 exception_ptr.
+  // For binary compatibility it is at the start of this
+  // struct which is prepended to the object thrown in
+  // __cxa_allocate_exception.
+  size_t referenceCount;
+#endif
+
+  //  Manage the exception object itself.
+  std::type_info* exceptionType;
+#ifdef __wasm__
+  // In Wasm, a destructor returns its argument
+  void*(_LIBHERBCEPTIONS_DTOR_FUNC* exceptionDestructor)(void*);
+#else
+  void(_LIBHERBCEPTIONS_DTOR_FUNC* __ptrauth_libherbceptions_exception_destructor exceptionDestructor)(void*);
+#endif
+  void* __ptrauth_libherbceptions_unexpected_handler unexpectedHandler;
+  void* __ptrauth_libherbceptions_terminate_handler terminateHandler;
+
+  itanium_cxa_exception* nextException;
+
+  int handlerCount;
+
+#if defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  itanium_cxa_exception* nextPropagatingException;
+  int propagationCount;
+#else
+  int handlerSwitchValue;
+  const unsigned char* actionRecord;
+  const unsigned char* languageSpecificData;
+  void* __ptrauth_libherbceptions_catch_temp catchTemp;
+  void* __ptrauth_libherbceptions_adjusted_ptr adjustedPtr;
+#endif
+
+#if !defined(__LP64__) && !defined(_WIN64) && !defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  // This is a new field to support C++11 exception_ptr.
+  // For binary compatibility it is placed where the compiler
+  // previously added padding to 64-bit align unwindHeader.
+  size_t referenceCount;
+#endif
+
+  _Unwind_Exception unwindHeader;
+};
+
+struct itanium_cxa_dependent_exception {
+#if defined(__LP64__) || defined(_WIN64) || defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  void* reserve; // padding.
+  void* primaryException;
+#endif
+
+  std::type_info* exceptionType;
+  void(_LIBHERBCEPTIONS_DTOR_FUNC* __ptrauth_libherbceptions_exception_destructor exceptionDestructor)(void*);
+  void* __ptrauth_libherbceptions_unexpected_handler unexpectedHandler;
+  std::terminate_handler __ptrauth_libherbceptions_terminate_handler terminateHandler;
+
+  itanium_cxa_exception* nextException;
+
+  int handlerCount;
+
+#if defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  itanium_cxa_exception* nextPropagatingException;
+  int propagationCount;
+#else
+  int handlerSwitchValue;
+  const unsigned char* __ptrauth_libherbceptions_action_record actionRecord;
+  const unsigned char* __ptrauth_libherbceptions_lsd languageSpecificData;
+  void* __ptrauth_libherbceptions_catch_temp catchTemp;
+  void* __ptrauth_libherbceptions_adjusted_ptr adjustedPtr;
+#endif
+
+#if !defined(__LP64__) && !defined(_WIN64) && !defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  void* primaryException;
+#endif
+  _Unwind_Exception unwindHeader;
+};
+
+// Native C++ exception tags. GCC's libsupc++ stamps 'GNUCC++\0' (plain) and
+// 'GNUCC++\1' (dependent) per the Itanium ABI spec; LLVM's libc++abi stamps
+// 'CLNGC++\0' / 'CLNGC++\1'. Both families use identical __cxa_exception
+// header layouts, recognized here via mask compare (ignore the low byte).
+// Anything else is foreign EH (Rust panics, other languages) with no ABI
+// stability contract: no inspectable header, no refcount, no portable
+// rethrow.
+inline constexpr ::std::uint64_t cxa_eh_vendor_mask{0xFFFFFFFFFFFFFF00ULL};
+inline constexpr ::std::uint64_t gnu_ccpp_eh_class{0x474E5543432B2B00ULL};
+inline constexpr ::std::uint64_t clang_cxx_eh_class{0x434C4E47432B2B00ULL};
+
+// Mirror of the runtimes' __cxa_eh_globals (the public type is opaque);
+// layout stable since the ABI's inception.
+struct itanium_cxa_eh_globals {
+  void* caughtExceptions;
+  unsigned int uncaughtExceptions;
+};
+
+enum class itanium_cxa_eh_flavor { foreign, gcc, clang };
+
+inline itanium_cxa_eh_flavor classify_itanium_cxa_eh(_Unwind_Exception const* uh) noexcept {
+  auto cls{uh->exception_class & cxa_eh_vendor_mask};
+  if (cls == gnu_ccpp_eh_class) {
+    return itanium_cxa_eh_flavor::gcc;
+  }
+  if (cls == clang_cxx_eh_class) {
+    return itanium_cxa_eh_flavor::clang;
+  }
+  return itanium_cxa_eh_flavor::foreign;
+}
+
+} // namespace
+
+#ifdef _LIBCPPABI_VERSION
+
+namespace __cxxabiv1 {
+// libc++abi's public <cxxabi.h> does not declare __cxa_get_globals; it is
+// an extern "C" ABI entry point returning the opaque __cxa_eh_globals.
+// This declaration matches the one in libc++abi's private cxa_exception.h.
+struct __cxa_eh_globals;
+extern "C" __cxa_eh_globals* __cxa_get_globals();
+} // namespace __cxxabiv1
+
+namespace {
+
+inline void __itanium_cxa_increment_exception_refcount(void* thrown_object) noexcept {
+  ::__cxxabiv1::__cxa_increment_exception_refcount(thrown_object);
+}
+
+inline void __itanium_cxa_decrement_exception_refcount(void* thrown_object) noexcept {
+  ::__cxxabiv1::__cxa_decrement_exception_refcount(thrown_object);
+}
+
+inline itanium_cxa_exception* itanium_cxa_exception_from_thrown_object(void* thrown_object) noexcept {
+  return static_cast<itanium_cxa_exception*>(thrown_object) - 1;
+}
+} // namespace
+
+#else
+
+#  if __cplusplus >= 201103L
+namespace std {
+void* get_unexpected() noexcept;
+}
+#  endif
+namespace {
+
+inline itanium_cxa_exception* itanium_cxa_exception_from_thrown_object(void* thrown_object) noexcept {
+  return static_cast<itanium_cxa_exception*>(thrown_object) - 1;
+}
+
+// The two Itanium C++ ABI libraries disagree about where referenceCount
+// lives inside the (otherwise binary-compatible) header that precedes
+// the thrown object: libc++abi keeps a `reserve` word first so
+// referenceCount sits at offset 8; libstdc++ puts its _Atomic_word
+// referenceCount at offset 0 (an int). The unwindHeader vendor stamp
+// picks the slot; callers abort on the foreign flavor before reaching
+// here.
+inline bool itanium_cxa_exception_is_gcc(itanium_cxa_exception* hdr) noexcept {
+  return classify_itanium_cxa_eh(&hdr->unwindHeader) == itanium_cxa_eh_flavor::gcc;
+}
+
+inline void __itanium_cxa_increment_exception_refcount(void* thrown_object) noexcept {
+  if (thrown_object == nullptr) {
+    return;
+  }
+  auto* hdr{itanium_cxa_exception_from_thrown_object(thrown_object)};
+  if (itanium_cxa_exception_is_gcc(hdr)) {
+    __atomic_add_fetch(reinterpret_cast<unsigned int*>(hdr), 1u, __ATOMIC_SEQ_CST);
+  } else {
+    __atomic_add_fetch(__builtin_addressof(hdr->referenceCount), 1u, __ATOMIC_SEQ_CST);
+  }
+}
+
+inline void __itanium_cxa_decrement_exception_refcount(void* thrown_object) noexcept {
+  if (thrown_object == nullptr) {
+    return;
+  }
+  auto exception_header{itanium_cxa_exception_from_thrown_object(thrown_object)};
+  bool zero;
+  if (itanium_cxa_exception_is_gcc(exception_header)) {
+    zero = !__atomic_add_fetch(
+        reinterpret_cast<unsigned int*>(exception_header), static_cast<unsigned int>(-1), __ATOMIC_SEQ_CST);
+  } else {
+    zero = !__atomic_add_fetch(
+        __builtin_addressof(exception_header->referenceCount), static_cast<::std::size_t>(-1), __ATOMIC_SEQ_CST);
+  }
+  if (zero) {
+    if (nullptr != exception_header->exceptionDestructor)
+      exception_header->exceptionDestructor(thrown_object);
+    ::__cxxabiv1::__cxa_free_exception(thrown_object);
+  }
+}
+
+#  if 0
+
+inline void setDependentExceptionClass(_Unwind_Exception* unwind_exception) noexcept {
+    unwind_exception->exception_class
+    = ((((((((_Unwind_Exception_Class) 'G'
+        << 8 | (_Unwind_Exception_Class) 'N')
+        << 8 | (_Unwind_Exception_Class) 'U')
+        << 8 | (_Unwind_Exception_Class) 'C')
+        << 8 | (_Unwind_Exception_Class) 'C')
+        << 8 | (_Unwind_Exception_Class) '+')
+        << 8 | (_Unwind_Exception_Class) '+')
+    << 8 | (_Unwind_Exception_Class) '\x01');
+}
+
+inline
+void __itanium_cxa_rethrow_primary_exception(void* thrown_object)
+{
+    if ( thrown_object != NULL )
+    {
+        // thrown_object guaranteed to be native because
+        //   __cxa_current_primary_exception returns NULL for foreign exceptions
+        auto exception_header = itanium_cxa_exception_from_thrown_object(thrown_object);
+        itanium_cxa_dependent_exception* dep_exception_header =
+            reinterpret_cast<itanium_cxa_dependent_exception*>(__cxxabiv1::__cxa_allocate_dependent_exception());
+        dep_exception_header->primaryException = thrown_object;
+        __itanium_cxa_increment_exception_refcount(thrown_object);
+        dep_exception_header->exceptionType = exception_header->exceptionType;
+        dep_exception_header->unexpectedHandler = ::std::get_unexpected();
+        dep_exception_header->terminateHandler = ::std::get_terminate();
+        setDependentExceptionClass(&dep_exception_header->unwindHeader);
+        ::__cxxabiv1::__cxa_get_globals()->uncaughtExceptions += 1;
+        dep_exception_header->unwindHeader.exception_cleanup = dependent_exception_cleanup;
+#    ifdef __USING_SJLJ_EXCEPTIONS__
+        _Unwind_SjLj_RaiseException(&dep_exception_header->unwindHeader);
+#    else
+        _Unwind_RaiseException(&dep_exception_header->unwindHeader);
+#    endif
+        // Some sort of unwinding error.  Note that terminate is a handler.
+        ::__cxxabiv1::__cxa_begin_catch(&dep_exception_header->unwindHeader);
+    }
+    // If we return client will call terminate()
+}
+#  endif
+} // namespace
+#endif
+
+namespace {
+
+inline void fail_fast_for_none_cxx_eh(void* eh) noexcept {
+  if (eh == nullptr)
+    ::std::abort();
+  auto* hdr{itanium_cxa_exception_from_thrown_object(eh)};
+  if (itanium_cxa_eh_flavor::foreign == classify_itanium_cxa_eh(&hdr->unwindHeader)) {
+    // Refuse to mint a code for foreign EH so no foreign exception can
+    // ever enter this domain.
+    ::std::abort();
+  }
+}
+
+} // namespace
+
+#if !defined(_LIBCPPABI_VERSION)
+namespace __cxxabiv1 {
+// libc++abi declares this in <cxxabi.h>; libstdc++ exports the symbol for
+// exception_ptr support and declares it in its internal
+// bits/cxxabi_init_exception.h returning __cxa_refcounted_exception*, so
+// the declaration must match when that header leaks in.
+class __cxa_refcounted_exception;
+extern "C" __cxa_refcounted_exception*
+__cxa_init_primary_exception(void*, ::std::type_info*, decltype(itanium_cxa_exception::exceptionDestructor)) noexcept;
+} // namespace __cxxabiv1
+#endif
+
+extern "C" __HERBCEPTIONS_API ::std::size_t
+__cxa_error_code_itanium_exception_ptr(::std::size_t flags, void* eh, void* tinfo, void* dtor) noexcept {
+  if (eh == nullptr) {
+    ::std::abort();
+  }
+  switch (flags) {
+  case 0:
+    // eh is an existing exception code; retain and return it.
+    fail_fast_for_none_cxx_eh(eh);
+    __itanium_cxa_increment_exception_refcount(eh);
+    return reinterpret_cast<::std::size_t>(eh);
+  case 1:
+    break;
+  case 2:
+    // Emitted by the herbceptions-legacy-eh-fold pass for a `throw` whose
+    // unwind edge provably reaches only the legacy->std::error conversion
+    // site: no exception is ever raised, so there is no in-flight
+    // _Unwind_Exception to unwrap. eh/tinfo/dtor are the __cxa_throw
+    // operands; this performs __cxa_throw's header initialization -- same
+    // vendor class stamp, type, destructor, handlers and flight
+    // reference -- without touching uncaughtExceptions and without
+    // raising.
+    ::__cxxabiv1::__cxa_init_primary_exception(
+        eh,
+        static_cast<::std::type_info*>(tinfo),
+        reinterpret_cast<decltype(itanium_cxa_exception::exceptionDestructor)>(dtor));
+    __itanium_cxa_increment_exception_refcount(eh);
+    return reinterpret_cast<::std::size_t>(eh);
+  default:
+    ::std::abort();
+  }
+  // flags==1: eh is the _Unwind_Exception* the catch machinery delivered
+  // to the compiler-fabricated conversion site -- the landing pad's exn
+  // value on Itanium, wasm.get.exception on Wasm (both are
+  // &__cxa_exception::unwindHeader) -- NOT the thrown object pointer.
+  auto* uh{static_cast<_Unwind_Exception*>(eh)};
+  // Refuse to mint a code for foreign EH so no foreign exception can
+  // ever enter this domain. Dependent exceptions (rethrown
+  // std::exception_ptr) stamp the same vendor class with the low byte
+  // set, which the mask compare correctly treats as native.
+  if (itanium_cxa_eh_flavor::foreign == classify_itanium_cxa_eh(uh)) {
+    ::std::abort();
+  }
+  void* thrown{static_cast<void*>(uh + 1)};
+  if ((uh->exception_class & ~cxa_eh_vendor_mask) != 0) {
+    // Dependent exception: the code names the primary's thrown object.
+    // The dependent header carries primaryException first under GNUCC++
+    // (a 112-byte header, object at offset 112) or behind a reserve word
+    // under CLNGC++ (128-byte header, object at offset 128).
+    thrown = *(static_cast<void**>(thrown) - (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc ? 14 : 15));
+  }
+#if defined(_LIBCPPABI_VERSION) || defined(__GLIBCXX__)
+  // The conversion catches the exception without __cxa_begin_catch; retire
+  // the count __cxa_throw added so std::uncaught_exceptions() stays
+  // accurate. do_throw_legacy_exception re-adds it on rethrow.
+  reinterpret_cast<itanium_cxa_eh_globals*>(::__cxxabiv1::__cxa_get_globals())->uncaughtExceptions -= 1;
+#endif
+  // The code owns exactly one reference, which do_cleanup releases when
+  // the channel error dies. GNUCC++ counts the in-flight reference in
+  // referenceCount already — the code adopts it. CLNGC++ does not, so the
+  // reference has to be taken explicitly or the object would be freed
+  // under the code (and a dangling one on any refcount==0 cleanup).
+  if (classify_itanium_cxa_eh(uh) != itanium_cxa_eh_flavor::gcc) {
+    __itanium_cxa_increment_exception_refcount(thrown);
+  }
+  return reinterpret_cast<::std::size_t>(thrown);
+}
