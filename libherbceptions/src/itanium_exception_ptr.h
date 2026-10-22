@@ -16,13 +16,24 @@
 #include <unwind.h>
 
 /*
-libc++'s <cxxabi.h> stub does not declare the Itanium RTTI helper classes
-that libstdc++ and libcxxabi provide. When neither is visible, declare
-layout-compatible stand-ins ourselves: the code only reads __base_type
-chains, it never calls their virtuals.
+Type matching must be the personality routine's own: the C++ runtime knows
+how to walk its RTTI (multiple and virtual inheritance included), while a
+hand-rolled graph walk is only an approximation.
+
+libstdc++ exposes the matcher as std::type_info::__do_catch through its
+public <cxxabi.h>. libc++abi keeps the equivalent __shim_type_info::can_catch
+in private_typeinfo.h, which ships next to its sources and is therefore
+visible whenever this file is built as part of the runtime. Fall back to a
+conservative single-inheritance walk (over layout-compatible stand-ins) only
+when neither matcher is available.
 */
-#if !defined(__GLIBCXX__) && !defined(__hb_itanium_rtti_fallback)
-#define __hb_itanium_rtti_fallback
+#if defined(__GLIBCXX__)
+// <cxxabi.h> above declares std::type_info::__do_catch.
+#elif defined(_LIBCPPABI_VERSION) && __has_include("private_typeinfo.h")
+#define __hb_itanium_rtti_libcxxabi
+#include "private_typeinfo.h"
+#else
+#define __hb_itanium_rtti_si_walk
 namespace __cxxabiv1 {
 struct __class_type_info : ::std::type_info {};
 struct __si_class_type_info : __class_type_info {
@@ -244,7 +255,7 @@ itanium_cxa_exception_from_thrown_object(void *thrown_object) noexcept {
 
 #else
 
-#if __cplusplus >= 201103L
+#if __cplusplus >= 201103L && !defined(__GLIBCXX__)
 namespace std {
 void *get_unexpected() noexcept;
 }
