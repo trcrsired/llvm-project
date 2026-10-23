@@ -88,9 +88,9 @@ inline void __tls_query_information(
       static_cast<::std::uint_least32_t>(query)) {
     return;
   }
-  auto const __packed{static_cast<::std::uint_least32_t>(cd)};
-  auto const __level{(__packed >> 8) & 0xffu};
-  auto const __desc{__packed & 0xffu};
+  auto const pck{static_cast<::std::uint_least32_t>(cd)};
+  auto const level{(pck >> 8) & 0xffu};
+  auto const desc{pck & 0xffu};
   ::std::io_scatter_t __scatters[2];
   ::std::size_t __scatterlen{};
   /*
