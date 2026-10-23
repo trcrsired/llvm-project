@@ -611,6 +611,14 @@ CIRGenFunction::emitCoroutineBody(const CoroutineBodyStmt &s) {
         // Set the return value back. The code generator, as the AST
         // **Consumer**, shouldn't change the AST.
         ret->setRetValue(previousRetValue);
+      } else if (curFnInfo && curFnInfo->hasThrowsReturn()) {
+        // A `throws` coroutine with a void return type has no return object
+        // statement; the ramp still has to produce the shaped {E, i1} result
+        // with a null error payload and the discriminant clear.
+        mlir::Value value = builder.getNullValue(
+            curFnInfo->getHerbceptionErrorType(), openCurlyLoc);
+        value = wrapHerbceptionReturnValue(openCurlyLoc, value);
+        cir::ReturnOp::create(builder, openCurlyLoc, value);
       } else {
         cir::ReturnOp::create(builder, openCurlyLoc);
       }

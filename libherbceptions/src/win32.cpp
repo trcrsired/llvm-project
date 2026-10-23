@@ -108,7 +108,7 @@ win32_code_scatter(::std::error_reporter_encoding encoding,
   }
 }
 
-constinit ::std::error_domain_singleton win32_error_domain{
+constexpr ::std::error_domain_singleton win32_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {

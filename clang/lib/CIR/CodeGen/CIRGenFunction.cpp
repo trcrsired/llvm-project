@@ -364,12 +364,17 @@ cir::ReturnOp CIRGenFunction::LexicalScope::emitReturn(mlir::Location loc) {
 
   if (!fn.getFunctionType().hasVoidReturn()) {
     // Load the value from `__retval` and return it via the `cir.return` op.
-    mlir::Type retTy = fn.getFunctionType().getReturnType();
     mlir::Value value;
 
     if (cgf.fnRetAlloca) {
-      // Normal case: load from the return alloca.
-      value = cir::LoadOp::create(builder, loc, retTy, *cgf.fnRetAlloca);
+      // Normal case: load from the return alloca. The payload alloca holds the
+      // AST return type even when the function signature is the shaped
+      // {T, i1} record of a throws function, so load with its own type and
+      // wrap below.
+      cir::AllocaOp retAlloca =
+          mlir::cast<cir::AllocaOp>(cgf.fnRetAlloca->getDefiningOp());
+      value = cir::LoadOp::create(builder, loc, retAlloca.getAllocaType(),
+                                  *cgf.fnRetAlloca);
     } else if (cgf.curFnInfo && cgf.curFnInfo->hasThrowsReturn()) {
       // Herbception (throws) with void AST return type: the payload is the
       // error type. Create a default value (null) of the error type.

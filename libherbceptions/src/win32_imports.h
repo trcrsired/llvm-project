@@ -44,12 +44,6 @@ RaiseException(::std::uint_least32_t exception_code,
                ::std::uint_least32_t exception_flags,
                ::std::uint_least32_t number_parameters,
                ::std::uintptr_t const *exception_information) noexcept;
-__declspec(dllimport) void *__stdcall GetProcAddress(void *module,
-                                                     char const *name) noexcept;
-__declspec(dllimport) void *__stdcall
-GetModuleHandleA(char const *name) noexcept;
-__declspec(dllimport) void *__stdcall
-GetModuleHandleW(wchar_t const *name) noexcept;
 __declspec(dllimport) ::std::uint_least32_t __stdcall
 FormatMessageA(::std::uint_least32_t flags, void const *source,
                ::std::uint_least32_t message_id,
