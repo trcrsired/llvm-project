@@ -598,7 +598,7 @@ constexpr ::std::error_domain_singleton itanium_exception_ptr_domain{
     ,
     .do_throw_legacy_exception =
         [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
-          if (__ehabi != ::std::legacy_exception_abi::platform)
+          if (__ehabi != ::std::legacy_exception_abi::itanium)
             return;
           void *__obj{reinterpret_cast<void *>(__cd)};
           if (!__obj) {
