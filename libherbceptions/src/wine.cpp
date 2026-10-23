@@ -20,7 +20,7 @@
 #include "simple_query_information_common.h"
 
 namespace {
-constinit ::std::error_domain_singleton __wine_error_domain{
+constexpr ::std::error_domain_singleton __wine_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,

@@ -23,7 +23,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if defined(_WIN32) || defined(__CYGWIN__)
+// MSVC /kernel defines _KERNEL_MODE but leaves __STDC_HOSTED__ at 1; the
+// exception_ptr box and the runtime imports it needs are user-mode only.
+#if (defined(_WIN32) || defined(__CYGWIN__)) && __STDC_HOSTED__ == 1 &&        \
+    !defined(_KERNEL_MODE)
 
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "libherbceptions.h"
@@ -366,7 +369,6 @@ msvc_exception_name_message_range(::std::error_reporter_encoding encoding,
   //   startpos 1 len 14 -> "msvc_exception"
   //   startpos 16 len 1 -> "("
   //   startpos 18 len 1 -> ")"
-  constexpr ::std::size_t totalsize{19u};
   switch (encoding) {
 #ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
@@ -630,6 +632,59 @@ inline void msvc_eh_ptr_copy_exception(void *p, void const *object,
   ep->rec = rec;
   ep->ref = ref;
 }
+/*
+The CRT keeps the in-flight exception record in a per-thread slot exposed by
+__current_exception(), exported from vcruntime140/ucrtbase. Reading that slot
+and boxing the record ourselves only needs the runtime DLL that raised the
+exception, not msvcp140; the msvcp140 helper below stays as a fallback for
+runtimes that only expose the exception_ptr entry points.
+*/
+using msvc_current_exception_fn = void **(__cdecl *)(void) noexcept;
+inline msvc_current_exception_fn msvc_eh_ptr_lookup_current_slot() noexcept {
+  constexpr char const *module_names[] = {"vcruntime140.dll", "ucrtbase.dll"};
+  for (char const *name : module_names) {
+    void *module = win32::GetModuleHandleA(name);
+    if (module == nullptr)
+      continue;
+    auto fn = reinterpret_cast<msvc_current_exception_fn>(
+        win32::GetProcAddress(module, "__current_exception"));
+    if (fn != nullptr)
+      return fn;
+  }
+  return nullptr;
+}
+inline void msvc_eh_ptr_capture_record(void *p,
+                                       EXCEPTION_RECORD const *src) noexcept {
+  auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
+  if (src == nullptr) {
+    ep->rec = nullptr;
+    ep->ref = nullptr;
+    return;
+  }
+  auto *rec = static_cast<EXCEPTION_RECORD *>(
+      msvc_eh_ptr_alloc(sizeof(EXCEPTION_RECORD)));
+  auto *ref = static_cast<long *>(msvc_eh_ptr_alloc(sizeof(long)));
+  *rec = *src;
+  *ref = 1;
+  if (rec->ExceptionCode == 0xe06d7363u) {
+    // Take ownership of a deep copy of the thrown object, exactly as a
+    // throw site would: the exception_ptr releases it through the throw
+    // info destructor.
+    void *object = reinterpret_cast<void *>(rec->ExceptionInformation[1]);
+    auto const *et = reinterpret_cast<msvc_cxx_exception_type const *>(
+        reinterpret_cast<void *>(rec->ExceptionInformation[2]));
+    uintptr_t base = cxx_rva_base(et);
+    auto const *table = static_cast<cxx_type_info_table const *>(
+        cxx_rva(et->type_info_table, base));
+    auto const *ti =
+        static_cast<cxx_type_info const *>(cxx_rva(table->info[0], base));
+    void *copy = msvc_eh_ptr_alloc(ti->size);
+    msvc_eh_ptr_copy_object(object, copy, ti, base);
+    rec->ExceptionInformation[1] = reinterpret_cast<::std::uintptr_t>(copy);
+  }
+  ep->rec = rec;
+  ep->ref = ref;
+}
 using msvc_eh_ptr_current_fn = void (__cdecl *)(void *) noexcept;
 inline msvc_eh_ptr_current_fn msvc_eh_ptr_lookup_current() noexcept {
   /*
@@ -657,6 +712,12 @@ inline msvc_eh_ptr_current_fn msvc_eh_ptr_lookup_current() noexcept {
   return nullptr;
 }
 inline void msvc_eh_ptr_current_exception(void *p) noexcept {
+  if (auto slot_fn = msvc_eh_ptr_lookup_current_slot(); slot_fn != nullptr) {
+    void **slot = slot_fn();
+    msvc_eh_ptr_capture_record(
+        p, slot != nullptr ? static_cast<EXCEPTION_RECORD *>(*slot) : nullptr);
+    return;
+  }
   if (auto fn = msvc_eh_ptr_lookup_current(); fn != nullptr) {
     fn(p);
     return;
@@ -677,7 +738,7 @@ inline void msvc_eh_ptr_rethrow(void *p) {
 }
 #endif
 
-constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
+constexpr ::std::error_domain_singleton msvc_exception_ptr_domain{
 
     .do_cleanup =
         [](::std::size_t __cd) noexcept {

@@ -211,7 +211,7 @@ inline void __http_query_information(
   cookfun(cookie, __scatters, __scatterlen);
 }
 
-constinit ::std::error_domain_singleton http_error_domain{
+constexpr ::std::error_domain_singleton http_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {
