@@ -27,14 +27,19 @@ through an asm label instead of extern "C": a translation unit that already
 included <windows.h> has C declarations of the same names (DWORD, WINAPI,
 va_list *), which would otherwise clash with these redeclarations. The stack
 byte count only feeds the __stdcall decoration on i386; MSVC proper has no
-asm labels and needs extern "C" instead.
+asm labels and needs extern "C" instead. On i386 GCC adds the user label
+underscore to the asm label itself while clang takes it verbatim, so only
+the clang label spells it out.
 */
 #if defined(_MSC_VER) && !defined(__clang__)
 extern "C" {
 #define __HERBCEPTIONS_WIN32_IMPORT(name, stackbytes)
-#elif defined(__i386__)
+#elif defined(__i386__) && defined(__clang__)
 #define __HERBCEPTIONS_WIN32_IMPORT(name, stackbytes)                          \
   __asm__("_" #name "@" #stackbytes)
+#elif defined(__i386__)
+#define __HERBCEPTIONS_WIN32_IMPORT(name, stackbytes)                          \
+  __asm__(#name "@" #stackbytes)
 #else
 #define __HERBCEPTIONS_WIN32_IMPORT(name, stackbytes) __asm__(#name)
 #endif
