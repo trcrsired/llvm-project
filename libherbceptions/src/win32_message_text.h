@@ -16,12 +16,6 @@
 
 namespace std::error_domains::__herbceptions_detail {
 
-inline constexpr bool __win32_use_9xa_apis{
-#ifdef _WIN32_WINDOWS
-    true
-#endif
-};
-
 /*
 Fetches the FormatMessage system text for a Win32 error code and reports it,
 converted to the requested encoding, through cookfun as a single scatter.
