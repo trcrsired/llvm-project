@@ -91,6 +91,12 @@ FormatMessageW(::std::uint_least32_t flags, void const *source,
                ::std::uint_least32_t language_id, wchar_t *buffer,
                ::std::uint_least32_t size, char *arguments) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(FormatMessageW, 28);
+__declspec(dllimport) void *__stdcall
+GetModuleHandleW(wchar_t const *name) noexcept
+    __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleW, 4);
+__declspec(dllimport) void *__stdcall GetProcAddress(void *module,
+                                                     char const *name) noexcept
+    __HERBCEPTIONS_WIN32_IMPORT(GetProcAddress, 8);
 
 #if defined(_MSC_VER) && !defined(__clang__)
 }

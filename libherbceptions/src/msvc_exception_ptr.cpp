@@ -37,6 +37,11 @@
 #include <type_traits>
 #include <typeinfo>
 
+#if defined(__MINGW32__) && __has_include(<_mingw.h>)
+// Defines _UCRT; no C++ header guarantees it.
+#include <_mingw.h>
+#endif
+
 using ::std::error_domains::__herbceptions_detail::EXCEPTION_RECORD;
 namespace win32 = ::std::error_domains::__herbceptions_detail::win32;
 
@@ -634,13 +639,46 @@ inline void msvc_eh_ptr_copy_exception(void *p, void const *object,
 }
 /*
 The CRT keeps the in-flight exception record in a per-thread slot exposed by
-__current_exception(). MinGW-w64 always links the CRT dynamically, so the
-dllimport declaration binds straight to the import table; no runtime DLL
-lookup is needed. Cygwin has no ucrtbase import, and no MSVC exception can be
-in flight there.
+__current_exception(). A UCRT MinGW-w64 sysroot exports it from its import
+library, so those builds bind it at link time. Legacy-msvcrt MinGW-w64 has no
+such symbol in msvcrt.def.in, and Cygwin has no ucrtbase import, so they look
+it up in DllMain at DLL_PROCESS_ATTACH, when every module the process needs is
+already mapped: GetModuleHandleW plus GetProcAddress find the CRT that exports
+it. The module names are W even though such a build otherwise sticks to the
+ANSI APIs: every DLL exporting this symbol is NT-only. No such CRT means no
+MSVC exception can be in flight, so asking for the current one is fatal.
 */
-#if !defined(__CYGWIN__)
+#if defined(_UCRT)
 extern "C" __declspec(dllimport) void **__cdecl __current_exception() noexcept;
+#else
+using msvc_current_exception_fn = void **(__cdecl *)() noexcept;
+
+using msvc_wide_ptr
+#if __has_cpp_attribute(__gnu__::__may_alias__)
+    [[__gnu__::__may_alias__]]
+#endif
+    = wchar_t const *;
+
+inline msvc_current_exception_fn msvc_eh_ptr_current_exception_export =
+    nullptr;
+
+inline void msvc_eh_ptr_load_current_exception() noexcept {
+  char16_t const *const modules[] = {u"ucrtbase.dll", u"ucrtbased.dll",
+                                     u"vcruntime140.dll", u"vcruntime140d.dll"};
+  for (char16_t const *module : modules) {
+    void *const handle = win32::GetModuleHandleW(
+        reinterpret_cast<msvc_wide_ptr>(module));
+    if (handle == nullptr)
+      continue;
+    auto const fn = reinterpret_cast<msvc_current_exception_fn>(
+        win32::GetProcAddress(handle, reinterpret_cast<char const *>(
+                                          u8"__current_exception")));
+    if (fn != nullptr) {
+      msvc_eh_ptr_current_exception_export = fn;
+      return;
+    }
+  }
+}
 #endif
 inline void msvc_eh_ptr_capture_record(void *p,
                                        EXCEPTION_RECORD const *src) noexcept {
@@ -675,16 +713,17 @@ inline void msvc_eh_ptr_capture_record(void *p,
   ep->ref = ref;
 }
 inline void msvc_eh_ptr_current_exception(void *p) noexcept {
-#if !defined(__CYGWIN__)
+#if defined(_UCRT)
   void **slot = __current_exception();
+#else
+  auto const fn = msvc_eh_ptr_current_exception_export;
+  if (fn == nullptr)
+    ::std::abort();
+  void **slot = fn();
+#endif
   msvc_eh_ptr_capture_record(p, slot != nullptr
                                     ? static_cast<EXCEPTION_RECORD *>(*slot)
                                     : nullptr);
-#else
-  auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
-  ep->rec = nullptr;
-  ep->ref = nullptr;
-#endif
 }
 inline void msvc_eh_ptr_rethrow(void *p) {
   auto const *ep = static_cast<error_domain_msvc_eh_ptr const *>(p);
@@ -1093,5 +1132,20 @@ extern "C" __HERBCEPTIONS_API void *__cxa_error_code_msvc_exception_ptr_cast(
   auto const *__raw{reinterpret_cast<msvc_raw_type_info const *>(__ti)};
   return try_get_cpp_exception_with_mangled_name(ehrec, __raw->mangled);
 }
+
+#if !defined(_MSC_VER) && !defined(_UCRT)
+/*
+Legacy-msvcrt MinGW-w64 and Cygwin have no import for __current_exception, so
+the DLL entry point resolves it once the loader has mapped everything. Running
+here instead of in a namespace-scope constructor keeps the C++ runtime out of
+the picture.
+*/
+extern "C" int __stdcall DllMain(void *, ::std::uint_least32_t reason,
+                                 void *) noexcept {
+  if (reason == 1u /* DLL_PROCESS_ATTACH */)
+    msvc_eh_ptr_load_current_exception();
+  return 1;
+}
+#endif
 
 #endif
