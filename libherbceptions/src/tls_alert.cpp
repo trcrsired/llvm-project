@@ -122,10 +122,10 @@ inline void __tls_query_information(
        the part no-message builds strip */
     char unsigned *__ap{
         __format_decimal_pair_value_full_with_bracket<false, char unsigned>(
-            __ascii, __level, __desc)};
+            __ascii, level, desc)};
     if constexpr (!__messages_disabled) {
-      auto __level_scatter{__tls_level_literal(__level)};
-      auto __msg_scatter{__to_u8scatter_from_tls_alert(__desc)};
+      auto __level_scatter{__tls_level_literal(level)};
+      auto __msg_scatter{__to_u8scatter_from_tls_alert(desc)};
       __builtin_memcpy(__ap, __level_scatter.base, __level_scatter.len);
       __ap += __level_scatter.len;
       __builtin_memcpy(__ap, __msg_scatter.base, __msg_scatter.len);
