@@ -65,6 +65,14 @@ int main() {
   CHECK(posix != nullptr);
   CHECK(cxa != nullptr);
 
+  // The three mandatory hooks are present; optional hooks may stay null.
+  CHECK(::std::is_valid_error_domain_singleton(posix));
+  CHECK(::std::is_valid_error_domain_singleton(cxa));
+  CHECK(!::std::is_valid_error_domain_singleton(
+      static_cast<::std::error_domain_singleton const *>(nullptr)));
+  static_assert(
+      !::std::is_valid_error_domain_singleton(::std::error_domain_singleton{}));
+
   // std::errc maps to the posix domain.
   CHECK(::std::error_domain<::std::errc>::domain() == posix);
 
