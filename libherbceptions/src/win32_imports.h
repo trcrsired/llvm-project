@@ -13,11 +13,27 @@ Self-contained WinAPI import surface for the runtime (no <windows.h>).
 #include <cstddef>
 #include <cstdint>
 
+#if defined(__MINGW32__) && __has_include(<_mingw.h>)
+// Defines _UCRT and derives _WIN32_WINDOWS; no C++ header guarantees it.
+#include <_mingw.h>
+#endif
+
 #if defined(_MSC_VER) && !defined(__clang__)
 #pragma comment(lib, "ntdll.lib")
 #endif
 
 namespace std::error_domains::__herbceptions_detail {
+
+/*
+A entry points on 9x, W on NT: Windows 95 has no W functions, and a W import
+kernel32 does not export fails at load time, so legacy-msvcrt toolchains and
+explicit 9x targets take the A path. UCRT and MSVC builds keep the W ones.
+*/
+inline constexpr bool __win32_use_9xa_apis{
+#if defined(_WIN32_WINDOWS) || (!defined(_MSC_VER) && !defined(_UCRT))
+    true
+#endif
+};
 
 namespace win32 {
 
@@ -91,6 +107,9 @@ FormatMessageW(::std::uint_least32_t flags, void const *source,
                ::std::uint_least32_t language_id, wchar_t *buffer,
                ::std::uint_least32_t size, char *arguments) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(FormatMessageW, 28);
+__declspec(dllimport) void *__stdcall
+GetModuleHandleA(char const *name) noexcept
+    __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleA, 4);
 __declspec(dllimport) void *__stdcall
 GetModuleHandleW(wchar_t const *name) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleW, 4);

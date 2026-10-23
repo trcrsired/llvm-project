@@ -14,23 +14,7 @@
 #include "libherbceptions.h"
 #include "win32_imports.h"
 
-#if defined(__MINGW32__) && __has_include(<_mingw.h>)
-// Defines _UCRT and derives _WIN32_WINDOWS; no C++ header guarantees it.
-#include <_mingw.h>
-#endif
-
 namespace std::error_domains::__herbceptions_detail {
-
-/*
-A entry points on 9x, W on NT: Windows 95 has no W functions, and a W import
-kernel32 does not export fails at load time, so legacy-msvcrt toolchains and
-explicit 9x targets take the A path. UCRT and MSVC builds keep the W ones.
-*/
-inline constexpr bool __win32_use_9xa_apis{
-#if defined(_WIN32_WINDOWS) || (!defined(_MSC_VER) && !defined(_UCRT))
-    true
-#endif
-};
 
 /*
 Fetches the FormatMessage system text for a Win32 error code and reports it,
