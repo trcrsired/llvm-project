@@ -66,10 +66,8 @@ int main() {
   CHECK(cxa != nullptr);
 
   // The three mandatory hooks are present; optional hooks may stay null.
-  CHECK(::std::is_valid_error_domain_singleton(posix));
-  CHECK(::std::is_valid_error_domain_singleton(cxa));
-  CHECK(!::std::is_valid_error_domain_singleton(
-      static_cast<::std::error_domain_singleton const *>(nullptr)));
+  CHECK(::std::is_valid_error_domain_singleton(*posix));
+  CHECK(::std::is_valid_error_domain_singleton(*cxa));
   static_assert(
       !::std::is_valid_error_domain_singleton(::std::error_domain_singleton{}));
 
