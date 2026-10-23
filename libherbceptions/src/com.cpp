@@ -119,7 +119,7 @@ inline constexpr ::std::errc com_to_errc(::std::uint_least32_t hr) noexcept {
   return ::std::errc::io_error;
 }
 
-constinit ::std::error_domain_singleton com_error_domain{
+constexpr ::std::error_domain_singleton com_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,

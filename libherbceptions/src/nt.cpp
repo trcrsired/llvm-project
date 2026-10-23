@@ -110,7 +110,7 @@ __nt_code_scatter(::std::error_reporter_encoding encoding,
   }
 }
 
-constinit ::std::error_domain_singleton nt_error_domain{
+constexpr ::std::error_domain_singleton nt_error_domain{
     .do_cleanup = nullptr,
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,

@@ -16,7 +16,7 @@
 #include "simple_query_information_common.h"
 
 namespace {
-constinit ::std::error_domain_singleton parse_error_domain{
+constexpr ::std::error_domain_singleton parse_error_domain{
     .do_equivalent =
         [](::std::size_t cd, ::std::error_domain_singleton const *otherdomain,
            ::std::size_t othercd) noexcept {

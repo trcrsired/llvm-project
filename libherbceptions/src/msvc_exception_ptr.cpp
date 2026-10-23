@@ -23,7 +23,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if defined(_WIN32) || defined(__CYGWIN__)
+// MSVC /kernel defines _KERNEL_MODE but leaves __STDC_HOSTED__ at 1; the
+// exception_ptr box and the runtime imports it needs are user-mode only.
+#if (defined(_WIN32) || defined(__CYGWIN__)) && __STDC_HOSTED__ == 1 &&        \
+    !defined(_KERNEL_MODE)
 
 #include "__malloc_or_heap_alloc_temp_buffer.h"
 #include "libherbceptions.h"
@@ -366,7 +369,6 @@ msvc_exception_name_message_range(::std::error_reporter_encoding encoding,
   //   startpos 1 len 14 -> "msvc_exception"
   //   startpos 16 len 1 -> "("
   //   startpos 18 len 1 -> ")"
-  constexpr ::std::size_t totalsize{19u};
   switch (encoding) {
 #ifdef __LIBHERBCEPTIONS_ENABLE_EBCDIC
   case ::std::error_reporter_encoding::utfebcdic: {
@@ -630,40 +632,59 @@ inline void msvc_eh_ptr_copy_exception(void *p, void const *object,
   ep->rec = rec;
   ep->ref = ref;
 }
-using msvc_eh_ptr_current_fn = void (__cdecl *)(void *) noexcept;
-inline msvc_eh_ptr_current_fn msvc_eh_ptr_lookup_current() noexcept {
-  /*
-  The current-exception slot lives in msvcp140's per-thread state and is
-  reachable only through the runtime's own __ExceptionPtrCurrentException.
-  That runtime is loaded whenever MSVC code that can own a current exception
-  is on the stack; without it there is no current MSVC exception to capture.
-  */
-  constexpr char const *module_names[] = {"msvcp140.dll", "msvcp_win.dll"};
-#if SIZE_MAX <= UINT_LEAST32_MAX &&                                            \
-    (defined(__x86__) || defined(_M_IX86) || defined(__i386__))
-  constexpr char const *symbol = "?__ExceptionPtrCurrentException@@YAXPAX@Z";
-#else
-  constexpr char const *symbol = "?__ExceptionPtrCurrentException@@YAXPEAX@Z";
+/*
+The CRT keeps the in-flight exception record in a per-thread slot exposed by
+__current_exception(). MinGW-w64 always links the CRT dynamically, so the
+dllimport declaration binds straight to the import table; no runtime DLL
+lookup is needed. Cygwin has no ucrtbase import, and no MSVC exception can be
+in flight there.
+*/
+#if !defined(__CYGWIN__)
+extern "C" __declspec(dllimport) void **__cdecl __current_exception() noexcept;
 #endif
-  for (char const *name : module_names) {
-    void *module = win32::GetModuleHandleA(name);
-    if (module == nullptr)
-      continue;
-    auto fn = reinterpret_cast<msvc_eh_ptr_current_fn>(
-        win32::GetProcAddress(module, symbol));
-    if (fn != nullptr)
-      return fn;
-  }
-  return nullptr;
-}
-inline void msvc_eh_ptr_current_exception(void *p) noexcept {
-  if (auto fn = msvc_eh_ptr_lookup_current(); fn != nullptr) {
-    fn(p);
+inline void msvc_eh_ptr_capture_record(void *p,
+                                       EXCEPTION_RECORD const *src) noexcept {
+  auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
+  if (src == nullptr) {
+    ep->rec = nullptr;
+    ep->ref = nullptr;
     return;
   }
+  auto *rec = static_cast<EXCEPTION_RECORD *>(
+      msvc_eh_ptr_alloc(sizeof(EXCEPTION_RECORD)));
+  auto *ref = static_cast<long *>(msvc_eh_ptr_alloc(sizeof(long)));
+  *rec = *src;
+  *ref = 1;
+  if (rec->ExceptionCode == 0xe06d7363u) {
+    // Take ownership of a deep copy of the thrown object, exactly as a
+    // throw site would: the exception_ptr releases it through the throw
+    // info destructor.
+    void *object = reinterpret_cast<void *>(rec->ExceptionInformation[1]);
+    auto const *et = reinterpret_cast<msvc_cxx_exception_type const *>(
+        reinterpret_cast<void *>(rec->ExceptionInformation[2]));
+    uintptr_t base = cxx_rva_base(et);
+    auto const *table = static_cast<cxx_type_info_table const *>(
+        cxx_rva(et->type_info_table, base));
+    auto const *ti =
+        static_cast<cxx_type_info const *>(cxx_rva(table->info[0], base));
+    void *copy = msvc_eh_ptr_alloc(ti->size);
+    msvc_eh_ptr_copy_object(object, copy, ti, base);
+    rec->ExceptionInformation[1] = reinterpret_cast<::std::uintptr_t>(copy);
+  }
+  ep->rec = rec;
+  ep->ref = ref;
+}
+inline void msvc_eh_ptr_current_exception(void *p) noexcept {
+#if !defined(__CYGWIN__)
+  void **slot = __current_exception();
+  msvc_eh_ptr_capture_record(p, slot != nullptr
+                                    ? static_cast<EXCEPTION_RECORD *>(*slot)
+                                    : nullptr);
+#else
   auto *ep = static_cast<error_domain_msvc_eh_ptr *>(p);
   ep->rec = nullptr;
   ep->ref = nullptr;
+#endif
 }
 inline void msvc_eh_ptr_rethrow(void *p) {
   auto const *ep = static_cast<error_domain_msvc_eh_ptr const *>(p);
@@ -673,11 +694,13 @@ inline void msvc_eh_ptr_rethrow(void *p) {
   win32::RaiseException(rec->ExceptionCode,
                         rec->ExceptionFlags & ~0x2u /* EXCEPTION_UNWINDING */,
                         rec->NumberParameters, rec->ExceptionInformation);
-  __builtin_unreachable();
+  // RaiseException only returns if no handler accepted the raise; crash
+  // instead of falling off the end of a throw.
+  __builtin_trap();
 }
 #endif
 
-constinit ::std::error_domain_singleton msvc_exception_ptr_domain{
+constexpr ::std::error_domain_singleton msvc_exception_ptr_domain{
 
     .do_cleanup =
         [](::std::size_t __cd) noexcept {
@@ -1026,9 +1049,9 @@ __cxa_error_code_msvc_exception_ptr(::std::size_t flags, void const *a,
   case 2:
     // Emitted by the herbceptions-legacy-eh-fold pass for a `throw` whose
     // unwind edge provably reaches only the legacy->std::error conversion
-    // site: no exception is ever raised, so there is no in-flight record
-    // for __ExceptionPtrCurrentException to capture. a/b are the
-    // _CxxThrowException operands (object, _ThrowInfo*).
+    // site: no exception is ever raised, so __current_exception has no
+    // in-flight record to capture. a/b are the _CxxThrowException operands
+    // (object, _ThrowInfo*).
     msvc_eh_ptr_copy_exception(ehptr_storage, a, b);
     return reinterpret_cast<::std::size_t>(ehptr_storage);
   default:

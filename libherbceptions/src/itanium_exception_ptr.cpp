@@ -280,7 +280,7 @@ itanium_cxa_legacy_error_box(void *thrown,
   return static_cast<::std::cxx_std_error_legacy_exception const *>(subobj);
 }
 
-constinit ::std::error_domain_singleton itanium_exception_ptr_domain{
+constexpr ::std::error_domain_singleton itanium_exception_ptr_domain{
     .do_cleanup =
         [](::std::size_t cd) noexcept {
           __itanium_cxa_decrement_exception_refcount(
