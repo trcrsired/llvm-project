@@ -286,9 +286,9 @@ public:
   // so the call is ill-formed at compile time instead of terminating
   // (P1105R0 only covers `throw`, whose termination is defined).
 #if defined(__cpp_deleted_function) && __cpp_deleted_function >= 202403L
-      = delete ("std::error::throw_legacy_exception requires C++ exception "
-                "handling; this translation unit is built with exceptions "
-                "disabled (-fno-exceptions)");
+      = delete ("std::error::throw_legacy_exception requires C++ legacy "
+                "exception handling; this translation unit is built with "
+                "C++ legacy exceptions disabled (-fno-exceptions)");
 #else
       = delete;
 #endif
