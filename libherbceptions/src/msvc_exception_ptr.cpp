@@ -1014,13 +1014,17 @@ constexpr ::std::error_domain_singleton msvc_exception_ptr_domain{
     }
     ,
     .do_throw_legacy_exception =
-        [](::std::size_t __cd, ::std::legacy_exception_abi) {
+        [](::std::size_t __cd, ::std::legacy_exception_abi __ehabi) {
           /*
-          The domain only exists on SEH platforms. Both the MSVC and the GNU
-          toolchains request the platform ABI here, and SEH hands the saved
-          MSVC exception record to the MSVC personalities above regardless of
-          which toolchain raised it, so rethrow unconditionally.
+          Only an MSVC-ABI caller can catch what this domain raises: SEH
+          hands the saved MSVC exception record to the MSVC personalities
+          above regardless of which toolchain raised it, but an Itanium-ABI
+          caller's typed handlers cannot.  The code belongs to the MSVC
+          exception_ptr domain no matter which toolchain built this DLL, so
+          compare against the MSVC ABI rather than the build platform.
           */
+          if (__ehabi != ::std::legacy_exception_abi::microsoft)
+            return;
           void *__epstorage = reinterpret_cast<void *>(__cd);
           if (__epstorage == nullptr)
             return;
