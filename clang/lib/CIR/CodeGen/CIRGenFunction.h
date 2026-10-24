@@ -2271,6 +2271,10 @@ private:
   Address curHerbceptionInFlightError = Address::invalid();
 
 public:
+  /// Herbception: the thrown object pointer of a legacy C++ exception being
+  /// converted to std::error. Null outside such a conversion handler.
+  mlir::Value getCurHerbceptionExnPtr() const { return curHerbceptionExnPtr; }
+
   mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
 
   /// Emit a `try` that mixes traditional `catch` clauses with herbception
