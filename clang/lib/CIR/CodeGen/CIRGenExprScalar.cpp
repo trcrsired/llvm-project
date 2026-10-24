@@ -1039,10 +1039,9 @@ public:
   // converted to std::error. The pointer is provided by cir.begin_catch in
   // the catch-all handler of the enclosing herbception try.
   mlir::Value VisitCXXCxaExceptionExpr(const CXXCxaExceptionExpr *e) {
-    assert(cgf.curHerbceptionExnPtr &&
-           "CXXCxaExceptionExpr outside a legacy conversion handler");
-    return builder.createPtrToInt(cgf.curHerbceptionExnPtr,
-                                  cgf.convertType(e->getType()));
+    mlir::Value exnPtr = cgf.getCurHerbceptionExnPtr();
+    assert(exnPtr && "CXXCxaExceptionExpr outside a legacy conversion handler");
+    return builder.createPtrToInt(exnPtr, cgf.convertType(e->getType()));
   }
 
   mlir::Value VisitCXXNoexceptExpr(CXXNoexceptExpr *e) {

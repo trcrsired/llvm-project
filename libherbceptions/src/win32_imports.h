@@ -66,55 +66,64 @@ extern "C" {
 #define __HERBCEPTIONS_WIN32_IMPORT(name, stackbytes) __asm__(#name)
 #endif
 
+/*
+__stdcall only picks the callee-pops convention on i386; every other Windows
+target has a single calling convention, where GCC warns that the attribute is
+ignored. Left defined past this header for the DllMain entry point in
+msvc_exception_ptr.cpp.
+*/
+#if defined(__i386__) || defined(_M_IX86)
+#define __HERBCEPTIONS_WIN32_STDCALL __stdcall
+#else
+#define __HERBCEPTIONS_WIN32_STDCALL
+#endif
+
 // ntdll
-__declspec(dllimport) void *__stdcall
-RtlAllocateHeap(void *heap, ::std::uint_least32_t flags,
-                ::std::size_t size) noexcept
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL RtlAllocateHeap(
+    void *heap, ::std::uint_least32_t flags, ::std::size_t size) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(RtlAllocateHeap, 12);
-__declspec(dllimport) int __stdcall
+__declspec(dllimport) int __HERBCEPTIONS_WIN32_STDCALL
 RtlFreeHeap(void *heap, ::std::uint_least32_t flags, void *ptr) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(RtlFreeHeap, 12);
-__declspec(dllimport) void *__stdcall RtlPcToFileHeader(void const *pc,
-                                                        void **base) noexcept
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
+RtlPcToFileHeader(void const *pc, void **base) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(RtlPcToFileHeader, 8);
 
 // kernel32
-__declspec(dllimport) void *__stdcall GetProcessHeap() noexcept
-    __HERBCEPTIONS_WIN32_IMPORT(GetProcessHeap, 0);
-__declspec(dllimport) void *__stdcall
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
+GetProcessHeap() noexcept __HERBCEPTIONS_WIN32_IMPORT(GetProcessHeap, 0);
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
 HeapAlloc(void *heap, ::std::uint_least32_t flags, ::std::size_t bytes) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(HeapAlloc, 12);
-__declspec(dllimport) int __stdcall
+__declspec(dllimport) int __HERBCEPTIONS_WIN32_STDCALL
 HeapFree(void *heap, ::std::uint_least32_t flags, void *ptr) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(HeapFree, 12);
-__declspec(dllimport) void *__stdcall LocalFree(void *mem) noexcept
-    __HERBCEPTIONS_WIN32_IMPORT(LocalFree, 4);
-__declspec(dllimport) void __stdcall
-RaiseException(::std::uint_least32_t exception_code,
-               ::std::uint_least32_t exception_flags,
-               ::std::uint_least32_t number_parameters,
-               ::std::uintptr_t const *exception_information) noexcept
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
+LocalFree(void *mem) noexcept __HERBCEPTIONS_WIN32_IMPORT(LocalFree, 4);
+__declspec(dllimport) void __HERBCEPTIONS_WIN32_STDCALL RaiseException(
+    ::std::uint_least32_t exception_code, ::std::uint_least32_t exception_flags,
+    ::std::uint_least32_t number_parameters,
+    ::std::uintptr_t const *exception_information) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(RaiseException, 16);
-__declspec(dllimport) ::std::uint_least32_t __stdcall
+__declspec(dllimport) ::std::uint_least32_t __HERBCEPTIONS_WIN32_STDCALL
 FormatMessageA(::std::uint_least32_t flags, void const *source,
                ::std::uint_least32_t message_id,
                ::std::uint_least32_t language_id, char *buffer,
                ::std::uint_least32_t size, char *arguments) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(FormatMessageA, 28);
-__declspec(dllimport) ::std::uint_least32_t __stdcall
+__declspec(dllimport) ::std::uint_least32_t __HERBCEPTIONS_WIN32_STDCALL
 FormatMessageW(::std::uint_least32_t flags, void const *source,
                ::std::uint_least32_t message_id,
                ::std::uint_least32_t language_id, wchar_t *buffer,
                ::std::uint_least32_t size, char *arguments) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(FormatMessageW, 28);
-__declspec(dllimport) void *__stdcall
-GetModuleHandleA(char const *name) noexcept
-    __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleA, 4);
-__declspec(dllimport) void *__stdcall
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL GetModuleHandleA(
+    char const *name) noexcept __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleA, 4);
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
 GetModuleHandleW(wchar_t const *name) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleW, 4);
-__declspec(dllimport) void *__stdcall GetProcAddress(void *module,
-                                                     char const *name) noexcept
+__declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
+GetProcAddress(void *module, char const *name) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(GetProcAddress, 8);
 
 #if defined(_MSC_VER) && !defined(__clang__)
