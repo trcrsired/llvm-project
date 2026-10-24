@@ -1154,8 +1154,8 @@ the DLL entry point resolves it once the loader has mapped everything. Running
 here instead of in a namespace-scope constructor keeps the C++ runtime out of
 the picture.
 */
-extern "C" int __stdcall DllMain(void *, ::std::uint_least32_t reason,
-                                 void *) noexcept {
+extern "C" int __HERBCEPTIONS_WIN32_STDCALL
+DllMain(void *, ::std::uint_least32_t reason, void *) noexcept {
   if (reason == 1u /* DLL_PROCESS_ATTACH */)
     msvc_eh_ptr_load_current_exception();
   return 1;
