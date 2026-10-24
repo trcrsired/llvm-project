@@ -1077,6 +1077,15 @@ cir::LoopHintAttr CIRGenFunction::getLoopHints(ArrayRef<const Attr *> attrs,
   return hints;
 }
 
+static void setLoopHints(cir::LoopOpInterface loopOp,
+                         cir::LoopHintAttr loopHints) {
+  if (!loopHints)
+    return;
+  loopOp.setLoopHintsAttr(loopHints);
+  loopOp.setLoopIdAttr(
+      mlir::DistinctAttr::create(mlir::UnitAttr::get(loopOp->getContext())));
+}
+
 mlir::LogicalResult
 CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
                                     ArrayRef<const Attr *> forAttrs) {
@@ -1129,7 +1138,7 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
               loopRes = mlir::failure();
           builder.createYield(loc);
         });
-    forOp.setLoopHintsAttr(loopHints);
+    setLoopHints(forOp, loopHints);
     return loopRes;
   };
 
@@ -1234,7 +1243,7 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s,
                                 bodyBuilder, stepBuilder);
     }
 
-    forOp.setLoopHintsAttr(loopHints);
+    setLoopHints(forOp, loopHints);
     return loopRes;
   };
 
@@ -1284,7 +1293,7 @@ mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s,
             loopRes = mlir::failure();
           emitStopPoint(&s);
         });
-    doWhileOp.setLoopHintsAttr(loopHints);
+    setLoopHints(doWhileOp, loopHints);
     return loopRes;
   };
 
@@ -1368,7 +1377,7 @@ CIRGenFunction::emitWhileStmt(const WhileStmt &s,
       whileOp = builder.createWhile(getLoc(s.getSourceRange()), condBuilder,
                                     bodyBuilder);
     }
-    whileOp.setLoopHintsAttr(loopHints);
+    setLoopHints(whileOp, loopHints);
     return loopRes;
   };
 
