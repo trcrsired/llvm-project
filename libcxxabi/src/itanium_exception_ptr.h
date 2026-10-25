@@ -205,6 +205,30 @@ struct itanium_cxa_dependent_exception {
   _Unwind_Exception unwindHeader;
 };
 
+// libstdc++'s __cxa_dependent_exception is layout-compatible with
+// libc++abi's except that primaryException comes first on every ABI
+// instead of sharing the referenceCount slot; used only to derive the
+// primaryException offset portably.
+struct itanium_gnu_cxa_dependent_exception {
+  void* primaryException;
+  void (*__padding)(void*);
+  void* unexpectedHandler;
+  void* terminateHandler;
+  itanium_cxa_exception* nextException;
+  int handlerCount;
+#if defined(_LIBHERBCEPTIONS_ARM_EHABI)
+  itanium_cxa_exception* nextPropagatingException;
+  int propagationCount;
+#else
+  int handlerSwitchValue;
+  const unsigned char* actionRecord;
+  const unsigned char* languageSpecificData;
+  ::std::uintptr_t catchTemp;
+  void* adjustedPtr;
+#endif
+  _Unwind_Exception unwindHeader;
+};
+
 // Native C++ exception tags. GCC's libsupc++ stamps 'GNUCC++\0' (plain) and
 // 'GNUCC++\1' (dependent) per the Itanium ABI spec; LLVM's libc++abi stamps
 // 'CLNGC++\0' / 'CLNGC++\1'. Both families use identical __cxa_exception
@@ -477,12 +501,20 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
   void *thrown{static_cast<void *>(uh + 1)};
   if ((uh->exception_class & ~cxa_eh_vendor_mask) != 0) {
     // Dependent exception: the code names the primary's thrown object.
-    // The dependent header carries primaryException first under GNUCC++
-    // (a 112-byte header, object at offset 112) or behind a reserve word
-    // under CLNGC++ (128-byte header, object at offset 128).
-    thrown = *(
-        static_cast<void **>(thrown) -
-        (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc ? 14 : 15));
+    // The dependent header lives immediately before its unwindHeader,
+    // but the primaryException slot differs between the runtimes
+    // (libstdc++ puts it first, libc++abi behind a reserve word) and
+    // _Unwind_Exception is larger under SEH, so derive the header base
+    // from the mirrored layouts instead of counting pointers.
+    if (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc) {
+      auto* dep{reinterpret_cast<itanium_gnu_cxa_dependent_exception*>(
+          reinterpret_cast<char*>(uh) - __builtin_offsetof(itanium_gnu_cxa_dependent_exception, unwindHeader))};
+      thrown = dep->primaryException;
+    } else {
+      auto* dep{reinterpret_cast<itanium_cxa_dependent_exception*>(
+          reinterpret_cast<char*>(uh) - __builtin_offsetof(itanium_cxa_dependent_exception, unwindHeader))};
+      thrown = dep->primaryException;
+    }
   }
 #if defined(_LIBCPPABI_VERSION) || defined(__GLIBCXX__)
   // The conversion catches the exception without __cxa_begin_catch; retire
