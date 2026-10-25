@@ -210,21 +210,21 @@ struct itanium_cxa_dependent_exception {
 // instead of sharing the referenceCount slot; used only to derive the
 // primaryException offset portably.
 struct itanium_gnu_cxa_dependent_exception {
-  void* primaryException;
-  void (*__padding)(void*);
-  void* unexpectedHandler;
-  void* terminateHandler;
-  itanium_cxa_exception* nextException;
+  void *primaryException;
+  void (*__padding)(void *);
+  void *unexpectedHandler;
+  void *terminateHandler;
+  itanium_cxa_exception *nextException;
   int handlerCount;
 #if defined(_LIBHERBCEPTIONS_ARM_EHABI)
-  itanium_cxa_exception* nextPropagatingException;
+  itanium_cxa_exception *nextPropagatingException;
   int propagationCount;
 #else
   int handlerSwitchValue;
-  const unsigned char* actionRecord;
-  const unsigned char* languageSpecificData;
+  const unsigned char *actionRecord;
+  const unsigned char *languageSpecificData;
   ::std::uintptr_t catchTemp;
-  void* adjustedPtr;
+  void *adjustedPtr;
 #endif
   _Unwind_Exception unwindHeader;
 };
@@ -507,12 +507,15 @@ __cxa_error_code_itanium_exception_ptr(::std::size_t flags, void *eh,
     // _Unwind_Exception is larger under SEH, so derive the header base
     // from the mirrored layouts instead of counting pointers.
     if (classify_itanium_cxa_eh(uh) == itanium_cxa_eh_flavor::gcc) {
-      auto* dep{reinterpret_cast<itanium_gnu_cxa_dependent_exception*>(
-          reinterpret_cast<char*>(uh) - __builtin_offsetof(itanium_gnu_cxa_dependent_exception, unwindHeader))};
+      auto *dep{reinterpret_cast<itanium_gnu_cxa_dependent_exception *>(
+          reinterpret_cast<char *>(uh) -
+          __builtin_offsetof(itanium_gnu_cxa_dependent_exception,
+                             unwindHeader))};
       thrown = dep->primaryException;
     } else {
-      auto* dep{reinterpret_cast<itanium_cxa_dependent_exception*>(
-          reinterpret_cast<char*>(uh) - __builtin_offsetof(itanium_cxa_dependent_exception, unwindHeader))};
+      auto *dep{reinterpret_cast<itanium_cxa_dependent_exception *>(
+          reinterpret_cast<char *>(uh) -
+          __builtin_offsetof(itanium_cxa_dependent_exception, unwindHeader))};
       thrown = dep->primaryException;
     }
   }
