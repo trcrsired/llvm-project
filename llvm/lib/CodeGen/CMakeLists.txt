@@ -90,6 +90,7 @@ add_llvm_component_library(LLVMCodeGen
   GlobalMerge.cpp
   GlobalMergeFunctions.cpp
   HardwareLoops.cpp
+  HerbceptionsFlagReturn.cpp
   IfConversion.cpp
   ImplicitNullChecks.cpp
   IndirectBrExpandPass.cpp

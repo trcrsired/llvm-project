@@ -412,6 +412,12 @@ LLVM_ABI extern char &PatchableFunctionID;
 ///
 LLVM_ABI FunctionPass *createStackProtectorPass();
 
+/// createHerbceptionsFlagReturnPass - This pass duplicates small return blocks
+/// of 'throws' functions so the trailing discriminant can be folded into the
+/// return sequence when the branch leading to the return implies it.
+///
+LLVM_ABI FunctionPass *createHerbceptionsFlagReturnPass();
+
 /// createMachineVerifierPass - This pass verifies cenerated machine code
 /// instructions for correctness.
 ///

@@ -37,14 +37,13 @@ err:
   ret { { ptr, i64 }, i1 } %r
 }
 
-; Constant success discriminant: materialized as "cmp wzr, #1" (C=0)
+; Constant success discriminant: folded into "subs wzr, wzr, #1" (C=0)
 ; immediately before the ret, after the cookie check.
 define { { ptr, i64 }, i1 } @g() #1 {
 ; CHECK-LABEL: {{^"?#?_?g"?}}:
 ; CHECK:      cmp x{{[0-9]+}}, x{{[0-9]+}}
 ; CHECK-NEXT: b.ne
-; CHECK:      mov w16, wzr
-; CHECK:      cmp w16, #1
+; CHECK:      subs wzr, wzr, #1
 ; CHECK-NEXT: ret
 entry:
   %buf = alloca [48 x i8], align 1
