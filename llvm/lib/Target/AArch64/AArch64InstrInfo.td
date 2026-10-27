@@ -917,6 +917,12 @@ def AArch64herb_read_cf   : SDNode<"AArch64ISD::HERB_READ_CF",
 // Return with a glue operand. Operand 0 is the chain operand.
 def AArch64retglue       : SDNode<"AArch64ISD::RET_GLUE", SDTNone,
                                 [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+// Herbception (throws): return with a constant discriminant. The flag is set
+// by the return sequence itself, so it is not carried in a register.
+def AArch64retglue_flag0 : SDNode<"AArch64ISD::RET_GLUE_FLAG0", SDTNone,
+                                [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+def AArch64retglue_flag1 : SDNode<"AArch64ISD::RET_GLUE_FLAG1", SDTNone,
+                                [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 def AArch64adc       : SDNode<"AArch64ISD::ADC",  SDTBinaryArithWithFlagsIn >;
 def AArch64sbc       : SDNode<"AArch64ISD::SBC",  SDTBinaryArithWithFlagsIn>;
 
@@ -3790,6 +3796,25 @@ def BR  : BranchReg<0b0000, "br", [(brind GPR64:$Rn)]>;
 // epilogue if it's legitimately used.
 def RET_ReallyLR : Pseudo<(outs), (ins), [(AArch64retglue)]>,
                    Sched<[WriteBrReg]> {
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let isReturn = 1;
+}
+
+// Herbception (throws): returns whose discriminant is a constant. They expand
+// to "subs wzr, wzr, #imm; ret" with imm 1 (C = 0, success) or 0 (C = 1,
+// error). Keeping the constant in the terminator instead of a register stops
+// tail merging from folding the two returns into a phi in a callee-saved
+// register, which would undo the saving.
+def RET_ReallyLR_Flag0 : Pseudo<(outs), (ins), [(AArch64retglue_flag0)]>,
+                         Sched<[WriteBrReg]> {
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let isReturn = 1;
+}
+
+def RET_ReallyLR_Flag1 : Pseudo<(outs), (ins), [(AArch64retglue_flag1)]>,
+                         Sched<[WriteBrReg]> {
   let isTerminator = 1;
   let isBarrier = 1;
   let isReturn = 1;
