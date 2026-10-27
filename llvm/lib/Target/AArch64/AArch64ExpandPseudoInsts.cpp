@@ -1695,6 +1695,24 @@ bool AArch64ExpandPseudoImpl::expandMI(MachineBasicBlock &MBB,
     MI.eraseFromParent();
     return true;
   }
+  case AArch64::RET_ReallyLR_Flag0:
+  case AArch64::RET_ReallyLR_Flag1: {
+    // Herbception (throws) with a constant discriminant: SUBS WZR, WZR, #imm
+    // sets C to (0 >= imm), so imm 1 clears the flag (success, discriminant 0)
+    // and imm 0 sets it (error, discriminant 1).
+    bool IsError = MI.getOpcode() == AArch64::RET_ReallyLR_Flag1;
+    BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::SUBSWri),
+            AArch64::WZR)
+        .addReg(AArch64::WZR)
+        .addImm(IsError ? 0 : 1)
+        .addImm(0);
+    MachineInstrBuilder MIB =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::RET))
+            .addReg(AArch64::LR, RegState::Undef);
+    transferImpOps(MI, MIB, MIB);
+    MI.eraseFromParent();
+    return true;
+  }
   case AArch64::CMP_SWAP_8:
     return expandCMP_SWAP(MBB, MBBI, AArch64::LDAXRB, AArch64::STLXRB,
                           AArch64::SUBSWrx,

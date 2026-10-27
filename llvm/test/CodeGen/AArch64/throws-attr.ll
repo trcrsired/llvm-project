@@ -8,8 +8,7 @@
 define { i64, i1 } @ret_success(i64 %x) #0 {
 ; CHECK-LABEL: ret_success:
 ; CHECK:       // %bb.0:
-; CHECK-NEXT:    mov w16, wzr
-; CHECK-NEXT:    cmp w16, #1
+; CHECK-NEXT:    subs wzr, wzr, #1
 ; CHECK-NEXT:    ret
 entry:
   %r.i = insertvalue { i64, i1 } poison, i64 %x, 0
@@ -21,8 +20,7 @@ entry:
 define { i64, i1 } @ret_error(i64 %x) #0 {
 ; CHECK-LABEL: ret_error:
 ; CHECK:       // %bb.0:
-; CHECK-NEXT:    mov w16, #1
-; CHECK-NEXT:    cmp w16, #1
+; CHECK-NEXT:    subs wzr, wzr, #0
 ; CHECK-NEXT:    ret
 entry:
   %r.i = insertvalue { i64, i1 } poison, i64 %x, 0
