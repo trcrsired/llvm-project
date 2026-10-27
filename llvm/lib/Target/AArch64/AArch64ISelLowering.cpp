@@ -11256,6 +11256,8 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   // Herbception (throws): the discriminant is carried in NZCV.C instead of a
   // return register. It is set before the return.
   SDValue ThrowsDiscriminant;
+  // Set when the discriminant is a compile-time constant.
+  std::optional<bool> ConstantDisc;
   for (unsigned i = 0, realRVLocIdx = 0; i != RVLocs.size();
        ++i, ++realRVLocIdx) {
     CCValAssign &VA = RVLocs[i];
@@ -11398,11 +11400,19 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     }
     if (Disc.getValueType() != MVT::i32)
       Disc = DAG.getZExtOrTrunc(Disc, DL, MVT::i32);
-    Chain = DAG.getCopyToReg(Chain, DL, AArch64::W16, Disc, Glue);
-    Glue = Chain.getValue(1);
-    RetOps[0] = Chain;
-    RetOps.push_back(DAG.getRegister(AArch64::W16, MVT::i32));
-    RetOps.push_back(DAG.getRegister(AArch64::NZCV, FlagsVT));
+    auto *CDisc = dyn_cast<ConstantSDNode>(Disc);
+    if (CDisc && CallConv != CallingConv::ARM64EC_Thunk_X64) {
+      // A constant discriminant needs no register: the return sequence sets
+      // the flag itself, which also keeps the two constant returns distinct so
+      // tail merging cannot replace them by a phi in a callee-saved register.
+      ConstantDisc = !CDisc->isZero();
+    } else {
+      Chain = DAG.getCopyToReg(Chain, DL, AArch64::W16, Disc, Glue);
+      Glue = Chain.getValue(1);
+      RetOps[0] = Chain;
+      RetOps.push_back(DAG.getRegister(AArch64::W16, MVT::i32));
+      RetOps.push_back(DAG.getRegister(AArch64::NZCV, FlagsVT));
+    }
   }
 
   // Add the glue if we have it.
@@ -11423,6 +11433,11 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     RetOps.insert(RetOps.begin() + 2, DAG.getTargetConstant(0, DL, MVT::i32));
     return DAG.getNode(AArch64ISD::TC_RETURN, DL, MVT::Other, RetOps);
   }
+
+  if (ConstantDisc)
+    return DAG.getNode(*ConstantDisc ? AArch64ISD::RET_GLUE_FLAG1
+                                     : AArch64ISD::RET_GLUE_FLAG0,
+                       DL, MVT::Other, RetOps);
 
   return DAG.getNode(AArch64ISD::RET_GLUE, DL, MVT::Other, RetOps);
 }

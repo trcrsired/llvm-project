@@ -826,6 +826,11 @@ void TargetPassConfig::addCodeGenPrepare() {
 void TargetPassConfig::addISelPrepare() {
   addPreISel();
 
+  // Fold the trailing discriminant of 'throws' returns into the return
+  // sequence where the branch into the return block implies it.
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createHerbceptionsFlagReturnPass());
+
   // Force codegen to run according to the callgraph.
   if (requiresCodeGenSCCOrder())
     addPass(new DummyCGSCCPass);
