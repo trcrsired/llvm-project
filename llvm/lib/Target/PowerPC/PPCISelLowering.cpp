@@ -16554,7 +16554,7 @@ SDValue PPCTargetLowering::combineBVLoadsSpecialValue(SDValue Op,
     return SDValue();
 
   LLVM_DEBUG(llvm::dbgs() << "\ncombineBVLoadsSpecialValue: Build vector ("
-                          << VT.getEVTString() << "): ";
+                          << VT << "): ";
              Op->dump());
 
   unsigned NumElems = VT.getVectorNumElements();
