@@ -3547,6 +3547,7 @@ static bool handleUncountableExitsWithSideEffects(
 static bool loopHasStores(VPBasicBlock *HeaderVPBB) {
   return any_of(vp_rpo_plain_cfg_loop_body(HeaderVPBB), [](VPBasicBlock *VPBB) {
     return any_of(*VPBB, [VPBB](VPRecipeBase &R) {
+      (void)VPBB;
       if (match(&R, m_Intrinsic<Intrinsic::pseudoprobe>()))
         return false;
       if (!R.mayWriteToMemory()) {
@@ -4562,10 +4563,11 @@ static VPValue *narrowInterleaveGroupOp(ArrayRef<VPValue *> Members,
   if (auto *LoadGroup = dyn_cast<VPInterleaveRecipe>(R)) {
     // Narrow interleave group to wide load, as transformed VPlan will only
     // process one original iteration.
-    auto *LI = cast<LoadInst>(LoadGroup->getInterleaveGroup()->getInsertPos());
+    const InterleaveGroup<Instruction> *IG = LoadGroup->getInterleaveGroup();
+    auto *LI = cast<LoadInst>(IG->getInsertPos());
     auto *L = VPBuilder(LoadGroup).createWidenLoad(
         *LI, LoadGroup->getAddr(), LoadGroup->getMask(), /*Consecutive=*/true,
-        LI->getAlign(), *LoadGroup, LoadGroup->getDebugLoc());
+        IG->getAlign(), *LoadGroup, LoadGroup->getDebugLoc());
     NarrowedOps.insert(L);
     return L;
   }
@@ -4724,11 +4726,11 @@ VPlanTransforms::narrowInterleaveGroups(VPlan &Plan,
   for (auto *StoreGroup : StoreGroups) {
     VPValue *Res = narrowInterleaveGroupOp(StoreGroup->getStoredValues(),
                                            NarrowedOps, Preheader);
-    auto *SI =
-        cast<StoreInst>(StoreGroup->getInterleaveGroup()->getInsertPos());
+    const InterleaveGroup<Instruction> *IG = StoreGroup->getInterleaveGroup();
+    auto *SI = cast<StoreInst>(IG->getInsertPos());
     VPBuilder(StoreGroup)
         .createWidenStore(*SI, StoreGroup->getAddr(), Res, nullptr,
-                          /*Consecutive=*/true, SI->getAlign(), *StoreGroup,
+                          /*Consecutive=*/true, IG->getAlign(), *StoreGroup,
                           StoreGroup->getDebugLoc());
     StoreGroup->eraseFromParent();
   }
