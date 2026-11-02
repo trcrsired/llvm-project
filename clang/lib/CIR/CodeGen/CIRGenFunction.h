@@ -2305,6 +2305,11 @@ public:
 
   mlir::LogicalResult emitHerbceptionCatchTry(const clang::CXXTryStmt &s);
 
+  /// Herbception: while emitting a legacy C++ exception conversion inside a
+  /// herbception catch-all handler, the thrown object pointer from
+  /// cir.begin_catch, or null outside such a handler.
+  mlir::Value getCurHerbceptionExnPtr() const { return curHerbceptionExnPtr; }
+
   /// Emit a `try` that mixes traditional `catch` clauses with herbception
   /// `catch throws`/`catch fails` handlers. The two channels dispatch
   /// independently: legacy exceptions match the traditional clauses in
