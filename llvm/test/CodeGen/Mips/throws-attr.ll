@@ -9,8 +9,8 @@
 ; Success: discriminant is false (0). Written in the jr delay slot.
 define { i64, i1 } @ret_success(i64 %x) #0 {
 ; O32-LABEL: ret_success:
-; O32:            move   $2, $4
-; O32-NEXT:       move   $3, $5
+; O32:            move   $3, $5
+; O32-NEXT:       move   $2, $4
 ; O32-NEXT:       jr     $ra
 ; O32-NEXT:       addiu  $4, $zero, 0
 ; N64-LABEL: ret_success:
@@ -62,8 +62,8 @@ entry:
 ; error object is pointer-sized pair: {i32,i32} on o32, {i64,i64} on n64.
 define { i32, i32, i1 } @ret_sret32(ptr throws_sret({i32,i32,i32,i32,i32}) %out, i32 %x) #0 {
 ; O32-LABEL: ret_sret32:
-; O32:            sw     $5, 0($4)
 ; O32:            move   $2, $5
+; O32:            sw     $5, 0($4)
 ; O32:            addiu  $3, $zero, 42
 ; O32:            jr     $ra
 ; O32-NEXT:       addiu  $4, $zero, 1
@@ -77,8 +77,8 @@ entry:
 
 define { i64, i64, i1 } @ret_sret64(ptr throws_sret({i64,i64,i64}) %out, i64 %x) #0 {
 ; N64-LABEL: ret_sret64:
-; N64:            sd     $5, 0($4)
 ; N64:            move   $2, $5
+; N64:            sd     $5, 0($4)
 ; N64:            daddiu $3, $zero, 42
 ; N64:            jr     $ra
 ; N64-NEXT:       daddiu $4, $zero, 1

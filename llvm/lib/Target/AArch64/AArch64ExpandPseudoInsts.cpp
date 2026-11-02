@@ -110,6 +110,11 @@ public:
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addPreserved<MachineRegisterClassInfoWrapperPass>();
+    MachineFunctionPass::getAnalysisUsage(AU);
+  }
+
   StringRef getPassName() const override { return AARCH64_EXPAND_PSEUDO_NAME; }
 };
 
@@ -1697,15 +1702,20 @@ bool AArch64ExpandPseudoImpl::expandMI(MachineBasicBlock &MBB,
   }
   case AArch64::RET_ReallyLR_Flag0:
   case AArch64::RET_ReallyLR_Flag1: {
-    // Herbception (throws) with a constant discriminant: SUBS WZR, WZR, #imm
-    // sets C to (0 >= imm), so imm 1 clears the flag (success, discriminant 0)
-    // and imm 0 sets it (error, discriminant 1).
+    // Herbception (throws) with a constant discriminant. Set NZCV.C without
+    // reading a register: the add/sub-immediate form cannot be used here,
+    // because in that encoding register 31 is WSP, not WZR, so
+    // "subs wzr, wzr, #imm" would compare the stack pointer and always set C.
+    // In the shifted-register forms register 31 is WZR, so
+    // "subs wzr, wzr, wzr" sets C (error) and "adds wzr, wzr, wzr" clears C
+    // (success).
     bool IsError = MI.getOpcode() == AArch64::RET_ReallyLR_Flag1;
-    BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::SUBSWri),
+    BuildMI(MBB, MBBI, MI.getDebugLoc(),
+            TII->get(IsError ? AArch64::SUBSWrs : AArch64::ADDSWrs),
             AArch64::WZR)
         .addReg(AArch64::WZR)
-        .addImm(IsError ? 0 : 1)
-        .addImm(0);
+        .addReg(AArch64::WZR)
+        .addImm(AArch64_AM::getShifterImm(AArch64_AM::LSL, 0));
     MachineInstrBuilder MIB =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::RET))
             .addReg(AArch64::LR, RegState::Undef);

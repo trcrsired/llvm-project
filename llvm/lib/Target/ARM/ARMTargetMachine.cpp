@@ -107,6 +107,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeARMTarget() {
   initializeARMExpandPseudoPass(Registry);
   initializeThumb2SizeReducePass(Registry);
   initializeMVEVPTBlockPass(Registry);
+  initializeThumb2ITBlockPass(Registry);
   initializeMVETPAndVPTOptimisationsPass(Registry);
   initializeMVETailPredicationPass(Registry);
   initializeARMLowOverheadLoopsPass(Registry);
@@ -346,6 +347,9 @@ public:
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
   void addPreRegAlloc() override;
+  bool isMachinePipelinerEnabled() const override {
+    return getOptLevel() == CodeGenOptLevel::Aggressive;
+  }
   void addPreSched2() override;
   void addPreEmitPass() override;
   void addPreEmitPass2() override;
@@ -493,9 +497,6 @@ bool ARMPassConfig::addGlobalInstructionSelect() {
 
 void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOptLevel::None) {
-    if (getOptLevel() == CodeGenOptLevel::Aggressive)
-      addPass(&MachinePipelinerID);
-
     addPass(createMVETPAndVPTOptimisationsPass());
 
     addPass(createMLxExpansionPass());

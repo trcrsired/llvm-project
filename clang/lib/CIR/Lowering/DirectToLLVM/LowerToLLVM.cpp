@@ -1308,7 +1308,6 @@ public:
     if (auto intTy = mlir::dyn_cast<cir::IntType>(attr.getType());
         intTy && intTy.isBitInt())
       return getBitIntStorageAttr(rewriter, attr, dataLayout);
-    llvm::APInt val = attr.getValue();
 
     return rewriter.getIntegerAttr(llvmType, attr.getValue());
   }
@@ -3141,6 +3140,8 @@ mlir::LogicalResult CIRToLLVMFuncOpLowering::matchAndRewriteAlias(
   auto aliasOp = rewriter.replaceOpWithNewOp<mlir::LLVM::AliasOp>(
       op, ty, convertLinkage(op.getLinkage()), op.getName(), op.getDsoLocal(),
       mlir::LLVM::ThreadLocalMode::NotThreadLocal, attributes);
+  aliasOp.setVisibility_(
+      lowerCIRVisibilityToLLVMVisibility(op.getGlobalVisibility()));
 
   // Create the alias body
   mlir::OpBuilder builder(op.getContext());

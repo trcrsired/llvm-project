@@ -70,6 +70,7 @@ extern "C" LLVM_C_ABI void LLVMInitializeX86Target() {
   initializeCompressEVEXLegacyPass(PR);
   initializeFixupLEAsLegacyPass(PR);
   initializeX86FPStackifierLegacyPass(PR);
+  initializeX86FenceNonTemporalStoresLegacyPass(PR);
   initializeX86FixupSetCCLegacyPass(PR);
   initializeX86HerbceptionsFoldPass(PR);
   initializeX86CallFrameOptimizationLegacyPass(PR);
@@ -468,6 +469,8 @@ void X86PassConfig::addIRPasses() {
 
   if (TM->Options.JMCInstrument)
     addPass(createJMCInstrumenterPass());
+
+  addPass(createX86FenceNonTemporalStoresLegacyPass());
 }
 
 bool X86PassConfig::addInstSelector() {
