@@ -4,7 +4,7 @@
 ; 'throws' function into its predecessors and turns the discriminant into a
 ; constant where the branch into the return implies it. On AArch64 a constant
 ; discriminant is returned by a return sequence that sets NZCV.C itself
-; (cmp wzr, #1 / cmp wzr, #0), so the flag is never materialized in W16, and
+; (cmn wzr, wzr / cmp wzr, wzr), so the flag is never materialized in W16, and
 ; the two constant returns stay distinct so tail merging cannot fold them into
 ; a phi in a callee-saved register.
 ;
@@ -16,8 +16,8 @@
 define { i64, i1 } @dup_constants(i64 %v, ptr %p1, ptr %p2, i1 %take_error) #0 {
 ; CHECK-LABEL: dup_constants:
 ; CHECK-NOT:     mov w16
-; CHECK-DAG:     subs wzr, wzr, #1
-; CHECK-DAG:     subs wzr, wzr, #0
+; CHECK-DAG:     cmn wzr, wzr
+; CHECK-DAG:     cmp wzr, wzr
 ; CHECK:         ret
 entry:
   br i1 %take_error, label %error, label %success
@@ -42,8 +42,8 @@ return:
 define { i64, i1 } @implied_by_branch(i64 %v, ptr %p1, ptr %p2, i32 %e) #0 {
 ; CHECK-LABEL: implied_by_branch:
 ; CHECK-NOT:     mov w16
-; CHECK-DAG:     subs wzr, wzr, #1
-; CHECK-DAG:     subs wzr, wzr, #0
+; CHECK-DAG:     cmn wzr, wzr
+; CHECK-DAG:     cmp wzr, wzr
 ; CHECK:         ret
 entry:
   %bad = icmp ne i32 %e, 0
