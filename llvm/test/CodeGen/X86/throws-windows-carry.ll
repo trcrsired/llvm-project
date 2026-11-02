@@ -50,7 +50,7 @@ define { i32, i1 } @ret_success(i32 %x) #0 {
 ; CHECK32-NEXT:  clc
 ; CHECK32:       retl
 ; CHECK64-LABEL: ret_success:
-; CHECK64:       subs wzr, wzr, #1
+; CHECK64:       cmn wzr, wzr
 ; CHECK64:       ret
 entry:
   %r = insertvalue { i32, i1 } poison, i32 %x, 0
@@ -69,7 +69,7 @@ define { i32, i1 } @ret_error(i32 %x) #0 {
 ; CHECK32-NEXT:  stc
 ; CHECK32:       retl
 ; CHECK64-LABEL: ret_error:
-; CHECK64:       subs wzr, wzr, #0
+; CHECK64:       cmp wzr, wzr
 ; CHECK64:       ret
 entry:
   %r = insertvalue { i32, i1 } poison, i32 %x, 0
