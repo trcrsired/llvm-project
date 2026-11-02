@@ -2334,7 +2334,7 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
 
   thinLTOPropagateFunctionAttrs(ThinLTO.CombinedIndex, isPrevailing);
 
-  generateParamAccessSummary(ThinLTO.CombinedIndex);
+  generateParamAccessSummary(Conf.LibraryOptions, ThinLTO.CombinedIndex);
 
   if (llvm::timeTraceProfilerEnabled())
     llvm::timeTraceProfilerEnd();

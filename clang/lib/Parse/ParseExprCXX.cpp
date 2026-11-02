@@ -28,6 +28,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <numeric>
+#include <optional>
 
 using namespace clang;
 
@@ -1988,16 +1989,16 @@ Sema::ConditionResult Parser::ParseCondition(StmtResult *InitStmt,
     return Sema::ConditionError();
   }
 
+  std::optional<ExtensionRAIIObject> ExtensionGuard;
+  SourceLocation ExtLoc;
   if (Tok.is(tok::kw___extension__)) {
     // The first clause of a condition may be a declaration used as an
     // init-statement (C2y), and that declaration may be prefixed by one or more
     // __extension__ markers. Consume them up front -- mirroring block-statement
     // parsing -- so the disambiguation below sees the real start of the
-    // declaration. The markers also silence extension diagnostics for the rest
-    // of the condition, including the diagnostic for the init-statement
-    // extension itself.
-    std::optional<ExtensionRAIIObject> ExtensionGuard;
+    // declaration.
     ExtensionGuard.emplace(Diags);
+    ExtLoc = ConsumeToken();
     while (TryConsumeToken(tok::kw___extension__))
       ;
   }
@@ -2045,6 +2046,7 @@ Sema::ConditionResult Parser::ParseCondition(StmtResult *InitStmt,
           Diag(DeclStart, DiagID);
       } else
         *InitStmt = DeclStmt;
+      ExtensionGuard.reset();
       return ParseCondition(nullptr, Loc, CK, MissingOK, /*FRI=*/nullptr,
                             /*AfterInitStmt=*/true);
     }
@@ -2059,6 +2061,7 @@ Sema::ConditionResult Parser::ParseCondition(StmtResult *InitStmt,
       } else
         Diag(Null.get()->getBeginLoc(),
              diag::err_c2y_first_condition_clause_is_not_declaration);
+      ExtensionGuard.reset();
       return ParseCondition(nullptr, Loc, CK, MissingOK, /*FRI=*/nullptr,
                             /*AfterInitStmt=*/true);
     }
@@ -2081,6 +2084,7 @@ Sema::ConditionResult Parser::ParseCondition(StmtResult *InitStmt,
       }
       ConsumeToken();
       *InitStmt = Actions.ActOnNullStmt(SemiLoc);
+      ExtensionGuard.reset();
       return ParseCondition(nullptr, Loc, CK, MissingOK, /*FRI=*/nullptr,
                             /*AfterInitStmt=*/true);
     }
@@ -2091,7 +2095,10 @@ Sema::ConditionResult Parser::ParseCondition(StmtResult *InitStmt,
         /*ExprContext=*/Sema::ExpressionEvaluationContextRecord::EK_Other,
         /*ShouldEnter=*/CK == Sema::ConditionKind::ConstexprIf);
 
-    ExprResult Expr = ParseExpression();
+    ExtensionGuard.reset();
+    ExprResult Expr = ExtLoc.isValid()
+                          ? ParseExpressionWithLeadingExtension(ExtLoc)
+                          : ParseExpression();
 
     if (Expr.isInvalid())
       return Sema::ConditionError();
@@ -2121,6 +2128,7 @@ Sema::ConditionResult Parser::ParseCondition(StmtResult *InitStmt,
                                   attrs, DeclSpecAttrs, /*RequireSemi=*/true);
     }
     *InitStmt = Actions.ActOnDeclStmt(DG, DeclStart, DeclEnd);
+    ExtensionGuard.reset();
     return ParseCondition(nullptr, Loc, CK, MissingOK, /*FRI=*/nullptr,
                           /*AfterInitStmt=*/true);
   }
