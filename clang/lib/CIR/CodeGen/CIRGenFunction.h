@@ -2545,6 +2545,7 @@ public:
 
   LValue emitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *e);
 
+  LValue emitMatrixElementExpr(const MatrixElementExpr *e);
   LValue emitMemberExpr(const MemberExpr *e);
 
   /// Emit a musttail call for a thunk with a potentially different ABI.
