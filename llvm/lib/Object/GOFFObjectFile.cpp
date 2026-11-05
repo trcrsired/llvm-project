@@ -16,6 +16,7 @@
 #include "llvm/Support/DataExtractor.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Errc.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
 
 #ifndef DEBUG_TYPE
@@ -812,7 +813,6 @@ inline constexpr uint8_t BYTE_OFFSET_8 = 0x02;
 
 // Populate the relocation entries.
 void GOFFObjectFile::setRelocationData(const uint8_t *RldRecord) {
-  SmallVector<uint8_t, 8> RelocationData;
   int DataIndex = 6;
   uint16_t DataLength;
   RLDRecord::getDataLength(RldRecord, DataLength);
@@ -896,9 +896,8 @@ uint64_t GOFFObjectFile::getRelocationType(DataRefImpl Rel) const {
 void GOFFObjectFile::getRelocationTypeName(
     DataRefImpl Rel, SmallVectorImpl<char> &Result) const {
   uint64_t RelType = getRelocationType(Rel);
-  char Buf[16];
-  snprintf(Buf, sizeof(Buf), "R_%08lx", RelType);
-  Result.append(Buf, Buf + strlen(Buf));
+  std::string HexStr = formatv("R_{0:x-8}", RelType).str();
+  Result.append(HexStr.begin(), HexStr.end());
 }
 
 relocation_iterator GOFFObjectFile::section_rel_begin(DataRefImpl Sec) const {
