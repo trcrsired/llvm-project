@@ -210,6 +210,64 @@ adjusted object pointer for the kinds that need it.
 catchable-name walk. ``__cxa_error_code_msvc_exception_ptr_unbox`` —
 ``__ExceptionPtrCopy`` into the caller's ``exception_ptr`` storage.
 
+Failure-edge cleanups
+---------------------
+
+A herbception failure return is not an unwind: ``throw throws`` and an
+auto-propagated failure both store the error into the return channel and
+``ret`` from the function. Nothing walks the EH region tree, so a cleanup that
+only the exception edge runs -- a cleanup that is normal-inactive but
+EH-active -- never runs, and the object it protects leaks.
+
+The cleanups in question are the ones legacy C++ exception handling reaches
+through the landing-pad chain:
+
+* the destructor of every subobject already constructed in a constructor whose
+  mem-initializer list or body fails (``pushEHDestroy`` from
+  ``EmitInitializerForField``, ``EmitBaseInitializer`` and the memcpy path in
+  ``ConstructorMemcpyizer``), and
+* ``operator delete`` of a new-expression whose initializer fails
+  (``CallDeleteDuringNew``, pushed by ``EnterNewDeleteCleanup``).
+
+``CodeGenFunction::EmitHerbceptionBranchThroughCleanup`` replaces
+``EmitBranchThroughCleanup`` on the failure edges. It takes the destination's
+EH-stack depth as the *limit*, and ``EmitHerbceptionAbandonedCleanups`` then
+emits, innermost first, every EH-only cleanup inside that depth:
+
+* a destination inside the function -- a ``catch throws`` handler -- keeps the
+  object under construction, or the new-expression's storage, alive, and the
+  limit excludes it;
+* leaving the function abandons everything, so ``ReturnBlock`` (depth
+  ``EHStack.stable_end()``) is the limit and the whole stack runs.
+
+The normal cleanups of the scopes being left are threaded first, through a
+synthetic block at the same depth. That is what puts the destructors of the
+constructor body's locals before the destructors of its subobjects, in reverse
+order of construction. The synthetic block then branches to the destination
+directly: going through ``EmitBranchThroughCleanup`` a second time would
+re-enter the same normal cleanup entries and destroy the locals twice.
+
+The scopes stay on the EH stack; each is marked emitted, and a scope that
+already has a cached EH dispatch block is skipped, because in a function that
+also unwinds through a landing pad the pop-time chain emits it, and running it
+here as well would destroy the subobject twice. A function that mixes legacy
+landing pads with herbceptions therefore keeps legacy semantics for those
+cleanups.
+
+Note that a main() that traps an escaped error does not free the
+new-expression storage: the trap boundary is not a failure edge.
+
+The ``IntrThrows`` intrinsic property
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``llvm/include/llvm/IR/Intrinsics.td`` defines an intrinsic property meaning
+"this intrinsic can throw". ``Attributes.td`` defines a ``throws`` function
+attribute under the same record name, and two top-level TableGen records
+cannot share a name, so a tree containing both did not build. The intrinsic
+property is now ``IntrThrows`` (``llvm/utils/TableGen/Basic/CodeGenIntrinsics.cpp``
+matches on the new name), which leaves the attribute's name -- the one bitcode
+and the front end use -- alone.
+
 Symbol-dependency footprint
 ---------------------------
 

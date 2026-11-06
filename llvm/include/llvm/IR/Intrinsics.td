@@ -89,8 +89,10 @@ defvar IntrWriteOnly = IntrRead<[]>;
 // Commutative - This intrinsic is commutative: X op Y == Y op X.
 def Commutative : IntrinsicProperty;
 
-// Throws - This intrinsic can throw.
-def Throws : IntrinsicProperty;
+// IntrThrows - This intrinsic can throw.  Named IntrThrows rather than Throws
+// because Attributes.td defines a `Throws` function attribute of its own, and
+// two top-level records cannot share a name.
+def IntrThrows : IntrinsicProperty;
 
 // Attribute index needs to match `AttrIndex` defined `Attributes.h`.
 class AttrIndex<int idx> {
@@ -1916,20 +1918,20 @@ def int_launder_invariant_group : DefaultAttrsIntrinsic<[llvm_anyptr_ty],
 //
 def int_experimental_stackmap : DefaultAttrsIntrinsic<[],
                                   [llvm_i64_ty, llvm_i32_ty, llvm_vararg_ty],
-                                  [Throws, ImmArg<ArgIndex<0>>,
+                                  [IntrThrows, ImmArg<ArgIndex<0>>,
                                    ImmArg<ArgIndex<1>>]>;
 def int_experimental_patchpoint_void : Intrinsic<[],
                                                  [llvm_i64_ty, llvm_i32_ty,
                                                   llvm_ptr_ty, llvm_i32_ty,
                                                   llvm_vararg_ty],
-                                                  [Throws, ImmArg<ArgIndex<0>>,
+                                                  [IntrThrows, ImmArg<ArgIndex<0>>,
                                                    ImmArg<ArgIndex<1>>,
                                                    ImmArg<ArgIndex<3>>]>;
 def int_experimental_patchpoint : Intrinsic<[llvm_any_ty],
                                             [llvm_i64_ty, llvm_i32_ty,
                                              llvm_ptr_ty, llvm_i32_ty,
                                              llvm_vararg_ty],
-                                            [Throws, ImmArg<ArgIndex<0>>,
+                                            [IntrThrows, ImmArg<ArgIndex<0>>,
                                              ImmArg<ArgIndex<1>>,
                                              ImmArg<ArgIndex<3>>]>;
 
@@ -1941,7 +1943,7 @@ def int_experimental_gc_statepoint : Intrinsic<[llvm_token_ty],
                                [llvm_i64_ty, llvm_i32_ty,
                                 llvm_anyptr_ty, llvm_i32_ty,
                                 llvm_i32_ty, llvm_vararg_ty],
-                               [Throws, ImmArg<ArgIndex<0>>,
+                               [IntrThrows, ImmArg<ArgIndex<0>>,
                                 ImmArg<ArgIndex<1>>, ImmArg<ArgIndex<3>>,
                                 ImmArg<ArgIndex<4>>]>;
 
@@ -2031,8 +2033,8 @@ def int_coro_alloca_free : Intrinsic<[], [llvm_token_ty], []>;
 
 // Coroutine Manipulation Intrinsics.
 
-def int_coro_resume : Intrinsic<[], [llvm_ptr_ty], [Throws]>;
-def int_coro_destroy : Intrinsic<[], [llvm_ptr_ty], [Throws]>;
+def int_coro_resume : Intrinsic<[], [llvm_ptr_ty], [IntrThrows]>;
+def int_coro_destroy : Intrinsic<[], [llvm_ptr_ty], [IntrThrows]>;
 def int_coro_done : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty],
                               [IntrArgMemOnly, ReadOnly<ArgIndex<0>>,
                                NoCapture<ArgIndex<0>>]>;
@@ -2042,15 +2044,15 @@ def int_coro_promise : Intrinsic<[llvm_ptr_ty],
 
 def int_coro_await_suspend_void : Intrinsic<[],
                                        [llvm_ptr_ty, llvm_ptr_ty, llvm_ptr_ty],
-                                       [Throws]>;
+                                       [IntrThrows]>;
 
 def int_coro_await_suspend_bool : Intrinsic<[llvm_i1_ty],
                                     [llvm_ptr_ty, llvm_ptr_ty, llvm_ptr_ty],
-                                    [Throws]>;
+                                    [IntrThrows]>;
 
 def int_coro_await_suspend_handle : Intrinsic<[],
                                       [llvm_ptr_ty, llvm_ptr_ty, llvm_ptr_ty],
-                                      [Throws]>;
+                                      [IntrThrows]>;
 
 // Coroutine Lowering Intrinsics. Used internally by coroutine passes.
 
@@ -2101,12 +2103,12 @@ def int_allow_sanitize_hwaddress
 // Support for dynamic deoptimization (or de-specialization)
 def int_experimental_deoptimize
     : Intrinsic<[llvm_any_ty], [llvm_vararg_ty],
-                [Throws, IntrWrite<[InaccessibleMem]>]>;
+                [IntrThrows, IntrWrite<[InaccessibleMem]>]>;
 
 // Support for speculative runtime guards
 def int_experimental_guard
     : Intrinsic<[], [llvm_i1_ty, llvm_vararg_ty],
-                [Throws, IntrWrite<[InaccessibleMem]>]>;
+                [IntrThrows, IntrWrite<[InaccessibleMem]>]>;
 
 // Supports widenable conditions for guards represented as explicit branches.
 def int_experimental_widenable_condition : DefaultAttrsIntrinsic<[llvm_i1_ty],
