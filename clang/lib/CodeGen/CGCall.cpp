@@ -7281,7 +7281,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         auto *I = Builder.CreateStore(Coerced, Scope.ErrorSlot);
         addInstToCurrentSourceAtom(I, I->getValueOperand());
         CleanupScope.ForceCleanup();
-        EmitBranchThroughCleanup(Scope.Handler);
+        EmitHerbceptionBranchThroughCleanup(Scope.Handler);
       }
 
       EmitBlock(OkBB);
@@ -7341,7 +7341,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
         addInstToCurrentSourceAtom(I, I->getValueOperand());
         Builder.CreateStore(Disc, HerbceptionDiscriminant);
         CleanupScope.ForceCleanup();
-        EmitBranchThroughCleanup(ReturnBlock);
+        EmitHerbceptionBranchThroughCleanup(ReturnBlock);
       }
       EmitBlock(OkBB);
     }

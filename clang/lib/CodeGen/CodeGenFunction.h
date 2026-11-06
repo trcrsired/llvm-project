@@ -1418,6 +1418,30 @@ public:
   /// on to \arg Dest.
   void EmitBranchThroughCleanup(JumpDest Dest);
 
+  /// hasHerbceptionAbandonedCleanups - Are there pending EH-only cleanups on
+  /// the EH stack that a jump to \p Limit abandons? These are the destructors
+  /// of the subobjects of an object whose constructor has not finished, and the
+  /// operator delete of a new-expression whose initializer fails.
+  ///
+  /// Legacy C++ exception handling emits them through the landing-pad chain:
+  /// they have no normal-cleanup edge, because on the success path the object
+  /// is destroyed by its own destructor. The herbception channel has no unwind
+  /// edge, so it has to run them by hand.
+  bool hasHerbceptionAbandonedCleanups(EHScopeStack::stable_iterator Limit);
+
+  /// EmitHerbceptionAbandonedCleanups - Emit, innermost first, the pending
+  /// EH-only cleanups found by hasHerbceptionAbandonedCleanups. The scopes are
+  /// left on the stack; their later pop emits nothing, since no EH dispatch
+  /// block was cached for them.
+  void EmitHerbceptionAbandonedCleanups(EHScopeStack::stable_iterator Limit);
+
+  /// EmitHerbceptionBranchThroughCleanup - EmitBranchThroughCleanup for a
+  /// herbception failure edge. Cleanups outside \p Dest keep running on their
+  /// own edges, but the EH-only cleanups it leaves behind have no edge of
+  /// their own, so they run here, after the normal cleanups of the scopes that
+  /// are being left.
+  void EmitHerbceptionBranchThroughCleanup(JumpDest Dest);
+
   /// isObviouslyBranchWithoutCleanups - Return true if a branch to the
   /// specified destination obviously has no cleanups to run.  'false' is always
   /// a conservatively correct answer for this method.
