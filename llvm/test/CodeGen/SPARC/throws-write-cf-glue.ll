@@ -37,7 +37,7 @@ common:
 declare void @llvm.lifetime.start.p0(ptr captures(none))
 declare void @llvm.lifetime.end.p0(ptr captures(none))
 
-attributes #0 = { nounwind throws }
-attributes #1 = { nounwind sspstrong throws "stack-protector-buffer-size"="8" }
-attributes #2 = { nounwind throws }
+attributes #0 = { nounwind herbthrows }
+attributes #1 = { nounwind sspstrong herbthrows "stack-protector-buffer-size"="8" }
+attributes #2 = { nounwind herbthrows }
 attributes #3 = { nounwind }

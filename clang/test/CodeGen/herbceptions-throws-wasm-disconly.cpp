@@ -9,9 +9,9 @@
 // WebAssembly has neither a flags register to carry the herbception
 // discriminant out-of-band nor a multi-value calling convention in its
 // default ABI, so a `throws` function returns just the i1 discriminant and
-// the union{T,E} payload travels through a 'throws_sret' parameter:
+// the union{T,E} payload travels through a 'herbthrows_sret' parameter:
 //
-//   i1 f(ptr throws_sret(union{T,E}), args...)
+//   i1 f(ptr herbthrows_sret(union{T,E}), args...)
 //
 // The exception is an aggregate payload smaller than the error type: its
 // destination object may be forwarded into the callee for guaranteed copy
@@ -37,9 +37,9 @@ public:
 struct Big { char data[32]; };
 struct Tiny { char data[4]; };
 
-// WASM: define i1 @_Z8f_scalarDri(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
+// WASM: define i1 @_Z8f_scalarDri(ptr noalias writable herbthrows_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
 // WASM: ret i1
-// WASM64: define i1 @_Z8f_scalarDri(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
+// WASM64: define i1 @_Z8f_scalarDri(ptr noalias writable herbthrows_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
 // WASM64: ret i1
 // X86: define dso_local { { ptr, i64 }, i1 } @_Z8f_scalarDri(i32 noundef %{{.*}})
 // X86: ret { { ptr, i64 }, i1 }
@@ -48,16 +48,16 @@ int f_scalar(int v) throws {
   return v;
 }
 
-// WASM: define i1 @_Z6f_voidDri(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
-// WASM64: define i1 @_Z6f_voidDri(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
+// WASM: define i1 @_Z6f_voidDri(ptr noalias writable herbthrows_sret({ ptr, i32 }) align 4 %agg.result, i32 noundef %{{.*}})
+// WASM64: define i1 @_Z6f_voidDri(ptr noalias writable herbthrows_sret({ ptr, i64 }) align 8 %agg.result, i32 noundef %{{.*}})
 // X86: define dso_local { { ptr, i64 }, i1 } @_Z6f_voidDri(i32 noundef %{{.*}})
 void f_void(int v) throws {
   if (v < 0) throw throws std::my_errc{v};
 }
 
-// WASM: define i1 @_Z5f_bigDri(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
-// WASM64: define i1 @_Z5f_bigDri(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
-// X86: define dso_local { { ptr, i64 }, i1 } @_Z5f_bigDri(ptr noalias writable throws_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
+// WASM: define i1 @_Z5f_bigDri(ptr noalias writable herbthrows_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
+// WASM64: define i1 @_Z5f_bigDri(ptr noalias writable herbthrows_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
+// X86: define dso_local { { ptr, i64 }, i1 } @_Z5f_bigDri(ptr noalias writable herbthrows_sret(%struct.Big) align 1 %agg.result, i32 noundef %{{.*}})
 Big f_big(int v) throws {
   if (v < 0) throw throws std::my_errc{v};
   return {};
@@ -82,9 +82,9 @@ struct Foo {
 };
 
 // The caller reads the i1 discriminant from the call itself and the
-// error/payload out of the throws_sret buffer.
+// error/payload out of the herbthrows_sret buffer.
 // WASM-LABEL: define i1 @_Z13caller_scalarDri(
-// WASM: %call = call i1 @_Z8f_scalarDri(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
+// WASM: %call = call i1 @_Z8f_scalarDri(ptr writable herbthrows_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
 // WASM: load { ptr, i32 }, ptr %tmp
 // WASM: br i1 %call, label %try.err, label %try.ok
 // WASM: try.ok:
@@ -109,7 +109,7 @@ int *Alloc::allocate_new(int n) throws {
   return reinterpret_cast<int *>(n);
 }
 // WASM-LABEL: define i1 @_Z15caller_mem_callDrP5Alloc(
-// WASM: %{{.*}} = call i1 @_ZN5Alloc12allocate_newEDri(ptr writable throws_sret({ ptr, i32 }) align 4 %{{.*}}, ptr noundef nonnull align 1 dereferenceable(1) %{{.*}}, i32 noundef {{.*}})
+// WASM: %{{.*}} = call i1 @_ZN5Alloc12allocate_newEDri(ptr writable herbthrows_sret({ ptr, i32 }) align 4 %{{.*}}, ptr noundef nonnull align 1 dereferenceable(1) %{{.*}}, i32 noundef {{.*}})
 // WASM: load { ptr, i32 }, ptr %{{.*}}
 // WASM: br i1 %{{.*}}, label %try.err, label %try.ok
 // WASM: try.err:
@@ -124,7 +124,7 @@ int *caller_mem_call(Alloc *a) throws {
 // A bool payload is stored as i8 in the union slot but is an i1 value: the
 // caller must run the usual load conversion (icmp ne), not br on the i8.
 // WASM-LABEL: define i1 @_Z13f_bool_callerDri(
-// WASM: %call = call i1 @_Z6f_boolDri(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
+// WASM: %call = call i1 @_Z6f_boolDri(ptr writable herbthrows_sret({ ptr, i32 }) align 4 %tmp, i32 noundef %{{.*}})
 // WASM: br i1 %call, label %try.err, label %try.ok
 // WASM: try.ok:
 // WASM: load i8, ptr %tmp
@@ -142,13 +142,13 @@ int f_bool_caller(int v) throws {
 }
 
 // WASM-LABEL: define i1 @_Z11caller_ctorDri(
-// WASM: %call = call i1 @_ZN3FooC1EDri(ptr writable throws_sret({ ptr, i32 }) align 4 %tmp,
+// WASM: %call = call i1 @_ZN3FooC1EDri(ptr writable herbthrows_sret({ ptr, i32 }) align 4 %tmp,
 // WASM: br i1 %call,
 void caller_ctor(int v) throws {
   Foo f(v);
   (void)f;
 }
 
-// WASM: define linkonce_odr i1 @_ZN3FooC2EDri(ptr noalias writable throws_sret({ ptr, i32 }) align 4 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
-// WASM64: define linkonce_odr i1 @_ZN3FooC2EDri(ptr noalias writable throws_sret({ ptr, i64 }) align 8 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
+// WASM: define linkonce_odr i1 @_ZN3FooC2EDri(ptr noalias writable herbthrows_sret({ ptr, i32 }) align 4 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
+// WASM64: define linkonce_odr i1 @_ZN3FooC2EDri(ptr noalias writable herbthrows_sret({ ptr, i64 }) align 8 %agg.result, ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})
 // X86: define linkonce_odr { { ptr, i64 }, i1 } @_ZN3FooC2EDri(ptr noundef nonnull align 4 dereferenceable(4) %this, i32 noundef %{{.*}})

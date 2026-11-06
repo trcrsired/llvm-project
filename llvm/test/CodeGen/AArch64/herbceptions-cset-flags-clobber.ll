@@ -44,7 +44,7 @@ exit:                                              ; preds = %loop, %body
 }
 
 attributes #0 = { minsize optsize }
-attributes #1 = { throws }
+attributes #1 = { herbthrows }
 
 ; The cset must be kept and the tbz must test the cset register; the fold
 ; into a b.lo across the intervening cmp must not happen.

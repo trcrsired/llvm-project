@@ -69,10 +69,10 @@ entry:
   ret i64 %sel
 }
 
-; throws_sret: the payload travels through the hidden pointer; the register
+; herbthrows_sret: the payload travels through the hidden pointer; the register
 ; return carries {E, i1} -- the error value in %o0:%o1 plus the discriminant
 ; in the carry bit.
-define { i64, i64, i1 } @ret_sret64(ptr throws_sret({i64,i64,i64}) %out, i64 %x) #0 {
+define { i64, i64, i1 } @ret_sret64(ptr herbthrows_sret({i64,i64,i64}) %out, i64 %x) #0 {
 ; V9-LABEL: ret_sret64:
 ; V9:            mov 42, %o1
 ; V9:            cmp %g0, 1
@@ -86,5 +86,5 @@ entry:
   ret { i64, i64, i1 } %r
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

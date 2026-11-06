@@ -45,5 +45,5 @@ common:
   %r1 = insertvalue { { ptr, i64 }, i1 } %r0, i1 %d.phi, 1
   ret { { ptr, i64 }, i1 } %r1
 }
-attributes #0 = { nounwind throws }
+attributes #0 = { nounwind herbthrows }
 !1 = !{!"branch_weights", i32 1, i32 1000}

@@ -148,5 +148,5 @@ define { { ptr, i64 }, i1 } @propagate_reuses_discriminant(i32 noundef %0) #0 {
   ret { { ptr, i64 }, i1 } %o1
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

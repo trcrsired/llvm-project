@@ -56,10 +56,10 @@ ok:
   ret i32 %val
 }
 
-; throws_sret: the payload travels through the hidden pointer; the register
+; herbthrows_sret: the payload travels through the hidden pointer; the register
 ; return carries {E, i1} -- the error value in a2:a3 plus the discriminant in
 ; a4 (call0).
-define { i32, i32, i1 } @ret_sret32(ptr throws_sret({i32,i32,i32,i32,i32}) %out, i32 %x) #0 {
+define { i32, i32, i1 } @ret_sret32(ptr herbthrows_sret({i32,i32,i32,i32,i32}) %out, i32 %x) #0 {
 ; CALL0-LABEL: ret_sret32:
 ; CALL0:            s32i {{.*}}, a2, 0
 ; CALL0:            movi a3, 42
@@ -73,5 +73,5 @@ entry:
   ret { i32, i32, i1 } %r
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

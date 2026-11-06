@@ -249,7 +249,7 @@ Attribute Attribute::getWithStructRetType(LLVMContext &Context, Type *Ty) {
 }
 
 Attribute Attribute::getWithThrowsSretType(LLVMContext &Context, Type *Ty) {
-  return get(Context, ThrowsSret, Ty);
+  return get(Context, HerbThrowsSret, Ty);
 }
 
 Attribute Attribute::getWithByRefType(LLVMContext &Context, Type *Ty) {
@@ -1223,7 +1223,7 @@ Type *AttributeSet::getStructRetType() const {
 }
 
 Type *AttributeSet::getThrowsSretType() const {
-  return SetNode ? SetNode->getAttributeType(Attribute::ThrowsSret) : nullptr;
+  return SetNode ? SetNode->getAttributeType(Attribute::HerbThrowsSret) : nullptr;
 }
 
 Type *AttributeSet::getPreallocatedType() const {
@@ -2348,7 +2348,7 @@ AttrBuilder &AttrBuilder::addStructRetAttr(Type *Ty) {
 }
 
 AttrBuilder &AttrBuilder::addThrowsSretAttr(Type *Ty) {
-  return addTypeAttr(Attribute::ThrowsSret, Ty);
+  return addTypeAttr(Attribute::HerbThrowsSret, Ty);
 }
 
 AttrBuilder &AttrBuilder::addByRefAttr(Type *Ty) {
@@ -2577,7 +2577,7 @@ AttributeMask AttributeFuncs::typeIncompatible(Type *Ty, AttributeSet AS,
           .addAttribute(Attribute::InAlloca)
           .addAttribute(Attribute::ByVal)
           .addAttribute(Attribute::StructRet)
-          .addAttribute(Attribute::ThrowsSret)
+          .addAttribute(Attribute::HerbThrowsSret)
           .addAttribute(Attribute::ByRef)
           .addAttribute(Attribute::ElementType)
           .addAttribute(Attribute::AllocatedPointer);

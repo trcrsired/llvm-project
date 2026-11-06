@@ -1472,7 +1472,7 @@ Currently, only the following parameter attributes are defined:
     A function that accepts an `sret` argument must return `void`.
     A return value may not be `sret`.
 
-`throws_sret(<ty>)`
+`herbthrows_sret(<ty>)`
 :   This indicates that the pointer parameter specifies the address of the
     in-memory payload that a herbception (`throws`) function returns. It is
     the herbception counterpart of `sret`, but unlike `sret` it does not force
@@ -1481,9 +1481,9 @@ Currently, only the following parameter attributes are defined:
     a constructed payload.
 
     Only the payload should be written through the pointer. A function with a
-    `throws_sret` argument may have any return type.
+    `herbthrows_sret` argument may have any return type.
 
-    The `throws_sret` type argument specifies the in-memory payload type. Like
+    The `herbthrows_sret` type argument specifies the in-memory payload type. Like
     `sret` it must be on the first or second parameter, and only one such
     parameter is permitted.
 

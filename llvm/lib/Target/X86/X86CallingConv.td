@@ -527,7 +527,7 @@ def RetCC_X86_64 : CallingConv<[
   // Herbception throws functions use a modified Win64 return CC that splits
   // trivially-copyable types ≤16 bytes across two integer registers.
   CCIfSubtarget<"isTargetWin64()",
-    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::HerbThrows)",
       CCDelegateTo<RetCC_X86_Win64_C_Throws>>>,
   CCIfSubtarget<"isTargetWin64()", CCDelegateTo<RetCC_X86_Win64_C>>,
 
@@ -1145,7 +1145,7 @@ def CC_Intel_OCL_BI : CallingConv<[
   CCIfType<[v16i1, v8i1], CCAssignToReg<[K1]>>,
 
   CCIfSubtarget<"isTargetWin64()",
-    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::HerbThrows)",
       CCDelegateTo<CC_X86_Win64_C_Throws>>>,
   CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfSubtarget<"is64Bit()",       CCDelegateTo<CC_X86_64_C>>,
@@ -1222,7 +1222,7 @@ def CC_X86_64 : CallingConv<[
   // Herbception throws functions use a modified Win64 CC that splits
   // trivially-copyable types ≤16 bytes across two integer registers.
   CCIfSubtarget<"isTargetWin64()",
-    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::HerbThrows)",
       CCDelegateTo<CC_X86_Win64_C_Throws>>>,
   CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,
 

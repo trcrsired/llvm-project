@@ -10,7 +10,7 @@
 // defined on both. That is only valid while the slot is pure error storage:
 // in a non-void throws function the slot is the union{T,E} that may already
 // hold the live return object -- an indirect payload is constructed directly
-// in the throws_sret storage, and NRVO aliases a local into it. Writing the
+// in the herbthrows_sret storage, and NRVO aliases a local into it. Writing the
 // error-sized value there then corrupts the object's fields. The mirror must
 // only be emitted for void throws functions, whose slot is always error-only.
 
@@ -22,13 +22,13 @@ struct error {
 };
 }
 
-struct Str { char *b, *c, *e; }; // 24 bytes: throws_sret on every target
+struct Str { char *b, *c, *e; }; // 24 bytes: herbthrows_sret on every target
 
 void callee(int) throws;
 void g(int) throws;
 int intcall(int) throws;
 
-// s is NRVO'd into the throws_sret slot %0. The success arm of the try'd
+// s is NRVO'd into the herbthrows_sret slot %0. The success arm of the try'd
 // callee() call must leave %0 alone -- the payload %11 it would store is the
 // callee's error, garbage on this path.
 //

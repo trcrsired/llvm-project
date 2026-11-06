@@ -3335,8 +3335,8 @@ mlir::LogicalResult CIRToLLVMFuncOpLowering::matchAndRewrite(
   if (!passthrough.empty())
     fn.setPassthroughAttr(rewriter.getArrayAttr(passthrough));
 
-  // Herbception (throws): forward to the LLVM 'throws' function attribute so
-  // the backend carries the {T, i1} discriminant out-of-band. Herbception
+  // Herbception (throws): forward to the LLVM 'herbthrows' function attribute
+  // so the backend carries the {T, i1} discriminant out-of-band. Herbception
   // throws implies noexcept: errors return through the normal path, so the
   // function must also be marked NoUnwind to keep mayThrow() false.
   if (op->hasAttr("cir.throws")) {
@@ -3344,7 +3344,7 @@ mlir::LogicalResult CIRToLLVMFuncOpLowering::matchAndRewrite(
     SmallVector<mlir::Attribute> passthrough(
         existing ? llvm::to_vector_of<mlir::Attribute>(existing)
                  : mlir::SmallVector<mlir::Attribute>{});
-    passthrough.push_back(rewriter.getStringAttr("throws"));
+    passthrough.push_back(rewriter.getStringAttr("herbthrows"));
     fn.setPassthroughAttr(rewriter.getArrayAttr(passthrough));
     fn.setNoUnwind(true);
     fn->removeAttr("cir.throws");

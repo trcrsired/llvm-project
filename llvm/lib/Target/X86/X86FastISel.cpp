@@ -1288,7 +1288,7 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
   // out before the AnalyzeReturn below matters: it assigns a location to every
   // return operand including the discriminant, and would report a fatal error
   // for a payload that FastISel cannot allocate.
-  if (F.hasFnAttribute(Attribute::Throws))
+  if (F.hasFnAttribute(Attribute::HerbThrows))
     return false;
 
   if (TLI.supportSwiftError() &&

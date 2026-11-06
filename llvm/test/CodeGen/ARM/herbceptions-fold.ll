@@ -143,5 +143,5 @@ ok:
   ret void
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

@@ -2,7 +2,7 @@
 
 // Herbceptions (throws): CIR keeps the shaped {payload, i8} wire form for
 // throws functions rather than routing a large payload through a hidden
-// 'throws_sret' pointer. The payload member is still constructed through its
+// 'herbthrows_sret' pointer. The payload member is still constructed through its
 // own type inside the union slot, so a payload smaller than the error is
 // addressed field-by-field as its declared type.
 

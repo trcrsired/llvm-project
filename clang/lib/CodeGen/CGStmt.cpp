@@ -2165,7 +2165,7 @@ static bool isDiscOnlyThrowsCall(llvm::CallBase *CB, unsigned &SretArgNo) {
   if (!CB->getType()->isIntegerTy(1))
     return false;
   for (unsigned I = 0, N = std::min<unsigned>(CB->arg_size(), 2); I != N; ++I)
-    if (CB->paramHasAttr(I, llvm::Attribute::ThrowsSret)) {
+    if (CB->paramHasAttr(I, llvm::Attribute::HerbThrowsSret)) {
       SretArgNo = I;
       return true;
     }
@@ -2212,7 +2212,7 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
     Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
     for (unsigned I = 0, N = std::min<unsigned>(CallOrInvoke->arg_size(), 2);
          I != N; ++I)
-      if (CallOrInvoke->paramHasAttr(I, llvm::Attribute::ThrowsSret)) {
+      if (CallOrInvoke->paramHasAttr(I, llvm::Attribute::HerbThrowsSret)) {
         SretArgNo = I;
         break;
       }
@@ -2571,7 +2571,7 @@ RValue CodeGenFunction::EmitHerbceptionCatchReturnFailure(const CXXCatchReturnFa
     Disc = Builder.CreateExtractValue(CallOrInvoke, 1);
     for (unsigned I = 0, N = std::min<unsigned>(CallOrInvoke->arg_size(), 2);
          I != N; ++I)
-      if (CallOrInvoke->paramHasAttr(I, llvm::Attribute::ThrowsSret)) {
+      if (CallOrInvoke->paramHasAttr(I, llvm::Attribute::HerbThrowsSret)) {
         SretArgNo = I;
         break;
       }

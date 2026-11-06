@@ -6,7 +6,7 @@
 @hidden_typeid = external hidden constant ptr
 @normal_typeid = external constant ptr
 
-declare void @throws()
+declare void @herbthrows()
 
 define void @get_indirect_hidden() personality ptr @__gxx_personality_v0 {
   invoke void @throws() to label %end unwind label %lpad

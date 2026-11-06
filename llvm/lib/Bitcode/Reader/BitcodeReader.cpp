@@ -2277,7 +2277,7 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
   case bitc::ATTR_KIND_STRUCT_RET:
     return Attribute::StructRet;
   case bitc::ATTR_KIND_THROWS_SRET:
-    return Attribute::ThrowsSret;
+    return Attribute::HerbThrowsSret;
   case bitc::ATTR_KIND_SANITIZE_ADDRESS:
     return Attribute::SanitizeAddress;
   case bitc::ATTR_KIND_SANITIZE_HWADDRESS:
@@ -2361,7 +2361,7 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
   case bitc::ATTR_KIND_LIKELY_MODULE_LOCAL:
     return Attribute::LikelyModuleLocal;
   case bitc::ATTR_KIND_THROWS:
-    return Attribute::Throws;
+    return Attribute::HerbThrows;
   }
 }
 
@@ -2474,7 +2474,7 @@ Error BitcodeReader::parseAttributeGroupBlock() {
             B.addByValAttr(nullptr);
           else if (Kind == Attribute::StructRet)
             B.addStructRetAttr(nullptr);
-          else if (Kind == Attribute::ThrowsSret)
+          else if (Kind == Attribute::HerbThrowsSret)
             B.addThrowsSretAttr(nullptr);
           else if (Kind == Attribute::InAlloca)
             B.addInAllocaAttr(nullptr);
@@ -4474,7 +4474,7 @@ Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
   // type is implicit.
   for (unsigned i = 0; i != Func->arg_size(); ++i) {
     for (Attribute::AttrKind Kind :
-         {Attribute::ByVal, Attribute::StructRet, Attribute::ThrowsSret,
+         {Attribute::ByVal, Attribute::StructRet, Attribute::HerbThrowsSret,
           Attribute::InAlloca}) {
       if (!Func->hasParamAttribute(i, Kind))
         continue;
@@ -4497,7 +4497,7 @@ Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
       case Attribute::StructRet:
         NewAttr = Attribute::getWithStructRetType(Context, PtrEltTy);
         break;
-      case Attribute::ThrowsSret:
+      case Attribute::HerbThrowsSret:
         NewAttr = Attribute::getWithThrowsSretType(Context, PtrEltTy);
         break;
       case Attribute::InAlloca:
@@ -5055,7 +5055,7 @@ Error BitcodeReader::propagateAttributeTypes(CallBase *CB,
   AttributeList Attrs = CB->getAttributes();
   for (unsigned i = 0; i != CB->arg_size(); ++i) {
     for (Attribute::AttrKind Kind :
-         {Attribute::ByVal, Attribute::StructRet, Attribute::ThrowsSret,
+         {Attribute::ByVal, Attribute::StructRet, Attribute::HerbThrowsSret,
           Attribute::InAlloca}) {
       if (!Attrs.hasParamAttr(i, Kind) ||
           Attrs.getParamAttr(i, Kind).getValueAsType())
@@ -5073,7 +5073,7 @@ Error BitcodeReader::propagateAttributeTypes(CallBase *CB,
       case Attribute::StructRet:
         NewAttr = Attribute::getWithStructRetType(Context, PtrEltTy);
         break;
-      case Attribute::ThrowsSret:
+      case Attribute::HerbThrowsSret:
         NewAttr = Attribute::getWithThrowsSretType(Context, PtrEltTy);
         break;
       case Attribute::InAlloca:

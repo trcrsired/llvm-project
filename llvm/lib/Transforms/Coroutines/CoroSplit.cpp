@@ -1004,7 +1004,7 @@ void coro::BaseCloner::create() {
     // errors leave the body through the promise, not the return
     // discriminant.  Keeping 'throws' would also mismatch the musttail
     // symmetric-transfer calls emitted into these functions.
-    NewAttrs = NewAttrs.removeFnAttribute(Context, Attribute::Throws);
+    NewAttrs = NewAttrs.removeFnAttribute(Context, Attribute::HerbThrows);
 
     addFramePointerAttrs(NewAttrs, Context, 0, Shape.FrameSize,
                          Shape.FrameAlign, /*NoAlias=*/false);
@@ -1031,7 +1031,7 @@ void coro::BaseCloner::create() {
     // Same as for Switch: async continuation functions are plain
     // resume functions and must not be 'throws' (their musttail calls
     // carry no 'throws' call-site attribute).
-    NewAttrs = NewAttrs.removeFnAttribute(Context, Attribute::Throws);
+    NewAttrs = NewAttrs.removeFnAttribute(Context, Attribute::HerbThrows);
     break;
   }
   case coro::ABI::Retcon:
