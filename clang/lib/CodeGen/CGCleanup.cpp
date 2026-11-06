@@ -590,6 +590,89 @@ static void EmitCleanup(CodeGenFunction &CGF,
     CGF.EmitBlock(ContBB);
 }
 
+/// Does this scope hold a cleanup that only the exception edge runs, i.e. one
+/// whose object the normal path destroys some other way? The destructor of a
+/// subobject of an object under construction is such a cleanup, and so is the
+/// operator delete of a new-expression whose initializer fails.
+static bool isHerbceptionAbandonableScope(const EHScope &Scope) {
+  const auto *Cleanup = dyn_cast<EHCleanupScope>(&Scope);
+  if (!Cleanup || !Cleanup->isEHCleanup() || Cleanup->isNormalCleanup())
+    return false;
+  // Lifetime markers and fake uses are bookkeeping, not destruction.
+  if (Cleanup->isLifetimeMarker() || Cleanup->isFakeUse() ||
+      Cleanup->isStackRestore())
+    return false;
+  // A cached EH dispatch block means the pop-time chain already emits this
+  // cleanup for the legacy unwind edge, so it must not be emitted twice.
+  return Cleanup->getCachedEHDispatchBlock() == nullptr;
+}
+
+bool CodeGenFunction::hasHerbceptionAbandonedCleanups(
+    EHScopeStack::stable_iterator Limit) {
+  if (!Limit.isValid())
+    return false;
+  for (EHScopeStack::iterator I = EHStack.begin(), E = EHStack.end(); I != E;
+       ++I)
+    if (Limit.strictlyEncloses(EHStack.stabilize(I)) &&
+        isHerbceptionAbandonableScope(*I))
+      return true;
+  return false;
+}
+
+void CodeGenFunction::EmitHerbceptionAbandonedCleanups(
+    EHScopeStack::stable_iterator Limit) {
+  // Innermost scope first, which is the order a real unwind would use: the most
+  // recently constructed subobject is destroyed first. Each push creates its
+  // own scope, so a scope holds exactly one cleanup.
+  for (EHScopeStack::iterator I = EHStack.begin(), E = EHStack.end(); I != E;
+       ++I) {
+    if (!Limit.strictlyEncloses(EHStack.stabilize(I)) ||
+        !isHerbceptionAbandonableScope(*I))
+      continue;
+    auto &Scope = cast<EHCleanupScope>(*I);
+
+    EHScopeStack::Cleanup::Flags cleanupFlags;
+    cleanupFlags.setIsEHCleanupKind();
+    cleanupFlags.setIsForEHCleanup();
+    Address ActiveFlag = Scope.shouldTestFlagInEHCleanup()
+                             ? Scope.getActiveFlag()
+                             : Address::invalid();
+    EmitCleanup(*this, Scope.getCleanup(), cleanupFlags, ActiveFlag);
+
+    // The scope stays on the stack and is popped as usual later; mark it so
+    // nothing tries to emit it a second time.
+    Scope.MarkEmitted();
+  }
+}
+
+void CodeGenFunction::EmitHerbceptionBranchThroughCleanup(JumpDest Dest) {
+  // The cleanups that are abandoned are the ones inside the destination: a
+  // `catch throws` handler in the middle of a constructor keeps the object
+  // under construction alive, while leaving the function abandons it.
+  EHScopeStack::stable_iterator Limit = Dest.getScopeDepth();
+  if (!hasHerbceptionAbandonedCleanups(Limit)) {
+    EmitBranchThroughCleanup(Dest);
+    return;
+  }
+
+  llvm::BasicBlock *Abandon = createBasicBlock("herb.abandon");
+  JumpDest AbandonDest(Abandon, Limit, NextCleanupDestIndex++);
+
+  // The normal cleanups come first: they destroy the locals of the block that
+  // is being left, which are inside the object under construction and so die
+  // before its subobjects.
+  EmitBranchThroughCleanup(AbandonDest);
+
+  EmitBlock(Abandon);
+  EmitHerbceptionAbandonedCleanups(Limit);
+
+  // The normal cleanups have already been threaded on this path, so this is a
+  // plain branch: going through EmitBranchThroughCleanup again would re-enter
+  // them and destroy the locals twice.
+  Builder.CreateBr(Dest.getBlock());
+  Builder.ClearInsertionPoint();
+}
+
 static void ForwardPrebranchedFallthrough(llvm::BasicBlock *Exit,
                                           llvm::BasicBlock *From,
                                           llvm::BasicBlock *To) {

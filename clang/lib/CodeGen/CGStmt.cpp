@@ -1799,9 +1799,9 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
 
     ThrowScope.ForceCleanup();
     if (Scope)
-      EmitBranchThroughCleanup(Scope->Handler);
+      EmitHerbceptionBranchThroughCleanup(Scope->Handler);
     else
-      EmitBranchThroughCleanup(ReturnBlock);
+      EmitHerbceptionBranchThroughCleanup(ReturnBlock);
     return;
   }
 
@@ -1822,7 +1822,7 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
     // error slot (from the original catch), so just run cleanups and branch
     // to the handler.
     ThrowScope.ForceCleanup();
-    EmitBranchThroughCleanup(Scope.Handler);
+    EmitHerbceptionBranchThroughCleanup(Scope.Handler);
     return;
   }
 
@@ -1921,7 +1921,7 @@ void CodeGenFunction::EmitHerbceptionThrow(const Expr *ErrorValue,
 
   Builder.CreateStore(Builder.getTrue(), HerbceptionDiscriminant);
   ThrowScope.ForceCleanup();
-  EmitBranchThroughCleanup(ReturnBlock);
+  EmitHerbceptionBranchThroughCleanup(ReturnBlock);
 }
 
 /// Emit a direct call to a static member function \p MD with the given
@@ -2436,10 +2436,10 @@ RValue CodeGenFunction::EmitHerbceptionTry(const CXXTryExpr *E) {
       auto *I = Builder.CreateStore(Coerced, Scope.ErrorSlot);
       addInstToCurrentSourceAtom(I, I->getValueOperand());
       CleanupScope.ForceCleanup();
-      EmitBranchThroughCleanup(Scope.Handler);
+      EmitHerbceptionBranchThroughCleanup(Scope.Handler);
     } else if (CurFnInfo->hasThrowsReturn()) {
       CleanupScope.ForceCleanup();
-      EmitBranchThroughCleanup(ReturnBlock);
+      EmitHerbceptionBranchThroughCleanup(ReturnBlock);
     } else {
       // try() in a non-throws function follows the bare-call rule: the error
       // traps in main(); anywhere else Sema has already rejected it, so this

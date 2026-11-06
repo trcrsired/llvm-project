@@ -592,7 +592,7 @@ static void emitHerbceptionConvertBlock(
     CGF.Builder.CreateCatchRet(CPI, TrampBB);
     CGF.EmitBlock(TrampBB);
   }
-  CGF.EmitBranchThroughCleanup(HandlerDest);
+  CGF.EmitHerbceptionBranchThroughCleanup(HandlerDest);
 }
 
 namespace {
