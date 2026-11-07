@@ -2068,7 +2068,7 @@ public:
       return false;
 
     // Be friendly and also check the callee.
-    return paramHasAttr(0, Attribute::ThrowsSret);
+    return paramHasAttr(0, Attribute::HerbThrowsSret);
   }
 
   /// Determine if any call argument is an aggregate passed by value.

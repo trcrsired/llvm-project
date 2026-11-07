@@ -1202,7 +1202,7 @@ bool FastISel::selectCall(const User *I) {
   // Herbception (throws) calls return a {T, i1} value where the discriminant
   // is carried in a target-specific mechanism (e.g. the carry flag on x86).
   // FastISel does not implement this, so fall back to SelectionDAG ISel.
-  if (Call->hasFnAttr(Attribute::Throws))
+  if (Call->hasFnAttr(Attribute::HerbThrows))
     return false;
 
   return lowerCall(Call);

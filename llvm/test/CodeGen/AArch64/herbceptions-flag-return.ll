@@ -64,4 +64,4 @@ return:
   ret { i64, i1 } %ret.1
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }

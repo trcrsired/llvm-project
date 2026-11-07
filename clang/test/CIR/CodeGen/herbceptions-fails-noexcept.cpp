@@ -29,5 +29,5 @@ int defaultf() return_failure{E} {
   return 1;
 }
 
-// CHECK: attributes #[[DEF]] = { {{.*}} nounwind {{.*}} throws {{.*}} }
-// CIR: attributes #[[CIRDEF]] = { {{.*}}nounwind throws{{.*}} }
+// CHECK: attributes #[[DEF]] = { herbthrows {{.*}} nounwind {{.*}} }
+// CIR: attributes #[[CIRDEF]] = { herbthrows{{.*}}nounwind{{.*}} }

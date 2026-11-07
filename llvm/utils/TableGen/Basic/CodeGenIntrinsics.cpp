@@ -518,7 +518,7 @@ void CodeGenIntrinsic::setProperty(const Record *R) {
     ME &= MemoryEffects::inaccessibleOrArgMemOnly();
   else if (R->getName() == "Commutative")
     isCommutative = true;
-  else if (R->getName() == "IntrThrows")
+  else if (R->getName() == "Throws")
     canThrow = true;
   else if (R->getName() == "IntrHasSideEffects")
     hasSideEffects = true;

@@ -11,7 +11,7 @@
 
 declare { i64, i1 } @plain(i32)
 
-; CHECK: cannot guarantee tail call due to mismatched 'throws' attributes
+; CHECK: cannot guarantee tail call due to mismatched 'herbthrows' attributes
 define { i64, i1 } @throws_tails_non_throws(i32 %n) #0 {
   %r = musttail call { i64, i1 } @plain(i32 %n)
   ret { i64, i1 } %r
@@ -34,4 +34,4 @@ define { i64, i1 } @plain_tails_plain(i32 %n) {
   ret { i64, i1 } %r
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }

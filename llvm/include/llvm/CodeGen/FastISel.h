@@ -122,7 +122,7 @@ public:
       CallConv = Call.getCallingConv();
       Args = std::move(ArgsList);
       NumFixedArgs = FuncTy->getNumParams();
-      IsThrows = Call.hasFnAttr(Attribute::Throws);
+      IsThrows = Call.hasFnAttr(Attribute::HerbThrows);
 
       CB = &Call;
 
@@ -143,7 +143,7 @@ public:
       IsReturnValueUsed = !Call.use_empty();
       RetSExt = Call.hasRetAttr(Attribute::SExt);
       RetZExt = Call.hasRetAttr(Attribute::ZExt);
-      IsThrows = Call.hasFnAttr(Attribute::Throws);
+      IsThrows = Call.hasFnAttr(Attribute::HerbThrows);
 
       CallConv = Call.getCallingConv();
       Args = std::move(ArgsList);

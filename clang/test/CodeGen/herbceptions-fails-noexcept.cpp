@@ -22,7 +22,7 @@ int defaultf() return_failure{E} {
   return 1;
 }
 
-// CHECK: attributes #[[DEF]] = { {{.*}} nounwind {{.*}} throws {{.*}} }
+// CHECK: attributes #[[DEF]] = { herbthrows {{.*}} nounwind {{.*}} }
 
 static_assert(!noexcept(defaultf()));
 static_assert(!throws(defaultf()));

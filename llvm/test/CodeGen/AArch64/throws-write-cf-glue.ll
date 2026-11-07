@@ -57,5 +57,5 @@ entry:
   %r2 = insertvalue { { ptr, i64 }, i1 } %r, i1 false, 1
   ret { { ptr, i64 }, i1 } %r2
 }
-attributes #0 = { nounwind throws }
-attributes #1 = { nounwind ssp throws }
+attributes #0 = { nounwind herbthrows }
+attributes #1 = { nounwind ssp herbthrows }

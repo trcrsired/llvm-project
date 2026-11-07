@@ -37,4 +37,4 @@ define i64 @caller(i32 %n) {
   ret i64 %s
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }

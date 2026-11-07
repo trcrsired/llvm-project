@@ -26,4 +26,4 @@ int bazour(int x) {
   return !e.failed ? e.value : e.error;
 }
 
-// CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }
+// CHECK: attributes #[[ATTR]] = { {{.*}}herbthrows{{.*}} }

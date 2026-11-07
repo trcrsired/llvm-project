@@ -31,4 +31,4 @@ int foo(int x) {
   return !e.failed ? e.value * 2 : e.error;
 }
 
-// CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }
+// CHECK: attributes #[[ATTR]] = { {{.*}}herbthrows{{.*}} }

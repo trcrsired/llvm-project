@@ -161,8 +161,8 @@ def int_wasm_trunc_saturate_unsigned :
 // The first immediate argument is an index to a tag, which is 0 for C++
 // exception. The second argument is the thrown exception pointer.
 def int_wasm_throw : Intrinsic<[], [llvm_i32_ty, llvm_ptr_ty],
-                               [IntrThrows, IntrNoReturn, ImmArg<ArgIndex<0>>]>;
-def int_wasm_rethrow : Intrinsic<[], [], [IntrThrows, IntrNoReturn]>;
+                               [Throws, IntrNoReturn, ImmArg<ArgIndex<0>>]>;
+def int_wasm_rethrow : Intrinsic<[], [], [Throws, IntrNoReturn]>;
 
 // Since wasm does not use landingpad instructions, these instructions return
 // exception pointer and selector values until we lower them in WasmEHPrepare.

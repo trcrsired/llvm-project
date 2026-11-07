@@ -58,7 +58,7 @@ define dso_local { { ptr, i64 }, i1 } @caller(ptr %0, ptr noundef %1, i64 nounde
 
 
 attributes #0 = { minsize optsize }
-attributes #1 = { minsize nounwind optsize throws }
+attributes #1 = { minsize nounwind optsize herbthrows }
 declare i64 @write(i32, ptr, i64)
 
 ; CHECK-LABEL: {{^}}caller:

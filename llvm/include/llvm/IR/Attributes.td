@@ -341,7 +341,7 @@ def StructRet : TypeAttr<"sret", IntersectPreserve, [ParamAttr, ABIAttr]>;
 /// payload. Unlike 'sret' this does not make the function's return type void:
 /// the function still returns the herbception discriminant, so the caller
 /// learns from that whether the pointee holds a constructed payload.
-def ThrowsSret : TypeAttr<"throws_sret", IntersectPreserve, [ParamAttr]>;
+def HerbThrowsSret : TypeAttr<"herbthrows_sret", IntersectPreserve, [ParamAttr]>;
 
 /// AddressSanitizer is on.
 def SanitizeAddress : EnumAttr<"sanitize_address", IntersectPreserve, [FnAttr]>;
@@ -401,7 +401,7 @@ def SwiftAsync : EnumAttr<"swiftasync", IntersectPreserve, [ParamAttr, ABIAttr]>
 /// may use a target-specific mechanism (e.g. a carry flag or an extra
 /// register) to carry the success/failure discriminant alongside the return
 /// value instead of a plain struct return.
-def Throws : EnumAttr<"throws", IntersectPreserve, [FnAttr]>;
+def HerbThrows : EnumAttr<"herbthrows", IntersectPreserve, [FnAttr]>;
 
 /// Function must be in a unwind table.
 def UWTable : IntAttr<"uwtable", IntersectPreserve, [FnAttr]>;
