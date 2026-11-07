@@ -916,6 +916,9 @@ SparcTargetLowering::LowerCall_32(TargetLowering::CallLoweringInfo &CLI,
 
   isTailCall = isTailCall && IsEligibleForTailCallOptimization(
                                  CCInfo, CLI, DAG.getMachineFunction());
+  if (!isTailCall && CLI.CB && CLI.CB->isMustTailCall())
+    reportFatalInternalError("failed to perform tail call elimination on a "
+                             "call site marked musttail");
 
   // Get the size of the outgoing arguments stack space requirement.
   unsigned ArgsSize = CCInfo.getStackSize();
@@ -1389,6 +1392,9 @@ SparcTargetLowering::LowerCall_64(TargetLowering::CallLoweringInfo &CLI,
 
   CLI.IsTailCall = CLI.IsTailCall && IsEligibleForTailCallOptimization(
                                          CCInfo, CLI, DAG.getMachineFunction());
+  if (!CLI.IsTailCall && CLI.CB && CLI.CB->isMustTailCall())
+    reportFatalInternalError("failed to perform tail call elimination on a "
+                             "call site marked musttail");
 
   // Get the size of the outgoing arguments stack space requirement.
   // The stack offset computed by CC_Sparc64 includes all arguments.

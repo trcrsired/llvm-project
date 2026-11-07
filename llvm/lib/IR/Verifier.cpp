@@ -2338,15 +2338,15 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
   AttrCount += Attrs.hasAttribute(Attribute::InAlloca);
   AttrCount += Attrs.hasAttribute(Attribute::Preallocated);
   AttrCount += Attrs.hasAttribute(Attribute::StructRet);
-  AttrCount += Attrs.hasAttribute(Attribute::ThrowsSret);
+  AttrCount += Attrs.hasAttribute(Attribute::HerbThrowsSret);
   AttrCount += Attrs.hasAttribute(Attribute::InReg) &&
                !Attrs.hasAttribute(Attribute::StructRet) &&
-               !Attrs.hasAttribute(Attribute::ThrowsSret);
+               !Attrs.hasAttribute(Attribute::HerbThrowsSret);
   AttrCount += Attrs.hasAttribute(Attribute::Nest);
   AttrCount += Attrs.hasAttribute(Attribute::ByRef);
   Check(AttrCount <= 1,
         "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', "
-        "'byref', 'sret', and 'throws_sret' are incompatible!",
+        "'byref', 'sret', and 'herbthrows_sret' are incompatible!",
         V);
 
   Check(!(Attrs.hasAttribute(Attribute::InAlloca) &&
@@ -2361,10 +2361,10 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, Type *Ty,
         "'sret and returned' are incompatible!",
         V);
 
-  Check(!(Attrs.hasAttribute(Attribute::ThrowsSret) &&
+  Check(!(Attrs.hasAttribute(Attribute::HerbThrowsSret) &&
           Attrs.hasAttribute(Attribute::Returned)),
         "Attributes "
-        "'throws_sret and returned' are incompatible!",
+        "'herbthrows_sret and returned' are incompatible!",
         V);
 
   Check(!(Attrs.hasAttribute(Attribute::ZExt) &&
@@ -2582,10 +2582,10 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
       SawSRet = true;
     }
 
-    if (ArgAttrs.hasAttribute(Attribute::ThrowsSret)) {
-      Check(!SawThrowsSRet, "Cannot have multiple 'throws_sret' parameters!", V);
+    if (ArgAttrs.hasAttribute(Attribute::HerbThrowsSret)) {
+      Check(!SawThrowsSRet, "Cannot have multiple 'herbthrows_sret' parameters!", V);
       Check(i == 0 || i == 1,
-            "Attribute 'throws_sret' is not on first or second parameter!", V);
+            "Attribute 'herbthrows_sret' is not on first or second parameter!", V);
       SawThrowsSRet = true;
     }
 
@@ -3198,8 +3198,8 @@ void Verifier::verifyStatepoint(const CallBase &Call) {
       AttributeSet ArgAttrs = Attrs.getParamAttrs(5 + i);
       Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
             "Attribute 'sret' cannot be used for vararg call arguments!", Call);
-      Check(!ArgAttrs.hasAttribute(Attribute::ThrowsSret),
-            "Attribute 'throws_sret' cannot be used for vararg call arguments!",
+      Check(!ArgAttrs.hasAttribute(Attribute::HerbThrowsSret),
+            "Attribute 'herbthrows_sret' cannot be used for vararg call arguments!",
             Call);
     }
   }
@@ -3405,7 +3405,7 @@ void Verifier::visitFunction(const Function &F) {
   case CallingConv::AMDGPU_CS:
     Check(!F.hasStructRetAttr(), "Calling convention does not allow sret", &F);
     Check(!F.hasThrowsSretAttr(),
-          "Calling convention does not allow throws_sret", &F);
+          "Calling convention does not allow herbthrows_sret", &F);
     if (F.getCallingConv() != CallingConv::SPIR_KERNEL) {
       const unsigned StackAS = DL.getAllocaAddrSpace();
       unsigned i = 0;
@@ -4348,8 +4348,8 @@ void Verifier::visitCallBase(CallBase &Call) {
         Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
               "Attribute 'sret' cannot be used for vararg call arguments!",
               Call);
-        Check(!ArgAttrs.hasAttribute(Attribute::ThrowsSret),
-              "Attribute 'throws_sret' cannot be used for vararg call "
+        Check(!ArgAttrs.hasAttribute(Attribute::HerbThrowsSret),
+              "Attribute 'herbthrows_sret' cannot be used for vararg call "
               "arguments!",
               Call);
       }
@@ -4499,7 +4499,7 @@ void Verifier::verifyTailCCMustTailAttrs(const AttrBuilder &Attrs,
 
 static AttrBuilder getParameterABIAttributes(LLVMContext& C, unsigned I, AttributeList Attrs) {
   static const Attribute::AttrKind ABIAttrs[] = {
-      Attribute::StructRet,  Attribute::ThrowsSret,    Attribute::ByVal,
+      Attribute::StructRet,  Attribute::HerbThrowsSret,    Attribute::ByVal,
       Attribute::InAlloca,   Attribute::InReg,         Attribute::StackAlignment,
       Attribute::SwiftSelf,  Attribute::SwiftAsync,    Attribute::SwiftError,
       Attribute::Preallocated, Attribute::ByRef};
@@ -4540,9 +4540,9 @@ void Verifier::verifyMustTailCall(CallInst &CI) {
   //   discriminant its caller reads from a flag the callee never set. 'throws'
   //   is a function attribute rather than a parameter one, so the ABI attribute
   //   comparison below does not cover it.
-  Check(F->hasFnAttribute(Attribute::Throws) ==
-            CI.hasFnAttr(Attribute::Throws),
-        "cannot guarantee tail call due to mismatched 'throws' attributes",
+  Check(F->hasFnAttribute(Attribute::HerbThrows) ==
+            CI.hasFnAttr(Attribute::HerbThrows),
+        "cannot guarantee tail call due to mismatched 'herbthrows' attributes",
         &CI);
 
   // - The call must immediately precede a :ref:`ret <i_ret>` instruction.

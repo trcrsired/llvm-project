@@ -46,7 +46,7 @@ int caller(int x) throws {
   return try(foo(x));
 }
 
-// CHECK: attributes #[[ATTR]] = { {{.*}}throws{{.*}} }
+// CHECK: attributes #[[ATTR]] = { {{.*}}herbthrows{{.*}} }
 
 // Without -fherbceptions, 'throws' is not a keyword.
 // DISABLED: error: expected function body after function declarator

@@ -203,7 +203,7 @@ let TargetPrefix = "s390" in {
                                    [IntrNoDuplicate, IntrWriteMem]>;
 
   def int_s390_tabort : Intrinsic<[], [llvm_i64_ty],
-                                  [IntrNoReturn, IntrThrows, IntrWriteMem]>;
+                                  [IntrNoReturn, Throws, IntrWriteMem]>;
 
   def int_s390_tend : ClangBuiltin<"__builtin_tend">,
                       Intrinsic<[llvm_i32_ty], []>;

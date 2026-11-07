@@ -95,4 +95,4 @@ int throw_in_except_live() throws {
   return 0;
 }
 
-// CHECK: attributes #{{[0-9]+}} = { {{.*}}throws{{.*}} }
+// CHECK: attributes #{{[0-9]+}} = { {{.*}}herbthrows{{.*}} }

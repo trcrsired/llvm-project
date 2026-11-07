@@ -896,7 +896,7 @@ Function *CodeExtractor::constructFunctionDeclaration(
       case Attribute::CoroElideSafe:
       case Attribute::NoDivergenceSource:
       case Attribute::NoCreateUndefOrPoison:
-      case Attribute::Throws:
+      case Attribute::HerbThrows:
         continue;
       // Those attributes should be safe to propagate to the extracted function.
       case Attribute::AlwaysInline:
@@ -977,7 +977,7 @@ Function *CodeExtractor::constructFunctionDeclaration(
       case Attribute::SwiftError:
       case Attribute::SwiftSelf:
       case Attribute::SwiftAsync:
-      case Attribute::ThrowsSret:
+      case Attribute::HerbThrowsSret:
       case Attribute::ZExt:
       case Attribute::ImmArg:
       case Attribute::ByRef:

@@ -19,5 +19,5 @@ define i32 @caller(i32 %x) {
   ret i32 %s
 }
 
-attributes #0 = { throws }
-attributes #1 = { nounwind throws }
+attributes #0 = { herbthrows }
+attributes #1 = { nounwind herbthrows }

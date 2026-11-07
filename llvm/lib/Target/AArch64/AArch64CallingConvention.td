@@ -207,7 +207,7 @@ def RetCC_AArch64_Arm64EC_Throws : CallingConv<[
 let Entry = 1 in
 def RetCC_AArch64 : CallingConv<[
   CCIfSubtarget<"isWindowsArm64EC()",
-    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::Throws)",
+    CCIf<"State.getMachineFunction().getFunction().hasFnAttribute(llvm::Attribute::HerbThrows)",
          CCDelegateTo<RetCC_AArch64_Arm64EC_Throws>>>,
   CCDelegateTo<RetCC_AArch64_AAPCS>
 ]>;

@@ -954,7 +954,7 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_STRICT_FP;
   case Attribute::StructRet:
     return bitc::ATTR_KIND_STRUCT_RET;
-  case Attribute::ThrowsSret:
+  case Attribute::HerbThrowsSret:
     return bitc::ATTR_KIND_THROWS_SRET;
   case Attribute::SanitizeAddress:
     return bitc::ATTR_KIND_SANITIZE_ADDRESS;
@@ -1036,7 +1036,7 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_NOIPA;
   case Attribute::LikelyModuleLocal:
     return bitc::ATTR_KIND_LIKELY_MODULE_LOCAL;
-  case Attribute::Throws:
+  case Attribute::HerbThrows:
     return bitc::ATTR_KIND_THROWS;
   case Attribute::EndAttrKinds:
     llvm_unreachable("Can not encode end-attribute kinds marker.");

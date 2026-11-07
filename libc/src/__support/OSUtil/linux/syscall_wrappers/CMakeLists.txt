@@ -223,6 +223,18 @@ add_header_library(
 )
 
 add_header_library(
+  shmat
+  HDRS
+    shmat.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   shmget
   HDRS
     shmget.h
@@ -872,6 +884,19 @@ add_header_library(
 )
 
 add_header_library(
+  madvise
+  HDRS
+    madvise.h
+  DEPENDS
+    libc.hdr.types.size_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   memfd_create
   HDRS
     memfd_create.h
@@ -898,6 +923,19 @@ add_header_library(
 )
 
 add_header_library(
+  mremap
+  HDRS
+    mremap.h
+  DEPENDS
+    libc.hdr.types.size_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   munmap
   HDRS
     munmap.h
@@ -919,6 +957,32 @@ add_header_library(
     libc.src.__support.error_or
     libc.src.__support.macros.config
     libc.include.sys_syscall
+)
+
+add_header_library(
+  pkey_alloc
+  HDRS
+    pkey_alloc.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  pkey_free
+  HDRS
+    pkey_free.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
 )
 
 add_header_library(

@@ -1718,7 +1718,7 @@ bool AArch64ExpandPseudoImpl::expandMI(MachineBasicBlock &MBB,
     // allocated to a callee-saved register and read back its restored (caller)
     // value here.
     MachineFunction &MF = *MBB.getParent();
-    if (MF.getFunction().hasFnAttribute(Attribute::Throws)) {
+    if (MF.getFunction().hasFnAttribute(Attribute::HerbThrows)) {
       for (const MachineOperand &Op : MI.operands()) {
         if (Op.isReg() && Op.isUse() && Op.getReg() == AArch64::W16) {
           BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::SUBSWri),

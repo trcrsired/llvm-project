@@ -172,7 +172,7 @@ bool Argument::hasPointeeInMemoryValueAttr() const {
   AttributeSet Attrs = getAttributes();
   return Attrs.hasAttribute(Attribute::ByVal) ||
          Attrs.hasAttribute(Attribute::StructRet) ||
-         Attrs.hasAttribute(Attribute::ThrowsSret) ||
+         Attrs.hasAttribute(Attribute::HerbThrowsSret) ||
          Attrs.hasAttribute(Attribute::InAlloca) ||
          Attrs.hasAttribute(Attribute::Preallocated) ||
          Attrs.hasAttribute(Attribute::ByRef);
@@ -293,7 +293,7 @@ bool Argument::hasStructRetAttr() const {
 
 bool Argument::hasThrowsSretAttr() const {
   if (!getType()->isPointerTy()) return false;
-  return hasAttribute(Attribute::ThrowsSret);
+  return hasAttribute(Attribute::HerbThrowsSret);
 }
 
 bool Argument::hasInRegAttr() const {

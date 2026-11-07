@@ -45,7 +45,7 @@ int caller3(int x) throws {
 
 Big bcaller(int x) throws {
   // CIR keeps the wire form for throws calls: the payload-sized record is
-  // returned directly instead of going through a throws_sret pointer.
+  // returned directly instead of going through a herbthrows_sret pointer.
   // CHECK: call { %struct.Big, i8 } @_Z4cobfDri(i32 noundef %{{.*}}) #[[CONST_CALL]]
   return try(cobf(x));
 }

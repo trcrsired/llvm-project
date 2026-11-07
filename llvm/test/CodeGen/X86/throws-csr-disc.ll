@@ -8,7 +8,7 @@
 
 declare { i64, i1 } @callee(i64)
 
-define { i64, i1 } @f(i64 %x, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %g, i64 %h, i64 %i, i64 %j) throws {
+define { i64, i1 } @f(i64 %x, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %g, i64 %h, i64 %i, i64 %j) herbthrows {
 ; CHECK-LABEL: f:
 ; CHECK:         callq callee
 ; The flag write precedes the callee-saved restores.

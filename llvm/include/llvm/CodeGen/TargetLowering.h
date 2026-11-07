@@ -1347,12 +1347,6 @@ public:
     return true;
   }
 
-  /// Returns true if the operation can trap for the value type.
-  ///
-  /// VT must be a legal type. By default, we optimistically assume most
-  /// operations don't trap except for integer divide and remainder.
-  virtual bool canOpTrap(unsigned Op, EVT VT) const;
-
   /// Similar to isShuffleMaskLegal. Targets can use this to indicate if there
   /// is a suitable VECTOR_SHUFFLE that can be used to replace a VAND with a
   /// constant pool entry.
@@ -5169,7 +5163,7 @@ public:
       RetSExt = ResultAttrs.hasAttribute(Attribute::SExt);
       RetZExt = ResultAttrs.hasAttribute(Attribute::ZExt);
       NoMerge = ResultAttrs.hasAttribute(Attribute::NoMerge);
-      IsThrows = ResultAttrs.hasAttribute(Attribute::Throws);
+      IsThrows = ResultAttrs.hasAttribute(Attribute::HerbThrows);
 
       Callee = Target;
       CallConv = CC;
@@ -5192,7 +5186,7 @@ public:
       RetSExt = Call.hasRetAttr(Attribute::SExt);
       RetZExt = Call.hasRetAttr(Attribute::ZExt);
       NoMerge = Call.hasFnAttr(Attribute::NoMerge);
-      IsThrows = Call.hasFnAttr(Attribute::Throws);
+      IsThrows = Call.hasFnAttr(Attribute::HerbThrows);
 
       Callee = Target;
 

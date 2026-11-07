@@ -29,7 +29,7 @@
 // copy into the return slot must come from the storage the callee wrote.
 //
 // CHECK-LABEL: define {{.*}} @_Z7big_viaDri(
-// CHECK:         call {{.*}} throws_sret(%struct.Big)
+// CHECK:         call {{.*}} herbthrows_sret(%struct.Big)
 // CHECK-NOT:     try.payload
 // CHECK:         ret
 

@@ -53,18 +53,18 @@ int caller3(int x) throws {
 // CHECK-SAME:  #[[CONST_ATTRS]]
 
 Big bcaller(int x) throws {
-  // CHECK: call { { ptr, i64 }, i1 } @_Z4cobfDri(ptr writable throws_sret(%struct.Big) align 8 %{{.*}}, i32 noundef %{{.*}}) #[[SRET_CALL:[0-9]+]]
+  // CHECK: call { { ptr, i64 }, i1 } @_Z4cobfDri(ptr writable herbthrows_sret(%struct.Big) align 8 %{{.*}}, i32 noundef %{{.*}}) #[[SRET_CALL:[0-9]+]]
   return try(cobf(x));
 }
-// Indirect payload: the payload is written through the 'throws_sret' pointer,
+// Indirect payload: the payload is written through the 'herbthrows_sret' pointer,
 // so the memory effect is weakened to argmem -- exactly like a plain 'sret'
 // return. The discriminant still rides in the {E, i1} result.
-// CHECK-LABEL: declare { { ptr, i64 }, i1 } @_Z4cobfDri(ptr writable throws_sret(%struct.Big) align 8, i32 noundef)
+// CHECK-LABEL: declare { { ptr, i64 }, i1 } @_Z4cobfDri(ptr writable herbthrows_sret(%struct.Big) align 8, i32 noundef)
 // CHECK-SAME:  #[[SRET_ATTRS:[0-9]+]]
 
-// CHECK-DAG: attributes #[[CONST_ATTRS]] = { {{.*}}throws{{.*}}willreturn memory(none){{.*}} }
-// CHECK-DAG: attributes #[[PURE_ATTRS]] = { {{.*}}throws{{.*}}willreturn memory(read){{.*}} }
-// CHECK-DAG: attributes #[[SRET_ATTRS]] = { {{.*}}throws{{.*}}willreturn memory(argmem: readwrite){{.*}} }
-// CHECK-DAG: attributes #[[CONST_CALL]] = { {{.*}}throws{{.*}}memory(none) }
-// CHECK-DAG: attributes #[[PURE_CALL]] = { {{.*}}throws{{.*}}memory(read) }
-// CHECK-DAG: attributes #[[SRET_CALL]] = { {{.*}}throws{{.*}}memory(argmem: readwrite) }
+// CHECK-DAG: attributes #[[CONST_ATTRS]] = { {{.*}}herbthrows{{.*}}willreturn memory(none){{.*}} }
+// CHECK-DAG: attributes #[[PURE_ATTRS]] = { {{.*}}herbthrows{{.*}}willreturn memory(read){{.*}} }
+// CHECK-DAG: attributes #[[SRET_ATTRS]] = { {{.*}}herbthrows{{.*}}willreturn memory(argmem: readwrite){{.*}} }
+// CHECK-DAG: attributes #[[CONST_CALL]] = { {{.*}}herbthrows{{.*}}memory(none) }
+// CHECK-DAG: attributes #[[PURE_CALL]] = { {{.*}}herbthrows{{.*}}memory(read) }
+// CHECK-DAG: attributes #[[SRET_CALL]] = { {{.*}}herbthrows{{.*}}memory(argmem: readwrite) }

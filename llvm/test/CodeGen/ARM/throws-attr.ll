@@ -51,5 +51,5 @@ entry:
   ret i32 %sel
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

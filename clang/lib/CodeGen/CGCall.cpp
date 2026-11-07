@@ -2969,7 +2969,7 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
   if (FI.isCmseNSCall())
     FuncAttrs.addAttribute("cmse_nonsecure_call");
   if (FI.hasThrowsReturn()) {
-    FuncAttrs.addAttribute(llvm::Attribute::Throws);
+    FuncAttrs.addAttribute(llvm::Attribute::HerbThrows);
     // Herbception `throws` implies noexcept by default: errors return through
     // the normal path, so the function must also be NoUnwind to keep
     // mayThrow() false. An explicit `noexcept(false) return_failure{E}` can throw C++

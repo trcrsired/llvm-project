@@ -1057,19 +1057,6 @@ EVT TargetLoweringBase::getShiftAmountTy(EVT LHSTy,
   return ShiftVT;
 }
 
-bool TargetLoweringBase::canOpTrap(unsigned Op, EVT VT) const {
-  assert(isTypeLegal(VT));
-  switch (Op) {
-  default:
-    return false;
-  case ISD::SDIV:
-  case ISD::UDIV:
-  case ISD::SREM:
-  case ISD::UREM:
-    return true;
-  }
-}
-
 bool TargetLoweringBase::isFreeAddrSpaceCast(const DataLayout &DL,
                                              unsigned SrcAS,
                                              unsigned DestAS) const {
@@ -1838,7 +1825,7 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
 
     // Skip zero-sized types (empty structs) for throws functions.
     // An empty struct should not consume a return register slot.
-    if (VT.isZeroSized() && attr.hasFnAttr(Attribute::Throws))
+    if (VT.isZeroSized() && attr.hasFnAttr(Attribute::HerbThrows))
       continue;
 
     ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
@@ -1863,7 +1850,7 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
 
     // Propagate the throws (herbception) discriminant flag from the function.
     // The discriminant is the last part of the {T, i1} return value.
-    if (attr.hasFnAttr(Attribute::Throws) && I == E - 1)
+    if (attr.hasFnAttr(Attribute::HerbThrows) && I == E - 1)
       Flags.setThrows();
 
     // Propagate extension type if any

@@ -34,4 +34,4 @@ define { i64, i1 } @plain_tail(i32 %n) {
   ret { i64, i1 } %r
 }
 
-attributes #1 = { throws }
+attributes #1 = { herbthrows }

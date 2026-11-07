@@ -56,10 +56,10 @@ entry:
   ret i64 %sel
 }
 
-; throws_sret: the payload travels through the hidden pointer; the register
+; herbthrows_sret: the payload travels through the hidden pointer; the register
 ; return carries {E, i1} -- a 16-byte error value in x0:x1 plus the
 ; discriminant in NZCV.C.
-define { i64, i64, i1 } @ret_sret64(ptr throws_sret({i64,i64,i64}) %out, i64 %x) #0 {
+define { i64, i64, i1 } @ret_sret64(ptr herbthrows_sret({i64,i64,i64}) %out, i64 %x) #0 {
 ; CHECK-LABEL: ret_sret64
 ; CHECK:            mov x0, x1
 ; CHECK:            mov {{w|x}}1, #42
@@ -74,5 +74,5 @@ entry:
   ret { i64, i64, i1 } %r
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

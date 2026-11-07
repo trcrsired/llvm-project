@@ -7,7 +7,7 @@
 ; a success/failure discriminant (herbception / deterministic exceptions).
 
 ; CHECK: define { i64, i1 } @foo(i64 %x) #0
-; CHECK: attributes #0 = { throws }
+; CHECK: attributes #0 = { herbthrows }
 
 define { i64, i1 } @foo(i64 %x) #0 {
 entry:
@@ -29,4 +29,4 @@ done:
   ret void
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
