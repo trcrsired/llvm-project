@@ -71,20 +71,31 @@ define i32 @select_clobber(i32 %x, i32 %y) #1 {
 ; the fold must not fire: rewriting only one of them would leave the other
 ; testing whatever NZCV the call left behind. The cset/tst pair stays and both
 ; csels keep reading it.
-define i32 @two_readers(i32 %x) #1 {
+;
+; The two selects have to stay independent at the IR level as well. The obvious
+; spelling, `select d, 200, (select d, 100, v)`, collapses under InstCombine at
+; -O2 to a single `select d, 200, v`, which leaves one reader and makes the fold
+; legal -- so this used to pass only by accident of the pass pipeline. The
+; second reader therefore stores its result instead of feeding the first select,
+; which keeps two live readers of the same discriminant.
+define i32 @two_readers(i32 %x, ptr %p) #1 {
 ; CHECK-LABEL: two_readers:
 ; CHECK:         bl callee
 ; CHECK-NEXT:    cset w8, hs
-; CHECK-NEXT:    mov w9, #200
+; CHECK-NEXT:    mov w9, #100
 ; CHECK-NEXT:    tst w8, #0x1
-; CHECK-NEXT:    mov w8, #100
+; CHECK-NEXT:    mov w8, #200
 ; CHECK-NEXT:    csel w8, w8, w0, ne
-; CHECK-NEXT:    csel w0, w9, w8, ne
+; CHECK-NEXT:    csel w9, w9, w0, ne
+; CHECK-NOT:     cset
+; The stored value is the other reader; both csels came from the same flags.
+; CHECK:         str w9, [x19]
   %c = call { i32, i1 } @callee(i32 %x) #0
   %v = extractvalue { i32, i1 } %c, 0
   %d = extractvalue { i32, i1 } %c, 1
   %a = select i1 %d, i32 100, i32 %v
-  %b = select i1 %d, i32 200, i32 %a
+  store i32 %a, ptr %p
+  %b = select i1 %d, i32 200, i32 %v
   ret i32 %b
 }
 
@@ -148,5 +159,5 @@ define { { ptr, i64 }, i1 } @propagate_reuses_discriminant(i32 noundef %0) #0 {
   ret { { ptr, i64 }, i1 } %o1
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

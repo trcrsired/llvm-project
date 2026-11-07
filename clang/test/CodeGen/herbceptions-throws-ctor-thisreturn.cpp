@@ -26,7 +26,7 @@ Foo *make_foo() throws { return new Foo(1); }
 Bar *make_bar() { return new Bar(1); }
 
 // The `throws` ctor returns the i1 discriminant (the union{E} slot travels
-// through throws_sret); 'this' is not returned.
-// CHECK: define {{.*}} i1 @_ZN3FooC{{[12]}}EDri(ptr {{.*}}throws_sret{{.*}}, ptr noundef nonnull align 4 dereferenceable(4) %
+// through herbthrows_sret); 'this' is not returned.
+// CHECK: define {{.*}} i1 @_ZN3FooC{{[12]}}EDri(ptr {{.*}}herbthrows_sret{{.*}}, ptr noundef nonnull align 4 dereferenceable(4) %
 // A plain ctor still returns 'this' and keeps 'returned'.
 // CHECK: define {{.*}} ptr @_ZN3BarC{{[12]}}Ei(ptr noundef nonnull returned align 4 dereferenceable(4) %

@@ -50,7 +50,7 @@ exit:
 ; CHECK-NOT: #
 ; CHECK: musttail call void
 
-; CHECK: attributes #[[RAMPATTR]] = { throws }
+; CHECK: attributes #[[RAMPATTR]] = { herbthrows }
 
 declare token @llvm.coro.id(i32, ptr readnone, ptr nocapture readonly, ptr) #1
 declare i1 @llvm.coro.alloc(token) #2
@@ -65,7 +65,7 @@ declare ptr @llvm.coro.subfn.addr(ptr nocapture readonly, i8) #1
 declare ptr @malloc(i64)
 declare ptr @await_suspend_function(ptr %awaiter, ptr %hdl)
 
-attributes #0 = { presplitcoroutine throws }
+attributes #0 = { presplitcoroutine herbthrows }
 attributes #1 = { argmemonly nounwind readonly }
 attributes #2 = { nounwind }
 attributes #3 = { nounwind readnone }

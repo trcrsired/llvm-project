@@ -5160,7 +5160,7 @@ bool IRTranslatorImpl::runOnMachineFunction(
   //
   // The check is here rather than in each target's fallBackToDAGISel because an
   // override that does not chain to the base one would silently drop it.
-  if (F.hasFnAttribute(Attribute::Throws) || CLI->fallBackToDAGISel(*MF)) {
+  if (F.hasFnAttribute(Attribute::HerbThrows) || CLI->fallBackToDAGISel(*MF)) {
     OptimizationRemarkMissed R("gisel-ir-translator", "GISelFailure",
                                F.getSubprogram(), &F.getEntryBlock());
     R << "unable to lower function: "

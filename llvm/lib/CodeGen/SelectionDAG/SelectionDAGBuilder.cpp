@@ -2378,7 +2378,7 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
 
         // Herbception (throws) functions return with a discriminant. The
         // discriminant is the last part of the {T, i1} return value.
-        if (F->getAttributes().hasFnAttr(Attribute::Throws) &&
+        if (F->getAttributes().hasFnAttr(Attribute::HerbThrows) &&
             j == NumValues - 1)
           Flags.setThrows();
 

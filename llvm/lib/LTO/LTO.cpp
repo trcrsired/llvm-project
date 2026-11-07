@@ -142,7 +142,7 @@ static void checkHerbceptionODRForModule(const Config &Conf, Module &M) {
   for (Function &F : M.functions()) {
     if (F.isIntrinsic() || F.hasLocalLinkage())
       continue;
-    Sig.Throws = F.hasFnAttribute(llvm::Attribute::Throws);
+    Sig.Throws = F.hasFnAttribute(llvm::Attribute::HerbThrows);
     Sig.PayloadTy = Sig.Throws ? getHerbceptionPayloadDesc(F) : std::string();
     Conf.HerbceptionODR->record(F.getName(), Sig, ModuleID);
   }

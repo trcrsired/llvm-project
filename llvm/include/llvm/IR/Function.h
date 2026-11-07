@@ -683,8 +683,8 @@ public:
   /// Determine if the function is marked as returning its payload through a
   /// throws_sret pointer.
   bool hasThrowsSretAttr() const {
-    return AttributeSets.hasParamAttr(0, Attribute::ThrowsSret) ||
-           AttributeSets.hasParamAttr(1, Attribute::ThrowsSret);
+    return AttributeSets.hasParamAttr(0, Attribute::HerbThrowsSret) ||
+           AttributeSets.hasParamAttr(1, Attribute::HerbThrowsSret);
   }
 
   /// Determine if the parameter or return value is marked with NoAlias

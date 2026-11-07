@@ -73,7 +73,7 @@ void llvm::computeSignatureVTs(const FunctionType *Ty,
   // the {T, i1} return to be lowered as two wasm results instead of demoting
   // to sret.
   bool IsThrowsReturn = Results.size() == 2 &&
-                        ContextFunc.hasFnAttribute(Attribute::Throws);
+                        ContextFunc.hasFnAttribute(Attribute::HerbThrows);
   if (!IsThrowsReturn && !WebAssembly::canLowerReturn(
                              Results.size(),
                              &TM.getSubtarget<WebAssemblySubtarget>(ContextFunc))) {

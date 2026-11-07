@@ -173,7 +173,7 @@ bool HerbceptionsFlagReturn::runOnFunction(Function &F) {
   // Only 'throws' functions return a trailing discriminant. The transform
   // grows the function by duplicating a small return block, so leave
   // functions that are compiled for size alone.
-  if (skipFunction(F) || !F.hasFnAttribute(Attribute::Throws) ||
+  if (skipFunction(F) || !F.hasFnAttribute(Attribute::HerbThrows) ||
       F.hasMinSize())
     return false;
 

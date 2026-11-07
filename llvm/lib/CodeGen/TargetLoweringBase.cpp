@@ -1825,7 +1825,7 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
 
     // Skip zero-sized types (empty structs) for throws functions.
     // An empty struct should not consume a return register slot.
-    if (VT.isZeroSized() && attr.hasFnAttr(Attribute::Throws))
+    if (VT.isZeroSized() && attr.hasFnAttr(Attribute::HerbThrows))
       continue;
 
     ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
@@ -1850,7 +1850,7 @@ void llvm::GetReturnInfo(CallingConv::ID CC, Type *ReturnType,
 
     // Propagate the throws (herbception) discriminant flag from the function.
     // The discriminant is the last part of the {T, i1} return value.
-    if (attr.hasFnAttr(Attribute::Throws) && I == E - 1)
+    if (attr.hasFnAttr(Attribute::HerbThrows) && I == E - 1)
       Flags.setThrows();
 
     // Propagate extension type if any

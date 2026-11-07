@@ -19,4 +19,4 @@ entry:
   ret { i32, i1 } %call
 }
 
-attributes #0 = { nounwind throws }
+attributes #0 = { nounwind herbthrows }

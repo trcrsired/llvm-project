@@ -848,7 +848,7 @@ X86TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   const SmallVectorImpl<SDValue> *RetArgVals = &OutVals;
   SmallVector<ISD::OutputArg, 4> NonThrowsOuts;
   SmallVector<SDValue, 4> NonThrowsVals;
-  if (MF.getFunction().hasFnAttribute(Attribute::Throws)) {
+  if (MF.getFunction().hasFnAttribute(Attribute::HerbThrows)) {
     NonThrowsOuts.reserve(Outs.size());
     NonThrowsVals.reserve(OutVals.size());
     for (unsigned I = 0, E = Outs.size(); I != E; ++I) {
@@ -1866,7 +1866,7 @@ SDValue X86TargetLowering::LowerFormalArguments(
   // pointer), which would clobber CF just before the return. Force a frame
   // pointer so the epilogue can restore SP without touching EFLAGS, keeping
   // the carry-flag discriminant intact.
-  if (F.hasFnAttribute(Attribute::Throws) &&
+  if (F.hasFnAttribute(Attribute::HerbThrows) &&
       Subtarget.isCallingConvWin64(CallConv))
     FuncInfo->setForceFramePointer(true);
 

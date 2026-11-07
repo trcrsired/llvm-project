@@ -5163,7 +5163,7 @@ public:
       RetSExt = ResultAttrs.hasAttribute(Attribute::SExt);
       RetZExt = ResultAttrs.hasAttribute(Attribute::ZExt);
       NoMerge = ResultAttrs.hasAttribute(Attribute::NoMerge);
-      IsThrows = ResultAttrs.hasAttribute(Attribute::Throws);
+      IsThrows = ResultAttrs.hasAttribute(Attribute::HerbThrows);
 
       Callee = Target;
       CallConv = CC;
@@ -5186,7 +5186,7 @@ public:
       RetSExt = Call.hasRetAttr(Attribute::SExt);
       RetZExt = Call.hasRetAttr(Attribute::ZExt);
       NoMerge = Call.hasFnAttr(Attribute::NoMerge);
-      IsThrows = Call.hasFnAttr(Attribute::Throws);
+      IsThrows = Call.hasFnAttr(Attribute::HerbThrows);
 
       Callee = Target;
 

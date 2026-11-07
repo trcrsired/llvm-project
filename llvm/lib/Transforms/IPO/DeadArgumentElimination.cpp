@@ -578,7 +578,7 @@ void DeadArgumentEliminationPass::surveyFunction(const Function &F) {
   // of the calling convention even when no caller inspects it. Stripping it
   // would make the backend treat the real last payload element as the
   // discriminant instead.
-  if (RetCount != 0 && F.hasFnAttribute(Attribute::Throws))
+  if (RetCount != 0 && F.hasFnAttribute(Attribute::HerbThrows))
     RetValLiveness[RetCount - 1] = Live;
 
   // Now we've inspected all callers, record the liveness of our return values.

@@ -57,10 +57,10 @@ entry:
   ret i64 %sel
 }
 
-; throws_sret: the payload travels through the hidden pointer; the register
+; herbthrows_sret: the payload travels through the hidden pointer; the register
 ; return carries {E, i1} -- the error value plus the discriminant. A real
 ; error object is pointer-sized pair: {i32,i32} on o32, {i64,i64} on n64.
-define { i32, i32, i1 } @ret_sret32(ptr throws_sret({i32,i32,i32,i32,i32}) %out, i32 %x) #0 {
+define { i32, i32, i1 } @ret_sret32(ptr herbthrows_sret({i32,i32,i32,i32,i32}) %out, i32 %x) #0 {
 ; O32-LABEL: ret_sret32:
 ; O32:            move   $2, $5
 ; O32:            sw     $5, 0($4)
@@ -75,7 +75,7 @@ entry:
   ret { i32, i32, i1 } %r
 }
 
-define { i64, i64, i1 } @ret_sret64(ptr throws_sret({i64,i64,i64}) %out, i64 %x) #0 {
+define { i64, i64, i1 } @ret_sret64(ptr herbthrows_sret({i64,i64,i64}) %out, i64 %x) #0 {
 ; N64-LABEL: ret_sret64:
 ; N64:            move   $2, $5
 ; N64:            sd     $5, 0($4)
@@ -90,5 +90,5 @@ entry:
   ret { i64, i64, i1 } %r
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }
 attributes #1 = { nounwind }

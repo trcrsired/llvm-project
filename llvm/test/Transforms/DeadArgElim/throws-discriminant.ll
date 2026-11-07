@@ -23,4 +23,4 @@ entry:
   ret i32 %v
 }
 
-attributes #0 = { throws }
+attributes #0 = { herbthrows }

@@ -78,19 +78,19 @@ lowerFromCIRToLLVMIR(mlir::ModuleOp MLIRModule, llvm::LLVMContext &LLVMCtx,
 // Herbception (throws): CIRGen marks shaped functions and call sites with a
 // placeholder 'throws' attribute, which lowerFromCIRToLLVMIR forwards as a
 // plain string on functions (the LLVM dialect has no enum equivalent). Swap
-// it for the real Attribute::Throws here and stamp the call sites so the
+// it for the real Attribute::HerbThrows here and stamp the call sites so the
 // backend carries the {T, i1} discriminant out-of-band.
 static void propagateThrowsAttributes(llvm::Module &M) {
   for (llvm::Function &F : M) {
-    if (!F.hasFnAttribute("throws"))
+    if (!F.hasFnAttribute("herbthrows"))
       continue;
-    F.removeFnAttr("throws");
-    F.addFnAttr(llvm::Attribute::Throws);
+    F.removeFnAttr("herbthrows");
+    F.addFnAttr(llvm::Attribute::HerbThrows);
     for (llvm::User *U : F.users()) {
       auto *CB = dyn_cast<llvm::CallBase>(U);
       if (!CB || CB->getCalledOperand()->stripPointerCasts() != &F)
         continue;
-      CB->addFnAttr(llvm::Attribute::Throws);
+      CB->addFnAttr(llvm::Attribute::HerbThrows);
     }
   }
 }

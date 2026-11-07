@@ -1272,7 +1272,7 @@ public:
 
   /// Retrieve the throws_sret type.
   Type *getThrowsSretType() const {
-    return getTypeAttr(Attribute::ThrowsSret);
+    return getTypeAttr(Attribute::HerbThrowsSret);
   }
 
   /// Retrieve the byref type.
