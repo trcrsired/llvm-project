@@ -1333,8 +1333,6 @@ void AArch64InstrInfo::insertSelect(MachineBasicBlock &MBB,
     if (FoldedOpc) {
       FalseReg = NewReg;
       Opc = FoldedOpc;
-      // Extend the live range of NewReg.
-      MRI.clearKillFlags(NewReg);
     }
   }
 
@@ -9000,7 +8998,6 @@ genIndexedMultiply(MachineInstr &Root,
     Dup = MRI.getUniqueVRegDef(Dup->getOperand(1).getReg());
 
   Register DupSrcReg = Dup->getOperand(1).getReg();
-  MRI.clearKillFlags(DupSrcReg);
   MRI.constrainRegClass(DupSrcReg, RC);
 
   unsigned DupSrcLane = Dup->getOperand(2).getImm();
