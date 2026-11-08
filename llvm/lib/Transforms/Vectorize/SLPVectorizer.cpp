@@ -10335,7 +10335,7 @@ class InstructionsCompatibilityAnalysis {
   }
 
   /// Checks if \p I can be the main op for copyable analysis: a supported
-  /// binary operator, fmuladd, or an integer min/max intrinsic, the only
+  /// binary operator, fma/fmuladd, or an integer min/max intrinsic, the only
   /// call with a well-defined idempotent value (FP min/max lacks one because of
   /// NaNs). An extractelement with constant index from a fixed vector is also
   /// supported: the matching lanes reuse the source vector and the copyable
@@ -10345,7 +10345,7 @@ class InstructionsCompatibilityAnalysis {
   /// modeled as zexts of truncated constants.
   static bool isSupportedMainOp(Instruction *I) {
     return isSupportedOpcode(I->getOpcode()) || isa<MinMaxIntrinsic>(I) ||
-           RecurrenceDescriptor::isFMulAddIntrinsic(I) ||
+           isFMAOrFMulAdd(I) ||
            (isa<ExtractElementInst>(I) && isVectorLikeInstWithConstOps(I) &&
             isa<FixedVectorType>(I->getOperand(0)->getType())) ||
            (isa<GetElementPtrInst>(I) && I->getNumOperands() == 2 &&
@@ -10445,11 +10445,10 @@ class InstructionsCompatibilityAnalysis {
              I->getOpcode() == Instruction::FAdd) &&
             AbsorbCopyableFMulOrFAdds)
           continue;
-        // Same check when fmuladd replaces fmul/fadd on a tie.
+        // Same check when fma/fmuladd replaces fmul/fadd on a tie.
         if ((MainOp->getOpcode() == Instruction::FMul ||
              MainOp->getOpcode() == Instruction::FAdd) &&
-            RecurrenceDescriptor::isFMulAddIntrinsic(I) &&
-            !AbsorbCopyableFMulOrFAdds)
+            isFMAOrFMulAdd(I) && !AbsorbCopyableFMulOrFAdds)
           continue;
       }
       UsedOutside = PUsedOutside;
@@ -11990,10 +11989,17 @@ static void scanAssociativeOperands(
         ReassocScalars.push_back(V);
     // A peeled subtract negates its second operand column.
     const bool Negated = Columns[Idx].Negated;
+    const bool SubNegated = IsSub(ColS.getOpcode()) != Negated;
+    // The identity of a copyable lane is combined with the total of the
+    // column it lands in, so it follows the sign of that column rather than
+    // the opcode of the peeled column.
+    if (Negated && RootFamily == Instruction::FAdd)
+      for (auto [V, Op] : zip(Column, SubOperands.back()))
+        if (ColS.isCopyableElement(V))
+          Op = getReassocIdentity(RootFamily, Op->getType(), SubNegated);
     Columns[Idx].Col = std::move(SubOperands.front());
-    Columns.insert(
-        std::next(Columns.begin(), Idx + 1),
-        {std::move(SubOperands.back()), IsSub(ColS.getOpcode()) != Negated});
+    Columns.insert(std::next(Columns.begin(), Idx + 1),
+                   {std::move(SubOperands.back()), SubNegated});
     // Do not advance Idx: re-examine the column that was just placed here.
   }
   Operands.clear();
@@ -17720,7 +17726,8 @@ BoUpSLP::getEntryCost(const TreeEntry *E, ArrayRef<Value *> VectorizedVals,
         const unsigned CombineOpcode = getReassocCombineOpcode(E->getOpcode());
         for (unsigned Idx : seq<unsigned>(2, E->getNumOperands())) {
           if (all_of(E->getOperand(Idx), [&](Value *V) {
-                return isBinOpIdentityConstant(V, CombineOpcode);
+                return isBinOpIdentityConstant(V, CombineOpcode,
+                                               E->isReassocNegatedOp(Idx));
               }))
             continue;
           // The first operand is the running fold, a computed value with no
@@ -24022,7 +24029,9 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
     ArrayRef<Value *> Scalars = VL.empty() ? E->Scalars : VL;
     SmallSetVector<Value *, 4> UniqueInsts;
     for (Instruction *I : make_isa_range<Instruction>(Scalars)) {
-      if (E->hasCopyableElements() && E->isCopyableElement(I))
+      // The wide load also reads the memory of the copyable loads.
+      if (E->hasCopyableElements() && E->isCopyableElement(I) &&
+          E->getOpcode() != Instruction::Load)
         continue;
       UniqueInsts.insert(I);
     }
@@ -24876,13 +24885,13 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
         SmallVector<SmallVector<Value *>> ScalarOps;
         SmallVector<SmallVector<Value *>> NegScalarOps;
         for (unsigned Idx : seq<unsigned>(E->getNumOperands())) {
+          const bool Negated = E->isReassocNegatedOp(Idx);
           // Identity-only columns combine to a no-op; skip them rather than
           // emitting a real binop against an identity vector.
           if (all_of(E->getOperand(Idx), [&](Value *V) {
-                return isBinOpIdentityConstant(V, CombineOpcode);
+                return isBinOpIdentityConstant(V, CombineOpcode, Negated);
               }))
             continue;
-          const bool Negated = E->isReassocNegatedOp(Idx);
           (Negated ? NegOps : Ops)
               .push_back(GetCastOperand(
                   Idx, FreezePlaceholders(vectorizeOperand(E, Idx), Idx)));
@@ -25239,9 +25248,6 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
                   E->State == TreeEntry::BlendedLoadVectorize || HasUndefLanes)
                      ? NewLI
                      : PropagateIRFlags(NewLI);
-      // The wide load also reads the memory of the copyable loads.
-      if (E->hasCopyableElements() && !HasUndefLanes)
-        V = ::propagateMetadata(NewLI, E->Scalars);
 
       if (StridedLoadTy != VecTy)
         V = createWidenedStridedCast(Builder, V, VecTy, *DL);
@@ -31164,8 +31170,10 @@ bool SLPVectorizerPass::tryToVectorizeList(ArrayRef<Value *> VL, BoUpSLP &R,
     }
   }
 
+  // The lanes of a buildvector are scalars even if the vector is revectorized.
   Type *ScalarTy =
-      getValueType(VL[0], Opts->slp_revec, /*LookThroughCmp=*/true);
+      getValueType(VL[0], Opts->slp_revec && !isa<InsertElementInst>(I0),
+                   /*LookThroughCmp=*/true);
   unsigned Sz = R.getVectorElementSize(I0);
   unsigned MinVF = R.getMinVF(Sz);
   // The buildvector, not filling the whole registers, is vectorized as a whole,
