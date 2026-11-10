@@ -3706,6 +3706,8 @@ bool AArch64InstrInfo::canFoldIntoAddrMode(const MachineInstr &MemI,
     NumBytes = 8;
     break;
 
+  case AArch64::LDURSi:
+  case AArch64::STURSi:
   case AArch64::LDURWi:
   case AArch64::LDURSWi:
   case AArch64::STURWi:
@@ -3762,9 +3764,13 @@ bool AArch64InstrInfo::canFoldIntoAddrMode(const MachineInstr &MemI,
     OffsetScale = 8;
     break;
 
+  case AArch64::LDRSroX:
+  case AArch64::STRSroX:
   case AArch64::LDRWroX:
   case AArch64::LDRSWroX:
   case AArch64::STRWroX:
+  case AArch64::LDRSui:
+  case AArch64::STRSui:
   case AArch64::LDRWui:
   case AArch64::LDRSWui:
   case AArch64::STRWui:
@@ -4036,6 +4042,12 @@ static unsigned regOffsetOpcode(unsigned Opcode) {
   case AArch64::STURXi:
   case AArch64::STRXui:
     return AArch64::STRXroX;
+  case AArch64::LDURSi:
+  case AArch64::LDRSui:
+    return AArch64::LDRSroX;
+  case AArch64::STURSi:
+  case AArch64::STRSui:
+    return AArch64::STRSroX;
   case AArch64::LDURWi:
   case AArch64::LDRWui:
     return AArch64::LDRWroX;
@@ -4110,6 +4122,12 @@ unsigned scaledOffsetOpcode(unsigned Opcode, unsigned &Scale) {
   case AArch64::STURXi:
     Scale = 8;
     return AArch64::STRXui;
+  case AArch64::LDURSi:
+    Scale = 4;
+    return AArch64::LDRSui;
+  case AArch64::STURSi:
+    Scale = 4;
+    return AArch64::STRSui;
   case AArch64::LDURWi:
     Scale = 4;
     return AArch64::LDRWui;
@@ -4165,6 +4183,8 @@ unsigned scaledOffsetOpcode(unsigned Opcode, unsigned &Scale) {
   case AArch64::STRXui:
     Scale = 8;
     return Opcode;
+  case AArch64::LDRSui:
+  case AArch64::STRSui:
   case AArch64::LDRWui:
   case AArch64::LDRSWui:
   case AArch64::STRWui:
@@ -4203,6 +4223,8 @@ unsigned unscaledOffsetOpcode(unsigned Opcode) {
   case AArch64::STURDi:
   case AArch64::LDURXi:
   case AArch64::STURXi:
+  case AArch64::LDURSi:
+  case AArch64::STURSi:
   case AArch64::LDURWi:
   case AArch64::LDURSWi:
   case AArch64::STURWi:
@@ -4231,6 +4253,10 @@ unsigned unscaledOffsetOpcode(unsigned Opcode) {
     return AArch64::LDURXi;
   case AArch64::STRXui:
     return AArch64::STURXi;
+  case AArch64::LDRSui:
+    return AArch64::LDURSi;
+  case AArch64::STRSui:
+    return AArch64::STURSi;
   case AArch64::LDRWui:
     return AArch64::LDURWi;
   case AArch64::LDRSWui:
@@ -4297,6 +4323,14 @@ static unsigned offsetExtendOpcode(unsigned Opcode) {
   case AArch64::STURXi:
   case AArch64::STRXui:
     return AArch64::STRXroW;
+  case AArch64::LDRSroX:
+  case AArch64::LDURSi:
+  case AArch64::LDRSui:
+    return AArch64::LDRSroW;
+  case AArch64::STRSroX:
+  case AArch64::STURSi:
+  case AArch64::STRSui:
+    return AArch64::STRSroW;
   case AArch64::LDRWroX:
   case AArch64::LDURWi:
   case AArch64::LDRWui:
