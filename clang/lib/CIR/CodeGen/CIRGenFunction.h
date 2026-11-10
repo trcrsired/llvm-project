@@ -3030,6 +3030,8 @@ public:
   emitOMPDistributeSimdDirective(const OMPDistributeSimdDirective &s);
   mlir::LogicalResult emitOMPTargetParallelGenericLoopDirective(
       const OMPTargetParallelGenericLoopDirective &s);
+  mlir::LogicalResult
+  emitOMPTargetGenericLoopDirective(const OMPTargetGenericLoopDirective &s);
   mlir::LogicalResult emitOMPTargetParallelForSimdDirective(
       const OMPTargetParallelForSimdDirective &s);
   mlir::LogicalResult

@@ -245,8 +245,9 @@ void CallConvLoweringPass::runOnOperation() {
     // call sites alone.
     if (f->hasAttr("cir.throws"))
       return;
-    std::optional<FunctionClassification> fc = classifier->classifyFunction(f);
-    if (!fc) {
+    mlir::FailureOr<FunctionClassification> fc =
+        classifier->classifyFunction(f);
+    if (failed(fc)) {
       anyFailed = true;
       return;
     }
@@ -296,9 +297,9 @@ void CallConvLoweringPass::runOnOperation() {
       anyFailed = true;
       return;
     }
-    std::optional<FunctionClassification> fc =
+    mlir::FailureOr<FunctionClassification> fc =
         classifier->classifyVariadicCall(call, callee);
-    if (!fc) {
+    if (failed(fc)) {
       anyFailed = true;
       return;
     }
@@ -410,9 +411,9 @@ void CallConvLoweringPass::runOnOperation() {
     // same as direct calls to 'cir.throws' callees.
     if (c->hasAttr("cir.throws"))
       continue;
-    std::optional<FunctionClassification> fc =
+    mlir::FailureOr<FunctionClassification> fc =
         classifier->classifyIndirectCall(c);
-    if (!fc) {
+    if (failed(fc)) {
       signalPassFailure();
       return;
     }
@@ -432,8 +433,8 @@ void CallConvLoweringPass::runOnOperation() {
       vaArgs.push_back(v);
   });
   for (cir::VAArgOp v : vaArgs) {
-    std::optional<ArgClassification> ac = classifier->classifyVAArg(v);
-    if (!ac) {
+    mlir::FailureOr<ArgClassification> ac = classifier->classifyVAArg(v);
+    if (failed(ac)) {
       signalPassFailure();
       return;
     }
