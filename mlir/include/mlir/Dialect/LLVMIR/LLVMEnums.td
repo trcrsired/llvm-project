@@ -949,9 +949,7 @@ def GEPNoWrapFlags : I32BitEnum<
   let printBitEnumPrimaryGroups = 1;
 }
 
-def GEPNoWrapFlagsProp : EnumProp<GEPNoWrapFlags> {
-  let defaultValue = interfaceType # "::none";
-}
+def GEPNoWrapFlagsProp : DefaultValuedEnumProp<GEPNoWrapFlags, GEPNone>;
 
 //===----------------------------------------------------------------------===//
 // TLSModel
