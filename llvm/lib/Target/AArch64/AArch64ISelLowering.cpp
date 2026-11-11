@@ -20177,6 +20177,7 @@ bool AArch64TargetLowering::lowerDeinterleaveIntrinsicToLoad(
                                                 UseScalable, LdTy, PtrTy);
 
   IRBuilder<> Builder(LI);
+  Builder.disableGEPCanonicalization();
   Value *Pred = nullptr;
   if (UseScalable)
     Pred =
@@ -20257,6 +20258,7 @@ bool AArch64TargetLowering::lowerInterleaveIntrinsicToStore(
                                                  UseScalable, StTy, PtrTy);
 
   IRBuilder<> Builder(SI);
+  Builder.disableGEPCanonicalization();
 
   Value *BaseAddr = SI->getPointerOperand();
   Value *Pred = nullptr;
