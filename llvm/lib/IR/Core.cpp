@@ -1394,6 +1394,18 @@ LLVMMetadataRef LLVMValueAsMetadata(LLVMValueRef Val) {
   return wrap(ValueAsMetadata::get(V));
 }
 
+char *LLVMPrintMetadataToString(LLVMMetadataRef MD) {
+  std::string buf;
+  raw_string_ostream os(buf);
+
+  if (unwrap(MD))
+    unwrap(MD)->print(os);
+  else
+    os << "Printing <null> Metadata";
+
+  return strdup(buf.c_str());
+}
+
 const char *LLVMGetMDString(LLVMValueRef V, unsigned *Length) {
   if (const auto *MD = dyn_cast<MetadataAsValue>(unwrap(V)))
     if (const MDString *S = dyn_cast<MDString>(MD->getMetadata())) {
@@ -3526,7 +3538,9 @@ LLVMBuilderRef LLVMCreateBuilderInContext(LLVMContextRef C) {
 }
 
 LLVMBuilderRef LLVMCreateBuilder(void) {
+  LLVM_SUPPRESS_DEPRECATED_DECLARATIONS_PUSH
   return LLVMCreateBuilderInContext(getGlobalContextForCAPI());
+  LLVM_SUPPRESS_DEPRECATED_DECLARATIONS_POP
 }
 
 LLVMBuilderRef LLVMCreateBuilderForModule(LLVMModuleRef M) {
