@@ -57,7 +57,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeGlobalMergeFuncPassWrapperPass(Registry);
   initializeHardwareLoopsLegacyPass(Registry);
   initializeHerbceptionsFlagReturnPass(Registry);
-  initializeIfConverterPass(Registry);
+  initializeIfConverterLegacyPass(Registry);
   initializeImplicitNullChecksLegacyPass(Registry);
   initializeIndirectBrExpandLegacyPassPass(Registry);
   initializeInsertCodePrefetchPass(Registry);
