@@ -2257,11 +2257,11 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
     for (auto VT : {MVT::nxv16i8,  MVT::nxv8i16, MVT::nxv4i32,  MVT::nxv2i64,
                     MVT::nxv2f16,  MVT::nxv4f16, MVT::nxv8f16,  MVT::nxv2f32,
                     MVT::nxv4f32,  MVT::nxv2f64, MVT::nxv2bf16, MVT::nxv4bf16,
-                    MVT::nxv8bf16, MVT::v4f16,   MVT::v8f16,    MVT::v4bf16,
-                    MVT::v8bf16,   MVT::v2f32,   MVT::v4f32,    MVT::v1f64,
-                    MVT::v2f64,    MVT::v8i8,    MVT::v16i8,    MVT::v4i16,
-                    MVT::v8i16,    MVT::v2i32,   MVT::v4i32,    MVT::v1i64,
-                    MVT::v2i64}) {
+                    MVT::nxv8bf16, MVT::v2f16,   MVT::v4f16,    MVT::v8f16,
+                    MVT::v2bf16,   MVT::v4bf16,  MVT::v8bf16,   MVT::v2f32,
+                    MVT::v4f32,    MVT::v1f64,   MVT::v2f64,    MVT::v8i8,
+                    MVT::v16i8,    MVT::v4i16,   MVT::v8i16,    MVT::v2i32,
+                    MVT::v4i32,    MVT::v1i64,   MVT::v2i64}) {
       setOperationAction(ISD::MGATHER, VT, Custom);
       setOperationAction(ISD::MSCATTER, VT, Custom);
     }
@@ -9581,13 +9581,21 @@ SDValue AArch64TargetLowering::LowerFormalArguments(
       // For NON_EXTLOAD, generic code in getLoad assert(ValVT == MemVT)
       ISD::LoadExtType ExtType = ISD::NON_EXTLOAD;
       MVT MemVT = VA.getValVT();
+      MVT LoadVT = VA.getLocVT();
 
       switch (VA.getLocInfo()) {
       default:
         break;
       case CCValAssign::Trunc:
+        MemVT = VA.getLocVT();
+        break;
       case CCValAssign::BCvt:
         MemVT = VA.getLocVT();
+        if (Ins[i].isOrigArg() && Ins[i].ArgVT.isVector() &&
+            Ins[i].ArgVT.getSizeInBits() < VA.getValVT().getSizeInBits()) {
+          MemVT = VA.getValVT();
+          LoadVT = MemVT;
+        }
         break;
       case CCValAssign::Indirect:
         assert(
@@ -9606,8 +9614,8 @@ SDValue AArch64TargetLowering::LowerFormalArguments(
         break;
       }
 
-      ArgValue = DAG.getExtLoad(ExtType, DL, VA.getLocVT(), Chain, FIN, PtrInfo,
-                                MemVT);
+      ArgValue =
+          DAG.getExtLoad(ExtType, DL, LoadVT, Chain, FIN, PtrInfo, MemVT);
     }
 
     if (VA.getLocInfo() == CCValAssign::Indirect) {
@@ -20177,6 +20185,7 @@ bool AArch64TargetLowering::lowerDeinterleaveIntrinsicToLoad(
                                                 UseScalable, LdTy, PtrTy);
 
   IRBuilder<> Builder(LI);
+  Builder.disableGEPCanonicalization();
   Value *Pred = nullptr;
   if (UseScalable)
     Pred =
@@ -20257,6 +20266,7 @@ bool AArch64TargetLowering::lowerInterleaveIntrinsicToStore(
                                                  UseScalable, StTy, PtrTy);
 
   IRBuilder<> Builder(SI);
+  Builder.disableGEPCanonicalization();
 
   Value *BaseAddr = SI->getPointerOperand();
   Value *Pred = nullptr;
@@ -32110,15 +32120,21 @@ static SDValue performVectorDeinterleaveCombine(
   if (isDeinterleave4ForWideningUToFP(N))
     return SDValue();
 
-  SmallVector<EVT, 5> ResVTs(NumParts, SubVecTy);
+  bool UseFixedSVE =
+      !IsScalable && Subtarget.useSVEForFixedLengthVectors(SubVecTy);
+  EVT LoadVT =
+      UseFixedSVE ? getContainerForFixedLengthVector(DAG, SubVecTy) : SubVecTy;
+  SmallVector<EVT, 5> ResVTs(NumParts, LoadVT);
   ResVTs.push_back(MVT::Other);
   SDVTList ResVTList = DAG.getVTList(ResVTs);
 
   SDValue Res;
   MemSDNode *MemNode = dyn_cast<MemSDNode>(WideVec);
-  if (IsScalable) {
+  if (IsScalable || UseFixedSVE) {
     SDValue Chain, BasePtr, Pred;
     if (auto *MaskedLoad = dyn_cast<MaskedLoadSDNode>(WideVec)) {
+      if (UseFixedSVE)
+        return SDValue();
       // Bail out if the masked load has an unexpected number of uses, since we
       // want to avoid a situation where we have both deinterleaving loads and
       // normal loads in the same block. Also, discard masked loads that are
@@ -32144,8 +32160,7 @@ static SDValue performVectorDeinterleaveCombine(
           !ISD::isNormalLoad(Load) || !Load->getOffset().isUndef())
         return SDValue();
 
-      EVT PredVT = SubVecTy.changeVectorElementType(*DAG.getContext(), MVT::i1);
-      Pred = DAG.getConstant(1, DL, PredVT);
+      Pred = getPredicateForVector(DAG, DL, SubVecTy);
       Chain = Load->getChain();
       BasePtr = Load->getBasePtr();
     }
@@ -32189,7 +32204,9 @@ static SDValue performVectorDeinterleaveCombine(
   }
   SmallVector<SDValue, 4> ResOps(NumParts);
   for (unsigned Idx = 0; Idx < NumParts; ++Idx)
-    ResOps[Idx] = Res.getValue(Idx);
+    ResOps[Idx] = UseFixedSVE ? convertFromScalableVector(DAG, SubVecTy,
+                                                          Res.getValue(Idx))
+                              : Res.getValue(Idx);
   // Replace uses of the original chain result with the new chain result.
   DAG.ReplaceAllUsesOfValueWith(WideVec.getValue(1),
                                 SDValue(Res.getNode(), NumParts));
@@ -33446,11 +33463,43 @@ static void ReplaceATOMIC_LOAD_128Results(SDNode *N,
   Results.push_back(SDValue(AtomicInst, 2)); // Chain out
 }
 
+static void ReplaceMGATHERResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                                  SelectionDAG &DAG) {
+  EVT VT = N->getValueType(0);
+  assert((VT == MVT::v2f16 || VT == MVT::v2bf16) &&
+         "Unexpected MGATHER type for expanding");
+
+  SDLoc DL(N);
+  MaskedGatherSDNode *MGT = cast<MaskedGatherSDNode>(N);
+  assert(MGT->getExtensionType() == ISD::NON_EXTLOAD &&
+         "Unexpected masked gather/scatter extension");
+  EVT MemVT = MGT->getMemoryVT();
+  EVT NewVT = VT.changeVectorElementTypeToInteger();
+  EVT NewMemVT = MemVT.changeVectorElementTypeToInteger();
+
+  // We need to replace the FP gather with an equivalent integer one and apply
+  // bitcasts to the passthru and the result to prevent entering an infinite
+  // loop where v2f16 gets widened to v4f16, but then the pointers operand gets
+  // split from v4i64 -> v2i64.
+  SDValue PassThru = DAG.getNode(ISD::BITCAST, DL, NewVT, MGT->getPassThru());
+  SDValue Ops[] = {MGT->getChain(),   PassThru,        MGT->getMask(),
+                   MGT->getBasePtr(), MGT->getIndex(), MGT->getScale()};
+  SDValue Load = DAG.getMaskedGather(
+      DAG.getVTList(NewVT, MVT::Other), NewMemVT, DL, Ops, MGT->getMemOperand(),
+      MGT->getIndexType(), MGT->getExtensionType());
+  SDValue Res = DAG.getNode(ISD::BITCAST, DL, VT, Load.getValue(0));
+  Results.push_back(Res);
+  Results.push_back(Load.getValue(1));
+}
+
 void AArch64TargetLowering::ReplaceNodeResults(
     SDNode *N, SmallVectorImpl<SDValue> &Results, SelectionDAG &DAG) const {
   switch (N->getOpcode()) {
   default:
     llvm_unreachable("Don't know how to custom expand this");
+  case ISD::MGATHER:
+    ReplaceMGATHERResults(N, Results, DAG);
+    return;
   case ISD::BITCAST:
     ReplaceBITCASTResults(N, Results, DAG);
     return;
@@ -34274,14 +34323,12 @@ void AArch64TargetLowering::insertSSPDeclarations(
   if (SecurityCheckCookieLibcall != RTLIB::Unsupported &&
       SecurityCookieVar != RTLIB::Unsupported) {
     // MSVC CRT has a global variable holding security cookie.
-    M.getOrInsertGlobal(getLibcallImplName(SecurityCookieVar),
-                        PointerType::getUnqual(M.getContext()));
+    const RTLIB::RuntimeLibcallsInfo &RTLCI = Libcalls.getRuntimeLibcallsInfo();
+    RTLCI.getOrInsertImplGlobal(M, SecurityCookieVar);
 
     // MSVC CRT has a function to validate security cookie.
     FunctionCallee SecurityCheckCookie =
-        M.getOrInsertFunction(getLibcallImplName(SecurityCheckCookieLibcall),
-                              Type::getVoidTy(M.getContext()),
-                              PointerType::getUnqual(M.getContext()));
+        RTLCI.getOrInsertLibcallDecl(M, SecurityCheckCookieLibcall);
     if (Function *F = dyn_cast<Function>(SecurityCheckCookie.getCallee())) {
       F->setCallingConv(CallingConv::Win64);
       F->addParamAttr(0, Attribute::AttrKind::InReg);

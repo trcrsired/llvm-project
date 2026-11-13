@@ -14,6 +14,7 @@
 
 #include "CIRGenCXXABI.h"
 #include "CIRGenCall.h"
+#include "CIRGenConstantEmitter.h"
 #include "CIRGenValue.h"
 #include "mlir/IR/Location.h"
 #include "clang/AST/Attr.h"
@@ -284,6 +285,23 @@ void CIRGenFunction::declare(mlir::Value addrVal, const Decl *var, QualType ty,
     allocaOp.setConstantAttr(mlir::UnitAttr::get(&getMLIRContext()));
 
   symbolTable.insert(var, addrVal);
+}
+
+void CIRGenFunction::emitVarAnnotations(const VarDecl *d, mlir::Value addr) {
+  assert(d->hasAttr<AnnotateAttr>() && "no annotate attribute");
+  for (const auto *attr : d->specific_attrs<AnnotateAttr>())
+    cir::VarAnnotationOp::create(builder, getLoc(d->getLocation()), addr,
+                                 cgm.emitAnnotateAttr(attr));
+}
+
+Address CIRGenFunction::emitFieldAnnotations(const FieldDecl *field,
+                                             Address addr) {
+  assert(field->hasAttr<AnnotateAttr>() && "no annotate attribute");
+  mlir::Value ptr = addr.getPointer();
+  for (const auto *attr : field->specific_attrs<AnnotateAttr>())
+    ptr = cir::PtrAnnotationOp::create(builder, getLoc(field->getLocation()),
+                                       ptr, cgm.emitAnnotateAttr(attr));
+  return addr.withPointer(ptr);
 }
 
 void CIRGenFunction::LexicalScope::cleanup() {
@@ -575,6 +593,9 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
     mlir::Location fnBodyBegin = getLoc(bodyBeginLoc);
     builder.CIRBaseBuilderTy::createStore(fnBodyBegin, paramVal,
                                           addr.getPointer());
+
+    if (paramVar->hasAttr<AnnotateAttr>())
+      emitVarAnnotations(paramVar, addr.getPointer());
   }
   assert(builder.getInsertionBlock() && "Should be valid");
 }
@@ -701,8 +722,13 @@ void CIRGenFunction::startFunction(GlobalDecl gd, QualType returnType,
         }
       }
       for (auto *fd : md->getParent()->fields()) {
-        if (fd->hasCapturedVLAType())
-          cgm.errorNYI(loc, "lambda captured VLA type");
+        if (fd->hasCapturedVLAType()) {
+          mlir::Value exprArg =
+              emitLoadOfLValue(emitLValueForLambdaField(fd), SourceLocation())
+                  .getValue();
+          const VariableArrayType *vat = fd->getCapturedVLAType();
+          vlaSizeMap[vat->getSizeExpr()] = exprArg;
+        }
       }
     } else if (md->isImplicitObjectMemberFunction()) {
       // Not in a lambda; just use 'this' from the method.
@@ -1306,9 +1332,16 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
     return LValue();
   case Expr::DeclRefExprClass:
     return emitDeclRefLValue(cast<DeclRefExpr>(e));
-  case Expr::ConstantExprClass:
-    getCIRGenModule().errorNYI(e->getSourceRange(), "emitLValue: ConstantExpr");
-    return LValue();
+  case Expr::ConstantExprClass: {
+    const ConstantExpr *ce = cast<ConstantExpr>(e);
+    if (mlir::Attribute result =
+            ConstantEmitter(*this).tryEmitConstantExpr(ce)) {
+      mlir::Value val = builder.getConstant(
+          getLoc(e->getSourceRange()), mlir::cast<mlir::TypedAttr>(result));
+      return makeNaturalAlignPointeeAddrLValue(val, ce->getType());
+    }
+    return emitLValue(ce->getSubExpr());
+  }
   case Expr::ParenExprClass:
     return emitLValue(cast<ParenExpr>(e)->getSubExpr());
   case Expr::GenericSelectionExprClass:
