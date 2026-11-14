@@ -2733,6 +2733,18 @@ add_fp_unittest(
 )
 
 add_fp_unittest(
+  coshbf16_test
+  NEED_MPFR
+  SUITE
+    libc-math-tests
+  SRCS
+    coshbf16_test.cpp
+  DEPENDS
+    libc.src.math.coshbf16
+    libc.src.__support.FPUtil.bfloat16
+)
+
+add_fp_unittest(
   coshf16_test
   NEED_MPFR
   SUITE
@@ -3680,6 +3692,23 @@ add_fp_unittest(
 )
 
 add_fp_unittest(
+  dmulf128_test
+  NEED_MPFR_F128
+  SUITE
+    libc-math-tests
+  SRCS
+    dmulf128_test.cpp
+  HDRS
+    MulTest.h
+  DEPENDS
+    libc.src.math.dmulf128
+    libc.src.__support.FPUtil.float128
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.stdlib.rand
+    libc.src.stdlib.srand
+)
+
+add_fp_unittest(
   f16mul_test
   NEED_MPFR
   SUITE
@@ -3750,6 +3779,21 @@ add_fp_unittest(
     libc.src.math.dfmal
     libc.src.stdlib.rand
     libc.src.stdlib.srand
+)
+
+add_fp_unittest(
+  dsubf128_test
+  NEED_MPFR_F128
+  SUITE
+    libc-math-tests
+  SRCS
+    dsubf128_test.cpp
+  HDRS
+    SubTest.h
+  DEPENDS
+    libc.src.math.dsubf128
+    libc.src.__support.FPUtil.float128
+    libc.src.__support.FPUtil.fp_bits
 )
 
 add_fp_unittest(
