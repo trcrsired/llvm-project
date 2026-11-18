@@ -13705,6 +13705,9 @@ def err_builtin_trivially_relocate_invalid_arg_type: Error <
   "'__builtin_trivially_relocate' must be"
   " %select{a pointer|non-const|relocatable|of the same type}0">;
 
+def err_destructive_move_not_trivially_relocatable : Error<
+  "destructive_move parameter of type %0 requires a trivially relocatable type">;
+
 def err_builtin_matrix_disabled: Error<
   "matrix types extension is disabled. Pass -fenable-matrix to enable it">;
 def err_builtin_matrix_major_order_disabled: Error<

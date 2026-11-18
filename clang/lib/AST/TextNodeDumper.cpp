@@ -1023,6 +1023,16 @@ void TextNodeDumper::dumpBareDeclRef(const Decl *D) {
         auto *PD = cast<ParmVarDecl>(ND);
         OS << " depth " << PD->getFunctionScopeDepth() << " index "
            << PD->getFunctionScopeIndex();
+        switch (PD->getParameterPassingKind()) {
+        case ParameterPassingKind::In: OS << " in"; break;
+        case ParameterPassingKind::Out: OS << " out"; break;
+        case ParameterPassingKind::Inout: OS << " inout"; break;
+        case ParameterPassingKind::Move: OS << " move"; break;
+        case ParameterPassingKind::DestructiveMove:
+          OS << " destructive_move";
+          break;
+        case ParameterPassingKind::None: break;
+        }
         break;
       }
       case Decl::TemplateTypeParm: {
@@ -2612,6 +2622,17 @@ void TextNodeDumper::VisitVarDecl(const VarDecl *D) {
 
   dumpType(D->getType());
   dumpTemplateSpecializationKind(D->getTemplateSpecializationKind());
+
+  if (const auto *P = dyn_cast<ParmVarDecl>(D)) {
+    switch (P->getParameterPassingKind()) {
+    case ParameterPassingKind::In: OS << " in"; break;
+    case ParameterPassingKind::Out: OS << " out"; break;
+    case ParameterPassingKind::Inout: OS << " inout"; break;
+    case ParameterPassingKind::Move: OS << " move"; break;
+    case ParameterPassingKind::DestructiveMove: OS << " destructive_move"; break;
+    case ParameterPassingKind::None: break;
+    }
+  }
   StorageClass SC = D->getStorageClass();
   if (SC != SC_None)
     OS << ' ' << VarDecl::getStorageClassSpecifierString(SC);

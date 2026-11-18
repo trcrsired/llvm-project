@@ -15976,8 +15976,34 @@ static void CheckExplicitObjectParameter(Sema &S, ParmVarDecl *P,
     LSI->ExplicitObjectParameter = P;
 }
 
+/// Decide whether an `in T` parameter should cross the call by value instead
+/// of by const reference. Scalars and small trivially-copyable records are
+/// already passed in registers, so a by-value const copy avoids an indirect
+/// pointer load with no ABI cost. The register budget is 2 on SysV-like targets
+/// and 4 on wincall; larger (or non-trivially-copyable) types use const ref.
+static bool isCheapToCopyInParameter(ASTContext &Ctx, QualType T) {
+  if (T->isReferenceType() || T->isFunctionType() || T->isVoidType())
+    return false;
+
+  // All scalar types (arithmetic, pointer, member pointer, enum, nullptr,
+  // bool) are cheap to copy.
+  if (T->isScalarType() || T->isEnumeralType())
+    return true;
+
+  const auto *RD = T->getAsCXXRecordDecl();
+  if (!RD || !RD->isCompleteDefinition() || !RD->isTriviallyCopyable())
+    return false;
+
+  uint64_t Size = Ctx.getTypeSize(T); // bits
+  unsigned RegBits = Ctx.getTargetInfo().getPointerWidth(LangAS::Default);
+  unsigned MaxRegs =
+      Ctx.getTargetInfo().getTriple().isWindowsMSVCEnvironment() ? 4 : 2;
+  return Size <= RegBits * MaxRegs;
+}
+
 Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
-                                 SourceLocation ExplicitThisLoc) {
+                                 SourceLocation ExplicitThisLoc,
+                                 ParameterPassingKind PPKind) {
   const DeclSpec &DS = D.getDeclSpec();
 
   // Verify C99 6.7.5.3p2: The only SCS allowed is 'register'.
@@ -16033,6 +16059,48 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType parmDeclType = TInfo->getType();
 
+  // Lower the d0708 parameter-passing kind to its reference form. This is a
+  // provisional representation (design decision D3): a distinct borrow type
+  // can replace it once lifetime checking is in place. The original spelling
+  // is still recorded on the ParmVarDecl via getParameterPassingKind().
+  if (PPKind != ParameterPassingKind::None) {
+    switch (PPKind) {
+    case ParameterPassingKind::In:
+      // Cheap-to-copy types cross in registers anyway: pass a read-only copy
+      // by value (const T), avoiding a pointer indirection. Everything else
+      // uses a const reference.
+      if (isCheapToCopyInParameter(Context, parmDeclType))
+        parmDeclType = parmDeclType.withConst();
+      else
+        parmDeclType =
+            Context.getLValueReferenceType(parmDeclType.withConst());
+      break;
+    case ParameterPassingKind::Out:
+    case ParameterPassingKind::Inout:
+      parmDeclType = Context.getLValueReferenceType(parmDeclType);
+      break;
+    case ParameterPassingKind::Move:
+      parmDeclType = Context.getRValueReferenceType(parmDeclType);
+      break;
+    case ParameterPassingKind::DestructiveMove:
+      // A destructive move is a relocation: bitwise copy plus
+      // skip-source-destructor, valid only for trivially relocatable types.
+      // The callee owns a complete T, so the parameter is T by value.
+      if (!parmDeclType->isDependentType() &&
+          !IsCXXTriviallyRelocatableType(parmDeclType)) {
+        Diag(D.getIdentifierLoc(),
+             diag::err_destructive_move_not_trivially_relocatable)
+            << parmDeclType;
+        D.setInvalidType(true);
+      }
+      break;
+    case ParameterPassingKind::None:
+      break;
+    }
+    TInfo = Context.getTrivialTypeSourceInfo(parmDeclType,
+                                             D.getIdentifierLoc());
+  }
+
   // Check for redeclaration of parameters, e.g. int foo(int x, int x);
   const IdentifierInfo *II = D.getIdentifier();
   if (II) {
@@ -16078,6 +16146,7 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   ParmVarDecl *New =
       CheckParameter(Context.getTranslationUnitDecl(), D.getBeginLoc(),
                      D.getIdentifierLoc(), II, parmDeclType, TInfo, SC);
+  New->setParameterPassingKind(PPKind);
 
   if (D.isInvalidType())
     New->setInvalidDecl();

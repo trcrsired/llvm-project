@@ -533,6 +533,11 @@ void Parser::Initialize() {
   Ident_abstract = nullptr;
   Ident_override = nullptr;
   Ident_GNU_final = nullptr;
+  Ident_in = nullptr;
+  Ident_out = nullptr;
+  Ident_inout = nullptr;
+  Ident_move = nullptr;
+  Ident_destructive_move = nullptr;
 
   Ident_super = &PP.getIdentifierTable().get("super");
 

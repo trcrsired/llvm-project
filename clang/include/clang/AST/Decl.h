@@ -1050,6 +1050,11 @@ protected:
     /// The number of parameters preceding this parameter in the
     /// function parameter scope in which it was declared.
     unsigned ParameterIndex : NumParameterIndexBits;
+
+    /// The d0708 parameter-passing kind (in/out/inout/move/destructive_move)
+    /// written on this parameter, or None for an ordinary parameter.
+    LLVM_PREFERRED_TYPE(ParameterPassingKind)
+    unsigned ParameterPassing : 3;
   };
 
   class NonParmVarDeclBitfields {
@@ -1900,6 +1905,14 @@ public:
   void setObjCDeclQualifier(ObjCDeclQualifier QTVal) {
     assert(ParmVarDeclBits.IsObjCMethodParam);
     ParmVarDeclBits.ScopeDepthOrObjCQuals = QTVal;
+  }
+
+  /// The d0708 parameter-passing kind written on this parameter.
+  ParameterPassingKind getParameterPassingKind() const {
+    return static_cast<ParameterPassingKind>(ParmVarDeclBits.ParameterPassing);
+  }
+  void setParameterPassingKind(ParameterPassingKind K) {
+    ParmVarDeclBits.ParameterPassing = static_cast<unsigned>(K);
   }
 
   /// True if the value passed to this parameter must undergo

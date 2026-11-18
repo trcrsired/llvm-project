@@ -35,6 +35,18 @@ namespace clang {
   /// Define the kind of constexpr specifier.
   enum class ConstexprSpecKind { Unspecified, Constexpr, Consteval, Constinit };
 
+  /// The d0708 parameter-passing kind of a function parameter. These are
+  /// contextual keywords recognized only in parameter-decl-specifier position
+  /// when -fparameter-passing is enabled.
+  enum class ParameterPassingKind : unsigned {
+    None,
+    In,
+    Out,
+    Inout,
+    Move,
+    DestructiveMove
+  };
+
   /// In an if statement, this denotes whether the statement is
   /// a constexpr or consteval if statement.
   enum class IfStatementKind : unsigned {

@@ -4251,7 +4251,9 @@ public:
   /// ActOnParamDeclarator - Called from Parser::ParseFunctionDeclarator()
   /// to introduce parameters into function prototype scope.
   Decl *ActOnParamDeclarator(Scope *S, Declarator &D,
-                             SourceLocation ExplicitThisLoc = {});
+                             SourceLocation ExplicitThisLoc = {},
+                             ParameterPassingKind PPKind =
+                                 ParameterPassingKind::None);
 
   /// Synthesizes a variable for a parameter arising from a
   /// typedef.
