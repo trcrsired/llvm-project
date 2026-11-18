@@ -123,7 +123,7 @@ __declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
 GetModuleHandleW(wchar_t const *name) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(GetModuleHandleW, 4);
 __declspec(dllimport) void *__HERBCEPTIONS_WIN32_STDCALL
-GetProcAddress(void *module, char const *name) noexcept
+GetProcAddress(void *module_handle, char const *name) noexcept
     __HERBCEPTIONS_WIN32_IMPORT(GetProcAddress, 8);
 
 #if defined(_MSC_VER) && !defined(__clang__)
