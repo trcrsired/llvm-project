@@ -1498,8 +1498,12 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
     // std::error not visible: build an anonymous {void const*, __SIZE_TYPE__}
     // struct matching the cxx_std_error ABI layout.
     DeclContext *TU = Context.getTranslationUnitDecl();
-    auto *RD = RecordDecl::Create(Context, TagTypeKind::Struct, TU, Loc, Loc,
-                                  /*Id=*/nullptr, /*PrevDecl=*/nullptr);
+    // This runs in C++ mode only. Use a CXXRecordDecl (not a plain
+    // RecordDecl): C++ CodeGen assumes every record type here is a
+    // CXXRecordDecl, e.g. CheckAggExprForMemSetUse casts RT->getDecl() to
+    // CXXRecordDecl unconditionally. A plain RecordDecl crashes that cast.
+    auto *RD = CXXRecordDecl::Create(Context, TagTypeKind::Struct, TU, Loc, Loc,
+                                     /*Id=*/nullptr, /*PrevDecl=*/nullptr);
     RD->setImplicit();
     RD->startDefinition();
     QualType VoidPtr = Context.getPointerType(Context.VoidTy.withConst());
@@ -1508,12 +1512,14 @@ ExprResult Sema::BuildCxaExceptionErrorValue(SourceLocation Loc) {
                                  /*TInfo=*/nullptr, /*BW=*/nullptr,
                                  /*Mutable=*/false, /*ICIS=*/ICIS_NoInit);
     F1->setImplicit();
+    F1->setAccess(AS_public);
     RD->addDecl(F1);
     auto *F2 = FieldDecl::Create(Context, RD, Loc, Loc,
                                  /*Id=*/nullptr, Context.getSizeType(),
                                  /*TInfo=*/nullptr, /*BW=*/nullptr,
                                  /*Mutable=*/false, /*ICIS=*/ICIS_NoInit);
     F2->setImplicit();
+    F2->setAccess(AS_public);
     RD->addDecl(F2);
     RD->completeDefinition();
     ErrorTy = Context.getTypeDeclType(static_cast<const TypeDecl *>(RD));
