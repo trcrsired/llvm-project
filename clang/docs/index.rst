@@ -131,6 +131,7 @@ Design Documents
    LLVMExceptionHandlingCodeGen
    Herbceptions
    HerbceptionsImplementation
+   SafeCXX
 
 Indices and tables
 ==================

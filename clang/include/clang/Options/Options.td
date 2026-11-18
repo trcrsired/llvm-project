@@ -2340,11 +2340,35 @@ defm cxx_exceptions: BoolFOption<"cxx-exceptions",
   LangOpts<"CXXExceptions">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable C++ exceptions">,
   NegFlag<SetFalse>>;
+defvar safecxx_opt = LangOpts<"SafeCXX">;
+
+// The umbrella must be defined first: the individual features below use its
+// LangOpt as their default, so it has to be parsed before they are.
+defm safecxx: BoolFOption<"safecxx",
+  LangOpts<"SafeCXX">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable safe C++ (umbrella for all safe-C++ features)">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
 defm herbceptions: BoolFOption<"herbceptions",
-  LangOpts<"HerbExceptions">, DefaultFalse,
+  LangOpts<"HerbExceptions">, Default<safecxx_opt.KeyPath>,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable herbception (zero-overhead deterministic exceptions)">,
   NegFlag<SetFalse>>;
+defm parameter_passing: BoolFOption<"parameter-passing",
+  LangOpts<"ParameterPassing">, Default<safecxx_opt.KeyPath>,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable d0708 parameter passing (in/out/inout/move/destructive_move)">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
+defm lifetime_protocol: BoolFOption<"lifetime-protocol",
+  LangOpts<"LifetimeProtocol">, Default<safecxx_opt.KeyPath>,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable P1179 lifetime protocol checking">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
+defm safecxx_unsafe: BoolFOption<"safecxx-unsafe",
+  LangOpts<"SafeCXXUnsafe">, Default<safecxx_opt.KeyPath>,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable the [[unsafe]] attribute fence">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
 defm async_exceptions: BoolFOption<"async-exceptions",
   LangOpts<"EHAsynch">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

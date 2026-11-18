@@ -7184,6 +7184,12 @@ static void handleAvailableOnlyInDefaultEvalMethod(Sema &S, Decl *D,
   handleSimpleAttribute<AvailableOnlyInDefaultEvalMethodAttr>(S, D, AL);
 }
 
+// The safe-C++ fence on a declaration is a call restriction; enforcing that is
+// a later step. For now just record the attribute so it parses cleanly.
+static void handleUnsafeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  D->addAttr(UnsafeAttr::Create(S.Context, AL));
+}
+
 static void handleNoMergeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   auto *VDecl = dyn_cast<VarDecl>(D);
   if (VDecl && !VDecl->isFunctionPointerType()) {
@@ -8254,6 +8260,9 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_FunctionReturnThunks:
     handleFunctionReturnThunksAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_Unsafe:
+    handleUnsafeAttr(S, D, AL);
     break;
   case ParsedAttr::AT_NoMerge:
     handleNoMergeAttr(S, D, AL);

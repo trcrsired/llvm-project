@@ -242,6 +242,12 @@ static Attr *handleNoMergeAttr(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) NoMergeAttr(S.Context, A);
 }
 
+// The safe-C++ fence on a block: just record the attribute for now.
+static Attr *handleUnsafeAttr(Sema &S, Stmt *St, const ParsedAttr &A,
+                              SourceRange Range) {
+  return ::new (S.Context) UnsafeAttr(S.Context, A);
+}
+
 static Attr *handleNoConvergentAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                     SourceRange Range) {
   CallExprFinder CEF(S, St);
@@ -794,6 +800,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleOpenCLUnrollHint(S, St, A, Range);
   case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
+  case ParsedAttr::AT_Unsafe:
+    return handleUnsafeAttr(S, St, A, Range);
   case ParsedAttr::AT_NoMerge:
     return handleNoMergeAttr(S, St, A, Range);
   case ParsedAttr::AT_NoInline:

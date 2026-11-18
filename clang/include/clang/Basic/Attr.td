@@ -1990,6 +1990,18 @@ def NoMerge : DeclOrStmtAttr {
                              "functions, statements and variables">;
 }
 
+// The safe-C++ fence. Recognized as an (unscoped) C++11 attribute by our
+// compiler so that fenced headers parse cleanly, but it only carries meaning
+// under -fsafecxx / -fsafecxx-unsafe. Detection via __has_cpp_attribute is
+// gated in clang::hasAttribute(). Other compilers ignore it as a no-op.
+def Unsafe : DeclOrStmtAttr {
+  let Spellings = [CXX11<"", "unsafe", 202600>];
+  let Documentation = [UnsafeDocs];
+  let Subjects = SubjectList<[Function, Stmt, Namespace, Var, CXXRecord, ClassTemplate,
+                              FunctionTemplate],
+                             WarnDiag, "declarations and statements">;
+}
+
 def MustTail : StmtAttr, TargetSpecificAttr<TargetMustTailAvailable> {
   let Spellings = [Clang<"musttail">];
   let Documentation = [MustTailDocs];

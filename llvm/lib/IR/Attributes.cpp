@@ -1226,7 +1226,8 @@ Type *AttributeSet::getStructRetType() const {
 }
 
 Type *AttributeSet::getThrowsSretType() const {
-  return SetNode ? SetNode->getAttributeType(Attribute::HerbThrowsSret) : nullptr;
+  return SetNode ? getNode()->getAttributeType(Attribute::HerbThrowsSret)
+                 : nullptr;
 }
 
 Type *AttributeSet::getPreallocatedType() const {
