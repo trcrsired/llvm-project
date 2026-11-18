@@ -468,7 +468,7 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   extensions. `-fspv-extension=all` restores the previous behavior.
 
 - `-fdevirtualize-speculatively` can now also be used to enable speculative
-  devirtualization when using LTO, with the exception of Distributed ThinLTO.
+  devirtualization when using LTO.
 
 ### Removed Compiler Flags
 
@@ -643,6 +643,23 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   note: returned here
   int* p(int *in [[clang::noescape]]) { return in; }
                                                ^~
+  ```
+
+- Added `-Wlifetime-safety-capture-by-violation` to detect a parameter that the
+  body captures by the enclosing object or by global storage, while none of its
+  `[[clang::lifetime_capture_by]]` attributes names that entity or `unknown`.
+  For example:
+
+  ```c++
+  struct Cap { const int *p; };
+  struct S {
+    const int *field;
+    // warning: 'x' is captured by this object but is not marked
+    // [[clang::lifetime_capture_by_this]]
+    void store(Cap &c, const int &x [[clang::lifetime_capture_by(c)]]) {
+      field = &x;
+    }
+  };
   ```
 
 - Added `-Wlifetime-safety-dangling-field` to detect dangling field references
@@ -1630,6 +1647,9 @@ The `alpha.cplusplus.UseAfterLifetimeEnd` checker was renamed to `alpha.core.Use
   normalize `cfi-icall` and `kcfi` function type metadata, leaving C++ class
   vtable, member-pointer, and `-fexperimental-call-graph-section` metadata
   canonical so whole-program devirtualization works reliably. (#GH242466)
+- `-fsanitize=alloc-token` now also infers the allocated type from a placement
+  `new` into the result of an untyped allocation call, e.g. `new (malloc(n)) T`
+  or `void *p = malloc(n); new (p) T;`.
 
 ### Python Binding Changes
 
