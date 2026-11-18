@@ -657,12 +657,12 @@ inline msvc_current_exception_fn __msvc_eh_ptr_current_exception_export =
     nullptr;
 
 inline bool
-msvc_eh_ptr_try_current_exception_module(void *module) noexcept {
-  if (module == nullptr)
+msvc_eh_ptr_try_current_exception_module(void *module_handle) noexcept {
+  if (module_handle == nullptr)
     return false;
   auto const fn = reinterpret_cast<msvc_current_exception_fn>(
-      win32::GetProcAddress(module, reinterpret_cast<char const *>(
-                                        u8"__current_exception")));
+      win32::GetProcAddress(module_handle,
+                            reinterpret_cast<char const *>(u8"__current_exception")));
   if (fn == nullptr)
     return false;
   __msvc_eh_ptr_current_exception_export = fn;
@@ -672,23 +672,23 @@ msvc_eh_ptr_try_current_exception_module(void *module) noexcept {
 inline void msvc_eh_ptr_load_current_exception() noexcept {
   using ::std::error_domains::__herbceptions_detail::__win32_use_9xa_apis;
   if constexpr (__win32_use_9xa_apis) {
-    char const *const modules[] = {
+    char const *const module_names[] = {
         reinterpret_cast<char const *>(u8"ucrtbase.dll"),
         reinterpret_cast<char const *>(u8"ucrtbased.dll"),
         reinterpret_cast<char const *>(u8"vcruntime140.dll"),
         reinterpret_cast<char const *>(u8"vcruntime140d.dll")};
-    for (char const *module : modules) {
+    for (char const *module_name : module_names) {
       if (msvc_eh_ptr_try_current_exception_module(
-              win32::GetModuleHandleA(module)))
+              win32::GetModuleHandleA(module_name)))
         return;
     }
   } else {
-    char16_t const *const modules[] = {
+    char16_t const *const module_names[] = {
         u"ucrtbase.dll", u"ucrtbased.dll", u"vcruntime140.dll",
         u"vcruntime140d.dll"};
-    for (char16_t const *module : modules) {
-      if (msvc_eh_ptr_try_current_exception_module(
-              win32::GetModuleHandleW(reinterpret_cast<msvc_wide_ptr>(module))))
+    for (char16_t const *module_name : module_names) {
+      if (msvc_eh_ptr_try_current_exception_module(win32::GetModuleHandleW(
+              reinterpret_cast<msvc_wide_ptr>(module_name))))
         return;
     }
   }
