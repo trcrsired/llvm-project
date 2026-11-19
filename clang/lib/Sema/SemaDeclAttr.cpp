@@ -7190,10 +7190,16 @@ static void handleUnsafeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(UnsafeAttr::Create(S.Context, AL));
 }
 
-// P1179 lifetime protocol marks. Record the attributes; the provenance
-// analysis that consumes them is a later step.
+// P1179 lifetime protocol marks. These are the only public provenance marks.
+// Under the lifetime-protocol toggle we additionally translate them to the
+// internal attributes Clang's lifetime-safety engine consumes: [[owner]] ->
+// GSL Owner, and [[lifetime("this")]] -> lifetimebound. The translation is
+// implicit (never written in source) so the engine stays invisible to users.
 static void handleOwnerAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(SafeOwnerAttr::Create(S.Context, AL));
+  if (S.getLangOpts().SafeCXX || S.getLangOpts().LifetimeProtocol)
+    if (isa<CXXRecordDecl>(D))
+      D->addAttr(OwnerAttr::CreateImplicit(S.Context, nullptr));
 }
 
 static void handleLifetimeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -7208,6 +7214,10 @@ static void handleLifetimeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     return;
   }
   D->addAttr(LifetimeAttr::Create(S.Context, Source, AL));
+  if ((S.getLangOpts().SafeCXX || S.getLangOpts().LifetimeProtocol) &&
+      Source == "this")
+    if (isa<ParmVarDecl>(D))
+      D->addAttr(LifetimeBoundAttr::CreateImplicit(S.Context));
 }
 
 static void handleNoMergeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
