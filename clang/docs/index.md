@@ -207,6 +207,9 @@ LLVMExceptionHandlingCodeGen
 * {doc}`HardwareAssistedAddressSanitizerDesign`
 * {doc}`ConstantInterpreter`
 * {doc}`LLVMExceptionHandlingCodeGen`
+* {doc}`Herbceptions`
+* {doc}`HerbceptionsImplementation`
+* {doc}`SafeCXX`
 
 # Indices and tables
 
