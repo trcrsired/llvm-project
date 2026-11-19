@@ -1444,8 +1444,13 @@ bool CIRGenFunction::isCatchOrCleanupRequired() {
 }
 
 RValue CIRGenFunction::emitHerbceptionTry(const CXXTryExpr *E) {
-  assert(curFnInfo && curFnInfo->hasThrowsReturn() &&
-         "herbception try outside a throws function");
+  // A herbception try is not necessarily emitted in a throws function. Sema
+  // wraps a throws call used as a default argument in an implicit try() in the
+  // *declared* function's context, but the expression is emitted in the
+  // caller's frame, which may be a plain function (e.g. main(), where the
+  // error traps) or a catch-throws scope (where it routes to the handler).
+  // The routing logic below handles all these cases, so do not assert that
+  // the enclosing function has a throws return.
 
   const Expr *sub = E->getSubExpr()->IgnoreImplicit();
   const CallExpr *call = cast<CallExpr>(sub);
