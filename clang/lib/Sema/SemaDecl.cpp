@@ -6381,11 +6381,15 @@ void Sema::noteUnsafeFenceRange(SourceLocation Begin, SourceLocation End) {
   if (Begin.isInvalid() || End.isInvalid())
     return;
   SourceManager &SM = getSourceManager();
-  FileID FID = SM.getFileID(Begin);
-  if (!FID.isValid() || FID != SM.getFileID(End))
+  // The braces may come from macros; use the invocation (expansion) sites so
+  // both ends resolve to the same file and to the right offsets.
+  SourceLocation BeginLoc = SM.getExpansionLoc(Begin);
+  SourceLocation EndLoc = SM.getExpansionLoc(End);
+  FileID FID = SM.getFileID(BeginLoc);
+  if (!FID.isValid() || FID != SM.getFileID(EndLoc))
     return;
   UnsafeFenceRanges.push_back(
-      {FID, SM.getFileOffset(Begin), SM.getFileOffset(End)});
+      {FID, SM.getFileOffset(BeginLoc), SM.getFileOffset(EndLoc)});
 }
 
 void Sema::noteUnsafeFenceLoc(SourceLocation Loc) {
@@ -6399,12 +6403,13 @@ void Sema::noteUnsafeFenceLoc(SourceLocation Loc) {
   // A declaration written in the same file as the innermost fence is covered
   // precisely by that fence's range; recording the whole file would wrongly
   // exempt code that follows the fence.
-  FileID FenceFID = SM.getFileID(SM.getExpansionLoc(UnsafeFenceStarts.back()));
+  FileID FenceFID =
+      SM.getFileID(SM.getExpansionLoc(UnsafeFenceStarts.back()));
   if (DeclFID == FenceFID)
     return;
   // A different file can only be reached through a fenced `#include` (or one
   // of its transitive includes): the whole file is legacy code.
-  UnsafeFenceRanges.push_back({DeclFID, 0, ~0u});
+  UnsafeFenceFiles.insert(DeclFID);
 }
 
 bool Sema::isInUnsafeFenceRange(SourceLocation Loc) const {
@@ -6415,6 +6420,8 @@ bool Sema::isInUnsafeFenceRange(SourceLocation Loc) const {
   FileID FID = SM.getFileID(ExplLoc);
   if (!FID.isValid())
     return false;
+  if (UnsafeFenceFiles.contains(FID))
+    return true;
   unsigned Offset = SM.getFileOffset(ExplLoc);
   for (const UnsafeFenceRange &R : UnsafeFenceRanges)
     if (R.FID == FID && Offset >= R.BeginOffset && Offset <= R.EndOffset)
@@ -6427,6 +6434,18 @@ bool Sema::isInMainFileUnsafeFence() const {
     return false;
   return getSourceManager().isWrittenInMainFile(
       getSourceManager().getExpansionLoc(UnsafeFenceStarts.front()));
+}
+
+bool Sema::isUnsafeToCall(const FunctionDecl *FD) const {
+  for (const FunctionDecl *D = FD; D;) {
+    if (D->hasAttr<UnsafeAttr>())
+      return true;
+    const FunctionDecl *Pattern = D->getTemplateInstantiationPattern();
+    if (!Pattern || Pattern == D)
+      break;
+    D = Pattern;
+  }
+  return false;
 }
 
 bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {

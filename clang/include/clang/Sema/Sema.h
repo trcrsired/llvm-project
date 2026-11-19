@@ -8884,19 +8884,23 @@ public:
     SourceLocation BeginLoc;
   };
 
-  /// A source region treated as unsafe. `EndOffset` is `UINT_MAX` for a file
-  /// that was pulled in wholesale by a fence (e.g. a fenced `#include`).
+  /// A source region treated as unsafe. `EndOffset` is `UINT_MAX` when the
+  /// whole file is unsafe (see \c UnsafeFenceFiles).
   struct UnsafeFenceRange {
     FileID FID;
     unsigned BeginOffset;
     unsigned EndOffset;
   };
 
-  /// Regions whose contents were parsed inside a `[[unsafe]] { }` fence. A
-  /// fence may wrap an `#include`, in which case the header's declarations
-  /// (and, crucially, their template specializations instantiated later, when
-  /// the fence is no longer being parsed) belong to legacy code and must not
-  /// be subject to safe-source-only rules.
+  /// Files pulled in wholesale by a fenced `#include` (or one of their
+  /// transitive includes). Unlike a same-file fence range, the whole file is
+  /// legacy code, including declarations that appear after the `#include`.
+  llvm::SmallDenseSet<FileID, 16> UnsafeFenceFiles;
+
+  /// Precise `[[unsafe]] { ... }` ranges inside the file that contains the
+  /// fence. A fence is a source range, not a whole file: code written after
+  /// the closing brace is checked again. This also covers template patterns
+  /// from a self-fenced library header that are instantiated later.
   llvm::SmallVector<UnsafeFenceRange, 8> UnsafeFenceRanges;
 
   /// Record the fenced region [\p Begin, \p End] in the file that contains the
@@ -8937,6 +8941,12 @@ public:
   /// per-declaration checks, because a template specialization is
   /// instantiated after its (possibly fenced) pattern's fence has closed.
   bool enforcingSafeCXXAt(SourceLocation Loc) const;
+
+  /// True when calling \p FD is restricted to `[[unsafe]] { }` blocks. A
+  /// function template pattern imported by a fenced `#include` is marked
+  /// [[unsafe]], and its specializations inherit the restriction even if the
+  /// attribute itself is not copied onto the specialization declaration.
+  bool isUnsafeToCall(const FunctionDecl *FD) const;
 
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'return_failure{E}' spec.
