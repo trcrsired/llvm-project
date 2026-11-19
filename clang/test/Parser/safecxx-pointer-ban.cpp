@@ -90,3 +90,21 @@ static void d0708(in int x, out int y, inout int z, move int w) noexcept {
   (void)w;
 }
 static void d0708_big(in Big b) noexcept { (void)b; }
+
+// --- range-for ---------------------------------------------------------------
+// Hidden __range/__begin/__end variables are compiler-generated, so they are
+// not checked; a by-value loop variable is fine.
+[[unsafe]] {
+struct V { int a[4]; int *begin() noexcept { return a; } int *end() noexcept { return a + 4; } };
+}
+static void range_value(inout V v) noexcept {
+  for (auto x : v) (void)x;  // OK: copy
+}
+static void range_ref(inout V v) noexcept {
+  // expected-error@+1 {{raw pointer or reference type}}
+  for (auto &x : v) (void)x;
+}
+static void range_in(inout V v) noexcept {
+  // expected-error@+1 {{unknown type name 'in'}}
+  for (in auto x : v) (void)x;
+}
