@@ -1,8 +1,8 @@
 // RUN: %clang_cc1 -fsyntax-only -fsafecxx -verify %s
 
-// Iterator APIs are call-restricted; index APIs are not. Range-for builds
-// begin()/end() directly (bypassing ActOnCallExpr), so it must enforce the
-// restriction too.
+// Iterator APIs are call-restricted when written in source, but a range-for's
+// compiler-generated begin()/end() calls are exempt: the user never names the
+// iterator and the loop variable is a checked in/inout borrow.
 
 [[unsafe]] {
 struct R {
@@ -16,8 +16,13 @@ struct R {
 static void use(inout R r) noexcept {
   r[0]; // OK: checked index API stays callable from safe code
 
-  for (in auto x : r) // expected-error 2 {{is unsafe: it is declared [[unsafe]]}}
+  // OK: compiler-generated begin()/end(), no iterator escapes.
+  for (in auto x : r)
     (void)x;
+
+  // Source-written calls are still restricted.
+  (void)r.begin(); // expected-error {{call to 'begin' is unsafe}}
+  (void)r.end();   // expected-error {{call to 'end' is unsafe}}
 }
 
 static void fenced_use(inout R r) noexcept {

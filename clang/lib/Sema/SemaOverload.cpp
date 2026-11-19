@@ -17328,18 +17328,13 @@ Sema::BuildForRangeBeginEndCall(SourceLocation Loc,
     }
   }
 
-  // Range-for builds its begin()/end() calls directly through BuildCallExpr,
-  // bypassing ActOnCallExpr. Enforce the [[unsafe]] call restriction here too,
-  // otherwise a range-for would be an escape hatch around the fence.
-  if (!isUnevaluatedContext() && !CallExpr->isInvalid() &&
-      CallExpr->get() != nullptr) {
-    if (const auto *CE = dyn_cast<::clang::CallExpr>(CallExpr->get())) {
-      if (const FunctionDecl *Callee = CE->getDirectCallee()) {
-        if (enforcingSafeCXXAt(CE->getExprLoc()) && isUnsafeToCall(Callee))
-          Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
-      }
-    }
-  }
+  // Range-for builds begin()/end() through BuildCallExpr, bypassing
+  // ActOnCallExpr. These calls are compiler-generated: the user never names
+  // the iterator, and in safe source the loop variable must be an `in`/
+  // `inout` borrow, so the raw iterator cannot escape. They are therefore
+  // intentionally not subject to the [[unsafe]] call restriction, the same
+  // way compiler-generated range-for variables are exempt from the pointer
+  // ban (D24). A source-written `v.begin()` is still restricted.
   return FRS_Success;
 }
 
