@@ -1985,6 +1985,17 @@ Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
   ParsingDeclSpec DS(*this);
   DS.takeAttributesAppendingingFrom(DeclSpecAttrs);
 
+  // d0708 variable borrows: `in auto b = v[i];` / `inout auto b = v[i];`.
+  // These contextual keywords are recognized only here, immediately before
+  // the decl-specifier sequence, and only for the two borrow kinds. They are
+  // never reserved, so `int in = 0;` still parses normally.
+  if (ParameterPassingKind VPK = isParameterPassingKeyword();
+      VPK == ParameterPassingKind::In ||
+      VPK == ParameterPassingKind::Inout) {
+    ConsumeToken();
+    DS.setVariablePassingKind(VPK);
+  }
+
   ParsedTemplateInfo TemplateInfo;
   DeclSpecContext DSContext = getDeclSpecContextFromDeclaratorContext(Context);
   ParseDeclarationSpecifiers(DS, TemplateInfo, AS_none, DSContext);

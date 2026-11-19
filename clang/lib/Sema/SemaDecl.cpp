@@ -6777,6 +6777,22 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   /// Get the innermost enclosing declaration scope.
   S = S->getDeclParent();
 
+  // d0708 variable borrow (D4): `in auto b = v[i];` lowers to a tracked
+  // `const T&`, `inout auto b = v[i];` to `T&`. Always a reference -- unlike
+  // `in T` parameters, a cheap-to-copy element must not be copied here, or
+  // the borrow (and the provenance/lifetime check) would silently vanish.
+  ParameterPassingKind VPK = D.getDeclSpec().getVariablePassingKind();
+  if (VPK != ParameterPassingKind::None &&
+      D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef &&
+      !R->isFunctionType()) {
+    QualType Borrowed = R;
+    if (VPK == ParameterPassingKind::In)
+      Borrowed = Borrowed.withConst();
+    QualType RefT = Context.getLValueReferenceType(Borrowed);
+    R = RefT;
+    TInfo = Context.getTrivialTypeSourceInfo(RefT, D.getIdentifierLoc());
+  }
+
   NamedDecl *New;
 
   bool AddToScope = true;

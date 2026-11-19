@@ -426,6 +426,12 @@ private:
   LLVM_PREFERRED_TYPE(bool)
   unsigned ConstrainedAuto : 1;
 
+  /// The d0708 borrow kind recognized on a variable declaration
+  /// (`in auto b = v[i];` / `inout auto b = v[i];`). Distinct from the
+  /// parameter kind so that parameters keep their existing lowering.
+  LLVM_PREFERRED_TYPE(ParameterPassingKind)
+  unsigned VariablePassingKind : 3;
+
   // type-qualifiers
   LLVM_PREFERRED_TYPE(TQ)
   unsigned TypeQualifiers : 5;  // Bitwise OR of TQ.
@@ -539,6 +545,8 @@ public:
         TypeSpecType(TST_unspecified), TypeAltiVecVector(false),
         TypeAltiVecPixel(false), TypeAltiVecBool(false), TypeSpecOwned(false),
         TypeSpecPipe(false), TypeSpecSat(false), ConstrainedAuto(false),
+        VariablePassingKind(
+            static_cast<unsigned>(ParameterPassingKind::None)),
         TypeQualifiers(TQ_unspecified),
         OB_state(static_cast<unsigned>(OverflowBehaviorState::Unspecified)),
         FS_inline_specified(false), FS_forceinline_specified(false),
@@ -552,6 +560,15 @@ public:
   SCS getStorageClassSpec() const { return (SCS)StorageClassSpec; }
   TSCS getThreadStorageClassSpec() const {
     return (TSCS)ThreadStorageClassSpec;
+  }
+
+  /// d0708 variable borrow kind (in/inout), set by the parser when the
+  /// contextual keyword precedes the decl-specifier sequence.
+  ParameterPassingKind getVariablePassingKind() const {
+    return static_cast<ParameterPassingKind>(VariablePassingKind);
+  }
+  void setVariablePassingKind(ParameterPassingKind K) {
+    VariablePassingKind = static_cast<unsigned>(K);
   }
   bool isExternInLinkageSpec() const { return SCS_extern_in_linkage_spec; }
   void setExternInLinkageSpec(bool Value) {

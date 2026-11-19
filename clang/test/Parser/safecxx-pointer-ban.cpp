@@ -104,7 +104,10 @@ static void range_ref(inout V v) noexcept {
   // expected-error@+1 {{raw pointer or reference type}}
   for (auto &x : v) (void)x;
 }
+// `in auto` / `inout auto` are now implemented (D4), so range-for can bind
+// tracked borrows instead of naming a raw reference. See
+// safecxx-variable-borrow.cpp.
 static void range_in(inout V v) noexcept {
-  // expected-error@+1 {{unknown type name 'in'}}
   for (in auto x : v) (void)x;
+  for (inout auto y : v) y = 1;
 }
