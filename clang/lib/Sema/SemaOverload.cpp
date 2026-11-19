@@ -17327,6 +17327,19 @@ Sema::BuildForRangeBeginEndCall(SourceLocation Loc,
       return FRS_DiagnosticIssued;
     }
   }
+
+  // Range-for builds its begin()/end() calls directly through BuildCallExpr,
+  // bypassing ActOnCallExpr. Enforce the [[unsafe]] call restriction here too,
+  // otherwise a range-for would be an escape hatch around the fence.
+  if (!isUnevaluatedContext() && !CallExpr->isInvalid() &&
+      CallExpr->get() != nullptr) {
+    if (const auto *CE = dyn_cast<::clang::CallExpr>(CallExpr->get())) {
+      if (const FunctionDecl *Callee = CE->getDirectCallee()) {
+        if (enforcingSafeCXXAt(CE->getExprLoc()) && isUnsafeToCall(Callee))
+          Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
+      }
+    }
+  }
   return FRS_Success;
 }
 

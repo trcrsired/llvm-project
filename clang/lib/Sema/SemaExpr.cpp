@@ -6960,22 +6960,6 @@ static void DiagnosedUnqualifiedCallsToStdFunctions(Sema &S,
       << FixItHint::CreateInsertion(DRE->getLocation(), "std::");
 }
 
-// Returns true when calling \p FD is restricted to `[[unsafe]] { }` blocks.
-// A function template pattern imported by a fenced `#include` is marked
-// [[unsafe]], and its specializations inherit the restriction even if the
-// attribute itself is not copied onto the specialization declaration.
-static bool isUnsafeToCall(const FunctionDecl *FD) {
-  for (const FunctionDecl *D = FD; D;) {
-    if (D->hasAttr<UnsafeAttr>())
-      return true;
-    const FunctionDecl *Pattern = D->getTemplateInstantiationPattern();
-    if (!Pattern || Pattern == D)
-      break;
-    D = Pattern;
-  }
-  return false;
-}
-
 ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                MultiExprArg ArgExprs, SourceLocation RParenLoc,
                                Expr *ExecConfig) {
