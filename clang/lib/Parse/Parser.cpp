@@ -768,7 +768,15 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
         while (MaybeParseCXX11Attributes(InnerAttrs) ||
                MaybeParseGNUAttributes(InnerDSAttrs))
           ;
-        ParseExternalDeclaration(InnerAttrs, InnerDSAttrs);
+        DeclGroupPtrTy Result =
+            ParseExternalDeclaration(InnerAttrs, InnerDSAttrs);
+        // The fence is scope-transparent and has no enclosing declaration to
+        // carry its contents, so at top level the parsed decl group must be
+        // handed to the consumer directly. Otherwise CodeGen never sees the
+        // declarations (e.g. inline definitions) coming from a fenced
+        // #include, and they are left undefined at link time.
+        if (Result && !getCurScope()->getParent())
+          Actions.getASTConsumer().HandleTopLevelDecl(Result.get());
       }
       if (Tok.is(tok::r_brace))
         ConsumeBrace();

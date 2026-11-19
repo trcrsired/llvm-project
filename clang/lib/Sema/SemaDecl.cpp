@@ -6375,6 +6375,33 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
   }
 }
 
+void Sema::noteUnsafeFenceLoc(SourceLocation Loc) {
+  if (Loc.isInvalid())
+    return;
+  // Declarations written directly in the file that contains the fence are
+  // already exempt while the fence is being parsed; recording that file would
+  // wrongly exempt the rest of it after the fence closes. Only files pulled
+  // in by a fenced `#include` (and their transitive includes) need to be
+  // remembered for later template instantiations.
+  if (getSourceManager().isWrittenInMainFile(Loc))
+    return;
+  FileID FID = getSourceManager().getFileID(Loc);
+  if (FID.isValid())
+    UnsafeFenceFiles.insert(FID);
+}
+
+bool Sema::isInUnsafeFenceFile(SourceLocation Loc) const {
+  if (Loc.isInvalid())
+    return false;
+  FileID FID = getSourceManager().getFileID(Loc);
+  return FID.isValid() && UnsafeFenceFiles.contains(FID);
+}
+
+bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
+  return enforcingSafeCXX() && !getSourceManager().isInSystemHeader(Loc) &&
+         !isInUnsafeFenceFile(Loc);
+}
+
 // Safe source rule 1 (see DESIGN.md, refined by D24): naming a raw pointer,
 // reference or pointer-to-member type is confined to [[unsafe]] fences. The
 // check is made on the *source-written* declared type before d0708 lowering,
@@ -6404,6 +6431,16 @@ static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T) {
 
 Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
   D.setFunctionDefinitionKind(FunctionDefinitionKind::Declaration);
+
+  // Remember which files are being parsed inside a `[[unsafe]] { }` fence so
+  // that template specializations instantiated from them after the fence has
+  // closed are still treated as legacy code.
+  if (isInUnsafeFence()) {
+    SourceLocation FenceLoc = D.getIdentifierLoc();
+    if (FenceLoc.isInvalid())
+      FenceLoc = D.getBeginLoc();
+    noteUnsafeFenceLoc(FenceLoc);
+  }
 
   // Check if we are in an `omp begin/end declare variant` scope. Handle this
   // declaration only if the `bind_to_declaration` extension is set.
@@ -12535,12 +12572,19 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   assert(!NewFD->getReturnType()->isVariablyModifiedType() &&
          "Variably modified return types are not handled here");
 
+  // If this function is being declared inside a `[[unsafe]] { }` fence (e.g.
+  // a fenced `#include`), remember its file so that specializations later
+  // instantiated from the pattern are also treated as legacy code.
+  if (isInUnsafeFence())
+    noteUnsafeFenceLoc(NewFD->getLocation());
+
   // Safe C++ mandatory marks: every function declares its error channel and
   // (at namespace scope) its linkage explicitly. Check only the first
   // declaration, and only written (non-implicit, non-template-instantiated)
-  // functions, so one diagnostic per function.
-  if (enforcingSafeCXX() && !NewFD->isInvalidDecl() && !NewFD->isImplicit() &&
-      !NewFD->isDeleted() && !NewFD->isDefaulted() &&
+  // functions, so one diagnostic per function. Declarations that come from a
+  // system header or from a fenced `#include` are legacy code and exempt.
+  if (enforcingSafeCXXAt(NewFD->getLocation()) && !NewFD->isInvalidDecl() &&
+      !NewFD->isImplicit() && !NewFD->isDeleted() && !NewFD->isDefaulted() &&
       !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate() &&
       // main is special: its signature is fixed by the language, so it cannot
       // carry an explicit linkage specifier or error channel. Under safe C++

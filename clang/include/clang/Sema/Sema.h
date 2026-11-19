@@ -8822,6 +8822,21 @@ public:
     Sema &S;
   };
 
+  /// Files whose contents were parsed while inside a `[[unsafe]] { }` fence.
+  /// A fence may wrap an `#include`, in which case the header's declarations
+  /// (and, crucially, their template specializations instantiated later, when
+  /// the fence is no longer being parsed) belong to legacy code and must not
+  /// be subject to safe-source-only rules.
+  llvm::SmallDenseSet<FileID, 16> UnsafeFenceFiles;
+
+  /// Record the file containing \p Loc as having been parsed inside a fence.
+  /// Called only while `isInUnsafeFence()` is true.
+  void noteUnsafeFenceLoc(SourceLocation Loc);
+
+  /// True when \p Loc lies in a file whose contents were parsed inside a
+  /// `[[unsafe]] { }` fence (e.g. a fenced `#include`).
+  bool isInUnsafeFenceFile(SourceLocation Loc) const;
+
   /// True when the parser is currently inside a `[[unsafe]] { }` fence.
   bool isInUnsafeFence() const { return UnsafeFenceDepth != 0; }
 
@@ -8830,6 +8845,13 @@ public:
   bool enforcingSafeCXX() const {
     return getLangOpts().SafeCXX && !isInUnsafeFence();
   }
+
+  /// Location-sensitive form of \p enforcingSafeCXX. Same as
+  /// enforcingSafeCXX() but additionally exempts declarations that come from
+  /// a system header or from a file parsed inside a fence. This is the form
+  /// to use for per-declaration checks, because a template specialization is
+  /// instantiated after its (possibly fenced) pattern's fence has closed.
+  bool enforcingSafeCXXAt(SourceLocation Loc) const;
 
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'return_failure{E}' spec.
