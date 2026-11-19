@@ -6374,6 +6374,33 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
   }
 }
 
+// Safe source rule 1 (see DESIGN.md, refined by D24): naming a raw pointer,
+// reference or pointer-to-member type is confined to [[unsafe]] fences. The
+// check is made on the *source-written* declared type before d0708 lowering,
+// so in/out/inout/move parameters (which lower to references) and implicit
+// compiler-generated declarations are unaffected. Transient reference values
+// from expressions (v[i], *it) are not declarations and are not checked here.
+static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T) {
+  if (!S.enforcingSafeCXX() || T.isNull() || Loc.isInvalid() ||
+      S.getSourceManager().isInSystemHeader(Loc))
+    return;
+
+  // `int *a[4]` still names a pointer type, so look through array levels.
+  QualType Elem = T;
+  while (Elem->isArrayType())
+    Elem = S.Context.getBaseElementType(Elem);
+
+  QualType Canon = S.Context.getCanonicalType(Elem);
+  // A function declarator carries the whole function type; the spelling that
+  // matters is its return type (`int *f()`).
+  if (const auto *FT = Canon->getAs<FunctionType>())
+    Canon = FT->getReturnType().getCanonicalType();
+
+  if (Canon->isPointerType() || Canon->isReferenceType() ||
+      Canon->isMemberPointerType())
+    S.Diag(Loc, diag::err_safecxx_raw_ptr_ref) << T;
+}
+
 Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
   D.setFunctionDefinitionKind(FunctionDefinitionKind::Declaration);
 
@@ -6639,6 +6666,8 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType R = TInfo->getType();
+
+  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R);
 
   if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                       UPPC_DeclarationType))
@@ -16082,6 +16111,11 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType parmDeclType = TInfo->getType();
 
+  // Check the source spelling before d0708 lowering: in/out/inout/move
+  // parameters are declared with a value type and lowered to references, so
+  // they must not be flagged by the raw-pointer/reference ban.
+  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), parmDeclType);
+
   // Lower the d0708 parameter-passing kind to its reference form. This is a
   // provisional representation (design decision D3): a distinct borrow type
   // can replace it once lifetime checking is in place. The original spelling
@@ -19957,6 +19991,7 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType T = TInfo->getType();
+  diagnoseSafecxxRawPtrRef(*this, Loc, T);
   if (getLangOpts().CPlusPlus) {
     CheckExtraCXXDefaultArguments(D);
 

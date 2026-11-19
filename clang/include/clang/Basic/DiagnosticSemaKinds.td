@@ -13726,6 +13726,9 @@ def err_safecxx_dynamic_cast : Error<
 def err_safecxx_typeid : Error<
   "'typeid' is not allowed in safe C++ source; place the code inside a "
   "[[unsafe]] block">;
+def err_safecxx_raw_ptr_ref : Error<
+  "raw pointer or reference type %0 is not allowed in safe C++ source; "
+  "use in/inout/by value or place the declaration inside a [[unsafe]] block">;
 
 // Mandatory marks (umbrella -fsafecxx only).
 def err_safecxx_rule_of_five_copy_ctor : Error<

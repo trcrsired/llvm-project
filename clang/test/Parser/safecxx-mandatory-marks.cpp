@@ -10,12 +10,14 @@ extern void ok_extern() noexcept {}
 namespace { void ok_anon() noexcept {} }
 
 // Every virtual function (and every override) must be explicitly marked.
+// Copy operations use the d0708 spelling so no raw reference is named in
+// safe source; they still lower to the usual const& signatures.
 struct Base {
   virtual void f() noexcept {}
   virtual ~Base() noexcept = default;
   Base() noexcept = default;
-  Base(const Base&) = delete;
-  Base& operator=(const Base&) = delete;
+  Base(in Base) = delete;
+  Base operator=(in Base) = delete;
 };
 
 struct Derived : Base {
@@ -25,8 +27,8 @@ struct Derived : Base {
 struct Unmarked : Base {
   void f() noexcept {} // expected-error {{must be marked 'virtual', 'override', or 'final'}}
   Unmarked() noexcept = default;
-  Unmarked(const Unmarked&) = delete;
-  Unmarked& operator=(const Unmarked&) = delete;
+  Unmarked(in Unmarked) = delete;
+  Unmarked operator=(in Unmarked) = delete;
 };
 
 // Rule of Five: a destructor requires explicit copy operations.
@@ -36,8 +38,8 @@ struct BadRule { // expected-error {{not a copy constructor}} expected-error {{n
 
 struct GoodRule {
   ~GoodRule() noexcept {}
-  GoodRule(const GoodRule&) = delete;
-  GoodRule& operator=(const GoodRule&) = delete;
+  GoodRule(in GoodRule) = delete;
+  GoodRule operator=(in GoodRule) = delete;
 };
 
 // Inside a fence, none of these restrictions apply to declarations.

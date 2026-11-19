@@ -9,7 +9,13 @@
 // [[owner]] says a class's pointer fields are owned by the object itself.
 // [[lifetime("this")]] on a constructor parameter says the constructed view's
 // pointer fields borrow from that parameter.
+//
+// The two library types below are implementation internals, so their raw
+// pointer fields and reference parameters are written inside a trusted-unsafe
+// fence. The provenance engine still runs inside the fence; only the
+// source-level pointer/reference ban is suppressed.
 
+[[unsafe]] {
 struct [[owner]] my_string {
   const char* ptr_;
   my_string() noexcept : ptr_(nullptr) {}
@@ -44,6 +50,7 @@ static void good(const my_string& s) noexcept {
   my_view v(s);
   (void)v;
 }
+} // end trusted-unsafe library implementation
 
 // Without -fsafecxx / -flifetime-protocol the marks are inert and the engine
 // stays silent (see the third RUN line, which has no expected diagnostics).

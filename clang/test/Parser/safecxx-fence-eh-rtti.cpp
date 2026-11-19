@@ -38,22 +38,23 @@ static void ok_try() noexcept {
 struct Base {
   virtual ~Base() noexcept {}
   Base() noexcept = default;
-  Base(const Base&) = delete;
-  Base& operator=(const Base&) = delete;
+  Base(in Base) = delete;
+  Base operator=(in Base) = delete;
 };
 struct Derived : Base {};
 
-static void bad_rtti(Base *p) noexcept {
+// inout lowers to Base&, so no raw reference is named in safe source.
+static void bad_rtti(inout Base p) noexcept {
   // expected-error@+1 {{'dynamic_cast' is not allowed in safe C++ source}}
-  (void)dynamic_cast<Derived *>(p);
+  (void)dynamic_cast<Derived *>(&p);
   // expected-error@+1 {{'typeid' is not allowed in safe C++ source}}
-  (void)typeid(*p);
+  (void)typeid(p);
 }
 
-static void ok_rtti(Base *p) noexcept {
+static void ok_rtti(inout Base p) noexcept {
   [[unsafe]] {
-    (void)dynamic_cast<Derived *>(p);
+    (void)dynamic_cast<Derived *>(&p);
     // expected-error@+1 {{you need to include <typeinfo> before using the 'typeid' operator}}
-    (void)typeid(*p);
+    (void)typeid(p);
   }
 }
