@@ -808,15 +808,17 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
   // safe-source-only restrictions are suppressed while parsing them.
   if (Tok.is(tok::l_brace)) {
     bool HasUnsafe = false;
+    SourceLocation FenceLoc;
     for (const auto &A : Attrs) {
       if (A.getKind() == ParsedAttr::AT_Unsafe) {
         HasUnsafe = true;
+        FenceLoc = A.getLoc();
         break;
       }
     }
     if (HasUnsafe) {
       ConsumeBrace(); // '{'
-      Sema::UnsafeFenceScope Fence(Actions);
+      Sema::UnsafeFenceScope Fence(Actions, FenceLoc);
       while (Tok.isNot(tok::r_brace) && Tok.isNot(tok::eof)) {
         ParsedAttributes InnerAttrs(AttrFactory), InnerDSAttrs(AttrFactory);
         while (MaybeParseCXX11Attributes(InnerAttrs) ||
@@ -832,8 +834,10 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
         if (Result && !getCurScope()->getParent())
           Actions.getASTConsumer().HandleTopLevelDecl(Result.get());
       }
-      if (Tok.is(tok::r_brace))
+      if (Tok.is(tok::r_brace)) {
+        Fence.close(Tok.getLocation());
         ConsumeBrace();
+      }
       return nullptr;
     }
   }

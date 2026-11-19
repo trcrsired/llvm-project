@@ -549,8 +549,9 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
                                 SourceLocation TypeidLoc,
                                 TypeSourceInfo *Operand,
                                 SourceLocation RParenLoc) {
-  // RTTI is unavailable in safe source outside a fence.
-  if (enforcingSafeCXX())
+  // RTTI is unavailable in safe source outside a fence. The check is
+  // location-sensitive so system headers and fenced-include code stay legacy.
+  if (enforcingSafeCXXAt(TypeidLoc))
     return ExprError(Diag(TypeidLoc, diag::err_safecxx_typeid));
 
   diagnoseCUDADeviceTypeid(*this, TypeidLoc,
@@ -583,8 +584,9 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
                                 SourceLocation TypeidLoc,
                                 Expr *E,
                                 SourceLocation RParenLoc) {
-  // RTTI is unavailable in safe source outside a fence.
-  if (enforcingSafeCXX())
+  // RTTI is unavailable in safe source outside a fence. The check is
+  // location-sensitive so system headers and fenced-include code stay legacy.
+  if (enforcingSafeCXXAt(TypeidLoc))
     return ExprError(Diag(TypeidLoc, diag::err_safecxx_typeid));
 
   diagnoseCUDADeviceTypeid(*this, TypeidLoc, E && E->isTypeDependent());
@@ -663,8 +665,9 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
 ExprResult
 Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
                      bool isType, void *TyOrExpr, SourceLocation RParenLoc) {
-  // RTTI is unavailable in safe source outside a fence.
-  if (enforcingSafeCXX())
+  // RTTI is unavailable in safe source outside a fence. The check is
+  // location-sensitive so system headers and fenced-include code stay legacy.
+  if (enforcingSafeCXXAt(OpLoc))
     return ExprError(Diag(OpLoc, diag::err_safecxx_typeid));
 
   // typeid is not supported in OpenCL.
@@ -848,7 +851,9 @@ ExprResult
 Sema::ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *Ex) {
   // Safe C++ has exactly one error channel (herbceptions). Legacy throw is
   // a source-level error outside a fence; it is still ordinary C++ inside.
-  if (enforcingSafeCXX()) {
+  // The check is location-sensitive so system headers and fenced-include code
+  // stay legacy.
+  if (enforcingSafeCXXAt(OpLoc)) {
     Diag(OpLoc, diag::err_safecxx_legacy_throw);
     return ExprError();
   }

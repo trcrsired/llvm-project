@@ -294,14 +294,16 @@ Retry:
     // on Sema so the checks can consult it. (The attribute itself is still
     // applied to the resulting AttributedStmt by ActOnAttributedStmt.)
     bool IsUnsafeFence = false;
+    SourceLocation FenceLoc;
     for (const auto &A : CXX11Attrs) {
       if (A.getKind() == ParsedAttr::AT_Unsafe) {
         IsUnsafeFence = true;
+        FenceLoc = A.getLoc();
         break;
       }
     }
     if (IsUnsafeFence) {
-      Sema::UnsafeFenceScope Fence(Actions);
+      Sema::UnsafeFenceScope Fence(Actions, FenceLoc);
       return ParseCompoundStatement();
     }
     return ParseCompoundStatement();
