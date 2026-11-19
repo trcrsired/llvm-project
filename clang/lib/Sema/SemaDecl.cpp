@@ -6376,6 +6376,33 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
   }
 }
 
+// Safe source rule 1 (see DESIGN.md, refined by D24): naming a raw pointer,
+// reference or pointer-to-member type is confined to [[unsafe]] fences. The
+// check is made on the *source-written* declared type before d0708 lowering,
+// so in/out/inout/move parameters (which lower to references) and implicit
+// compiler-generated declarations are unaffected. Transient reference values
+// from expressions (v[i], *it) are not declarations and are not checked here.
+static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T) {
+  if (!S.enforcingSafeCXX() || T.isNull() || Loc.isInvalid() ||
+      S.getSourceManager().isInSystemHeader(Loc))
+    return;
+
+  // `int *a[4]` still names a pointer type, so look through array levels.
+  QualType Elem = T;
+  while (Elem->isArrayType())
+    Elem = S.Context.getBaseElementType(Elem);
+
+  QualType Canon = S.Context.getCanonicalType(Elem);
+  // A function declarator carries the whole function type; the spelling that
+  // matters is its return type (`int *f()`).
+  if (const auto *FT = Canon->getAs<FunctionType>())
+    Canon = FT->getReturnType().getCanonicalType();
+
+  if (Canon->isPointerType() || Canon->isReferenceType() ||
+      Canon->isMemberPointerType())
+    S.Diag(Loc, diag::err_safecxx_raw_ptr_ref) << T;
+}
+
 Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
   D.setFunctionDefinitionKind(FunctionDefinitionKind::Declaration);
 
@@ -6642,6 +6669,8 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType R = TInfo->getType();
 
+  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R);
+
   if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                       UPPC_DeclarationType))
     D.setInvalidType();
@@ -6749,6 +6778,22 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
 
   /// Get the innermost enclosing declaration scope.
   S = S->getDeclParent();
+
+  // d0708 variable borrow (D4): `in auto b = v[i];` lowers to a tracked
+  // `const T&`, `inout auto b = v[i];` to `T&`. Always a reference -- unlike
+  // `in T` parameters, a cheap-to-copy element must not be copied here, or
+  // the borrow (and the provenance/lifetime check) would silently vanish.
+  ParameterPassingKind VPK = D.getDeclSpec().getVariablePassingKind();
+  if (VPK != ParameterPassingKind::None &&
+      D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef &&
+      !R->isFunctionType()) {
+    QualType Borrowed = R;
+    if (VPK == ParameterPassingKind::In)
+      Borrowed = Borrowed.withConst();
+    QualType RefT = Context.getLValueReferenceType(Borrowed);
+    R = RefT;
+    TInfo = Context.getTrivialTypeSourceInfo(RefT, D.getIdentifierLoc());
+  }
 
   NamedDecl *New;
 
@@ -12505,6 +12550,29 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   assert(!NewFD->getReturnType()->isVariablyModifiedType() &&
          "Variably modified return types are not handled here");
 
+  // Safe C++ mandatory marks: every function declares its error channel and
+  // (at namespace scope) its linkage explicitly. Check only the first
+  // declaration, and only written (non-implicit, non-template-instantiated)
+  // functions, so one diagnostic per function.
+  if (enforcingSafeCXX() && !NewFD->isInvalidDecl() && !NewFD->isImplicit() &&
+      !NewFD->isDeleted() && !NewFD->isDefaulted() &&
+      !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate()) {
+    const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>();
+    if (FPT && FPT->getExceptionSpecType() == EST_None)
+      Diag(NewFD->getLocation(), diag::err_safecxx_error_channel_unmarked)
+          << NewFD;
+
+    if (NewFD->getDeclContext()->isFileContext()) {
+      bool ExplicitLinkage =
+          NewFD->getStorageClass() == SC_Static ||
+          NewFD->getStorageClass() == SC_Extern ||
+          NewFD->isInlineSpecified() ||
+          NewFD->getFormalLinkage() == Linkage::Internal;
+      if (!ExplicitLinkage)
+        Diag(NewFD->getLocation(), diag::err_safecxx_linkage_unmarked) << NewFD;
+    }
+  }
+
   // Determine whether the type of this function should be merged with
   // a previous visible declaration. This never happens for functions in C++,
   // and always happens in C if the previous declaration was visible.
@@ -15992,8 +16060,34 @@ static void CheckExplicitObjectParameter(Sema &S, ParmVarDecl *P,
     LSI->ExplicitObjectParameter = P;
 }
 
+/// Decide whether an `in T` parameter should cross the call by value instead
+/// of by const reference. Scalars and small trivially-copyable records are
+/// already passed in registers, so a by-value const copy avoids an indirect
+/// pointer load with no ABI cost. The register budget is 2 on SysV-like targets
+/// and 4 on wincall; larger (or non-trivially-copyable) types use const ref.
+static bool isCheapToCopyInParameter(ASTContext &Ctx, QualType T) {
+  if (T->isReferenceType() || T->isFunctionType() || T->isVoidType())
+    return false;
+
+  // All scalar types (arithmetic, pointer, member pointer, enum, nullptr,
+  // bool) are cheap to copy.
+  if (T->isScalarType() || T->isEnumeralType())
+    return true;
+
+  const auto *RD = T->getAsCXXRecordDecl();
+  if (!RD || !RD->isCompleteDefinition() || !RD->isTriviallyCopyable())
+    return false;
+
+  uint64_t Size = Ctx.getTypeSize(T); // bits
+  unsigned RegBits = Ctx.getTargetInfo().getPointerWidth(LangAS::Default);
+  unsigned MaxRegs =
+      Ctx.getTargetInfo().getTriple().isWindowsMSVCEnvironment() ? 4 : 2;
+  return Size <= RegBits * MaxRegs;
+}
+
 Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
-                                 SourceLocation ExplicitThisLoc) {
+                                 SourceLocation ExplicitThisLoc,
+                                 ParameterPassingKind PPKind) {
   const DeclSpec &DS = D.getDeclSpec();
 
   // Verify C99 6.7.5.3p2: The only SCS allowed is 'register'.
@@ -16049,6 +16143,53 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType parmDeclType = TInfo->getType();
 
+  // Check the source spelling before d0708 lowering: in/out/inout/move
+  // parameters are declared with a value type and lowered to references, so
+  // they must not be flagged by the raw-pointer/reference ban.
+  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), parmDeclType);
+
+  // Lower the d0708 parameter-passing kind to its reference form. This is a
+  // provisional representation (design decision D3): a distinct borrow type
+  // can replace it once lifetime checking is in place. The original spelling
+  // is still recorded on the ParmVarDecl via getParameterPassingKind().
+  if (PPKind != ParameterPassingKind::None) {
+    switch (PPKind) {
+    case ParameterPassingKind::In:
+      // Cheap-to-copy types cross in registers anyway: pass a read-only copy
+      // by value (const T), avoiding a pointer indirection. Everything else
+      // uses a const reference.
+      if (isCheapToCopyInParameter(Context, parmDeclType))
+        parmDeclType = parmDeclType.withConst();
+      else
+        parmDeclType =
+            Context.getLValueReferenceType(parmDeclType.withConst());
+      break;
+    case ParameterPassingKind::Out:
+    case ParameterPassingKind::Inout:
+      parmDeclType = Context.getLValueReferenceType(parmDeclType);
+      break;
+    case ParameterPassingKind::Move:
+      parmDeclType = Context.getRValueReferenceType(parmDeclType);
+      break;
+    case ParameterPassingKind::DestructiveMove:
+      // A destructive move is a relocation: bitwise copy plus
+      // skip-source-destructor, valid only for trivially relocatable types.
+      // The callee owns a complete T, so the parameter is T by value.
+      if (!parmDeclType->isDependentType() &&
+          !IsCXXTriviallyRelocatableType(parmDeclType)) {
+        Diag(D.getIdentifierLoc(),
+             diag::err_destructive_move_not_trivially_relocatable)
+            << parmDeclType;
+        D.setInvalidType(true);
+      }
+      break;
+    case ParameterPassingKind::None:
+      break;
+    }
+    TInfo = Context.getTrivialTypeSourceInfo(parmDeclType,
+                                             D.getIdentifierLoc());
+  }
+
   // Check for redeclaration of parameters, e.g. int foo(int x, int x);
   const IdentifierInfo *II = D.getIdentifier();
   if (II) {
@@ -16094,6 +16235,7 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   ParmVarDecl *New =
       CheckParameter(Context.getTranslationUnitDecl(), D.getBeginLoc(),
                      D.getIdentifierLoc(), II, parmDeclType, TInfo, SC);
+  New->setParameterPassingKind(PPKind);
 
   if (D.isInvalidType())
     New->setInvalidDecl();
@@ -16978,10 +17120,176 @@ void Sema::CheckCoroutineWrapper(FunctionDecl *FD) {
     Diag(FD->getLocation(), diag::err_coroutine_return_type) << RD;
 }
 
+namespace {
+/// Basic d0708 definite-first-use check for `out` parameters. Walks the
+/// function body in source order and records the first write (assignment) and
+/// first read of each out parameter, then diagnoses reads that precede any
+/// write, and out parameters never written at all. This is a lightweight
+/// source-order check; a CFG-based dataflow pass can replace it later.
+class OutParamUseVisitor : public RecursiveASTVisitor<OutParamUseVisitor> {
+  llvm::SmallPtrSet<const ParmVarDecl *, 8> OutParams;
+  const ParmVarDecl *CurrentWriteTarget = nullptr;
+
+  static const ParmVarDecl *getParam(const Expr *E) {
+    if (const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E->IgnoreParens()))
+      return dyn_cast<ParmVarDecl>(DRE->getDecl());
+    return nullptr;
+  }
+
+public:
+  llvm::DenseMap<const ParmVarDecl *, SourceLocation> FirstWrite;
+  llvm::DenseMap<const ParmVarDecl *, SourceLocation> FirstRead;
+
+  explicit OutParamUseVisitor(const FunctionDecl *FD) {
+    for (const ParmVarDecl *P : FD->parameters())
+      if (P->getParameterPassingKind() == ParameterPassingKind::Out)
+        OutParams.insert(P);
+  }
+
+  bool TraverseBinaryOperator(BinaryOperator *BO) {
+    if (BO->isAssignmentOp()) {
+      CurrentWriteTarget = getParam(BO->getLHS());
+      TraverseStmt(BO->getLHS());
+      CurrentWriteTarget = nullptr;
+      TraverseStmt(BO->getRHS());
+      return true;
+    }
+    return RecursiveASTVisitor::TraverseBinaryOperator(BO);
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    const auto *P = dyn_cast<ParmVarDecl>(E->getDecl());
+    if (!P || !OutParams.count(P))
+      return true;
+    if (P == CurrentWriteTarget) {
+      FirstWrite.try_emplace(P, E->getLocation());
+    } else {
+      FirstRead.try_emplace(P, E->getLocation());
+    }
+    return true;
+  }
+};
+
+/// d0708 definite-last-use check. When a local is passed as the argument of
+/// a `move`/`destructive_move` parameter, it is consumed at that call; any
+/// later use of the same local in source order is diagnosed. This mirrors the
+/// source-order approximation used by OutParamUseVisitor; a CFG dataflow pass
+/// can replace it later.
+class MoveUseVisitor : public RecursiveASTVisitor<MoveUseVisitor> {
+  Sema &S;
+  /// First source location at which each variable was moved from.
+  llvm::DenseMap<const VarDecl *, SourceLocation> MovePoints;
+
+  /// Strip implicit wrappers around an argument to find the DeclRefExpr of the
+  /// underlying named variable, if any. Returning the DeclRefExpr (rather than
+  /// just the VarDecl) lets the caller record the move point exactly at the
+  /// variable's token, so the argument use itself is not flagged.
+  static const DeclRefExpr *getMovedDeclRef(const Expr *E) {
+    if (!E)
+      return nullptr;
+    E = E->IgnoreParens();
+    while (true) {
+      if (const auto *Cast = dyn_cast<CastExpr>(E)) {
+        E = Cast->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+        E = MTE->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
+        E = BTE->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      if (const auto *FLE = dyn_cast<FullExpr>(E)) {
+        E = FLE->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      // A by-value parameter (destructive_move) wraps the argument in a
+      // copy/move construction; descend through its single source argument.
+      if (const auto *CXXCE = dyn_cast<CXXConstructExpr>(E)) {
+        if (CXXCE->getNumArgs() == 1) {
+          E = CXXCE->getArg(0)->IgnoreParens();
+          continue;
+        }
+      }
+      break;
+    }
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      if (isa<VarDecl>(DRE->getDecl()))
+        return DRE;
+    return nullptr;
+  }
+
+public:
+  explicit MoveUseVisitor(Sema &S) : S(S) {}
+
+  bool VisitCallExpr(CallExpr *CE) {
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    if (!Callee)
+      return true;
+    unsigned N = std::min(CE->getNumArgs(), Callee->getNumParams());
+    for (unsigned I = 0; I < N; ++I) {
+      const ParmVarDecl *P = Callee->getParamDecl(I);
+      auto Kind = P->getParameterPassingKind();
+      if (Kind != ParameterPassingKind::Move &&
+          Kind != ParameterPassingKind::DestructiveMove)
+        continue;
+      const Expr *Arg = CE->getArg(I);
+      if (const DeclRefExpr *DRE = getMovedDeclRef(Arg)) {
+        const auto *V = cast<VarDecl>(DRE->getDecl());
+        MovePoints.try_emplace(V, DRE->getLocation());
+      }
+    }
+    return true;
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    const auto *V = dyn_cast<VarDecl>(E->getDecl());
+    if (!V)
+      return true;
+    auto It = MovePoints.find(V);
+    if (It == MovePoints.end())
+      return true;
+    // A use strictly after the recorded move point (in source order) is a
+    // use-after-move. The move argument itself sits at the recorded location
+    // and is therefore not flagged.
+    if (E->getLocation() > It->second)
+      S.Diag(E->getLocation(), diag::err_safecxx_move_use_after_move) << V;
+    return true;
+  }
+};
+} // namespace
+
 Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
                                     bool RetainFunctionScopeInfo) {
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
+
+  // d0708 definite-first-use for out parameters.
+  if (getLangOpts().ParameterPassing && FD && Body &&
+      !FD->isInvalidDecl() && !IsInstantiation &&
+      !FD->getDescribedFunctionTemplate()) {
+    OutParamUseVisitor Visitor(FD);
+    Visitor.TraverseStmt(Body);
+    for (const ParmVarDecl *P : FD->parameters()) {
+      if (P->getParameterPassingKind() != ParameterPassingKind::Out)
+        continue;
+      auto W = Visitor.FirstWrite.find(P);
+      auto R = Visitor.FirstRead.find(P);
+      if (W == Visitor.FirstWrite.end()) {
+        Diag(P->getLocation(), diag::err_safecxx_out_not_constructed) << P;
+      } else if (R != Visitor.FirstRead.end() &&
+                 R->second.isValid() && W->second.isValid() &&
+                 R->second < W->second) {
+        Diag(R->second, diag::err_safecxx_out_read_before_init) << P;
+      }
+    }
+
+    // d0708 definite-last-use: diagnose use-after-move.
+    MoveUseVisitor MoveVisitor(*this);
+    MoveVisitor.TraverseStmt(Body);
+  }
 
   // Herbception: error_domain<T>::domain() must not return nullptr. The
   // fabricated std::error dereferences the domain pointer in ~error(), so a
@@ -19719,6 +20027,7 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType T = TInfo->getType();
+  diagnoseSafecxxRawPtrRef(*this, Loc, T);
   if (getLangOpts().CPlusPlus) {
     CheckExtraCXXDefaultArguments(D);
 

@@ -4284,7 +4284,9 @@ public:
   /// ActOnParamDeclarator - Called from Parser::ParseFunctionDeclarator()
   /// to introduce parameters into function prototype scope.
   Decl *ActOnParamDeclarator(Scope *S, Declarator &D,
-                             SourceLocation ExplicitThisLoc = {});
+                             SourceLocation ExplicitThisLoc = {},
+                             ParameterPassingKind PPKind =
+                                 ParameterPassingKind::None);
 
   /// Synthesizes a variable for a parameter arising from a
   /// typedef.
@@ -8845,6 +8847,32 @@ public:
   /// never routed at runtime; the evaluator reports an error only if it
   /// escapes the constant evaluation.
   unsigned HerbceptionConstexprInitDepth = 0;
+
+  /// Nesting depth of `[[unsafe]] { }` fence blocks currently being parsed.
+  /// Safe-source-only restrictions (legacy EH/RTTI, pointers, references,
+  /// iterators) are suppressed while this is nonzero.
+  unsigned UnsafeFenceDepth = 0;
+
+  /// RAII guard that marks the parser as inside a `[[unsafe]] { }` fence.
+  class UnsafeFenceScope {
+  public:
+    explicit UnsafeFenceScope(Sema &S) : S(S) { ++S.UnsafeFenceDepth; }
+    ~UnsafeFenceScope() { --S.UnsafeFenceDepth; }
+    UnsafeFenceScope(const UnsafeFenceScope &) = delete;
+    UnsafeFenceScope &operator=(const UnsafeFenceScope &) = delete;
+
+  private:
+    Sema &S;
+  };
+
+  /// True when the parser is currently inside a `[[unsafe]] { }` fence.
+  bool isInUnsafeFence() const { return UnsafeFenceDepth != 0; }
+
+  /// True when a safe-source-only restriction should be enforced: the
+  /// umbrella is on and we are not inside a `[[unsafe]] { }` fence.
+  bool enforcingSafeCXX() const {
+    return getLangOpts().SafeCXX && !isInUnsafeFence();
+  }
 
   /// Return whether \p Ex is a call to a function (or function template)
   /// declared with a herbception 'throws'/'return_failure{E}' spec.

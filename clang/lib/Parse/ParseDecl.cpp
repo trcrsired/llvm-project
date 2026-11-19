@@ -1975,7 +1975,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclaration(DeclaratorContext Context,
 Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
     DeclaratorContext Context, SourceLocation &DeclEnd,
     ParsedAttributes &DeclAttrs, ParsedAttributes &DeclSpecAttrs,
-    bool RequireSemi, ForRangeInit *FRI, SourceLocation *DeclSpecStart) {
+    bool RequireSemi, ForRangeInit *FRI, SourceLocation *DeclSpecStart,
+    ParameterPassingKind *VarPassing) {
   // Need to retain these for diagnostics before we add them to the DeclSepc.
   ParsedAttributesView OriginalDeclSpecAttrs;
   OriginalDeclSpecAttrs.prepend(DeclSpecAttrs.begin(), DeclSpecAttrs.end());
@@ -1985,9 +1986,22 @@ Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
   ParsingDeclSpec DS(*this);
   DS.takeAttributesAppendingingFrom(DeclSpecAttrs);
 
+  // d0708 variable borrows: `in auto b = v[i];` / `inout auto b = v[i];`.
+  // These contextual keywords are recognized only here, immediately before
+  // the decl-specifier sequence, and only for the two borrow kinds. They are
+  // never reserved, so `int in = 0;` still parses normally.
+  if (ParameterPassingKind VPK = isParameterPassingKeyword();
+      VPK == ParameterPassingKind::In ||
+      VPK == ParameterPassingKind::Inout) {
+    ConsumeToken();
+    DS.setVariablePassingKind(VPK);
+  }
+
   ParsedTemplateInfo TemplateInfo;
   DeclSpecContext DSContext = getDeclSpecContextFromDeclaratorContext(Context);
   ParseDeclarationSpecifiers(DS, TemplateInfo, AS_none, DSContext);
+  if (VarPassing)
+    *VarPassing = DS.getVariablePassingKind();
 
   // If we had a free-standing type definition with a missing semicolon, we
   // may get this far before the problem becomes obvious.
@@ -7701,6 +7715,39 @@ void Parser::ParseFunctionDeclaratorIdentifierList(
   } while (TryConsumeToken(tok::comma));
 }
 
+/// Recognize the d0708 contextual keywords in a parameter decl-specifier
+/// position. This mirrors the `override`/`final` approach: they are ordinary
+/// identifiers in the token stream, never reserved. They only carry meaning
+/// when -fparameter-passing is enabled.
+ParameterPassingKind
+Parser::isParameterPassingKeyword(const Token &Tok) const {
+  if (!getLangOpts().ParameterPassing || !getLangOpts().CPlusPlus ||
+      Tok.isNot(tok::identifier))
+    return ParameterPassingKind::None;
+
+  if (!Ident_in) {
+    IdentifierTable &Table = PP.getIdentifierTable();
+    Ident_in = &Table.get("in");
+    Ident_out = &Table.get("out");
+    Ident_inout = &Table.get("inout");
+    Ident_move = &Table.get("move");
+    Ident_destructive_move = &Table.get("destructive_move");
+  }
+
+  const IdentifierInfo *II = Tok.getIdentifierInfo();
+  if (II == Ident_in)
+    return ParameterPassingKind::In;
+  if (II == Ident_out)
+    return ParameterPassingKind::Out;
+  if (II == Ident_inout)
+    return ParameterPassingKind::Inout;
+  if (II == Ident_move)
+    return ParameterPassingKind::Move;
+  if (II == Ident_destructive_move)
+    return ParameterPassingKind::DestructiveMove;
+  return ParameterPassingKind::None;
+}
+
 void Parser::ParseParameterDeclarationClause(
     DeclaratorContext DeclaratorCtx, ParsedAttributes &FirstArgAttrs,
     SmallVectorImpl<DeclaratorChunk::ParamInfo> &ParamInfo,
@@ -7769,6 +7816,14 @@ void Parser::ParseParameterDeclarationClause(
       // Skip any Microsoft attributes before a param.
       MaybeParseMicrosoftAttributes(ArgDeclSpecAttrs);
     }
+
+    // Recognize a d0708 parameter-passing contextual keyword before the
+    // decl-specifier sequence. These are ordinary identifiers, never reserved;
+    // Sema records the kind on the resulting ParmVarDecl.
+    ParameterPassingKind PPKind = ParameterPassingKind::None;
+    PPKind = isParameterPassingKeyword();
+    if (PPKind != ParameterPassingKind::None)
+      ConsumeToken();
 
     SourceLocation DSStart = Tok.getLocation();
 
@@ -7878,8 +7933,8 @@ void Parser::ParseParameterDeclarationClause(
 
       // Inform the actions module about the parameter declarator, so it gets
       // added to the current scope.
-      Decl *Param =
-          Actions.ActOnParamDeclarator(getCurScope(), ParmDeclarator, ThisLoc);
+      Decl *Param = Actions.ActOnParamDeclarator(getCurScope(), ParmDeclarator,
+                                                 ThisLoc, PPKind);
       // Claim deferred attributes now, before the next parameter can.
       DistributeCLateParsedAttrs(Param, &LateParamAttrs);
       // Parse the default argument, if any. We parse the default

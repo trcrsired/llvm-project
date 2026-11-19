@@ -54,6 +54,17 @@ int clang::hasAttribute(AttributeCommonInfo::Syntax Syntax, StringRef ScopeName,
   ScopeName = canonicalizeScopeName(ScopeName);
   Name = canonicalizeAttrName(Name);
 
+  // [[unsafe]] is a fence in the safe-C++ dialect. It is recognized as a
+  // C++11 attribute only when either the umbrella -fsafecxx or the fence-only
+  // -fsafecxx-unsafe is enabled. Returning 0 here overrides the TableGen
+  // entry so __has_cpp_attribute(unsafe) reports 0 in all other modes, just
+  // as it does on compilers that do not implement safe C++.
+  if (Syntax == AttributeCommonInfo::Syntax::AS_CXX11 && ScopeName.empty() &&
+      Name == "unsafe") {
+    // 202600 matches the Version on the CXX11 spelling in Attr.td.
+    return (LangOpts.SafeCXX || LangOpts.SafeCXXUnsafe) ? 202600 : 0;
+  }
+
   // As a special case, look for the omp::sequence and omp::directive
   // attributes. We support those, but not through the typical attribute
   // machinery that goes through TableGen. We support this in all OpenMP modes

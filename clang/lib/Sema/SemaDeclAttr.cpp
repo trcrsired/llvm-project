@@ -7185,6 +7185,42 @@ static void handleAvailableOnlyInDefaultEvalMethod(Sema &S, Decl *D,
   handleSimpleAttribute<AvailableOnlyInDefaultEvalMethodAttr>(S, D, AL);
 }
 
+// The safe-C++ fence on a declaration is a call restriction; enforcing that is
+// a later step. For now just record the attribute so it parses cleanly.
+static void handleUnsafeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  D->addAttr(UnsafeAttr::Create(S.Context, AL));
+}
+
+// P1179 lifetime protocol marks. These are the only public provenance marks.
+// Under the lifetime-protocol toggle we additionally translate them to the
+// internal attributes Clang's lifetime-safety engine consumes: [[owner]] ->
+// GSL Owner, and [[lifetime("this")]] -> lifetimebound. The translation is
+// implicit (never written in source) so the engine stays invisible to users.
+static void handleOwnerAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  D->addAttr(SafeOwnerAttr::Create(S.Context, AL));
+  if (S.getLangOpts().SafeCXX || S.getLangOpts().LifetimeProtocol)
+    if (isa<CXXRecordDecl>(D))
+      D->addAttr(OwnerAttr::CreateImplicit(S.Context, nullptr));
+}
+
+static void handleLifetimeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (!AL.checkExactlyNumArgs(S, 1))
+    return;
+  StringRef Source;
+  if (const auto *SE = dyn_cast_if_present<StringLiteral>(AL.getArgAsExpr(0)))
+    Source = SE->getString();
+  else {
+    S.Diag(AL.getLoc(), diag::err_attribute_argument_type) << AL
+        << AANT_ArgumentString;
+    return;
+  }
+  D->addAttr(LifetimeAttr::Create(S.Context, Source, AL));
+  if ((S.getLangOpts().SafeCXX || S.getLangOpts().LifetimeProtocol) &&
+      Source == "this")
+    if (isa<ParmVarDecl>(D))
+      D->addAttr(LifetimeBoundAttr::CreateImplicit(S.Context));
+}
+
 static void handleNoMergeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   auto *VDecl = dyn_cast<VarDecl>(D);
   if (VDecl && !VDecl->isFunctionPointerType()) {
@@ -8258,6 +8294,15 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_FunctionReturnThunks:
     handleFunctionReturnThunksAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_Unsafe:
+    handleUnsafeAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_SafeOwner:
+    handleOwnerAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_Lifetime:
+    handleLifetimeAttr(S, D, AL);
     break;
   case ParsedAttr::AT_NoMerge:
     handleNoMergeAttr(S, D, AL);

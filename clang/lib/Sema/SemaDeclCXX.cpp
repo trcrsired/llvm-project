@@ -7123,6 +7123,32 @@ void Sema::CheckCompletedCXXClass(Scope *S, CXXRecordDecl *Record) {
   if (!Record)
     return;
 
+  // Safe C++: every virtual function (and every override) must carry an
+  // explicit virtual/override/final marker.
+  if (enforcingSafeCXX() && !Record->isInvalidDecl() &&
+      !Record->isDependentType() && !Record->isLambda()) {
+    for (const CXXMethodDecl *M : Record->methods()) {
+      if (M->isImplicit() || !M->isVirtual())
+        continue;
+      if (!M->isVirtualAsWritten() && !M->hasAttr<OverrideAttr>() &&
+          !M->hasAttr<FinalAttr>())
+        Diag(M->getLocation(), diag::err_safecxx_virtual_unmarked) << M;
+    }
+  }
+
+  // Safe C++ Rule-of-Five: a class with a user-declared destructor must
+  // explicitly declare its copy operations (at minimum '= delete').
+  if (enforcingSafeCXX() && !Record->isInvalidDecl() &&
+      !Record->isDependentType() && !Record->isLambda() &&
+      Record->hasUserDeclaredDestructor()) {
+    if (!Record->hasUserDeclaredCopyConstructor())
+      Diag(Record->getLocation(), diag::err_safecxx_rule_of_five_copy_ctor)
+          << Record;
+    if (!Record->hasUserDeclaredCopyAssignment())
+      Diag(Record->getLocation(), diag::err_safecxx_rule_of_five_copy_assign)
+          << Record;
+  }
+
   if (Record->isAbstract() && !Record->isInvalidDecl()) {
     AbstractUsageInfo Info(*this, Record);
     CheckAbstractClassUsage(Info, Record);

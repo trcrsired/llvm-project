@@ -2775,6 +2775,49 @@ void usages() {
   }];
 }
 
+def OwnerDocs : Documentation {
+  let Category = DocCatType;
+  let Heading = "owner (P1179 lifetime protocol)";
+  let Content = [{
+Marks a class as an owner: its pointer-like fields own their pointees, and the
+object's provenance is `{this'}`. Provenance enters the P1179 analysis only
+through this explicit mark; it is never inferred from the type's shape.
+  }];
+}
+
+def LifetimeDocs : Documentation {
+  let Category = DocCatVariable;
+  let Heading = "lifetime (P1179 lifetime protocol)";
+  let Content = [{
+On a constructor or assignment parameter, `[[lifetime(this)]]` says the
+constructed fields derive their provenance from that parameter. It is the
+second explicit mark that seeds the P1179 provenance analysis.
+  }];
+}
+
+def UnsafeDocs : Documentation {
+  let Category = DocCatStmt;
+  let Heading = "unsafe (safe C++ fence)";
+  let Content = [{
+The `unsafe` attribute is the fence of the safe C++ dialect.
+
+On a block, `[[unsafe]] { ... }` opens an unsafe region in which raw pointers,
+references and iterators may be used. At namespace scope a bare block is
+scope-transparent, which is how a legacy `#include` is fenced.
+
+On a function declaration, `[[unsafe]] void f();` is a *call restriction*: `f`
+may only be called from inside an unsafe region. It does not make `f`'s body
+unsafe; unsafe features used in the body still require their own block unless
+the function definition is already inside a larger fence.
+
+The attribute is enabled by `-fsafecxx` or by the fence-only `-fsafecxx-unsafe`.
+Without either flag, `__has_cpp_attribute(unsafe)` reports 0 and the attribute
+has no effect. On compilers that do not implement safe C++ the attribute is an
+unknown, ignored attribute and is likewise a no-op. The fence only changes
+where a construct is allowed to appear; it never changes code generation.
+  }];
+}
+
 def FallthroughDocs : Documentation {
   let Category = DocCatStmt;
   let Heading = "fallthrough";

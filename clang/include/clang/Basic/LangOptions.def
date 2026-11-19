@@ -101,6 +101,14 @@ LANGOPT(ObjCExceptions    , 1, 0, NotCompatible, "Objective-C exceptions")
 LANGOPT(CXXExceptions     , 1, 0, NotCompatible, "C++ exceptions")
 LANGOPT(HerbExceptions    , 1, 0, NotCompatible,
         "herbception (zero-overhead deterministic exceptions)")
+LANGOPT(ParameterPassing  , 1, 0, NotCompatible,
+        "d0708 parameter passing (in/out/inout/move/destructive_move)")
+LANGOPT(LifetimeProtocol  , 1, 0, NotCompatible,
+        "P1179 lifetime protocol checking")
+LANGOPT(SafeCXXUnsafe     , 1, 0, NotCompatible,
+        "enable the [[unsafe]] attribute fence")
+LANGOPT(SafeCXX           , 1, 0, NotCompatible,
+        "safe C++ (umbrella for all safe-C++ features)")
 LANGOPT(EHAsynch          , 1, 0, NotCompatible, "C/C++ EH Asynch exceptions")
 LANGOPT(IgnoreExceptions  , 1, 0, NotCompatible, "ignore exceptions")
 LANGOPT(ExternCNoUnwind   , 1, 0, NotCompatible, "Assume extern C functions don't unwind")

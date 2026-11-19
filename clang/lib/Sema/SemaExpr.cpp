@@ -7024,6 +7024,18 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
   if (Call.isInvalid())
     return Call;
 
+  // Safe C++: a function declared [[unsafe]] is a *call restriction* -- it may
+  // only be called from inside an [[unsafe]] { } block. This is a source-level
+  // rule of the umbrella, not a change to the function's semantics or body.
+  if (enforcingSafeCXX()) {
+    if (const auto *CE = dyn_cast<CallExpr>(Call.get())) {
+      if (const FunctionDecl *Callee = CE->getDirectCallee()) {
+        if (Callee->hasAttr<UnsafeAttr>())
+          Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
+      }
+    }
+  }
+
   // Diagnose uses of the C++20 "ADL-only template-id call" feature in earlier
   // language modes.
   if (const auto *ULE = dyn_cast<UnresolvedLookupExpr>(Fn);

@@ -156,11 +156,23 @@ static bool addExceptionArgs(const ArgList &Args, types::ID InputType,
     return false;
   }
 
+  // The umbrella flag itself drives __SAFECXX__ and the dialect's source-level
+  // rules. The individual features default to it in Options.td, so no flag
+  // injection is needed here. It deliberately does *not* touch
+  // -fexceptions/-frtti.
+  Args.AddLastArg(CmdArgs, options::OPT_fsafecxx, options::OPT_fno_safecxx);
+
   // Herbception is an independent toggle from traditional exceptions:
   // -fherbceptions enables deterministic error returns, -fno-exceptions
   // disables traditional EH. Forward the flag to cc1.
   Args.AddLastArg(CmdArgs, options::OPT_fherbceptions,
                   options::OPT_fno_herbceptions);
+  Args.AddLastArg(CmdArgs, options::OPT_fparameter_passing,
+                  options::OPT_fno_parameter_passing);
+  Args.AddLastArg(CmdArgs, options::OPT_flifetime_protocol,
+                  options::OPT_fno_lifetime_protocol);
+  Args.AddLastArg(CmdArgs, options::OPT_fsafecxx_unsafe,
+                  options::OPT_fno_safecxx_unsafe);
 
   // See if the user explicitly enabled exceptions.
   bool EH = Args.hasFlag(options::OPT_fexceptions, options::OPT_fno_exceptions,

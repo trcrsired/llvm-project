@@ -15,6 +15,7 @@
 
 #include "clang/Basic/OpenACCKinds.h"
 #include "clang/Basic/OperatorPrecedence.h"
+#include "clang/Basic/Specifiers.h"
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Sema.h"
@@ -1828,7 +1829,8 @@ private:
                          ParsedAttributes &DeclAttrs,
                          ParsedAttributes &DeclSpecAttrs, bool RequireSemi,
                          ForRangeInit *FRI = nullptr,
-                         SourceLocation *DeclSpecStart = nullptr);
+                         SourceLocation *DeclSpecStart = nullptr,
+                         ParameterPassingKind *VarPassing = nullptr);
 
   /// ParseDeclGroup - Having concluded that this is either a function
   /// definition or a group of object declarations, actually parse the
@@ -2908,6 +2910,14 @@ private:
   mutable IdentifierInfo *Ident_GNU_final;
   mutable IdentifierInfo *Ident_override;
 
+  /// d0708 parameter-passing contextual keywords (only meaningful when
+  /// -fparameter-passing is enabled).
+  mutable IdentifierInfo *Ident_in;
+  mutable IdentifierInfo *Ident_out;
+  mutable IdentifierInfo *Ident_inout;
+  mutable IdentifierInfo *Ident_move;
+  mutable IdentifierInfo *Ident_destructive_move;
+
   /// Representation of a class that has been parsed, including
   /// any member function declarations or definitions that need to be
   /// parsed after the corresponding top-level class is complete.
@@ -3223,6 +3233,14 @@ private:
   /// isCXX11FinalKeyword - Determine whether the next token is a C++11
   /// 'final' or Microsoft 'sealed' contextual keyword.
   bool isCXX11FinalKeyword() const;
+
+  /// isParameterPassingKeyword - Determine whether the given token is a
+  /// d0708 parameter-passing contextual keyword (in/out/inout/move/
+  /// destructive_move). Always returns None unless -fparameter-passing is on.
+  ParameterPassingKind isParameterPassingKeyword(const Token &Tok) const;
+  ParameterPassingKind isParameterPassingKeyword() const {
+    return isParameterPassingKeyword(Tok);
+  }
 
   /// isClassCompatibleKeyword - Determine whether the next token is a C++11
   /// 'final', a C++26 'trivially_relocatable_if_eligible',

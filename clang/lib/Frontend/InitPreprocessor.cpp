@@ -1030,6 +1030,15 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
     // {domain, code}; usable without any header in C and C++ alike.
     Builder.defineMacro("__CXX_STD_ERROR_TYPE__", "__cxx_std_error");
   }
+  if (LangOpts.ParameterPassing)
+    Builder.defineMacro("__PARAMETER_PASSING__");
+  if (LangOpts.LifetimeProtocol)
+    Builder.defineMacro("__LIFETIME_PROTOCOL__");
+  if (LangOpts.SafeCXX)
+    Builder.defineMacro("__SAFECXX__");
+  // The [[unsafe]] fence has no feature macro of its own: support is probed
+  // with __has_cpp_attribute(unsafe), which is gated on SafeCXX/SafeCXXUnsafe
+  // in clang::hasAttribute(). Note -fsafecxx does not change exceptions/RTTI.
   if (LangOpts.GNUCVersion && LangOpts.RTTI)
     Builder.defineMacro("__GXX_RTTI");
 

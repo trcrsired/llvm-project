@@ -343,6 +343,14 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
   if (getLangOpts().CPlusPlus)
     FieldCollector.reset(new CXXFieldCollector());
 
+  // Safe C++: the P1179 provenance analysis reuses Clang's lifetime-safety
+  // engine. Opt in only under the lifetime-protocol toggle (directly or via
+  // the -fsafecxx umbrella) by turning its core diagnostics into errors; in
+  // ordinary translation units they stay off, so legacy code is silent.
+  if (getLangOpts().SafeCXX || getLangOpts().LifetimeProtocol)
+    Diags.setSeverityForGroup(diag::Flavor::WarningOrError, "lifetime-safety",
+                              diag::Severity::Error);
+
   // Tell diagnostics how to render things from the AST library.
   Diags.SetArgToStringFn(&FormatASTNodeDiagnosticArgument, &Context);
 

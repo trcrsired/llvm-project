@@ -207,6 +207,7 @@ LLVMExceptionHandlingCodeGen
 * {doc}`HardwareAssistedAddressSanitizerDesign`
 * {doc}`ConstantInterpreter`
 * {doc}`LLVMExceptionHandlingCodeGen`
+* {doc}`SafeCXX`
 
 # Indices and tables
 

@@ -288,8 +288,24 @@ Retry:
   case tok::kw_default:             // C99 6.8.1: labeled-statement
     return ParseDefaultStatement(StmtCtx);
 
-  case tok::l_brace:                // C99 6.8.2: compound-statement
+  case tok::l_brace: {              // C99 6.8.2: compound-statement
+    // A `[[unsafe]]`-attributed block is a fence: safe-source-only
+    // restrictions are relaxed while its body is parsed. Track the region
+    // on Sema so the checks can consult it. (The attribute itself is still
+    // applied to the resulting AttributedStmt by ActOnAttributedStmt.)
+    bool IsUnsafeFence = false;
+    for (const auto &A : CXX11Attrs) {
+      if (A.getKind() == ParsedAttr::AT_Unsafe) {
+        IsUnsafeFence = true;
+        break;
+      }
+    }
+    if (IsUnsafeFence) {
+      Sema::UnsafeFenceScope Fence(Actions);
+      return ParseCompoundStatement();
+    }
     return ParseCompoundStatement();
+  }
   case tok::semi: {                 // C99 6.8.3p3: expression[opt] ';'
     bool HasLeadingEmptyMacro = Tok.hasLeadingEmptyMacro();
     return Actions.ActOnNullStmt(ConsumeToken(), HasLeadingEmptyMacro);
@@ -2194,12 +2210,29 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc,
       bool MightBeForRangeStmt = getLangOpts().CPlusPlus || getLangOpts().ObjC;
       ColonProtectionRAIIObject ColonProtection(*this, MightBeForRangeStmt);
       ParsedAttributes DeclSpecAttrs(AttrFactory);
+      ParameterPassingKind LoopPassing = ParameterPassingKind::None;
       DG = ParseSimpleDeclaration(
           DeclaratorContext::ForInit, DeclEnd, attrs, DeclSpecAttrs, false,
-          MightBeForRangeStmt ? &ForRangeInfo : nullptr);
+          MightBeForRangeStmt ? &ForRangeInfo : nullptr,
+          /*DeclSpecStart=*/nullptr, &LoopPassing);
       FirstPart = Actions.ActOnDeclStmt(DG, DeclStart, Tok.getLocation());
       if (ForRangeInfo.ParsedForRangeDecl()) {
         DiagCompat(ForRangeInfo.ColonLoc, diag_compat::for_range);
+        // Safe C++ (d0708 §1.4): a range-for loop variable is a parameter and
+        // must declare its passing intent. Bare `auto` silently copies (or
+        // forces a reference when written `auto&`), so it is not allowed.
+        if (LoopPassing == ParameterPassingKind::None &&
+            getLangOpts().SafeCXX && !Actions.isInUnsafeFence() &&
+            !PP.getSourceManager().isInSystemHeader(DeclStart)) {
+          SourceLocation Loc = DeclStart;
+          for (Decl *D : DG.get()) {
+            if (isa<VarDecl>(D)) {
+              Loc = D->getLocation();
+              break;
+            }
+          }
+          Diag(Loc, diag::err_safecxx_range_no_intent);
+        }
         ForRangeInfo.LoopVar = FirstPart;
         FirstPart = StmtResult();
       } else if (Tok.is(tok::semi)) { // for (int x = 4;
