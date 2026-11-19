@@ -17099,6 +17099,96 @@ public:
     return true;
   }
 };
+
+/// d0708 definite-last-use check. When a local is passed as the argument of
+/// a `move`/`destructive_move` parameter, it is consumed at that call; any
+/// later use of the same local in source order is diagnosed. This mirrors the
+/// source-order approximation used by OutParamUseVisitor; a CFG dataflow pass
+/// can replace it later.
+class MoveUseVisitor : public RecursiveASTVisitor<MoveUseVisitor> {
+  Sema &S;
+  /// First source location at which each variable was moved from.
+  llvm::DenseMap<const VarDecl *, SourceLocation> MovePoints;
+
+  /// Strip implicit wrappers around an argument to find the DeclRefExpr of the
+  /// underlying named variable, if any. Returning the DeclRefExpr (rather than
+  /// just the VarDecl) lets the caller record the move point exactly at the
+  /// variable's token, so the argument use itself is not flagged.
+  static const DeclRefExpr *getMovedDeclRef(const Expr *E) {
+    if (!E)
+      return nullptr;
+    E = E->IgnoreParens();
+    while (true) {
+      if (const auto *Cast = dyn_cast<CastExpr>(E)) {
+        E = Cast->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+        E = MTE->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
+        E = BTE->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      if (const auto *FLE = dyn_cast<FullExpr>(E)) {
+        E = FLE->getSubExpr()->IgnoreParens();
+        continue;
+      }
+      // A by-value parameter (destructive_move) wraps the argument in a
+      // copy/move construction; descend through its single source argument.
+      if (const auto *CXXCE = dyn_cast<CXXConstructExpr>(E)) {
+        if (CXXCE->getNumArgs() == 1) {
+          E = CXXCE->getArg(0)->IgnoreParens();
+          continue;
+        }
+      }
+      break;
+    }
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      if (isa<VarDecl>(DRE->getDecl()))
+        return DRE;
+    return nullptr;
+  }
+
+public:
+  explicit MoveUseVisitor(Sema &S) : S(S) {}
+
+  bool VisitCallExpr(CallExpr *CE) {
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    if (!Callee)
+      return true;
+    unsigned N = std::min(CE->getNumArgs(), Callee->getNumParams());
+    for (unsigned I = 0; I < N; ++I) {
+      const ParmVarDecl *P = Callee->getParamDecl(I);
+      auto Kind = P->getParameterPassingKind();
+      if (Kind != ParameterPassingKind::Move &&
+          Kind != ParameterPassingKind::DestructiveMove)
+        continue;
+      const Expr *Arg = CE->getArg(I);
+      if (const DeclRefExpr *DRE = getMovedDeclRef(Arg)) {
+        const auto *V = cast<VarDecl>(DRE->getDecl());
+        MovePoints.try_emplace(V, DRE->getLocation());
+      }
+    }
+    return true;
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    const auto *V = dyn_cast<VarDecl>(E->getDecl());
+    if (!V)
+      return true;
+    auto It = MovePoints.find(V);
+    if (It == MovePoints.end())
+      return true;
+    // A use strictly after the recorded move point (in source order) is a
+    // use-after-move. The move argument itself sits at the recorded location
+    // and is therefore not flagged.
+    if (E->getLocation() > It->second)
+      S.Diag(E->getLocation(), diag::err_safecxx_move_use_after_move) << V;
+    return true;
+  }
+};
 } // namespace
 
 Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
@@ -17125,6 +17215,10 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
         Diag(R->second, diag::err_safecxx_out_read_before_init) << P;
       }
     }
+
+    // d0708 definite-last-use: diagnose use-after-move.
+    MoveUseVisitor MoveVisitor(*this);
+    MoveVisitor.TraverseStmt(Body);
   }
 
   // Herbception: error_domain<T>::domain() must not return nullptr. The

@@ -13748,7 +13748,12 @@ def err_safecxx_out_read_before_init : Error<
 def err_safecxx_out_not_constructed : Error<
   "out parameter %0 is never constructed on every path">;
 def err_safecxx_move_use_after_move : Error<
-  "move parameter %0 is read after it was moved from">;
+  "value %0 is used after it was passed to a move parameter">;
+
+// [[unsafe]] call restriction (umbrella -fsafecxx only).
+def err_safecxx_unsafe_call : Error<
+  "call to %0 is unsafe: it is declared [[unsafe]] and may only be called "
+  "from inside a [[unsafe]] block">;
 
 def err_builtin_matrix_disabled: Error<
   "matrix types extension is disabled. Pass -fenable-matrix to enable it">;
