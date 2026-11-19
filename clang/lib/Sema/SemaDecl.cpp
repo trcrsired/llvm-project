@@ -6393,8 +6393,18 @@ void Sema::noteUnsafeFenceLoc(SourceLocation Loc) {
 bool Sema::isInUnsafeFenceFile(SourceLocation Loc) const {
   if (Loc.isInvalid())
     return false;
-  FileID FID = getSourceManager().getFileID(Loc);
-  return FID.isValid() && UnsafeFenceFiles.contains(FID);
+  SourceManager &SM = getSourceManager();
+  auto IsRecorded = [&](SourceLocation L) {
+    if (L.isInvalid())
+      return false;
+    FileID FID = SM.getFileID(L);
+    return FID.isValid() && UnsafeFenceFiles.contains(FID);
+  };
+  // A call inside a macro expansion reports a macro location; resolve it to
+  // the file that actually wrote the token (and to the file the macro was
+  // invoked from), since a fenced header may use macros defined elsewhere.
+  return IsRecorded(SM.getExpansionLoc(Loc)) ||
+         IsRecorded(SM.getSpellingLoc(Loc));
 }
 
 bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
@@ -12577,6 +12587,18 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   // instantiated from the pattern are also treated as legacy code.
   if (isInUnsafeFence())
     noteUnsafeFenceLoc(NewFD->getLocation());
+
+  // Functions imported by a fenced `#include` belong to a legacy region and
+  // are unsafe to call from safe code: a safe caller must re-enter an
+  // `[[unsafe]] { }` block. System headers (e.g. libc++) are exempt so the
+  // standard library stays directly usable, and declarations written in the
+  // main file are covered by the parse-time fence depth. The attribute is
+  // implicit: it only carries the call restriction, not an unsafe body.
+  if (isInUnsafeFence() && !NewFD->isImplicit() &&
+      !getSourceManager().isInSystemHeader(NewFD->getLocation()) &&
+      !getSourceManager().isWrittenInMainFile(NewFD->getLocation()) &&
+      !NewFD->hasAttr<UnsafeAttr>())
+    NewFD->addAttr(UnsafeAttr::CreateImplicit(Context));
 
   // Safe C++ mandatory marks: every function declares its error channel and
   // (at namespace scope) its linkage explicitly. Check only the first

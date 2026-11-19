@@ -6960,6 +6960,22 @@ static void DiagnosedUnqualifiedCallsToStdFunctions(Sema &S,
       << FixItHint::CreateInsertion(DRE->getLocation(), "std::");
 }
 
+// Returns true when calling \p FD is restricted to `[[unsafe]] { }` blocks.
+// A function template pattern imported by a fenced `#include` is marked
+// [[unsafe]], and its specializations inherit the restriction even if the
+// attribute itself is not copied onto the specialization declaration.
+static bool isUnsafeToCall(const FunctionDecl *FD) {
+  for (const FunctionDecl *D = FD; D;) {
+    if (D->hasAttr<UnsafeAttr>())
+      return true;
+    const FunctionDecl *Pattern = D->getTemplateInstantiationPattern();
+    if (!Pattern || Pattern == D)
+      break;
+    D = Pattern;
+  }
+  return false;
+}
+
 ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                MultiExprArg ArgExprs, SourceLocation RParenLoc,
                                Expr *ExecConfig) {
@@ -6972,12 +6988,17 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
   // Safe C++: a function declared [[unsafe]] is a *call restriction* -- it may
   // only be called from inside an [[unsafe]] { } block. This is a source-level
   // rule of the umbrella, not a change to the function's semantics or body.
-  if (enforcingSafeCXX()) {
-    if (const auto *CE = dyn_cast<CallExpr>(Call.get())) {
-      if (const FunctionDecl *Callee = CE->getDirectCallee()) {
-        if (Callee->hasAttr<UnsafeAttr>())
-          Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
-      }
+  // The check is location-sensitive: calls made from inside a fenced header
+  // (e.g. during instantiation of its templates) and from system headers are
+  // legacy code and are allowed, while calls from safe source are diagnosed.
+  if (const auto *CE = dyn_cast<CallExpr>(Call.get())) {
+    if (const FunctionDecl *Callee = CE->getDirectCallee()) {
+      // Only potentially-evaluated calls are restricted. Calls inside
+      // `noexcept(...)`, `decltype`, and requires-expressions are compile-time
+      // probes; diagnosing them would poison constraint satisfaction.
+      if (!isUnevaluatedContext() &&
+          enforcingSafeCXXAt(CE->getExprLoc()) && isUnsafeToCall(Callee))
+        Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
     }
   }
 
