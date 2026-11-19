@@ -12557,7 +12557,11 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   // functions, so one diagnostic per function.
   if (enforcingSafeCXX() && !NewFD->isInvalidDecl() && !NewFD->isImplicit() &&
       !NewFD->isDeleted() && !NewFD->isDefaulted() &&
-      !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate()) {
+      !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate() &&
+      // main is special: its signature is fixed by the language, so it cannot
+      // carry an explicit linkage specifier or error channel. Under safe C++
+      // a throws call in main simply traps, so leaving it unmarked is fine.
+      !NewFD->isMain()) {
     const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>();
     if (FPT && FPT->getExceptionSpecType() == EST_None)
       Diag(NewFD->getLocation(), diag::err_safecxx_error_channel_unmarked)
