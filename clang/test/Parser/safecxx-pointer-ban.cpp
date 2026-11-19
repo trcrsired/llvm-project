@@ -98,10 +98,11 @@ static void d0708_big(in Big b) noexcept { (void)b; }
 struct V { int a[4]; int *begin() noexcept { return a; } int *end() noexcept { return a + 4; } };
 }
 static void range_value(inout V v) noexcept {
-  for (auto x : v) (void)x;  // OK: copy
+  // expected-error@+1 {{range-for loop variable must declare its passing intent}}
+  for (auto x : v) (void)x;  // bare auto is banned under -fsafecxx
 }
 static void range_ref(inout V v) noexcept {
-  // expected-error@+1 {{raw pointer or reference type}}
+  // expected-error@+1 {{raw pointer or reference type}} expected-error@+1 {{range-for loop variable must declare its passing intent}}
   for (auto &x : v) (void)x;
 }
 // `in auto` / `inout auto` are now implemented (D4), so range-for can bind

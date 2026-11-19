@@ -13729,6 +13729,9 @@ def err_safecxx_typeid : Error<
 def err_safecxx_raw_ptr_ref : Error<
   "raw pointer or reference type %0 is not allowed in safe C++ source; "
   "use in/inout/by value or place the declaration inside a [[unsafe]] block">;
+def err_safecxx_range_no_intent : Error<
+  "range-for loop variable must declare its passing intent; use "
+  "'in auto' or 'inout auto' (or place the loop inside a [[unsafe]] block)">;
 
 // Mandatory marks (umbrella -fsafecxx only).
 def err_safecxx_rule_of_five_copy_ctor : Error<

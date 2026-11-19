@@ -1975,7 +1975,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclaration(DeclaratorContext Context,
 Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
     DeclaratorContext Context, SourceLocation &DeclEnd,
     ParsedAttributes &DeclAttrs, ParsedAttributes &DeclSpecAttrs,
-    bool RequireSemi, ForRangeInit *FRI, SourceLocation *DeclSpecStart) {
+    bool RequireSemi, ForRangeInit *FRI, SourceLocation *DeclSpecStart,
+    ParameterPassingKind *VarPassing) {
   // Need to retain these for diagnostics before we add them to the DeclSepc.
   ParsedAttributesView OriginalDeclSpecAttrs;
   OriginalDeclSpecAttrs.prepend(DeclSpecAttrs.begin(), DeclSpecAttrs.end());
@@ -1999,6 +2000,8 @@ Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
   ParsedTemplateInfo TemplateInfo;
   DeclSpecContext DSContext = getDeclSpecContextFromDeclaratorContext(Context);
   ParseDeclarationSpecifiers(DS, TemplateInfo, AS_none, DSContext);
+  if (VarPassing)
+    *VarPassing = DS.getVariablePassingKind();
 
   // If we had a free-standing type definition with a missing semicolon, we
   // may get this far before the problem becomes obvious.

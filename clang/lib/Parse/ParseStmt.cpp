@@ -2161,12 +2161,29 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc,
       bool MightBeForRangeStmt = getLangOpts().CPlusPlus || getLangOpts().ObjC;
       ColonProtectionRAIIObject ColonProtection(*this, MightBeForRangeStmt);
       ParsedAttributes DeclSpecAttrs(AttrFactory);
+      ParameterPassingKind LoopPassing = ParameterPassingKind::None;
       DG = ParseSimpleDeclaration(
           DeclaratorContext::ForInit, DeclEnd, attrs, DeclSpecAttrs, false,
-          MightBeForRangeStmt ? &ForRangeInfo : nullptr);
+          MightBeForRangeStmt ? &ForRangeInfo : nullptr,
+          /*DeclSpecStart=*/nullptr, &LoopPassing);
       FirstPart = Actions.ActOnDeclStmt(DG, DeclStart, Tok.getLocation());
       if (ForRangeInfo.ParsedForRangeDecl()) {
         DiagCompat(ForRangeInfo.ColonLoc, diag_compat::for_range);
+        // Safe C++ (d0708 §1.4): a range-for loop variable is a parameter and
+        // must declare its passing intent. Bare `auto` silently copies (or
+        // forces a reference when written `auto&`), so it is not allowed.
+        if (LoopPassing == ParameterPassingKind::None &&
+            getLangOpts().SafeCXX && !Actions.isInUnsafeFence() &&
+            !PP.getSourceManager().isInSystemHeader(DeclStart)) {
+          SourceLocation Loc = DeclStart;
+          for (Decl *D : DG.get()) {
+            if (isa<VarDecl>(D)) {
+              Loc = D->getLocation();
+              break;
+            }
+          }
+          Diag(Loc, diag::err_safecxx_range_no_intent);
+        }
         ForRangeInfo.LoopVar = FirstPart;
         FirstPart = StmtResult();
       } else if (Tok.is(tok::semi)) { // for (int x = 4;

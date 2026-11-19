@@ -1828,7 +1828,8 @@ private:
                          ParsedAttributes &DeclAttrs,
                          ParsedAttributes &DeclSpecAttrs, bool RequireSemi,
                          ForRangeInit *FRI = nullptr,
-                         SourceLocation *DeclSpecStart = nullptr);
+                         SourceLocation *DeclSpecStart = nullptr,
+                         ParameterPassingKind *VarPassing = nullptr);
 
   /// ParseDeclGroup - Having concluded that this is either a function
   /// definition or a group of object declarations, actually parse the
