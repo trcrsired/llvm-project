@@ -1819,7 +1819,7 @@ void ASTDeclReader::VisitBlockDecl(BlockDecl *BD) {
   BD->setDoesNotEscape(Record.readInt());
   BD->setCanAvoidCopyToHeap(Record.readInt());
 
-  bool capturesCXXThis = Record.readInt();
+  QualType CXXThisType = Record.readType();
   unsigned numCaptures = Record.readInt();
   SmallVector<BlockDecl::Capture, 16> captures;
   captures.reserve(numCaptures);
@@ -1832,7 +1832,7 @@ void ASTDeclReader::VisitBlockDecl(BlockDecl *BD) {
 
     captures.push_back(BlockDecl::Capture(decl, byRef, nested, copyExpr));
   }
-  BD->setCaptures(Reader.getContext(), captures, capturesCXXThis);
+  BD->setCaptures(Reader.getContext(), captures, CXXThisType);
 }
 
 void ASTDeclReader::VisitOutlinedFunctionDecl(OutlinedFunctionDecl *D) {
