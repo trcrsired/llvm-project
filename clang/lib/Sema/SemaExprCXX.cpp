@@ -549,6 +549,10 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
                                 SourceLocation TypeidLoc,
                                 TypeSourceInfo *Operand,
                                 SourceLocation RParenLoc) {
+  // RTTI is unavailable in safe source outside a fence.
+  if (enforcingSafeCXX())
+    return ExprError(Diag(TypeidLoc, diag::err_safecxx_typeid));
+
   diagnoseCUDADeviceTypeid(*this, TypeidLoc,
                            Operand->getType()->isDependentType());
 
@@ -579,6 +583,10 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
                                 SourceLocation TypeidLoc,
                                 Expr *E,
                                 SourceLocation RParenLoc) {
+  // RTTI is unavailable in safe source outside a fence.
+  if (enforcingSafeCXX())
+    return ExprError(Diag(TypeidLoc, diag::err_safecxx_typeid));
+
   diagnoseCUDADeviceTypeid(*this, TypeidLoc, E && E->isTypeDependent());
 
   bool WasEvaluated = false;
@@ -655,6 +663,10 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
 ExprResult
 Sema::ActOnCXXTypeid(SourceLocation OpLoc, SourceLocation LParenLoc,
                      bool isType, void *TyOrExpr, SourceLocation RParenLoc) {
+  // RTTI is unavailable in safe source outside a fence.
+  if (enforcingSafeCXX())
+    return ExprError(Diag(OpLoc, diag::err_safecxx_typeid));
+
   // typeid is not supported in OpenCL.
   if (getLangOpts().OpenCLCPlusPlus) {
     return ExprError(Diag(OpLoc, diag::err_openclcxx_not_supported)
@@ -834,6 +846,13 @@ Sema::ActOnCXXNullPtrLiteral(SourceLocation Loc) {
 
 ExprResult
 Sema::ActOnCXXThrow(Scope *S, SourceLocation OpLoc, Expr *Ex) {
+  // Safe C++ has exactly one error channel (herbceptions). Legacy throw is
+  // a source-level error outside a fence; it is still ordinary C++ inside.
+  if (enforcingSafeCXX()) {
+    Diag(OpLoc, diag::err_safecxx_legacy_throw);
+    return ExprError();
+  }
+
   bool IsThrownVarInScope = false;
   if (Ex) {
     // C++0x [class.copymove]p31:

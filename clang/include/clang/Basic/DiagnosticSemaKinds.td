@@ -13708,6 +13708,48 @@ def err_builtin_trivially_relocate_invalid_arg_type: Error <
 def err_destructive_move_not_trivially_relocatable : Error<
   "destructive_move parameter of type %0 requires a trivially relocatable type">;
 
+// Safe C++ source-level restrictions (umbrella -fsafecxx only). These are
+// source rules, not codegen flags: the constructs compile normally inside a
+// [[unsafe]] { } fence.
+def err_safecxx_legacy_throw : Error<
+  "legacy C++ 'throw' is not allowed in safe C++ source; use 'throw throws' "
+  "or place the code inside a [[unsafe]] block">;
+def err_safecxx_legacy_try : Error<
+  "legacy C++ 'try' is not allowed in safe C++ source; use 'try throws' "
+  "or place the code inside a [[unsafe]] block">;
+def err_safecxx_legacy_catch : Error<
+  "legacy C++ 'catch' is not allowed in safe C++ source; use 'catch throws' "
+  "or place the code inside a [[unsafe]] block">;
+def err_safecxx_dynamic_cast : Error<
+  "'dynamic_cast' is not allowed in safe C++ source; place the code inside "
+  "a [[unsafe]] block">;
+def err_safecxx_typeid : Error<
+  "'typeid' is not allowed in safe C++ source; place the code inside a "
+  "[[unsafe]] block">;
+
+// Mandatory marks (umbrella -fsafecxx only).
+def err_safecxx_rule_of_five_copy_ctor : Error<
+  "class %0 declares a destructor but not a copy constructor; explicitly "
+  "declare it (at minimum '= delete')">;
+def err_safecxx_rule_of_five_copy_assign : Error<
+  "class %0 declares a destructor but not a copy assignment operator; "
+  "explicitly declare it (at minimum '= delete')">;
+def err_safecxx_virtual_unmarked : Error<
+  "virtual function %0 must be marked 'virtual', 'override', or 'final'">;
+def err_safecxx_linkage_unmarked : Error<
+  "namespace-scope function %0 must declare its linkage with 'static', "
+  "'inline', or 'extern'">;
+def err_safecxx_error_channel_unmarked : Error<
+  "function %0 must declare its error channel with 'noexcept' or 'throws'">;
+
+// d0708 definite first/last use (-fparameter-passing).
+def err_safecxx_out_read_before_init : Error<
+  "out parameter %0 is read before it is constructed; assign to it first">;
+def err_safecxx_out_not_constructed : Error<
+  "out parameter %0 is never constructed on every path">;
+def err_safecxx_move_use_after_move : Error<
+  "move parameter %0 is read after it was moved from">;
+
 def err_builtin_matrix_disabled: Error<
   "matrix types extension is disabled. Pass -fenable-matrix to enable it">;
 def err_builtin_matrix_major_order_disabled: Error<

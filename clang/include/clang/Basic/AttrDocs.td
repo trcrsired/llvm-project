@@ -2775,6 +2775,26 @@ void usages() {
   }];
 }
 
+def OwnerDocs : Documentation {
+  let Category = DocCatType;
+  let Heading = "owner (P1179 lifetime protocol)";
+  let Content = [{
+Marks a class as an owner: its pointer-like fields own their pointees, and the
+object's provenance is `{this'}`. Provenance enters the P1179 analysis only
+through this explicit mark; it is never inferred from the type's shape.
+  }];
+}
+
+def LifetimeDocs : Documentation {
+  let Category = DocCatVariable;
+  let Heading = "lifetime (P1179 lifetime protocol)";
+  let Content = [{
+On a constructor or assignment parameter, `[[lifetime(this)]]` says the
+constructed fields derive their provenance from that parameter. It is the
+second explicit mark that seeds the P1179 provenance analysis.
+  }];
+}
+
 def UnsafeDocs : Documentation {
   let Category = DocCatStmt;
   let Heading = "unsafe (safe C++ fence)";

@@ -22,7 +22,7 @@ void f_in_big(in Big b) noexcept {}
 
 // PP: FunctionDecl{{.*}} f_out
 // PP-NEXT: ParmVarDecl{{.*}} y 'int &' out
-void f_out(out int y) noexcept {}
+void f_out(out int y) noexcept { y = 1; }
 
 // PP: FunctionDecl{{.*}} f_inout
 // PP-NEXT: ParmVarDecl{{.*}} z 'int &' inout

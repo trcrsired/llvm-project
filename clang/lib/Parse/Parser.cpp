@@ -748,6 +748,34 @@ Parser::ParseExternalDeclaration(ParsedAttributes &Attrs,
   DestroyTemplateIdAnnotationsRAIIObj CleanupRAII(*this);
   ParenBraceBracketBalancer BalancerRAIIObj(*this);
 
+  // Safe C++: `[[unsafe]] { ... }` at namespace scope is a scope-transparent
+  // fence block. Declarations inside are parsed in the current scope (so they
+  // stay visible outside, e.g. types imported by a fenced #include), but all
+  // safe-source-only restrictions are suppressed while parsing them.
+  if (Tok.is(tok::l_brace)) {
+    bool HasUnsafe = false;
+    for (const auto &A : Attrs) {
+      if (A.getKind() == ParsedAttr::AT_Unsafe) {
+        HasUnsafe = true;
+        break;
+      }
+    }
+    if (HasUnsafe) {
+      ConsumeBrace(); // '{'
+      Sema::UnsafeFenceScope Fence(Actions);
+      while (Tok.isNot(tok::r_brace) && Tok.isNot(tok::eof)) {
+        ParsedAttributes InnerAttrs(AttrFactory), InnerDSAttrs(AttrFactory);
+        while (MaybeParseCXX11Attributes(InnerAttrs) ||
+               MaybeParseGNUAttributes(InnerDSAttrs))
+          ;
+        ParseExternalDeclaration(InnerAttrs, InnerDSAttrs);
+      }
+      if (Tok.is(tok::r_brace))
+        ConsumeBrace();
+      return nullptr;
+    }
+  }
+
   if (PP.isCodeCompletionReached()) {
     cutOffParsing();
     return nullptr;

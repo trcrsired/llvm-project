@@ -288,8 +288,24 @@ Retry:
   case tok::kw_default:             // C99 6.8.1: labeled-statement
     return ParseDefaultStatement(StmtCtx);
 
-  case tok::l_brace:                // C99 6.8.2: compound-statement
+  case tok::l_brace: {              // C99 6.8.2: compound-statement
+    // A `[[unsafe]]`-attributed block is a fence: safe-source-only
+    // restrictions are relaxed while its body is parsed. Track the region
+    // on Sema so the checks can consult it. (The attribute itself is still
+    // applied to the resulting AttributedStmt by ActOnAttributedStmt.)
+    bool IsUnsafeFence = false;
+    for (const auto &A : CXX11Attrs) {
+      if (A.getKind() == ParsedAttr::AT_Unsafe) {
+        IsUnsafeFence = true;
+        break;
+      }
+    }
+    if (IsUnsafeFence) {
+      Sema::UnsafeFenceScope Fence(Actions);
+      return ParseCompoundStatement();
+    }
     return ParseCompoundStatement();
+  }
   case tok::semi: {                 // C99 6.8.3p3: expression[opt] ';'
     bool HasLeadingEmptyMacro = Tok.hasLeadingEmptyMacro();
     return Actions.ActOnNullStmt(ConsumeToken(), HasLeadingEmptyMacro);

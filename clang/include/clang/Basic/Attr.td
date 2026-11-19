@@ -2002,6 +2002,21 @@ def Unsafe : DeclOrStmtAttr {
                              WarnDiag, "declarations and statements">;
 }
 
+// P1179 lifetime protocol marks. These feed the per-value provenance analysis
+// and are only meaningful under -flifetime-protocol / -fsafecxx.
+def SafeOwner : InheritableAttr {
+  let Spellings = [CXX11<"", "owner", 202600>];
+  let Documentation = [OwnerDocs];
+  let Subjects = SubjectList<[CXXRecord], ErrorDiag, "classes">;
+}
+
+def Lifetime : InheritableParamAttr {
+  let Spellings = [CXX11<"", "lifetime", 202600>];
+  let Args = [StringArgument<"Source">];
+  let Documentation = [LifetimeDocs];
+  let Subjects = SubjectList<[ParmVar], ErrorDiag, "parameters">;
+}
+
 def MustTail : StmtAttr, TargetSpecificAttr<TargetMustTailAvailable> {
   let Spellings = [Clang<"musttail">];
   let Documentation = [MustTailDocs];

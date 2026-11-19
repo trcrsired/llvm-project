@@ -7,9 +7,9 @@
 // meaning (restricting pointers, calls, etc.) is a later step and is gated by
 // -fsafecxx; here we only establish that the attribute parses cleanly.
 
-[[unsafe]] void unsafe_to_call() noexcept {}
+[[unsafe]] static void unsafe_to_call() noexcept {}
 
-void safe_caller() noexcept {
+static void safe_caller() noexcept {
   // A call restriction is not enforced yet, but the spelling must parse.
   unsafe_to_call();
 

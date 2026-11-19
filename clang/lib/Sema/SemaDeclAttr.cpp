@@ -7190,6 +7190,26 @@ static void handleUnsafeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(UnsafeAttr::Create(S.Context, AL));
 }
 
+// P1179 lifetime protocol marks. Record the attributes; the provenance
+// analysis that consumes them is a later step.
+static void handleOwnerAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  D->addAttr(SafeOwnerAttr::Create(S.Context, AL));
+}
+
+static void handleLifetimeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (!AL.checkExactlyNumArgs(S, 1))
+    return;
+  StringRef Source;
+  if (const auto *SE = dyn_cast_if_present<StringLiteral>(AL.getArgAsExpr(0)))
+    Source = SE->getString();
+  else {
+    S.Diag(AL.getLoc(), diag::err_attribute_argument_type) << AL
+        << AANT_ArgumentString;
+    return;
+  }
+  D->addAttr(LifetimeAttr::Create(S.Context, Source, AL));
+}
+
 static void handleNoMergeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   auto *VDecl = dyn_cast<VarDecl>(D);
   if (VDecl && !VDecl->isFunctionPointerType()) {
@@ -8263,6 +8283,12 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_Unsafe:
     handleUnsafeAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_SafeOwner:
+    handleOwnerAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_Lifetime:
+    handleLifetimeAttr(S, D, AL);
     break;
   case ParsedAttr::AT_NoMerge:
     handleNoMergeAttr(S, D, AL);

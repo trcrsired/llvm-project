@@ -12489,6 +12489,29 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   assert(!NewFD->getReturnType()->isVariablyModifiedType() &&
          "Variably modified return types are not handled here");
 
+  // Safe C++ mandatory marks: every function declares its error channel and
+  // (at namespace scope) its linkage explicitly. Check only the first
+  // declaration, and only written (non-implicit, non-template-instantiated)
+  // functions, so one diagnostic per function.
+  if (enforcingSafeCXX() && !NewFD->isInvalidDecl() && !NewFD->isImplicit() &&
+      !NewFD->isDeleted() && !NewFD->isDefaulted() &&
+      !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate()) {
+    const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>();
+    if (FPT && FPT->getExceptionSpecType() == EST_None)
+      Diag(NewFD->getLocation(), diag::err_safecxx_error_channel_unmarked)
+          << NewFD;
+
+    if (NewFD->getDeclContext()->isFileContext()) {
+      bool ExplicitLinkage =
+          NewFD->getStorageClass() == SC_Static ||
+          NewFD->getStorageClass() == SC_Extern ||
+          NewFD->isInlineSpecified() ||
+          NewFD->getFormalLinkage() == Linkage::Internal;
+      if (!ExplicitLinkage)
+        Diag(NewFD->getLocation(), diag::err_safecxx_linkage_unmarked) << NewFD;
+    }
+  }
+
   // Determine whether the type of this function should be merged with
   // a previous visible declaration. This never happens for functions in C++,
   // and always happens in C if the previous declaration was visible.
@@ -17027,10 +17050,82 @@ void Sema::CheckCoroutineWrapper(FunctionDecl *FD) {
     Diag(FD->getLocation(), diag::err_coroutine_return_type) << RD;
 }
 
+namespace {
+/// Basic d0708 definite-first-use check for `out` parameters. Walks the
+/// function body in source order and records the first write (assignment) and
+/// first read of each out parameter, then diagnoses reads that precede any
+/// write, and out parameters never written at all. This is a lightweight
+/// source-order check; a CFG-based dataflow pass can replace it later.
+class OutParamUseVisitor : public RecursiveASTVisitor<OutParamUseVisitor> {
+  llvm::SmallPtrSet<const ParmVarDecl *, 8> OutParams;
+  const ParmVarDecl *CurrentWriteTarget = nullptr;
+
+  static const ParmVarDecl *getParam(const Expr *E) {
+    if (const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E->IgnoreParens()))
+      return dyn_cast<ParmVarDecl>(DRE->getDecl());
+    return nullptr;
+  }
+
+public:
+  llvm::DenseMap<const ParmVarDecl *, SourceLocation> FirstWrite;
+  llvm::DenseMap<const ParmVarDecl *, SourceLocation> FirstRead;
+
+  explicit OutParamUseVisitor(const FunctionDecl *FD) {
+    for (const ParmVarDecl *P : FD->parameters())
+      if (P->getParameterPassingKind() == ParameterPassingKind::Out)
+        OutParams.insert(P);
+  }
+
+  bool TraverseBinaryOperator(BinaryOperator *BO) {
+    if (BO->isAssignmentOp()) {
+      CurrentWriteTarget = getParam(BO->getLHS());
+      TraverseStmt(BO->getLHS());
+      CurrentWriteTarget = nullptr;
+      TraverseStmt(BO->getRHS());
+      return true;
+    }
+    return RecursiveASTVisitor::TraverseBinaryOperator(BO);
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    const auto *P = dyn_cast<ParmVarDecl>(E->getDecl());
+    if (!P || !OutParams.count(P))
+      return true;
+    if (P == CurrentWriteTarget) {
+      FirstWrite.try_emplace(P, E->getLocation());
+    } else {
+      FirstRead.try_emplace(P, E->getLocation());
+    }
+    return true;
+  }
+};
+} // namespace
+
 Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
                                     bool RetainFunctionScopeInfo) {
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
+
+  // d0708 definite-first-use for out parameters.
+  if (getLangOpts().ParameterPassing && FD && Body &&
+      !FD->isInvalidDecl() && !IsInstantiation &&
+      !FD->getDescribedFunctionTemplate()) {
+    OutParamUseVisitor Visitor(FD);
+    Visitor.TraverseStmt(Body);
+    for (const ParmVarDecl *P : FD->parameters()) {
+      if (P->getParameterPassingKind() != ParameterPassingKind::Out)
+        continue;
+      auto W = Visitor.FirstWrite.find(P);
+      auto R = Visitor.FirstRead.find(P);
+      if (W == Visitor.FirstWrite.end()) {
+        Diag(P->getLocation(), diag::err_safecxx_out_not_constructed) << P;
+      } else if (R != Visitor.FirstRead.end() &&
+                 R->second.isValid() && W->second.isValid() &&
+                 R->second < W->second) {
+        Diag(R->second, diag::err_safecxx_out_read_before_init) << P;
+      }
+    }
+  }
 
   // Herbception: error_domain<T>::domain() must not return nullptr. The
   // fabricated std::error dereferences the domain pointer in ~error(), so a
