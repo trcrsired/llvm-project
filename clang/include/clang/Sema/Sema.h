@@ -8810,35 +8810,77 @@ public:
   /// iterators) are suppressed while this is nonzero.
   unsigned UnsafeFenceDepth = 0;
 
+  /// Opening locations of the currently active fences, outermost first.
+  /// Used to tell whether the code being parsed was pulled in by a legacy
+  /// import written in the main source file.
+  llvm::SmallVector<SourceLocation, 4> UnsafeFenceStarts;
+
   /// RAII guard that marks the parser as inside a `[[unsafe]] { }` fence.
   class UnsafeFenceScope {
   public:
-    explicit UnsafeFenceScope(Sema &S) : S(S) { ++S.UnsafeFenceDepth; }
-    ~UnsafeFenceScope() { --S.UnsafeFenceDepth; }
+    explicit UnsafeFenceScope(Sema &S, SourceLocation BeginLoc)
+        : S(S), BeginLoc(BeginLoc) {
+      ++S.UnsafeFenceDepth;
+      S.UnsafeFenceStarts.push_back(BeginLoc);
+    }
+    ~UnsafeFenceScope() {
+      --S.UnsafeFenceDepth;
+      S.UnsafeFenceStarts.pop_back();
+    }
     UnsafeFenceScope(const UnsafeFenceScope &) = delete;
     UnsafeFenceScope &operator=(const UnsafeFenceScope &) = delete;
 
+    /// Record the fenced region now that the closing brace is known.
+    void close(SourceLocation EndLoc) {
+      S.noteUnsafeFenceRange(BeginLoc, EndLoc);
+      BeginLoc = SourceLocation();
+    }
+
   private:
     Sema &S;
+    SourceLocation BeginLoc;
   };
 
-  /// Files whose contents were parsed while inside a `[[unsafe]] { }` fence.
-  /// A fence may wrap an `#include`, in which case the header's declarations
+  /// A source region treated as unsafe. `EndOffset` is `UINT_MAX` for a file
+  /// that was pulled in wholesale by a fence (e.g. a fenced `#include`).
+  struct UnsafeFenceRange {
+    FileID FID;
+    unsigned BeginOffset;
+    unsigned EndOffset;
+  };
+
+  /// Regions whose contents were parsed inside a `[[unsafe]] { }` fence. A
+  /// fence may wrap an `#include`, in which case the header's declarations
   /// (and, crucially, their template specializations instantiated later, when
   /// the fence is no longer being parsed) belong to legacy code and must not
   /// be subject to safe-source-only rules.
-  llvm::SmallDenseSet<FileID, 16> UnsafeFenceFiles;
+  llvm::SmallVector<UnsafeFenceRange, 8> UnsafeFenceRanges;
 
-  /// Record the file containing \p Loc as having been parsed inside a fence.
+  /// Record the fenced region [\p Begin, \p End] in the file that contains the
+  /// fence. Called by the parser when the closing brace is consumed.
+  void noteUnsafeFenceRange(SourceLocation Begin, SourceLocation End);
+
+  /// Record \p Loc's file as entirely unsafe when it is a file *other* than
+  /// the one that contains the innermost active fence, i.e. a file pulled in
+  /// by a fenced `#include` (or one of its transitive includes).
   /// Called only while `isInUnsafeFence()` is true.
   void noteUnsafeFenceLoc(SourceLocation Loc);
 
-  /// True when \p Loc lies in a file whose contents were parsed inside a
-  /// `[[unsafe]] { }` fence (e.g. a fenced `#include`).
-  bool isInUnsafeFenceFile(SourceLocation Loc) const;
+  /// True when \p Loc lies inside a `[[unsafe]] { }` fence region, or in a
+  /// file pulled in by one (e.g. a fenced `#include`). Template
+  /// specializations are instantiated after the fence has closed, so their
+  /// pattern location is what is checked here.
+  bool isInUnsafeFenceRange(SourceLocation Loc) const;
 
   /// True when the parser is currently inside a `[[unsafe]] { }` fence.
   bool isInUnsafeFence() const { return UnsafeFenceDepth != 0; }
+
+  /// True when the *outermost* active fence was opened in the main source
+  /// file. Only such fences denote a legacy import (`[[unsafe]] { #include
+  /// ... }`) whose declarations are unsafe to call. A fence that a library
+  /// opens inside its own header is merely a syntax relaxation for its
+  /// kernel; its interface is classified explicitly with `[[unsafe]]`.
+  bool isInMainFileUnsafeFence() const;
 
   /// True when a safe-source-only restriction should be enforced: the
   /// umbrella is on and we are not inside a `[[unsafe]] { }` fence.
@@ -8848,8 +8890,8 @@ public:
 
   /// Location-sensitive form of \p enforcingSafeCXX. Same as
   /// enforcingSafeCXX() but additionally exempts declarations that come from
-  /// a system header or from a file parsed inside a fence. This is the form
-  /// to use for per-declaration checks, because a template specialization is
+  /// a system header or from a fenced region. This is the form to use for
+  /// per-declaration checks, because a template specialization is
   /// instantiated after its (possibly fenced) pattern's fence has closed.
   bool enforcingSafeCXXAt(SourceLocation Loc) const;
 

@@ -7093,20 +7093,20 @@ void Sema::CheckCompletedCXXClass(Scope *S, CXXRecordDecl *Record) {
 
   // Safe C++: every virtual function (and every override) must carry an
   // explicit virtual/override/final marker.
-  if (enforcingSafeCXX() && !Record->isInvalidDecl() &&
-      !Record->isDependentType() && !Record->isLambda()) {
+  if (!Record->isInvalidDecl() && !Record->isDependentType() &&
+      !Record->isLambda()) {
     for (const CXXMethodDecl *M : Record->methods()) {
       if (M->isImplicit() || !M->isVirtual())
         continue;
       if (!M->isVirtualAsWritten() && !M->hasAttr<OverrideAttr>() &&
-          !M->hasAttr<FinalAttr>())
+          !M->hasAttr<FinalAttr>() && enforcingSafeCXXAt(M->getLocation()))
         Diag(M->getLocation(), diag::err_safecxx_virtual_unmarked) << M;
     }
   }
 
   // Safe C++ Rule-of-Five: a class with a user-declared destructor must
   // explicitly declare its copy operations (at minimum '= delete').
-  if (enforcingSafeCXX() && !Record->isInvalidDecl() &&
+  if (enforcingSafeCXXAt(Record->getLocation()) && !Record->isInvalidDecl() &&
       !Record->isDependentType() && !Record->isLambda() &&
       Record->hasUserDeclaredDestructor()) {
     if (!Record->hasUserDeclaredCopyConstructor())

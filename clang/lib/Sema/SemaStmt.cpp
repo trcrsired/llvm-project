@@ -4429,8 +4429,9 @@ StmtResult
 Sema::ActOnCXXCatchBlock(SourceLocation CatchLoc, Decl *ExDecl,
                          Stmt *HandlerBlock) {
   // A legacy catch (catch throws/fails go through ActOnCXXCatchThrowsBlock)
-  // is a source-level error in safe code outside a fence.
-  if (enforcingSafeCXX())
+  // is a source-level error in safe code outside a fence. Location-sensitive:
+  // system headers and fenced-include code remain legacy.
+  if (enforcingSafeCXXAt(CatchLoc))
     return StmtError(Diag(CatchLoc, diag::err_safecxx_legacy_catch));
 
   // There's nothing to test that ActOnExceptionDecl didn't already test.
@@ -4609,7 +4610,7 @@ StmtResult Sema::ActOnCXXTryBlock(SourceLocation TryLoc, Stmt *TryBlock,
   // Herbception handlers are the safe channel; a try with any legacy catch
   // is banned in safe source outside a fence.
   if (!AllHerbceptionHandlers) {
-    if (enforcingSafeCXX())
+    if (enforcingSafeCXXAt(TryLoc))
       return StmtError(Diag(TryLoc, diag::err_safecxx_legacy_try));
     DiagnoseExceptionUse(TryLoc, /* IsTry= */ true);
   }

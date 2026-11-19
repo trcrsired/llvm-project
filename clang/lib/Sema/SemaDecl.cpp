@@ -6375,41 +6375,61 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
   }
 }
 
-void Sema::noteUnsafeFenceLoc(SourceLocation Loc) {
-  if (Loc.isInvalid())
+void Sema::noteUnsafeFenceRange(SourceLocation Begin, SourceLocation End) {
+  if (Begin.isInvalid() || End.isInvalid())
     return;
-  // Declarations written directly in the file that contains the fence are
-  // already exempt while the fence is being parsed; recording that file would
-  // wrongly exempt the rest of it after the fence closes. Only files pulled
-  // in by a fenced `#include` (and their transitive includes) need to be
-  // remembered for later template instantiations.
-  if (getSourceManager().isWrittenInMainFile(Loc))
+  SourceManager &SM = getSourceManager();
+  FileID FID = SM.getFileID(Begin);
+  if (!FID.isValid() || FID != SM.getFileID(End))
     return;
-  FileID FID = getSourceManager().getFileID(Loc);
-  if (FID.isValid())
-    UnsafeFenceFiles.insert(FID);
+  UnsafeFenceRanges.push_back(
+      {FID, SM.getFileOffset(Begin), SM.getFileOffset(End)});
 }
 
-bool Sema::isInUnsafeFenceFile(SourceLocation Loc) const {
+void Sema::noteUnsafeFenceLoc(SourceLocation Loc) {
+  if (Loc.isInvalid() || UnsafeFenceStarts.empty())
+    return;
+  SourceManager &SM = getSourceManager();
+  SourceLocation ExplLoc = SM.getExpansionLoc(Loc);
+  FileID DeclFID = SM.getFileID(ExplLoc);
+  if (!DeclFID.isValid())
+    return;
+  // A declaration written in the same file as the innermost fence is covered
+  // precisely by that fence's range; recording the whole file would wrongly
+  // exempt code that follows the fence.
+  FileID FenceFID = SM.getFileID(SM.getExpansionLoc(UnsafeFenceStarts.back()));
+  if (DeclFID == FenceFID)
+    return;
+  // A different file can only be reached through a fenced `#include` (or one
+  // of its transitive includes): the whole file is legacy code.
+  UnsafeFenceRanges.push_back({DeclFID, 0, ~0u});
+}
+
+bool Sema::isInUnsafeFenceRange(SourceLocation Loc) const {
   if (Loc.isInvalid())
     return false;
   SourceManager &SM = getSourceManager();
-  auto IsRecorded = [&](SourceLocation L) {
-    if (L.isInvalid())
-      return false;
-    FileID FID = SM.getFileID(L);
-    return FID.isValid() && UnsafeFenceFiles.contains(FID);
-  };
-  // A call inside a macro expansion reports a macro location; resolve it to
-  // the file that actually wrote the token (and to the file the macro was
-  // invoked from), since a fenced header may use macros defined elsewhere.
-  return IsRecorded(SM.getExpansionLoc(Loc)) ||
-         IsRecorded(SM.getSpellingLoc(Loc));
+  SourceLocation ExplLoc = SM.getExpansionLoc(Loc);
+  FileID FID = SM.getFileID(ExplLoc);
+  if (!FID.isValid())
+    return false;
+  unsigned Offset = SM.getFileOffset(ExplLoc);
+  for (const UnsafeFenceRange &R : UnsafeFenceRanges)
+    if (R.FID == FID && Offset >= R.BeginOffset && Offset <= R.EndOffset)
+      return true;
+  return false;
+}
+
+bool Sema::isInMainFileUnsafeFence() const {
+  if (UnsafeFenceStarts.empty())
+    return false;
+  return getSourceManager().isWrittenInMainFile(
+      getSourceManager().getExpansionLoc(UnsafeFenceStarts.front()));
 }
 
 bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
   return enforcingSafeCXX() && !getSourceManager().isInSystemHeader(Loc) &&
-         !isInUnsafeFenceFile(Loc);
+         !isInUnsafeFenceRange(Loc);
 }
 
 // Safe source rule 1 (see DESIGN.md, refined by D24): naming a raw pointer,
@@ -6419,8 +6439,7 @@ bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
 // compiler-generated declarations are unaffected. Transient reference values
 // from expressions (v[i], *it) are not declarations and are not checked here.
 static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T) {
-  if (!S.enforcingSafeCXX() || T.isNull() || Loc.isInvalid() ||
-      S.getSourceManager().isInSystemHeader(Loc))
+  if (T.isNull() || Loc.isInvalid() || !S.enforcingSafeCXXAt(Loc))
     return;
 
   // `int *a[4]` still names a pointer type, so look through array levels.
@@ -12588,13 +12607,16 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   if (isInUnsafeFence())
     noteUnsafeFenceLoc(NewFD->getLocation());
 
-  // Functions imported by a fenced `#include` belong to a legacy region and
-  // are unsafe to call from safe code: a safe caller must re-enter an
-  // `[[unsafe]] { }` block. System headers (e.g. libc++) are exempt so the
-  // standard library stays directly usable, and declarations written in the
-  // main file are covered by the parse-time fence depth. The attribute is
-  // implicit: it only carries the call restriction, not an unsafe body.
-  if (isInUnsafeFence() && !NewFD->isImplicit() &&
+  // Functions pulled in by a fenced `#include` in the main file belong to a
+  // legacy import and are unsafe to call from safe code: a safe caller must
+  // re-enter an `[[unsafe]] { }` block. A fence that a library opens inside
+  // its own header is only a syntax relaxation for its kernel, so its
+  // interface is classified explicitly with `[[unsafe]]` instead. System
+  // headers (e.g. libc++) are exempt so the standard library stays directly
+  // usable, and declarations written in the main file are covered by the
+  // parse-time fence depth. The attribute is implicit: it only carries the
+  // call restriction, not an unsafe body.
+  if (isInUnsafeFence() && isInMainFileUnsafeFence() && !NewFD->isImplicit() &&
       !getSourceManager().isInSystemHeader(NewFD->getLocation()) &&
       !getSourceManager().isWrittenInMainFile(NewFD->getLocation()) &&
       !NewFD->hasAttr<UnsafeAttr>())

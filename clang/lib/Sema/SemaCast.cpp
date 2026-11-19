@@ -380,8 +380,10 @@ Sema::BuildCXXNamedCast(SourceLocation OpLoc, tok::TokenKind Kind,
                                                 AngleBrackets));
 
   case tok::kw_dynamic_cast: {
-    // RTTI is unavailable in safe source outside a fence.
-    if (enforcingSafeCXX())
+    // RTTI is unavailable in safe source outside a fence. The check is
+    // location-sensitive so that system headers and code from a fenced
+    // `#include` (e.g. an instantiated template) stay legacy.
+    if (enforcingSafeCXXAt(OpLoc))
       return ExprError(Diag(OpLoc, diag::err_safecxx_dynamic_cast));
 
     // dynamic_cast is not supported in C++ for OpenCL.
