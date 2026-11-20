@@ -8855,6 +8855,11 @@ public:
 
   void noteDestructiveMove(const DeclRefExpr *DRE);
 
+  /// True if \p P is a borrow parameter (`in`, `out` or `inout`). Such a
+  /// parameter may not be used as the source of a move: the consumption would
+  /// be invisible at the call site, because borrows lower to lvalue refs.
+  static bool isSafeCxxBorrowParam(const ParmVarDecl *P);
+
   /// Depth of active `[[unsafe]] T x = ...;` initializers. While nonzero,
   /// safe-source checks are suspended for the initializer expression; the
   /// declared variable itself remains an ordinary safe object.

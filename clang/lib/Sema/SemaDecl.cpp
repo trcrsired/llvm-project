@@ -6408,11 +6408,25 @@ const VarDecl *Sema::getBorrowSourceVar(const VarDecl *VD) const {
   return nullptr;
 }
 
+bool Sema::isSafeCxxBorrowParam(const ParmVarDecl *P) {
+  if (!P)
+    return false;
+  auto K = P->getParameterPassingKind();
+  return K == ParameterPassingKind::In || K == ParameterPassingKind::Out ||
+         K == ParameterPassingKind::Inout;
+}
+
 void Sema::noteDestructiveMove(const DeclRefExpr *DRE) {
   if (!DRE)
     return;
-  if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+  if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+    // A borrow is not owned by the callee: consuming it would hide the move
+    // from the caller, whose call site shows no consuming parameter.
+    if (isSafeCxxBorrowParam(dyn_cast<ParmVarDecl>(VD)) &&
+        enforcingSafeCXXAt(DRE->getLocation()))
+      Diag(DRE->getLocation(), diag::err_safecxx_borrow_move) << VD;
     ExplicitDestructiveMoves.try_emplace(VD, DRE->getLocation());
+  }
 }
 
 void Sema::noteUnsafeFenceRange(SourceLocation Begin, SourceLocation End) {
