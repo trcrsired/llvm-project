@@ -594,10 +594,10 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
   }
 }
 
-ExprResult Parser::ParsePassIntentExpression(bool Destructive) {
+ExprResult Parser::ParseDestructiveMoveExpression() {
   SourceLocation KWLoc = Tok.getLocation();
   IdentifierInfo *KW = Tok.getIdentifierInfo();
-  ConsumeToken(); // 'move' / 'destructive_move'
+  ConsumeToken(); // 'destructive_move'
 
   SourceLocation LParenLoc = Tok.getLocation();
   if (!Tok.is(tok::l_paren)) {
@@ -616,10 +616,9 @@ ExprResult Parser::ParsePassIntentExpression(bool Destructive) {
   if (Sub.isInvalid())
     return ExprError();
 
-  // The call-site marker produces an xvalue; the callee's parameter passing
-  // kind (T&& for move, by-value T for destructive_move) decides what is
-  // actually constructed. MoveUseVisitor strips this cast when tracking
-  // definite last use.
+  // The marker produces an xvalue; the callee's by-value destructive_move
+  // parameter is then constructed from it. MoveUseVisitor strips this cast
+  // when tracking definite last use.
   QualType T = Actions.Context.getRValueReferenceType(Sub.get()->getType());
   TypeSourceInfo *TSI = Actions.Context.getTrivialTypeSourceInfo(T, KWLoc);
   return Actions.BuildCXXNamedCast(KWLoc, tok::kw_static_cast, TSI, Sub.get(),
@@ -893,6 +892,7 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
     Res = Actions.ActOnCXXNullPtrLiteral(ConsumeToken());
     break;
 
+  case tok::annot_expr:
   case tok::annot_primary_expr:
   case tok::annot_overload_set:
     Res = getExprAnnotation(Tok);
@@ -920,6 +920,14 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
                                NotPrimaryExpression);
   }
 
+  case tok::annot_value_decl: {
+    auto *VD = static_cast<ValueDecl *>(Tok.getAnnotationValue());
+    SourceLocation Loc = Tok.getLocation();
+    ConsumeAnnotationToken();
+    return Actions.BuildDeclRefExpr(VD, VD->getType().getNonReferenceType(),
+                                    VK_LValue, Loc);
+  }
+
   case tok::kw___super:
   case tok::kw_decltype:
     // Annotate the token and tail recurse.
@@ -934,15 +942,13 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
   ParseIdentifier: {    // primary-expression: identifier
                         // unqualified-id: identifier
                         // constant: enumeration-constant
-    // Safe C++: in expression position, `move(x)` and `destructive_move(x)`
-    // are contextual call-site pass-intent markers, not function calls.
+    // Safe C++: in expression position, `destructive_move(x)` is a contextual
+    // call-site relocation marker, not a function call.
     if ((getLangOpts().SafeCXX || getLangOpts().ParameterPassing) &&
         Tok.is(tok::identifier) && NextToken().is(tok::l_paren)) {
       IdentifierInfo *II = Tok.getIdentifierInfo();
-      if (II == &PP.getIdentifierTable().get("move"))
-        return ParsePassIntentExpression(/*Destructive=*/false);
       if (II == &PP.getIdentifierTable().get("destructive_move"))
-        return ParsePassIntentExpression(/*Destructive=*/true);
+        return ParseDestructiveMoveExpression();
     }
 
     // Turn a potentially qualified name into a annot_typename or
@@ -1094,10 +1100,11 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
       Validator.WantRemainingKeywords = Tok.isNot(tok::r_paren);
     }
     Name.setIdentifier(&II, ILoc);
-    Res = Actions.ActOnIdExpression(getCurScope(), ScopeSpec, TemplateKWLoc,
-                                    Name, Tok.is(tok::l_paren),
-                                    isAddressOfOperand, &Validator,
-                                    /*IsInlineAsmIdentifier=*/false);
+    Res =
+        Actions.ActOnIdExpression(getCurScope(), ScopeSpec, TemplateKWLoc, Name,
+                                  Tok.isOneOf(tok::l_paren, tok::lesslessless),
+                                  isAddressOfOperand, &Validator,
+                                  /*IsInlineAsmIdentifier=*/false);
     Res = tryParseCXXPackIndexingExpression(Res);
     if (!Res.isInvalid() && Tok.is(tok::less))
       checkPotentialAngleBracket(Res);

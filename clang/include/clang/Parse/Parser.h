@@ -292,6 +292,7 @@ public:
   friend class PoisonSEHIdentifiersRAIIObject;
   friend class ParenBraceBracketBalancer;
   friend class BalancedDelimiterTracker;
+  class TokenInjectionHandlerImpl;
 
   Parser(Preprocessor &PP, Sema &Actions, bool SkipFunctionBodies);
   ~Parser() override;
@@ -4153,10 +4154,10 @@ private:
                                  bool isVectorLiteral = false,
                                  bool *NotPrimaryExpression = nullptr);
 
-  /// Safe C++ call-site pass intent: `move(expr)` / `destructive_move(expr)`.
-  /// Both lower to an rvalue cast; the parameter's passing kind decides
-  /// whether the callee receives T&& or a relocated by-value T.
-  ExprResult ParsePassIntentExpression(bool Destructive);
+  /// Safe C++ call-site relocation intent: `destructive_move(expr)`.
+  /// It lowers to an rvalue cast; the parameter's passing kind decides
+  /// whether the callee receives a relocated by-value T.
+  ExprResult ParseDestructiveMoveExpression();
 
   /// Returns true if the next token cannot start an expression.
   bool isNotExpressionStart();
@@ -4165,8 +4166,9 @@ private:
   /// suffix.
   bool isPostfixExpressionSuffixStart() {
     tok::TokenKind K = Tok.getKind();
-    return (K == tok::l_square || K == tok::l_paren || K == tok::period ||
-            K == tok::arrow || K == tok::plusplus || K == tok::minusminus);
+    return (K == tok::l_square || K == tok::l_paren || K == tok::lesslessless ||
+            K == tok::period || K == tok::arrow || K == tok::plusplus ||
+            K == tok::minusminus);
   }
 
   /// Once the leading part of a postfix-expression is parsed, this
