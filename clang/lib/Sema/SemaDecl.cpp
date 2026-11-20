@@ -29,6 +29,7 @@
 #include "clang/AST/Randstruct.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtCXX.h"
+#include "clang/Analysis/CFG.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/HLSLRuntime.h"
@@ -17366,58 +17367,58 @@ public:
   }
 };
 
+/// Strip implicit wrappers around a call argument to find the DeclRefExpr of
+/// the underlying named variable. Shared by the source-order visitor and the
+/// CFG dataflow check.
+static const DeclRefExpr *getSafeCxxMovedDeclRef(const Expr *E) {
+  if (!E)
+    return nullptr;
+  E = E->IgnoreParens();
+  while (true) {
+    if (const auto *Cast = dyn_cast<CastExpr>(E)) {
+      E = Cast->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+      E = MTE->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
+      E = BTE->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    if (const auto *FLE = dyn_cast<FullExpr>(E)) {
+      E = FLE->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    // A by-value parameter (destructive_move) wraps the argument in a
+    // copy/move construction; descend through its single source argument.
+    if (const auto *CXXCE = dyn_cast<CXXConstructExpr>(E)) {
+      if (CXXCE->getNumArgs() == 1) {
+        E = CXXCE->getArg(0)->IgnoreParens();
+        continue;
+      }
+    }
+    break;
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (isa<VarDecl>(DRE->getDecl()))
+      return DRE;
+  return nullptr;
+}
+
 /// d0708 definite-last-use check. When a local is passed as the argument of
 /// a `move`/`destructive_move` parameter, it is consumed at that call; any
 /// later use of the same local in source order is diagnosed. This mirrors the
 /// source-order approximation used by OutParamUseVisitor; a CFG dataflow pass
-/// can replace it later.
+/// handles loops and branches.
 class MoveUseVisitor : public RecursiveASTVisitor<MoveUseVisitor> {
   Sema &S;
   /// First source location at which each variable was moved from.
   llvm::DenseMap<const VarDecl *, SourceLocation> MovePoints;
 
-  /// Strip implicit wrappers around an argument to find the DeclRefExpr of the
-  /// underlying named variable, if any. Returning the DeclRefExpr (rather than
-  /// just the VarDecl) lets the caller record the move point exactly at the
-  /// variable's token, so the argument use itself is not flagged.
-  static const DeclRefExpr *getMovedDeclRef(const Expr *E) {
-    if (!E)
-      return nullptr;
-    E = E->IgnoreParens();
-    while (true) {
-      if (const auto *Cast = dyn_cast<CastExpr>(E)) {
-        E = Cast->getSubExpr()->IgnoreParens();
-        continue;
-      }
-      if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
-        E = MTE->getSubExpr()->IgnoreParens();
-        continue;
-      }
-      if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
-        E = BTE->getSubExpr()->IgnoreParens();
-        continue;
-      }
-      if (const auto *FLE = dyn_cast<FullExpr>(E)) {
-        E = FLE->getSubExpr()->IgnoreParens();
-        continue;
-      }
-      // A by-value parameter (destructive_move) wraps the argument in a
-      // copy/move construction; descend through its single source argument.
-      if (const auto *CXXCE = dyn_cast<CXXConstructExpr>(E)) {
-        if (CXXCE->getNumArgs() == 1) {
-          E = CXXCE->getArg(0)->IgnoreParens();
-          continue;
-        }
-      }
-      break;
-    }
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-      if (isa<VarDecl>(DRE->getDecl()))
-        return DRE;
-    return nullptr;
-  }
-
 public:
+  unsigned DiagnosedCount = 0;
   explicit MoveUseVisitor(Sema &S) : S(S) {
     // An explicit `destructive_move(x)` marker consumes x regardless of the
     // callee's parameter kind.
@@ -17437,7 +17438,7 @@ public:
           Kind != ParameterPassingKind::DestructiveMove)
         continue;
       const Expr *Arg = CE->getArg(I);
-      if (const DeclRefExpr *DRE = getMovedDeclRef(Arg)) {
+      if (const DeclRefExpr *DRE = getSafeCxxMovedDeclRef(Arg)) {
         const auto *V = cast<VarDecl>(DRE->getDecl());
         MovePoints.try_emplace(V, DRE->getLocation());
       }
@@ -17460,8 +17461,10 @@ public:
         // A use strictly after the recorded move point (in source order) is a
         // use-after-move. The move argument itself sits at the recorded
         // location and is therefore not flagged.
-        if (E->getLocation() > It->second)
+        if (E->getLocation() > It->second) {
           S.Diag(E->getLocation(), diag::err_safecxx_move_use_after_move) << V;
+          ++DiagnosedCount;
+        }
         return true;
       }
       Cur = S.getBorrowSourceVar(Cur);
@@ -17469,6 +17472,115 @@ public:
     return true;
   }
 };
+
+// Collect the DeclRefExpr operands of every move in a function and the set of
+// variables ever moved. Explicit destructive_move markers are identified by
+// the location the parser recorded; consuming parameters by their arguments.
+class SafeCxxMoveCollector : public RecursiveASTVisitor<SafeCxxMoveCollector> {
+public:
+  llvm::DenseSet<unsigned> MoveOperandLocs;
+  llvm::DenseSet<const VarDecl *> MovedVars;
+
+  SafeCxxMoveCollector(Sema &S, Stmt *Body) {
+    for (const auto &KV : S.ExplicitDestructiveMoves) {
+      MoveOperandLocs.insert(KV.second.getRawEncoding());
+      MovedVars.insert(KV.first);
+    }
+    TraverseStmt(Body);
+  }
+
+  bool VisitCallExpr(CallExpr *CE) {
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    if (!Callee)
+      return true;
+    unsigned N = std::min(CE->getNumArgs(), Callee->getNumParams());
+    for (unsigned I = 0; I < N; ++I) {
+      auto Kind = Callee->getParamDecl(I)->getParameterPassingKind();
+      if (Kind != ParameterPassingKind::Move &&
+          Kind != ParameterPassingKind::DestructiveMove)
+        continue;
+      if (const DeclRefExpr *DRE = getSafeCxxMovedDeclRef(CE->getArg(I))) {
+        MoveOperandLocs.insert(DRE->getLocation().getRawEncoding());
+        MovedVars.insert(cast<VarDecl>(DRE->getDecl()));
+      }
+    }
+    return true;
+  }
+};
+
+// Walk one CFG block in order. A variable enters the moved state at its move
+// operand; a later use of a moved variable in the same block is diagnosed.
+class SafeCxxCFGUseChecker : public RecursiveASTVisitor<SafeCxxCFGUseChecker> {
+  Sema &S;
+  llvm::DenseSet<const VarDecl *> &State;
+  const llvm::DenseSet<unsigned> &MoveOperandLocs;
+  const llvm::DenseSet<const VarDecl *> &MovedVars;
+  llvm::DenseSet<unsigned> &Diagnosed;
+
+public:
+  SafeCxxCFGUseChecker(Sema &S, llvm::DenseSet<const VarDecl *> &State,
+                       const llvm::DenseSet<unsigned> &MoveOperandLocs,
+                       const llvm::DenseSet<const VarDecl *> &MovedVars,
+                       llvm::DenseSet<unsigned> &Diagnosed)
+      : S(S), State(State), MoveOperandLocs(MoveOperandLocs),
+        MovedVars(MovedVars), Diagnosed(Diagnosed) {}
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    const auto *V = dyn_cast<VarDecl>(E->getDecl());
+    if (!V || !MovedVars.count(V))
+      return true;
+    unsigned Loc = E->getLocation().getRawEncoding();
+    if (MoveOperandLocs.count(Loc)) {
+      State.insert(V); // the move itself, not a use
+      return true;
+    }
+    if (State.count(V) && Diagnosed.insert(Loc).second)
+      S.Diag(E->getLocation(), diag::err_safecxx_move_use_after_move) << V;
+    return true;
+  }
+};
+
+/// Flow-sensitive use-after-move check over the function CFG. A use is
+/// diagnosed when it is reachable from a move, including across loop
+/// back-edges and branches, which the source-order visitor cannot see.
+static void runSafeCxxCFGUseCheck(Sema &S, const FunctionDecl *FD,
+                                  Stmt *Body) {
+  std::unique_ptr<CFG> Cfg =
+      CFG::buildCFG(FD, Body, &S.Context, CFG::BuildOptions());
+  if (!Cfg)
+    return;
+  SafeCxxMoveCollector Collector(S, Body);
+  if (Collector.MovedVars.empty())
+    return;
+
+  unsigned N = Cfg->size();
+  std::vector<llvm::DenseSet<const VarDecl *>> In(N);
+  llvm::DenseSet<unsigned> Diagnosed;
+  llvm::SmallVector<CFGBlock *, 16> Work;
+  for (CFGBlock *B : *Cfg)
+    Work.push_back(B);
+
+  while (!Work.empty()) {
+    CFGBlock *B = Work.pop_back_val();
+    unsigned ID = B->getBlockID();
+    llvm::DenseSet<const VarDecl *> State = In[ID];
+    for (const CFGElement &El : *B) {
+      if (std::optional<CFGStmt> CS = El.getAs<CFGStmt>()) {
+        SafeCxxCFGUseChecker Checker(S, State, Collector.MoveOperandLocs,
+                                     Collector.MovedVars, Diagnosed);
+        Checker.TraverseStmt(const_cast<Stmt *>(CS->getStmt()));
+      }
+    }
+    for (CFGBlock *Succ : B->succs()) {
+      bool Changed = false;
+      for (const VarDecl *V : State)
+        if (In[Succ->getBlockID()].insert(V).second)
+          Changed = true;
+      if (Changed)
+        Work.push_back(Succ);
+    }
+  }
+}
 } // namespace
 
 Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
@@ -17499,6 +17611,11 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
     // d0708 definite-last-use: diagnose use-after-move.
     MoveUseVisitor MoveVisitor(*this);
     MoveVisitor.TraverseStmt(Body);
+    // Source order cannot see a use that precedes a move textually but follows
+    // it at runtime (e.g. across a loop back-edge). Fall back to a
+    // flow-sensitive CFG check when the source-order pass found nothing.
+    if (MoveVisitor.DiagnosedCount == 0)
+      runSafeCxxCFGUseCheck(*this, FD, Body);
     ExplicitDestructiveMoves.clear();
   }
 
