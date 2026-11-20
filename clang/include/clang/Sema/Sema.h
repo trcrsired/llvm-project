@@ -8812,6 +8812,25 @@ public:
 
   void noteDestructiveMove(const DeclRefExpr *DRE);
 
+  /// Suppresses the safe-source pointer-dereference check while Sema builds
+  /// compiler-generated expressions. The hidden variables of a range-for are
+  /// already exempt from the safe-source checks; so is its `*__begin`.
+  bool SuppressSafeCXXDerefCheck = false;
+  class SafeCXXDerefSuppression {
+    Sema &S;
+    bool Old;
+
+  public:
+    explicit SafeCXXDerefSuppression(Sema &S)
+        : S(S), Old(S.SuppressSafeCXXDerefCheck) {
+      S.SuppressSafeCXXDerefCheck = true;
+    }
+    ~SafeCXXDerefSuppression() { S.SuppressSafeCXXDerefCheck = Old; }
+    SafeCXXDerefSuppression(const SafeCXXDerefSuppression &) = delete;
+    SafeCXXDerefSuppression &operator=(const SafeCXXDerefSuppression &) =
+        delete;
+  };
+
   /// Declarations frozen by an enclosing range-for in safe source. A range-for
   /// over an owner / view whose iterators are [[unsafe]] borrows the whole
   /// range, so touching the range object inside the loop body is rejected
@@ -8835,10 +8854,21 @@ public:
     size_t Size;
   };
 
+  /// If \p VD is an `in`/`inout` borrow variable, return the variable whose
+  /// storage it aliases (from its initializer), else null. This lets the
+  /// range-for freeze and use-after-move checks follow aliases instead of
+  /// only the declaration named in the source.
+  const VarDecl *getBorrowSourceVar(const VarDecl *VD) const;
+
   bool isFrozenRangeForOwner(const ValueDecl *VD) const {
-    for (const ValueDecl *F : FrozenRangeForOwners)
-      if (F == VD)
-        return true;
+    llvm::SmallPtrSet<const ValueDecl *, 4> Seen;
+    while (VD && Seen.insert(VD).second) {
+      for (const ValueDecl *F : FrozenRangeForOwners)
+        if (F == VD)
+          return true;
+      const auto *Var = dyn_cast<VarDecl>(VD);
+      VD = Var ? getBorrowSourceVar(Var) : nullptr;
+    }
     return false;
   }
 

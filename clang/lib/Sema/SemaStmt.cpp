@@ -3179,6 +3179,9 @@ StmtResult Sema::BuildCXXForRangeStmt(
     if (BeginRef.isInvalid())
       return StmtError();
 
+    // `*__begin` is compiler-generated, like the hidden __range/__begin/__end
+    // variables, so the safe-source pointer-dereference check does not apply.
+    Sema::SafeCXXDerefSuppression SuppressDerefCheck(*this);
     ExprResult DerefExpr = ActOnUnaryOp(S, ColonLoc, tok::star, BeginRef.get());
     if (DerefExpr.isInvalid()) {
       Diag(RangeLoc, diag::note_for_range_invalid_iterator)
