@@ -616,6 +616,32 @@ ExprResult Parser::ParseDestructiveMoveExpression() {
   if (Sub.isInvalid())
     return ExprError();
 
+  // Record the named variable directly: the marker ends its usable lifetime
+  // even if the callee does not have a destructive_move parameter.
+  const Expr *Moved = Sub.get();
+  while (true) {
+    Moved = Moved->IgnoreParens();
+    if (const auto *Cast = dyn_cast<CastExpr>(Moved)) {
+      Moved = Cast->getSubExpr();
+      continue;
+    }
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(Moved)) {
+      Moved = MTE->getSubExpr();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(Moved)) {
+      Moved = BTE->getSubExpr();
+      continue;
+    }
+    if (const auto *FLE = dyn_cast<FullExpr>(Moved)) {
+      Moved = FLE->getSubExpr();
+      continue;
+    }
+    break;
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(Moved))
+    Actions.noteDestructiveMove(DRE);
+
   // The marker produces an xvalue; the callee's by-value destructive_move
   // parameter is then constructed from it. MoveUseVisitor strips this cast
   // when tracking definite last use.
