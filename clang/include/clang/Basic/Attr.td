@@ -1997,8 +1997,8 @@ def NoMerge : DeclOrStmtAttr {
 def Unsafe : DeclOrStmtAttr {
   let Spellings = [CXX11<"", "unsafe", 202600>];
   let Documentation = [UnsafeDocs];
-  let Subjects = SubjectList<[Function, Stmt, Namespace, Var, CXXRecord, ClassTemplate,
-                              FunctionTemplate],
+  let Subjects = SubjectList<[Function, Stmt, Namespace, Var, Field, CXXRecord,
+                              ClassTemplate, FunctionTemplate],
                              WarnDiag, "declarations and statements">;
 }
 

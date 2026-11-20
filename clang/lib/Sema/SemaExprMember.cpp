@@ -932,8 +932,18 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   // built in BuildDeclarationNameExpr.
   if (enforcingSafeCXXAt(MemberLoc)) {
     for (const NamedDecl *ND : R) {
-      if (const auto *VD = dyn_cast<ValueDecl>(ND);
-          VD && isFrozenRangeForOwner(VD)) {
+      const auto *VD = dyn_cast<ValueDecl>(ND);
+      if (!VD)
+        continue;
+      // [[unsafe]] on a data member is an access restriction: the member may
+      // be named only from inside [[unsafe]] context, including in a
+      // ctor-initializer and in an implicit `this->member` access.
+      if (!isUnevaluatedContext() && isa<FieldDecl>(VD) &&
+          VD->hasAttr<UnsafeAttr>()) {
+        Diag(MemberLoc, diag::err_safecxx_unsafe_member) << VD;
+        break;
+      }
+      if (isFrozenRangeForOwner(VD)) {
         Diag(MemberLoc, diag::err_safecxx_range_owner_use) << VD;
         break;
       }
