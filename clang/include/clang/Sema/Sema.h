@@ -8805,6 +8805,13 @@ public:
   /// escapes the constant evaluation.
   unsigned HerbceptionConstexprInitDepth = 0;
 
+  /// Variables consumed by an explicit `destructive_move(x)` call-site marker.
+  /// The marker itself ends the variable's usable lifetime, regardless of the
+  /// callee's parameter kind.
+  llvm::DenseMap<const VarDecl *, SourceLocation> ExplicitDestructiveMoves;
+
+  void noteDestructiveMove(const DeclRefExpr *DRE);
+
   /// Declarations frozen by an enclosing range-for in safe source. A range-for
   /// over an owner / view whose iterators are [[unsafe]] borrows the whole
   /// range, so touching the range object inside the loop body is rejected

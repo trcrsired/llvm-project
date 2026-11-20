@@ -6375,6 +6375,13 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
   }
 }
 
+void Sema::noteDestructiveMove(const DeclRefExpr *DRE) {
+  if (!DRE)
+    return;
+  if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+    ExplicitDestructiveMoves.try_emplace(VD, DRE->getLocation());
+}
+
 void Sema::noteUnsafeFenceRange(SourceLocation Begin, SourceLocation End) {
   if (Begin.isInvalid() || End.isInvalid())
     return;
@@ -17314,7 +17321,12 @@ class MoveUseVisitor : public RecursiveASTVisitor<MoveUseVisitor> {
   }
 
 public:
-  explicit MoveUseVisitor(Sema &S) : S(S) {}
+  explicit MoveUseVisitor(Sema &S) : S(S) {
+    // An explicit `destructive_move(x)` marker consumes x regardless of the
+    // callee's parameter kind.
+    for (const auto &KV : S.ExplicitDestructiveMoves)
+      MovePoints.try_emplace(KV.first, KV.second);
+  }
 
   bool VisitCallExpr(CallExpr *CE) {
     const FunctionDecl *Callee = CE->getDirectCallee();
@@ -17381,6 +17393,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
     // d0708 definite-last-use: diagnose use-after-move.
     MoveUseVisitor MoveVisitor(*this);
     MoveVisitor.TraverseStmt(Body);
+    ExplicitDestructiveMoves.clear();
   }
 
   // Herbception: error_domain<T>::domain() must not return nullptr. The
