@@ -4153,6 +4153,11 @@ private:
                                  bool isVectorLiteral = false,
                                  bool *NotPrimaryExpression = nullptr);
 
+  /// Safe C++ call-site pass intent: `move(expr)` / `destructive_move(expr)`.
+  /// Both lower to an rvalue cast; the parameter's passing kind decides
+  /// whether the callee receives T&& or a relocated by-value T.
+  ExprResult ParsePassIntentExpression(bool Destructive);
+
   /// Returns true if the next token cannot start an expression.
   bool isNotExpressionStart();
 
