@@ -2652,6 +2652,12 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     }
   }
 
+  // Safe C++: `[[unsafe]] T x = ...;` marks the initialization as an unsafe
+  // region. The variable itself stays a normal safe object; only operations
+  // in the initializer are exempt from the safe-source checks.
+  Sema::SafeCXXUnsafeInitScope UnsafeInitScope(
+      Actions, Actions.isUnsafeInitializerDecl(ThisDecl));
+
   SemaCUDA::CUDATargetContextRAII X(Actions.CUDA(),
                                     SemaCUDA::CTCK_InitGlobalVar, ThisDecl);
   switch (TheInitKind) {
