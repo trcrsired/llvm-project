@@ -13775,6 +13775,10 @@ def err_safecxx_new_delete : Error<
 def err_safecxx_unsafe_member : Error<
   "data member %0 is declared [[unsafe]] and may only be used inside a "
   "[[unsafe]] block">;
+def err_safecxx_borrow_move : Error<
+  "borrow parameter %0 ('in', 'out' or 'inout') may not be used as the source "
+  "of a move, forward or destructive_move; declare the parameter 'move' or "
+  "'destructive_move' instead so the consumption is visible at the call site">;
 
 def err_builtin_matrix_disabled: Error<
   "matrix types extension is disabled. Pass -fenable-matrix to enable it">;

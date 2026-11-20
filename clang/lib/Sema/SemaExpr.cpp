@@ -7011,6 +7011,31 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
       if (const FunctionDecl *Callee = CE->getDirectCallee())
         if (isUnsafeToCall(Callee))
           Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
+
+      // A borrow parameter (in/out/inout) may not be used as the source of a
+      // move. std::move/std::forward return an rvalue reference; move and
+      // destructive_move parameters are explicitly consuming. In all cases
+      // the consumption would be invisible at the caller's call site, so the
+      // caller's CFG could not diagnose a later use.
+      bool ProducesMove = CE->isXValue();
+      if (const FunctionDecl *Callee = CE->getDirectCallee()) {
+        unsigned N = std::min(CE->getNumArgs(), Callee->getNumParams());
+        for (unsigned I = 0; I < N; ++I) {
+          auto DK = Callee->getParamDecl(I)->getParameterPassingKind();
+          if (DK == ParameterPassingKind::Move ||
+              DK == ParameterPassingKind::DestructiveMove)
+            ProducesMove = true;
+        }
+      }
+      if (ProducesMove) {
+        for (const Expr *Arg : CE->arguments()) {
+          const auto *DRE = dyn_cast<DeclRefExpr>(Arg->IgnoreParenImpCasts());
+          const auto *ArgParm = DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl())
+                                    : nullptr;
+          if (isSafeCxxBorrowParam(ArgParm))
+            Diag(DRE->getLocation(), diag::err_safecxx_borrow_move) << ArgParm;
+        }
+      }
     }
   }
 
