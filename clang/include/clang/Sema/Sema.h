@@ -8855,6 +8855,32 @@ public:
 
   void noteDestructiveMove(const DeclRefExpr *DRE);
 
+  /// Depth of active `[[unsafe]] T x = ...;` initializers. While nonzero,
+  /// safe-source checks are suspended for the initializer expression; the
+  /// declared variable itself remains an ordinary safe object.
+  unsigned UnsafeInitializerDepth = 0;
+
+  /// True if \p D is a variable declared with `[[unsafe]]` in safe source;
+  /// only its initializer is an unsafe region.
+  bool isUnsafeInitializerDecl(const Decl *D) const;
+
+  class SafeCXXUnsafeInitScope {
+    Sema &S;
+    bool Active;
+
+  public:
+    SafeCXXUnsafeInitScope(Sema &S, bool Active) : S(S), Active(Active) {
+      if (Active)
+        ++S.UnsafeInitializerDepth;
+    }
+    ~SafeCXXUnsafeInitScope() {
+      if (Active)
+        --S.UnsafeInitializerDepth;
+    }
+    SafeCXXUnsafeInitScope(const SafeCXXUnsafeInitScope &) = delete;
+    SafeCXXUnsafeInitScope &operator=(const SafeCXXUnsafeInitScope &) = delete;
+  };
+
   /// Suppresses the safe-source pointer-dereference check while Sema builds
   /// compiler-generated expressions. The hidden variables of a range-for are
   /// already exempt from the safe-source checks; so is its `*__begin`.

@@ -3311,6 +3311,11 @@ ParmVarDecl *Sema::SubstParmVarDecl(
   if (!NewParm)
     return nullptr;
 
+  // d0708: preserve the source-level passing intent. The substituted type is
+  // already the lowered reference form; without the kind bit the instantiated
+  // parameter looks like a plain raw reference to safe-source checks.
+  NewParm->setParameterPassingKind(OldParm->getParameterPassingKind());
+
   // Mark the (new) default argument as uninstantiated (if any).
   if (OldParm->hasUninstantiatedDefaultArg()) {
     Expr *Arg = OldParm->getUninstantiatedDefaultArg();

@@ -6508,8 +6508,15 @@ bool Sema::isUnsafeToCall(const FunctionDecl *FD) const {
   return false;
 }
 
+bool Sema::isUnsafeInitializerDecl(const Decl *D) const {
+  const auto *VD = dyn_cast_or_null<VarDecl>(D);
+  return VD && VD->hasAttr<UnsafeAttr>() &&
+         enforcingSafeCXXAt(VD->getLocation());
+}
+
 bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
-  return enforcingSafeCXX() && !getSourceManager().isInSystemHeader(Loc) &&
+  return enforcingSafeCXX() && UnsafeInitializerDepth == 0 &&
+         !getSourceManager().isInSystemHeader(Loc) &&
          !isInUnsafeFenceRange(Loc);
 }
 
