@@ -6510,7 +6510,9 @@ bool Sema::isUnsafeToCall(const FunctionDecl *FD) const {
 
 bool Sema::isUnsafeInitializerDecl(const Decl *D) const {
   const auto *VD = dyn_cast_or_null<VarDecl>(D);
-  return VD && VD->hasAttr<UnsafeAttr>() &&
+  // A static data member is a VarDecl, but [[unsafe]] on it is an access
+  // restriction (like a FieldDecl), not an unsafe-initializer marker.
+  return VD && !VD->isStaticDataMember() && VD->hasAttr<UnsafeAttr>() &&
          enforcingSafeCXXAt(VD->getLocation());
 }
 
