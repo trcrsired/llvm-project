@@ -4154,6 +4154,11 @@ private:
                                  bool isVectorLiteral = false,
                                  bool *NotPrimaryExpression = nullptr);
 
+  /// Safe C++ call-site relocation intent: `destructive_move(expr)`.
+  /// It lowers to an rvalue cast; the parameter's passing kind decides
+  /// whether the callee receives a relocated by-value T.
+  ExprResult ParseDestructiveMoveExpression();
+
   /// Returns true if the next token cannot start an expression.
   bool isNotExpressionStart();
 

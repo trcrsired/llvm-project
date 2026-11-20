@@ -594,6 +594,38 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
   }
 }
 
+ExprResult Parser::ParseDestructiveMoveExpression() {
+  SourceLocation KWLoc = Tok.getLocation();
+  IdentifierInfo *KW = Tok.getIdentifierInfo();
+  ConsumeToken(); // 'destructive_move'
+
+  SourceLocation LParenLoc = Tok.getLocation();
+  if (!Tok.is(tok::l_paren)) {
+    Diag(Tok, diag::err_expected_lparen_after) << KW->getName().str();
+    return ExprError();
+  }
+  ConsumeToken();
+
+  ExprResult Sub = ParseExpression();
+  SourceLocation RParenLoc = Tok.getLocation();
+  if (Tok.is(tok::r_paren))
+    ConsumeToken();
+  else
+    Diag(Tok, diag::err_expected_rparen_after) << "call-site pass intent";
+
+  if (Sub.isInvalid())
+    return ExprError();
+
+  // The marker produces an xvalue; the callee's by-value destructive_move
+  // parameter is then constructed from it. MoveUseVisitor strips this cast
+  // when tracking definite last use.
+  QualType T = Actions.Context.getRValueReferenceType(Sub.get()->getType());
+  TypeSourceInfo *TSI = Actions.Context.getTrivialTypeSourceInfo(T, KWLoc);
+  return Actions.BuildCXXNamedCast(KWLoc, tok::kw_static_cast, TSI, Sub.get(),
+                                   SourceRange(), SourceRange(LParenLoc,
+                                                             RParenLoc));
+}
+
 ExprResult
 Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
                             TypoCorrectionTypeBehavior CorrectionBehavior,
@@ -910,6 +942,15 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
   ParseIdentifier: {    // primary-expression: identifier
                         // unqualified-id: identifier
                         // constant: enumeration-constant
+    // Safe C++: in expression position, `destructive_move(x)` is a contextual
+    // call-site relocation marker, not a function call.
+    if ((getLangOpts().SafeCXX || getLangOpts().ParameterPassing) &&
+        Tok.is(tok::identifier) && NextToken().is(tok::l_paren)) {
+      IdentifierInfo *II = Tok.getIdentifierInfo();
+      if (II == &PP.getIdentifierTable().get("destructive_move"))
+        return ParseDestructiveMoveExpression();
+    }
+
     // Turn a potentially qualified name into a annot_typename or
     // annot_cxxscope if it would be valid.  This handles things like x::y, etc.
     if (getLangOpts().CPlusPlus) {
