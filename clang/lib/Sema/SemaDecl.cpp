@@ -6476,6 +6476,28 @@ bool Sema::isUnsafeToCall(const FunctionDecl *FD) const {
   for (const FunctionDecl *D = FD; D;) {
     if (D->hasAttr<UnsafeAttr>())
       return true;
+
+    // A function declared in safe source whose signature names a raw pointer
+    // or reference is implicitly [[unsafe]]: safe code may pass such tokens
+    // around but must not hand them to a function that trades in them.
+    // Declarations in fenced legacy headers and system headers are exempt,
+    // and d0708 parameters are skipped because their source spelling is
+    // `in`/`inout`/... rather than a raw reference.
+    if (enforcingSafeCXXAt(D->getLocation())) {
+      for (const ParmVarDecl *P : D->parameters()) {
+        if (P->getParameterPassingKind() != ParameterPassingKind::None)
+          continue;
+        QualType T = P->getType();
+        if (T->isPointerType() || T->isReferenceType() ||
+            T->isMemberPointerType())
+          return true;
+      }
+      QualType R = D->getReturnType();
+      if (R->isPointerType() || R->isReferenceType() ||
+          R->isMemberPointerType())
+        return true;
+    }
+
     const FunctionDecl *Pattern = D->getTemplateInstantiationPattern();
     if (!Pattern || Pattern == D)
       break;
