@@ -1504,6 +1504,11 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     return ExprError();
   }
 
+  // Safe C++: `[[unsafe]] T x = ...;` covers the initializer expression, not
+  // a lambda body nested inside it. Deferred code is checked as safe source
+  // here, and a genuinely unsafe body still needs its own [[unsafe]] fence.
+  Sema::SafeCXXLambdaBodyScope LambdaBodyScope(Actions);
+
   StmtResult Stmt(ParseCompoundStatementBody());
   BodyScope.Exit();
   TemplateParamScope.Exit();

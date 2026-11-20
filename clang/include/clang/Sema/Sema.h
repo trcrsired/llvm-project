@@ -8881,6 +8881,24 @@ public:
     SafeCXXUnsafeInitScope &operator=(const SafeCXXUnsafeInitScope &) = delete;
   };
 
+  /// Suspends the `[[unsafe]]` initializer scope while parsing a lambda body.
+  /// The attribute applies to the initializer expression (e.g. the constructor
+  /// call), not to code deferred into a closure. The body is checked as safe
+  /// source instead, at the point where the lambda is defined.
+  class SafeCXXLambdaBodyScope {
+    Sema &S;
+    unsigned Saved;
+
+  public:
+    explicit SafeCXXLambdaBodyScope(Sema &S)
+        : S(S), Saved(S.UnsafeInitializerDepth) {
+      S.UnsafeInitializerDepth = 0;
+    }
+    ~SafeCXXLambdaBodyScope() { S.UnsafeInitializerDepth = Saved; }
+    SafeCXXLambdaBodyScope(const SafeCXXLambdaBodyScope &) = delete;
+    SafeCXXLambdaBodyScope &operator=(const SafeCXXLambdaBodyScope &) = delete;
+  };
+
   /// Suppresses the safe-source pointer-dereference check while Sema builds
   /// compiler-generated expressions. The hidden variables of a range-for are
   /// already exempt from the safe-source checks; so is its `*__begin`.
