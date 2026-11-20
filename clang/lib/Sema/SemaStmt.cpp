@@ -2534,6 +2534,66 @@ StmtResult Sema::BuildCXXForRangeRangeVar(Scope *S, Expr *Range, QualType Type,
   return ActOnDeclStmt(RangeGroup, RangeLoc, RangeLoc);
 }
 
+/// Determine whether a range-for over \p Range should freeze the range
+/// object for the duration of its body. This is the case for owner/view types
+/// whose iterators are call-restricted with [[unsafe]], and for classes marked
+/// [[owner]]. The check is purely syntactic plus a member lookup; no dataflow
+/// or provenance analysis is needed.
+const ValueDecl *Sema::getRangeForOwnerToFreeze(Expr *Range) {
+  if (!getLangOpts().SafeCXX || !Range)
+    return nullptr;
+
+  Expr *E = Range->IgnoreParenImpCasts();
+  while (true) {
+    if (auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+      E = MTE->getSubExpr()->IgnoreParenImpCasts();
+      continue;
+    }
+    if (auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
+      E = BTE->getSubExpr()->IgnoreParenImpCasts();
+      continue;
+    }
+    if (auto *EWC = dyn_cast<ExprWithCleanups>(E)) {
+      E = EWC->getSubExpr()->IgnoreParenImpCasts();
+      continue;
+    }
+    break;
+  }
+
+  const ValueDecl *VD = nullptr;
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    VD = dyn_cast<ValueDecl>(DRE->getDecl());
+  else if (const auto *ME = dyn_cast<MemberExpr>(E))
+    VD = dyn_cast<ValueDecl>(ME->getMemberDecl());
+  if (!VD || isa<FunctionDecl>(VD))
+    return nullptr;
+
+  const auto *RD = VD->getType().getNonReferenceType()->getAsCXXRecordDecl();
+  if (!RD)
+    return nullptr;
+  RD = RD->getDefinition();
+  if (!RD)
+    return nullptr;
+  if (RD->hasAttr<SafeOwnerAttr>())
+    return VD;
+
+  auto HasUnsafeBeginEnd = [&](const IdentifierInfo *II) {
+    for (const NamedDecl *ND : RD->lookup(DeclarationName(II))) {
+      if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(ND))
+        ND = FTD->getTemplatedDecl();
+      if (const auto *FD = dyn_cast<FunctionDecl>(ND))
+        if (FD->hasAttr<UnsafeAttr>())
+          return true;
+    }
+    return false;
+  };
+
+  if (HasUnsafeBeginEnd(&Context.Idents.get("begin")) ||
+      HasUnsafeBeginEnd(&Context.Idents.get("end")))
+    return VD;
+  return nullptr;
+}
+
 StmtResult Sema::ActOnCXXForRangeStmt(
     Scope *S, SourceLocation ForLoc, SourceLocation CoawaitLoc, Stmt *InitStmt,
     Stmt *First, SourceLocation ColonLoc, Expr *Range, SourceLocation RParenLoc,

@@ -13732,6 +13732,9 @@ def err_safecxx_raw_ptr_ref : Error<
 def err_safecxx_range_no_intent : Error<
   "range-for loop variable must declare its passing intent; use "
   "'in auto' or 'inout auto' (or place the loop inside a [[unsafe]] block)">;
+def err_safecxx_range_owner_use : Error<
+  "cannot use %0 inside a range-for over it; place the use inside a "
+  "[[unsafe]] block">;
 
 // Mandatory marks (umbrella -fsafecxx only).
 def err_safecxx_rule_of_five_copy_ctor : Error<

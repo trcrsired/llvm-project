@@ -2383,6 +2383,16 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc,
     }
   }
 
+  // Safe C++: freeze the range object for the duration of the loop body when
+  // its iterators are [[unsafe]] (or it is an [[owner]]). Touching the range
+  // object inside the body then requires an [[unsafe]] block. This is purely
+  // lexical; no provenance or dataflow analysis is involved.
+  Sema::FrozenRangeForScope FrozenOwner(Actions);
+  if (ForRangeInfo.ParsedForRangeDecl() && ForRangeStmt.isUsable())
+    if (const ValueDecl *VD =
+            Actions.getRangeForOwnerToFreeze(ForRangeInfo.RangeExpr.get()))
+      FrozenOwner.add(VD);
+
   // OpenACC Restricts a for-loop inside of certain construct/clause
   // combinations, so diagnose that here in OpenACC mode.
   SemaOpenACC::LoopInConstructRAII LCR{getActions().OpenACC()};
