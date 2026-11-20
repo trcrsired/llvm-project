@@ -17101,6 +17101,14 @@ ExprResult Sema::BuildCXXConstructExpr(
              Constructor->getParent(),
              DeclInitType->getBaseElementTypeUnsafe()->getAsCXXRecordDecl()) &&
          "given constructor for wrong type");
+
+  // Safe C++: [[unsafe]] on a function is a call restriction. Constructors are
+  // calls too (e.g. a [[unsafe]] move constructor), so enforce the restriction
+  // here as well; the ordinary CallExpr check cannot see CXXConstructExpr.
+  if (!isUnevaluatedContext() && enforcingSafeCXXAt(ConstructLoc) &&
+      Constructor->hasAttr<UnsafeAttr>())
+    Diag(ConstructLoc, diag::err_safecxx_unsafe_call) << Constructor;
+
   MarkFunctionReferenced(ConstructLoc, Constructor);
   if (getLangOpts().CUDA && !CUDA().CheckCall(ConstructLoc, Constructor))
     return ExprError();

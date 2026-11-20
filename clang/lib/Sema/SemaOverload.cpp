@@ -15508,6 +15508,13 @@ Sema::CreateOverloadedUnaryOp(SourceLocation OpLoc, UnaryOperatorKind Opc,
           CurFPFeatureOverrides(),
           static_cast<CallExpr::ADLCallKind>(Best->IsADLCandidate));
 
+      // [[unsafe]] on an operator is a call restriction (e.g. an [[unsafe]]
+      // move-assignment operator). Operator calls are CXXOperatorCallExpr,
+      // which the ordinary ActOnCallExpr check never sees.
+      if (!isUnevaluatedContext() && enforcingSafeCXXAt(OpLoc) &&
+          FnDecl->hasAttr<UnsafeAttr>())
+        Diag(OpLoc, diag::err_safecxx_unsafe_call) << FnDecl;
+
       if (CheckCallReturnType(FnDecl->getReturnType(), OpLoc, TheCall, FnDecl))
         return ExprError();
 
@@ -15934,6 +15941,10 @@ ExprResult Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
             CurFPFeatureOverrides(),
             static_cast<CallExpr::ADLCallKind>(Best->IsADLCandidate),
             IsReversed);
+
+        if (!isUnevaluatedContext() && enforcingSafeCXXAt(OpLoc) &&
+            FnDecl->hasAttr<UnsafeAttr>())
+          Diag(OpLoc, diag::err_safecxx_unsafe_call) << FnDecl;
 
         if (const auto *Method = dyn_cast<CXXMethodDecl>(FnDecl);
             Method && Method->isImplicitObjectMemberFunction()) {
