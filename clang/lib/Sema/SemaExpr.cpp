@@ -3482,6 +3482,15 @@ ExprResult Sema::BuildDeclarationNameExpr(
 
   auto *VD = cast<ValueDecl>(D);
 
+  // Safe C++: [[unsafe]] on a static data member is an access restriction.
+  // `S::x` builds a DeclRefExpr here rather than going through
+  // BuildMemberReferenceExpr, so it needs its own check.
+  if (!isUnevaluatedContext() && enforcingSafeCXXAt(Loc)) {
+    const auto *AsVar = dyn_cast<VarDecl>(VD);
+    if (AsVar && AsVar->isStaticDataMember() && AsVar->hasAttr<UnsafeAttr>())
+      Diag(Loc, diag::err_safecxx_unsafe_member) << VD;
+  }
+
   // Safe C++: a range-for over an owner/view freezes the range object. Any
   // use of it in the loop body must be written inside an [[unsafe]] block.
   if (enforcingSafeCXXAt(Loc) && isFrozenRangeForOwner(VD))

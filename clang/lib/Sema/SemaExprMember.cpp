@@ -938,8 +938,11 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
       // [[unsafe]] on a data member is an access restriction: the member may
       // be named only from inside [[unsafe]] context, including in a
       // ctor-initializer and in an implicit `this->member` access.
-      if (!isUnevaluatedContext() && isa<FieldDecl>(VD) &&
-          VD->hasAttr<UnsafeAttr>()) {
+      // A static data member is a VarDecl rather than a FieldDecl, but carries
+      // the same access restriction. `obj.staticMember` lands here.
+      const auto *AsVar = dyn_cast<VarDecl>(VD);
+      if (!isUnevaluatedContext() && VD->hasAttr<UnsafeAttr>() &&
+          (isa<FieldDecl>(VD) || (AsVar && AsVar->isStaticDataMember()))) {
         Diag(MemberLoc, diag::err_safecxx_unsafe_member) << VD;
         break;
       }
