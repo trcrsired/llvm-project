@@ -921,6 +921,19 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   DeclarationName MemberName = MemberNameInfo.getName();
   SourceLocation MemberLoc = MemberNameInfo.getLoc();
 
+  // Safe C++: cover implicit member references (e.g. `this->v` where `v` is a
+  // frozen field). Plain local variables are caught when their DeclRefExpr is
+  // built in BuildDeclarationNameExpr.
+  if (enforcingSafeCXXAt(MemberLoc)) {
+    for (const NamedDecl *ND : R) {
+      if (const auto *VD = dyn_cast<ValueDecl>(ND);
+          VD && isFrozenRangeForOwner(VD)) {
+        Diag(MemberLoc, diag::err_safecxx_range_owner_use) << VD;
+        break;
+      }
+    }
+  }
+
   if (R.isAmbiguous())
     return ExprError();
 

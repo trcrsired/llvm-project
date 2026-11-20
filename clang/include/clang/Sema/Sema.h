@@ -8848,6 +8848,40 @@ public:
   /// escapes the constant evaluation.
   unsigned HerbceptionConstexprInitDepth = 0;
 
+  /// Declarations frozen by an enclosing range-for in safe source. A range-for
+  /// over an owner / view whose iterators are [[unsafe]] borrows the whole
+  /// range, so touching the range object inside the loop body is rejected
+  /// unless the use is inside an [[unsafe]] block. This is a purely lexical
+  /// rule: no dataflow, provenance, or contracts are involved.
+  llvm::SmallVector<const ValueDecl *, 4> FrozenRangeForOwners;
+
+  /// RAII guard that freezes a range variable while the loop body is parsed.
+  class FrozenRangeForScope {
+  public:
+    explicit FrozenRangeForScope(Sema &S)
+        : S(S), Size(S.FrozenRangeForOwners.size()) {}
+    ~FrozenRangeForScope() { S.FrozenRangeForOwners.resize(Size); }
+    FrozenRangeForScope(const FrozenRangeForScope &) = delete;
+    FrozenRangeForScope &operator=(const FrozenRangeForScope &) = delete;
+
+    void add(const ValueDecl *VD) { S.FrozenRangeForOwners.push_back(VD); }
+
+  private:
+    Sema &S;
+    size_t Size;
+  };
+
+  bool isFrozenRangeForOwner(const ValueDecl *VD) const {
+    for (const ValueDecl *F : FrozenRangeForOwners)
+      if (F == VD)
+        return true;
+    return false;
+  }
+
+  /// If \p Range names a variable whose type is an owner or has [[unsafe]]
+  /// iterators, return its declaration to freeze for the loop body.
+  const ValueDecl *getRangeForOwnerToFreeze(Expr *Range);
+
   /// Nesting depth of `[[unsafe]] { }` fence blocks currently being parsed.
   /// Safe-source-only restrictions (legacy EH/RTTI, pointers, references,
   /// iterators) are suppressed while this is nonzero.

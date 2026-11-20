@@ -3479,6 +3479,11 @@ ExprResult Sema::BuildDeclarationNameExpr(
 
   auto *VD = cast<ValueDecl>(D);
 
+  // Safe C++: a range-for over an owner/view freezes the range object. Any
+  // use of it in the loop body must be written inside an [[unsafe]] block.
+  if (enforcingSafeCXXAt(Loc) && isFrozenRangeForOwner(VD))
+    Diag(Loc, diag::err_safecxx_range_owner_use) << VD;
+
   // Only create DeclRefExpr's for valid Decl's.
   if (VD->isInvalidDecl() && !AcceptInvalidDecl)
     return ExprError();
