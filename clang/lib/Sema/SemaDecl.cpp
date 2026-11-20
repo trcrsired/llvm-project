@@ -6377,6 +6377,37 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
   }
 }
 
+const VarDecl *Sema::getBorrowSourceVar(const VarDecl *VD) const {
+  if (!VD || VD->isInvalidDecl() || !VD->getType()->isReferenceType())
+    return nullptr;
+  const Expr *Init = VD->getInit();
+  if (!Init)
+    return nullptr;
+  Init = Init->IgnoreParens();
+  while (true) {
+    if (const auto *Cast = dyn_cast<CastExpr>(Init)) {
+      Init = Cast->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(Init)) {
+      Init = MTE->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(Init)) {
+      Init = BTE->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    if (const auto *FLE = dyn_cast<FullExpr>(Init)) {
+      Init = FLE->getSubExpr()->IgnoreParens();
+      continue;
+    }
+    break;
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(Init))
+    return dyn_cast<VarDecl>(DRE->getDecl());
+  return nullptr;
+}
+
 void Sema::noteDestructiveMove(const DeclRefExpr *DRE) {
   if (!DRE)
     return;
@@ -6460,29 +6491,30 @@ bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
          !isInUnsafeFenceRange(Loc);
 }
 
-// Safe source rule 1 (see DESIGN.md, refined by D24): naming a raw pointer,
-// reference or pointer-to-member type is confined to [[unsafe]] fences. The
-// check is made on the *source-written* declared type before d0708 lowering,
-// so in/out/inout/move parameters (which lower to references) and implicit
-// compiler-generated declarations are unaffected. Transient reference values
-// from expressions (v[i], *it) are not declarations and are not checked here.
+// Safe source rule 1 (see DESIGN.md, refined by D24): naming a reference or
+// pointer-to-member type is confined to [[unsafe]] fences. Raw pointers are
+// opaque tokens in safe C++: they may be declared, passed, stored and compared,
+// but looking through one (unary *, ->, [], a call through a function pointer,
+// new/delete) is rejected at the point of use. The check below is made on the
+// *source-written* declared type before d0708 lowering, so in/out/inout/move
+// parameters (which lower to references) and implicit compiler-generated
+// declarations are unaffected.
 static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T) {
   if (T.isNull() || Loc.isInvalid() || !S.enforcingSafeCXXAt(Loc))
     return;
 
-  // `int *a[4]` still names a pointer type, so look through array levels.
+  // `int *a[4]` still names an element type, so look through array levels.
   QualType Elem = T;
   while (Elem->isArrayType())
     Elem = S.Context.getBaseElementType(Elem);
 
   QualType Canon = S.Context.getCanonicalType(Elem);
   // A function declarator carries the whole function type; the spelling that
-  // matters is its return type (`int *f()`).
+  // matters is its return type (`int &f()`).
   if (const auto *FT = Canon->getAs<FunctionType>())
     Canon = FT->getReturnType().getCanonicalType();
 
-  if (Canon->isPointerType() || Canon->isReferenceType() ||
-      Canon->isMemberPointerType())
+  if (Canon->isReferenceType() || Canon->isMemberPointerType())
     S.Diag(Loc, diag::err_safecxx_raw_ptr_ref) << T;
 }
 
@@ -17372,14 +17404,23 @@ public:
     const auto *V = dyn_cast<VarDecl>(E->getDecl());
     if (!V)
       return true;
-    auto It = MovePoints.find(V);
-    if (It == MovePoints.end())
-      return true;
-    // A use strictly after the recorded move point (in source order) is a
-    // use-after-move. The move argument itself sits at the recorded location
-    // and is therefore not flagged.
-    if (E->getLocation() > It->second)
-      S.Diag(E->getLocation(), diag::err_safecxx_move_use_after_move) << V;
+    // Follow `in`/`inout` borrows: `inout auto alias = a;` names the same
+    // storage as `a`, so using the alias after `a` was consumed is also a
+    // use-after-move.
+    llvm::SmallPtrSet<const VarDecl *, 4> Seen;
+    const VarDecl *Cur = V;
+    while (Cur && Seen.insert(Cur).second) {
+      auto It = MovePoints.find(Cur);
+      if (It != MovePoints.end()) {
+        // A use strictly after the recorded move point (in source order) is a
+        // use-after-move. The move argument itself sits at the recorded
+        // location and is therefore not flagged.
+        if (E->getLocation() > It->second)
+          S.Diag(E->getLocation(), diag::err_safecxx_move_use_after_move) << V;
+        return true;
+      }
+      Cur = S.getBorrowSourceVar(Cur);
+    }
     return true;
   }
 };

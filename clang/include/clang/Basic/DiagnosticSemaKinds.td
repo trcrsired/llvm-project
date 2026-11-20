@@ -13769,6 +13769,15 @@ def err_safecxx_unsafe_call : Error<
   "call to %0 is unsafe: it is declared [[unsafe]] and may only be called "
   "from inside a [[unsafe]] block">;
 
+// Pointers are opaque tokens in safe C++: they may be passed, stored and
+// compared, but looking through one is an unsafe act confined to a fence.
+def err_safecxx_ptr_deref : Error<
+  "dereference of a pointer is not allowed in safe C++ source; place the use "
+  "inside a [[unsafe]] block">;
+def err_safecxx_new_delete : Error<
+  "'new' and 'delete' are not allowed in safe C++ source; place the use "
+  "inside a [[unsafe]] block">;
+
 def err_builtin_matrix_disabled: Error<
   "matrix types extension is disabled. Pass -fenable-matrix to enable it">;
 def err_builtin_matrix_major_order_disabled: Error<

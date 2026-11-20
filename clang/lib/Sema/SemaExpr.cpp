@@ -5201,6 +5201,13 @@ ExprResult Sema::ActOnArraySubscriptExpr(Scope *S, Expr *base,
                                          MultiExprArg ArgExprs,
                                          SourceLocation rbLoc) {
 
+  // Safe C++: `p[i]` on a raw pointer looks through an opaque pointer.
+  // Subscript on an array or on a class with overloaded operator[] is not a
+  // raw-pointer dereference and is unaffected.
+  if (base && !base->getType().isNull() && !isUnevaluatedContext() &&
+      enforcingSafeCXXAt(lbLoc) && base->getType()->isPointerType())
+    Diag(lbLoc, diag::err_safecxx_ptr_deref);
+
   if (base && !base->getType().isNull() &&
       base->hasPlaceholderType(BuiltinType::ArraySection)) {
     auto *AS = cast<ArraySectionExpr>(base);
@@ -7036,13 +7043,20 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
   // (e.g. during instantiation of its templates) and from system headers are
   // legacy code and are allowed, while calls from safe source are diagnosed.
   if (const auto *CE = dyn_cast<CallExpr>(Call.get())) {
-    if (const FunctionDecl *Callee = CE->getDirectCallee()) {
-      // Only potentially-evaluated calls are restricted. Calls inside
-      // `noexcept(...)`, `decltype`, and requires-expressions are compile-time
-      // probes; diagnosing them would poison constraint satisfaction.
-      if (!isUnevaluatedContext() &&
-          enforcingSafeCXXAt(CE->getExprLoc()) && isUnsafeToCall(Callee))
-        Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
+    // Only potentially-evaluated calls are restricted. Calls inside
+    // `noexcept(...)`, `decltype`, and requires-expressions are compile-time
+    // probes; diagnosing them would poison constraint satisfaction.
+    if (!isUnevaluatedContext() && enforcingSafeCXXAt(CE->getExprLoc())) {
+      // Safe C++: pointers are opaque tokens, so calling through one is a
+      // forbidden dereference. This also closes the indirect route to an
+      // [[unsafe]] function: taking its address is fine, calling it is not.
+      QualType CalleeTy = CE->getCallee()->getType();
+      if (!CE->getDirectCallee() && CalleeTy->isPointerType() &&
+          CalleeTy->getPointeeType()->isFunctionType())
+        Diag(CE->getExprLoc(), diag::err_safecxx_ptr_deref);
+      if (const FunctionDecl *Callee = CE->getDirectCallee())
+        if (isUnsafeToCall(Callee))
+          Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
     }
   }
 
@@ -16773,6 +16787,12 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
       RecordModifiableNonNullParam(*this, InputExpr);
       break;
     case UO_Deref: {
+      // Safe C++: pointers are opaque tokens. Looking through one with unary
+      // `*` is an unsafe act confined to [[unsafe]] blocks. Overloaded
+      // operator* is a CXXOperatorCallExpr and is not affected here.
+      if (!SuppressSafeCXXDerefCheck && enforcingSafeCXXAt(OpLoc) &&
+          InputExpr->getType()->isPointerType())
+        Diag(OpLoc, diag::err_safecxx_ptr_deref);
       Input = DefaultFunctionArrayLvalueConversion(Input.get());
       if (Input.isInvalid())
         return ExprError();

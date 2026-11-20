@@ -3064,6 +3064,10 @@ ExprResult Sema::BuildCXXNew(SourceRange Range, bool UseGlobal,
   SourceRange TypeRange = AllocTypeInfo->getTypeLoc().getSourceRange();
   SourceLocation StartLoc = Range.getBegin();
 
+  // Safe C++: allocation is an unsafe act confined to [[unsafe]] blocks.
+  if (enforcingSafeCXXAt(StartLoc) && !isUnevaluatedContext())
+    Diag(StartLoc, diag::err_safecxx_new_delete);
+
   CXXNewInitializationStyle InitStyle;
   if (DirectInitRange.isValid()) {
     assert(Initializer && "Have parens but no initializer.");
@@ -5016,6 +5020,10 @@ void Sema::AnalyzeDeleteExprMismatch(FieldDecl *Field, SourceLocation DeleteLoc,
 ExprResult
 Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
                      bool ArrayForm, Expr *ExE) {
+  // Safe C++: deallocation is an unsafe act confined to [[unsafe]] blocks.
+  if (enforcingSafeCXXAt(StartLoc) && !isUnevaluatedContext())
+    Diag(StartLoc, diag::err_safecxx_new_delete);
+
   // C++ [expr.delete]p1:
   //   The operand shall have a pointer type, or a class type having a single
   //   non-explicit conversion function to a pointer type. The result has type

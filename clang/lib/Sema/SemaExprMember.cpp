@@ -704,6 +704,12 @@ ExprResult Sema::BuildMemberReferenceExpr(
     NamedDecl *FirstQualifierInScope, const DeclarationNameInfo &NameInfo,
     const TemplateArgumentListInfo *TemplateArgs, const Scope *S,
     ActOnMemberAccessExtraArgs *ExtraArgs) {
+  // Safe C++: `p->m` looks through an opaque pointer. Overloaded operator->
+  // yields a class-type base and is not affected here.
+  if (IsArrow && !isUnevaluatedContext() && enforcingSafeCXXAt(OpLoc) &&
+      !BaseType.isNull() && BaseType->isPointerType())
+    Diag(OpLoc, diag::err_safecxx_ptr_deref);
+
   LookupResult R(*this, NameInfo, LookupMemberName);
 
   // Implicit member accesses.
