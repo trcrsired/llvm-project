@@ -6981,6 +6981,47 @@ static void DiagnosedUnqualifiedCallsToStdFunctions(Sema &S,
       << FixItHint::CreateInsertion(DRE->getLocation(), "std::");
 }
 
+/// Find the LambdaExpr that produced a lambda closure expression, if any.
+/// The callee may be the immediate lambda or a DeclRefExpr to a variable
+/// initialized from one.
+static const LambdaExpr *findSafeCxxLambdaExpr(const Expr *E) {
+  if (!E)
+    return nullptr;
+  while (true) {
+    E = E->IgnoreParens();
+    if (const auto *LE = dyn_cast<LambdaExpr>(E))
+      return LE;
+    if (const auto *ICE = dyn_cast<ImplicitCastExpr>(E)) {
+      E = ICE->getSubExpr();
+      continue;
+    }
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+      E = MTE->getSubExpr();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
+      E = BTE->getSubExpr();
+      continue;
+    }
+    if (const auto *FLE = dyn_cast<FullExpr>(E)) {
+      E = FLE->getSubExpr();
+      continue;
+    }
+    if (const auto *CXXCE = dyn_cast<CXXConstructExpr>(E)) {
+      if (CXXCE->getNumArgs() == 1) {
+        E = CXXCE->getArg(0);
+        continue;
+      }
+    }
+    break;
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      if (const Expr *Init = VD->getInit())
+        return findSafeCxxLambdaExpr(Init);
+  return nullptr;
+}
+
 ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                MultiExprArg ArgExprs, SourceLocation RParenLoc,
                                Expr *ExecConfig) {
@@ -7034,6 +7075,27 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                                     : nullptr;
           if (isSafeCxxBorrowParam(ArgParm))
             Diag(DRE->getLocation(), diag::err_safecxx_borrow_move) << ArgParm;
+        }
+      }
+
+      // Calling a lambda uses the variables it captured. If one of them is a
+      // range-for owner currently frozen by the enclosing loop, the call is a
+      // use of the frozen object even though the lambda body was parsed before
+      // the freeze.
+      const Expr *LambdaObj = CE->getCallee();
+      if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE);
+          OCE && OCE->getOperator() == OO_Call && OCE->getNumArgs() > 0)
+        LambdaObj = OCE->getArg(0);
+      if (const LambdaExpr *LE = findSafeCxxLambdaExpr(LambdaObj)) {
+        for (const LambdaCapture &Cap : LE->captures()) {
+          if (!Cap.capturesVariable())
+            continue;
+          const ValueDecl *Captured = Cap.getCapturedVar();
+          if (isFrozenRangeForOwner(Captured)) {
+            Diag(CE->getExprLoc(), diag::err_safecxx_range_owner_use)
+                << Captured;
+            break;
+          }
         }
       }
     }
