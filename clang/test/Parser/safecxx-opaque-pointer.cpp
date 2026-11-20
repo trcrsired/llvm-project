@@ -10,7 +10,11 @@ struct S {
   int x;
 };
 
+// A pointer-taking helper declared in a fence stays callable from safe
+// source, so safe code can pass opaque pointer tokens to legacy APIs.
+[[unsafe]] {
 static void pass(S *p) noexcept { (void)p; }
+}
 
 static void opaque_ok(S *p, S *q) noexcept {
   pass(p);
