@@ -13777,6 +13777,9 @@ def err_safecxx_ptr_deref : Error<
 def err_safecxx_new_delete : Error<
   "'new' and 'delete' are not allowed in safe C++ source; place the use "
   "inside a [[unsafe]] block">;
+def err_safecxx_unsafe_member : Error<
+  "data member %0 is declared [[unsafe]] and may only be used inside a "
+  "[[unsafe]] block">;
 
 def err_builtin_matrix_disabled: Error<
   "matrix types extension is disabled. Pass -fenable-matrix to enable it">;

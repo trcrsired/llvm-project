@@ -4770,6 +4770,13 @@ Sema::BuildMemberInitializer(ValueDecl *Member, Expr *Init,
     }
   }
 
+  // [[unsafe]] on a data member is an access restriction. A ctor-initializer
+  // names the FieldDecl directly instead of going through
+  // BuildMemberReferenceExpr, so the member-reference check cannot see it.
+  if (!isUnevaluatedContext() && enforcingSafeCXXAt(IdLoc) && DirectMember &&
+      DirectMember->hasAttr<UnsafeAttr>())
+    Diag(IdLoc, diag::err_safecxx_unsafe_member) << DirectMember;
+
   if (DirectMember) {
     return new (Context) CXXCtorInitializer(Context, DirectMember, IdLoc,
                                             InitRange.getBegin(), Init,
