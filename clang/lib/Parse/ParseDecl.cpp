@@ -1992,9 +1992,16 @@ Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
   // never reserved, so `int in = 0;` still parses normally.
   if (ParameterPassingKind VPK = isParameterPassingKeyword();
       VPK == ParameterPassingKind::In ||
-      VPK == ParameterPassingKind::Inout) {
+      VPK == ParameterPassingKind::Out ||
+      VPK == ParameterPassingKind::Inout ||
+      VPK == ParameterPassingKind::Move) {
     ConsumeToken();
-    DS.setVariablePassingKind(VPK);
+    // A function declaration uses the keyword for its return type; a variable
+    // declaration uses it for its borrow kind. Sema decides from the Decl.
+    DS.setFunctionReturnPassingKind(VPK);
+    if (VPK == ParameterPassingKind::In ||
+        VPK == ParameterPassingKind::Inout)
+      DS.setVariablePassingKind(VPK);
   }
 
   ParsedTemplateInfo TemplateInfo;
