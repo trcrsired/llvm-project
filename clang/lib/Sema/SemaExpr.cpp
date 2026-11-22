@@ -7133,6 +7133,61 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
         }
       }
 
+      // Disjointness of borrow arguments: a write borrow (out/inout) may not
+      // name the same object as any other borrow argument of the same call.
+      // Two read-only `in` arguments may alias. This is a lexical check on
+      // named objects; safe source cannot spell two different objects with
+      // the same DeclRefExpr.
+      if (const FunctionDecl *Callee = CE->getDirectCallee()) {
+        if (!isa<CXXOperatorCallExpr>(CE)) {
+          struct BorrowArg {
+            const ValueDecl *Object;
+            SourceLocation Loc;
+            ParameterPassingKind Kind;
+          };
+          llvm::SmallVector<BorrowArg, 4> Borrows;
+          unsigned N = std::min(CE->getNumArgs(), Callee->getNumParams());
+          for (unsigned I = 0; I < N; ++I) {
+            ParameterPassingKind K =
+                Callee->getParamDecl(I)->getParameterPassingKind();
+            if (!isSafeCxxBorrowParam(Callee->getParamDecl(I)))
+              continue;
+            const auto *DRE =
+                dyn_cast<DeclRefExpr>(CE->getArg(I)->IgnoreParenImpCasts());
+            if (!DRE || !isa<VarDecl>(DRE->getDecl()))
+              continue;
+            Borrows.push_back({DRE->getDecl(), DRE->getLocation(), K});
+          }
+          llvm::SmallPtrSet<const ValueDecl *, 4> Reported;
+          for (unsigned I = 0; I < Borrows.size(); ++I) {
+            const BorrowArg &First = Borrows[I];
+            if (First.Kind != ParameterPassingKind::Out &&
+                First.Kind != ParameterPassingKind::Inout)
+              continue;
+            for (unsigned J = I + 1; J < Borrows.size(); ++J) {
+              const BorrowArg &Second = Borrows[J];
+              if (First.Object != Second.Object)
+                continue;
+              if (!Reported.insert(First.Object).second)
+                break;
+              auto KindName = [](ParameterPassingKind K) {
+                switch (K) {
+                case ParameterPassingKind::In: return "in";
+                case ParameterPassingKind::Out: return "out";
+                case ParameterPassingKind::Inout: return "inout";
+                default: return "borrow";
+                }
+              };
+              Diag(Second.Loc, diag::err_safecxx_borrow_alias)
+                  << First.Object << Callee;
+              Diag(First.Loc, diag::note_safecxx_borrow_alias)
+                  << KindName(First.Kind);
+              break;
+            }
+          }
+        }
+      }
+
       // Calling a lambda uses the variables it captured. If one of them is a
       // range-for owner currently frozen by the enclosing loop, the call is a
       // use of the frozen object even though the lambda body was parsed before
