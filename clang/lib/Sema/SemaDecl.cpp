@@ -17318,54 +17318,198 @@ void Sema::CheckCoroutineWrapper(FunctionDecl *FD) {
 }
 
 namespace {
-/// Basic d0708 definite-first-use check for `out` parameters. Walks the
-/// function body in source order and records the first write (assignment) and
-/// first read of each out parameter, then diagnoses reads that precede any
-/// write, and out parameters never written at all. This is a lightweight
-/// source-order check; a CFG-based dataflow pass can replace it later.
-class OutParamUseVisitor : public RecursiveASTVisitor<OutParamUseVisitor> {
-  llvm::SmallPtrSet<const ParmVarDecl *, 8> OutParams;
-  const ParmVarDecl *CurrentWriteTarget = nullptr;
+/// d0708 definite-first-use for `out` parameters. The rule is definite
+/// assignment: an out parameter must be constructed on every path before any
+/// read, and on every path that leaves the function. This is a must-analysis
+/// over the CFG, so the state is intersected at a control-flow join: a write in
+/// one branch does not satisfy the other branch, and a write later in a loop
+/// body does not satisfy a read on the first iteration.
+///
+/// A construction is a simple assignment to the parameter, a compound
+/// assignment or increment (both also read it first), or passing it to a
+/// parameter declared `out`, which sets the value by the same rule. Lambda
+/// bodies are separate control-flow graphs and are not part of this function's
+/// paths.
+class OutParamUseChecker : public RecursiveASTVisitor<OutParamUseChecker> {
+  using State = llvm::DenseSet<const ParmVarDecl *>;
+
+  Sema &S;
+  const State &OutParams;
+  State &Constructed;
+  bool Diagnose;
+  State &Diagnosed;
+
+  void requireConstructed(const ParmVarDecl *P, SourceLocation Loc) {
+    if (Constructed.count(P))
+      return;
+    if (Diagnose && Diagnosed.insert(P).second)
+      S.Diag(Loc, diag::err_safecxx_out_read_before_init) << P;
+  }
 
   static const ParmVarDecl *getParam(const Expr *E) {
-    if (const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E->IgnoreParens()))
+    if (const auto *DRE = dyn_cast_or_null<DeclRefExpr>(E->IgnoreParenImpCasts()))
       return dyn_cast<ParmVarDecl>(DRE->getDecl());
     return nullptr;
   }
 
 public:
-  llvm::DenseMap<const ParmVarDecl *, SourceLocation> FirstWrite;
-  llvm::DenseMap<const ParmVarDecl *, SourceLocation> FirstRead;
-
-  explicit OutParamUseVisitor(const FunctionDecl *FD) {
-    for (const ParmVarDecl *P : FD->parameters())
-      if (P->getParameterPassingKind() == ParameterPassingKind::Out)
-        OutParams.insert(P);
-  }
-
-  bool TraverseBinaryOperator(BinaryOperator *BO) {
-    if (BO->isAssignmentOp()) {
-      CurrentWriteTarget = getParam(BO->getLHS());
-      TraverseStmt(BO->getLHS());
-      CurrentWriteTarget = nullptr;
-      TraverseStmt(BO->getRHS());
-      return true;
-    }
-    return RecursiveASTVisitor::TraverseBinaryOperator(BO);
-  }
+  OutParamUseChecker(Sema &S, const State &OutParams, State &Constructed,
+                     bool Diagnose, State &Diagnosed)
+      : S(S), OutParams(OutParams), Constructed(Constructed),
+        Diagnose(Diagnose), Diagnosed(Diagnosed) {}
 
   bool VisitDeclRefExpr(DeclRefExpr *E) {
     const auto *P = dyn_cast<ParmVarDecl>(E->getDecl());
+    if (P && OutParams.count(P))
+      requireConstructed(P, E->getLocation());
+    return true;
+  }
+
+  bool VisitBinaryOperator(BinaryOperator *BO) {
+    if (!BO->isAssignmentOp())
+      return true;
+    const ParmVarDecl *P = getParam(BO->getLHS());
     if (!P || !OutParams.count(P))
       return true;
-    if (P == CurrentWriteTarget) {
-      FirstWrite.try_emplace(P, E->getLocation());
-    } else {
-      FirstRead.try_emplace(P, E->getLocation());
+    // `x op= rhs` reads x first; a plain `x = rhs` does not.
+    if (BO->getOpcode() != BO_Assign)
+      requireConstructed(P, BO->getOperatorLoc());
+    TraverseStmt(BO->getRHS());
+    Constructed.insert(P);
+    return false;
+  }
+
+  bool VisitUnaryOperator(UnaryOperator *UO) {
+    if (!UO->isIncrementDecrementOp())
+      return true;
+    const ParmVarDecl *P = getParam(UO->getSubExpr());
+    if (!P || !OutParams.count(P))
+      return true;
+    requireConstructed(P, UO->getOperatorLoc());
+    Constructed.insert(P);
+    return false;
+  }
+
+  bool VisitCallExpr(CallExpr *CE) {
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    if (!Callee)
+      return true;
+    unsigned N = std::min(CE->getNumArgs(), Callee->getNumParams());
+    bool HasOut = false;
+    for (unsigned I = 0; I < N; ++I)
+      if (Callee->getParamDecl(I)->getParameterPassingKind() ==
+          ParameterPassingKind::Out)
+        HasOut = true;
+    if (!HasOut)
+      return true;
+    // Arguments are evaluated in order; an `out` argument constructs the
+    // parameter it names.
+    TraverseStmt(CE->getCallee());
+    for (unsigned I = 0; I < CE->getNumArgs(); ++I) {
+      const ParmVarDecl *P = nullptr;
+      if (I < N && Callee->getParamDecl(I)->getParameterPassingKind() ==
+                       ParameterPassingKind::Out)
+        P = getParam(CE->getArg(I));
+      if (P && OutParams.count(P))
+        Constructed.insert(P);
+      else
+        TraverseStmt(CE->getArg(I));
     }
+    return false;
+  }
+
+  /// A lambda body is its own control-flow graph.
+  bool TraverseLambdaExpr(LambdaExpr *) { return true; }
+  /// An unevaluated operand does not read the object.
+  bool TraverseUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *) {
     return true;
   }
 };
+
+/// Run the definite-assignment check over the function CFG.
+static void runSafeCxxOutParamCheck(Sema &S, const FunctionDecl *FD,
+                                    Stmt *Body) {
+  llvm::DenseSet<const ParmVarDecl *> OutParams;
+  for (const ParmVarDecl *P : FD->parameters())
+    if (P->getParameterPassingKind() == ParameterPassingKind::Out)
+      OutParams.insert(P);
+  if (OutParams.empty())
+    return;
+
+  std::unique_ptr<CFG> Cfg =
+      CFG::buildCFG(FD, Body, &S.Context, CFG::BuildOptions());
+  if (!Cfg)
+    return;
+
+  unsigned NumBlocks = Cfg->size();
+  std::vector<llvm::DenseSet<const ParmVarDecl *>> In(NumBlocks), Out(NumBlocks);
+
+  // A must-analysis starts at the top of the lattice and narrows at joins. The
+  // entry block is bottom for out parameters: nothing is constructed on entry.
+  for (unsigned I = 0; I < NumBlocks; ++I)
+    In[I] = OutParams;
+  CFGBlock *Entry = &Cfg->getEntry();
+  In[Entry->getBlockID()].clear();
+
+  auto Simulate = [&](CFGBlock *B, const llvm::DenseSet<const ParmVarDecl *> &State,
+                      llvm::DenseSet<const ParmVarDecl *> &Result, bool Diagnose,
+                      llvm::DenseSet<const ParmVarDecl *> &Diagnosed) {
+    Result = State;
+    OutParamUseChecker Checker(S, OutParams, Result, Diagnose, Diagnosed);
+    for (const CFGElement &El : *B)
+      if (std::optional<CFGStmt> CS = El.getAs<CFGStmt>())
+        Checker.TraverseStmt(const_cast<Stmt *>(CS->getStmt()));
+  };
+
+  llvm::DenseSet<const ParmVarDecl *> NoDiag;
+  for (CFGBlock *B : *Cfg)
+    Simulate(B, In[B->getBlockID()], Out[B->getBlockID()], false, NoDiag);
+
+  bool Changed = true;
+  while (Changed) {
+    Changed = false;
+    for (CFGBlock *B : *Cfg) {
+      if (B == Entry)
+        continue;
+      llvm::DenseSet<const ParmVarDecl *> NewIn;
+      bool First = true;
+      for (CFGBlock *Pred : B->preds()) {
+        const auto &PredOut = Out[Pred->getBlockID()];
+        if (First) {
+          NewIn = PredOut;
+          First = false;
+        } else {
+          llvm::SmallVector<const ParmVarDecl *, 4> Killed;
+          for (const ParmVarDecl *P : NewIn)
+            if (!PredOut.count(P))
+              Killed.push_back(P);
+          for (const ParmVarDecl *P : Killed)
+            NewIn.erase(P);
+        }
+      }
+      if (First)
+        continue; // unreachable block
+      unsigned ID = B->getBlockID();
+      if (NewIn == In[ID])
+        continue;
+      In[ID] = std::move(NewIn);
+      Simulate(B, In[ID], Out[ID], false, NoDiag);
+      Changed = true;
+    }
+  }
+
+  // Diagnose reads against the fixpoint state, then require a construction on
+  // every path out of the function.
+  llvm::DenseSet<const ParmVarDecl *> Diagnosed;
+  for (CFGBlock *B : *Cfg) {
+    llvm::DenseSet<const ParmVarDecl *> Scratch = In[B->getBlockID()];
+    Simulate(B, In[B->getBlockID()], Scratch, true, Diagnosed);
+  }
+  const CFGBlock &Exit = Cfg->getExit();
+  for (const ParmVarDecl *P : OutParams)
+    if (!In[Exit.getBlockID()].count(P) && !Diagnosed.count(P))
+      S.Diag(P->getLocation(), diag::err_safecxx_out_not_constructed) << P;
+}
 
 /// Strip implicit wrappers around a call argument to find the DeclRefExpr of
 /// the underlying named variable. Shared by the source-order visitor and the
@@ -17592,21 +17736,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().ParameterPassing && FD && Body &&
       !FD->isInvalidDecl() && !IsInstantiation &&
       !FD->getDescribedFunctionTemplate()) {
-    OutParamUseVisitor Visitor(FD);
-    Visitor.TraverseStmt(Body);
-    for (const ParmVarDecl *P : FD->parameters()) {
-      if (P->getParameterPassingKind() != ParameterPassingKind::Out)
-        continue;
-      auto W = Visitor.FirstWrite.find(P);
-      auto R = Visitor.FirstRead.find(P);
-      if (W == Visitor.FirstWrite.end()) {
-        Diag(P->getLocation(), diag::err_safecxx_out_not_constructed) << P;
-      } else if (R != Visitor.FirstRead.end() &&
-                 R->second.isValid() && W->second.isValid() &&
-                 R->second < W->second) {
-        Diag(R->second, diag::err_safecxx_out_read_before_init) << P;
-      }
-    }
+    runSafeCxxOutParamCheck(*this, FD, Body);
 
     // d0708 definite-last-use: diagnose use-after-move.
     MoveUseVisitor MoveVisitor(*this);
