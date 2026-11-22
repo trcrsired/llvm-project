@@ -13785,6 +13785,11 @@ def err_safecxx_unsafe_copy : Error<
   "implicit copy or move of %0 is not allowed in safe C++ source because it "
   "has a data member declared [[unsafe]]; perform the operation inside a "
   "[[unsafe]] block">;
+def err_safecxx_borrow_alias : Error<
+  "the same object %0 is passed to more than one borrow parameter of %1; "
+  "in/out/inout arguments must be disjoint">;
+def note_safecxx_borrow_alias : Note<
+  "first passed here as a %0 parameter">;
 def err_safecxx_borrow_move : Error<
   "borrow parameter %0 ('in', 'out' or 'inout') may not be used as the source "
   "of a move, forward or destructive_move; declare the parameter 'move' or "
