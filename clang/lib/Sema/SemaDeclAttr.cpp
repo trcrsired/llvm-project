@@ -7188,6 +7188,15 @@ static void handleAvailableOnlyInDefaultEvalMethod(Sema &S, Decl *D,
 // The safe-C++ fence on a declaration is a call restriction; enforcing that is
 // a later step. For now just record the attribute so it parses cleanly.
 static void handleUnsafeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  // A destructor has no call expression to fence: it runs implicitly at every
+  // end of lifetime, and the requirement would spread to every object that
+  // contains one. Unsafe work belongs in an [[unsafe]] block inside the
+  // destructor's body, or in a fence around the whole legacy class. Never make
+  // the destructor itself unsafe, not even in a fenced declaration.
+  if (isa<CXXDestructorDecl>(D)) {
+    S.Diag(AL.getLoc(), diag::err_safecxx_unsafe_destructor);
+    return;
+  }
   D->addAttr(UnsafeAttr::Create(S.Context, AL));
 }
 

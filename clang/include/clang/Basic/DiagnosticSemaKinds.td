@@ -13780,6 +13780,9 @@ def err_safecxx_new_delete : Error<
 def err_safecxx_unsafe_member : Error<
   "data member %0 is declared [[unsafe]] and may only be used inside a "
   "[[unsafe]] block">;
+def err_safecxx_unsafe_destructor : Error<
+  "[[unsafe]] is not allowed on a destructor; fence the unsafe operations "
+  "inside its body, or fence the whole legacy class instead">;
 def err_safecxx_unsafe_member_init : Error<
   "data member %0 is declared [[unsafe]]; initialize the object inside a "
   "[[unsafe]] block or declare the object itself [[unsafe]]">;
