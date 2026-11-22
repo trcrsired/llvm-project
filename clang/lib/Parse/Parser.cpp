@@ -592,6 +592,7 @@ void Parser::Initialize() {
   Ident_inout = nullptr;
   Ident_move = nullptr;
   Ident_destructive_move = nullptr;
+  Ident_forward = nullptr;
 
   Ident_super = &PP.getIdentifierTable().get("super");
 
@@ -1172,7 +1173,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclOrFunctionDefInternal(
       RPK == ParameterPassingKind::In ||
       RPK == ParameterPassingKind::Out ||
       RPK == ParameterPassingKind::Inout ||
-      RPK == ParameterPassingKind::Move) {
+      RPK == ParameterPassingKind::Move ||
+      RPK == ParameterPassingKind::Forward) {
     ConsumeToken();
     DS.setFunctionReturnPassingKind(RPK);
   }

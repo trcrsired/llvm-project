@@ -44,6 +44,7 @@ namespace clang {
     Out,
     Inout,
     Move,
+    Forward,
     DestructiveMove
   };
 

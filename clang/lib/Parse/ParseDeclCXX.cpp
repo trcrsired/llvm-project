@@ -2900,7 +2900,8 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
       RPK == ParameterPassingKind::In ||
       RPK == ParameterPassingKind::Out ||
       RPK == ParameterPassingKind::Inout ||
-      RPK == ParameterPassingKind::Move) {
+      RPK == ParameterPassingKind::Move ||
+      RPK == ParameterPassingKind::Forward) {
     ConsumeToken();
     DS.setFunctionReturnPassingKind(RPK);
   }

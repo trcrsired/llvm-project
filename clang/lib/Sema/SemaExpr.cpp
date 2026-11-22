@@ -7181,6 +7181,7 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
                 case ParameterPassingKind::In: return "in";
                 case ParameterPassingKind::Out: return "out";
                 case ParameterPassingKind::Inout: return "inout";
+                case ParameterPassingKind::Forward: return "forward";
                 default: return "borrow";
                 }
               };

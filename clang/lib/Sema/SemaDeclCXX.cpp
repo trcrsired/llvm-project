@@ -875,6 +875,7 @@ Sema::ActOnDecompositionDeclarator(Scope *S, Declarator &D,
     case ParameterPassingKind::Out: Name = "out"; break;
     case ParameterPassingKind::Inout: Name = "inout"; break;
     case ParameterPassingKind::Move: Name = "move"; break;
+    case ParameterPassingKind::Forward: Name = "forward"; break;
     default: break;
     }
     Diag(D.getIdentifierLoc(), diag::err_safecxx_borrow_with_reference) << Name;

@@ -1994,7 +1994,8 @@ Parser::DeclGroupPtrTy Parser::ParseSimpleDeclaration(
       VPK == ParameterPassingKind::In ||
       VPK == ParameterPassingKind::Out ||
       VPK == ParameterPassingKind::Inout ||
-      VPK == ParameterPassingKind::Move) {
+      VPK == ParameterPassingKind::Move ||
+      VPK == ParameterPassingKind::Forward) {
     ConsumeToken();
     // A function declaration uses the keyword for its return type; a variable
     // declaration uses it for its borrow kind. Sema decides from the Decl.
@@ -7745,6 +7746,7 @@ Parser::isParameterPassingKeyword(const Token &Tok) const {
     Ident_inout = &Table.get("inout");
     Ident_move = &Table.get("move");
     Ident_destructive_move = &Table.get("destructive_move");
+    Ident_forward = &Table.get("forward");
   }
 
   const IdentifierInfo *II = Tok.getIdentifierInfo();
@@ -7758,6 +7760,8 @@ Parser::isParameterPassingKeyword(const Token &Tok) const {
     return ParameterPassingKind::Move;
   if (II == Ident_destructive_move)
     return ParameterPassingKind::DestructiveMove;
+  if (II == Ident_forward)
+    return ParameterPassingKind::Forward;
   return ParameterPassingKind::None;
 }
 
