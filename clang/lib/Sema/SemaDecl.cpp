@@ -17800,9 +17800,17 @@ static void runSafeCxxCFGUseCheck(Sema &S, const FunctionDecl *FD,
     llvm::DenseSet<const VarDecl *> State = In[ID];
     for (const CFGElement &El : *B) {
       if (std::optional<CFGStmt> CS = El.getAs<CFGStmt>()) {
+        Stmt *Elem = const_cast<Stmt *>(CS->getStmt());
+        // A declaration starts a new lifetime for the variable. Without this
+        // kill, a loop-local variable moved at the end of one iteration looks
+        // moved at the top of the next one, where it is a different object.
+        if (const auto *DS = dyn_cast<DeclStmt>(Elem))
+          for (Decl *D : DS->decls())
+            if (const auto *VD = dyn_cast<VarDecl>(D))
+              State.erase(VD);
         SafeCxxCFGUseChecker Checker(S, State, Collector.MoveOperandLocs,
                                      Collector.MovedVars, Diagnosed);
-        Checker.TraverseStmt(const_cast<Stmt *>(CS->getStmt()));
+        Checker.TraverseStmt(Elem);
       }
     }
     for (CFGBlock *Succ : B->succs()) {
