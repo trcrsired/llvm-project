@@ -432,12 +432,6 @@ private:
   LLVM_PREFERRED_TYPE(ParameterPassingKind)
   unsigned VariablePassingKind : 3;
 
-  /// The d0708 borrow kind on a function's return type (`inout T f();`).
-  /// Sema lowers it to the corresponding reference/value type and records it
-  /// on the FunctionDecl so `return this;` can produce the borrowed object.
-  LLVM_PREFERRED_TYPE(ParameterPassingKind)
-  unsigned FunctionReturnPassingKind : 3;
-
   // type-qualifiers
   LLVM_PREFERRED_TYPE(TQ)
   unsigned TypeQualifiers : 5;  // Bitwise OR of TQ.
@@ -553,8 +547,6 @@ public:
         TypeSpecPipe(false), TypeSpecSat(false), ConstrainedAuto(false),
         VariablePassingKind(
             static_cast<unsigned>(ParameterPassingKind::None)),
-        FunctionReturnPassingKind(
-            static_cast<unsigned>(ParameterPassingKind::None)),
         TypeQualifiers(TQ_unspecified),
         OB_state(static_cast<unsigned>(OverflowBehaviorState::Unspecified)),
         FS_inline_specified(false), FS_forceinline_specified(false),
@@ -577,15 +569,6 @@ public:
   }
   void setVariablePassingKind(ParameterPassingKind K) {
     VariablePassingKind = static_cast<unsigned>(K);
-  }
-
-  /// d0708 return-type borrow kind (in/inout/out/move), set by the parser when
-  /// the contextual keyword precedes the decl-specifier sequence of a function.
-  ParameterPassingKind getFunctionReturnPassingKind() const {
-    return static_cast<ParameterPassingKind>(FunctionReturnPassingKind);
-  }
-  void setFunctionReturnPassingKind(ParameterPassingKind K) {
-    FunctionReturnPassingKind = static_cast<unsigned>(K);
   }
   bool isExternInLinkageSpec() const { return SCS_extern_in_linkage_spec; }
   void setExternInLinkageSpec(bool Value) {

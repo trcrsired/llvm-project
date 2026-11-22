@@ -779,7 +779,7 @@ void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
 }
 
 void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
-  static_assert(DeclContext::NumFunctionDeclBits == 45,
+  static_assert(DeclContext::NumFunctionDeclBits == 42,
                 "You need to update the serializer after you change the "
                 "FunctionDeclBits");
 
@@ -890,8 +890,6 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   FunctionDeclBits.addBit(D->usesSEHTry());
   FunctionDeclBits.addBit(D->isDestroyingOperatorDelete());
   FunctionDeclBits.addBit(D->isTypeAwareOperatorNewOrDelete());
-  FunctionDeclBits.addBits(
-      (uint64_t)D->getFunctionReturnPassingKind(), /*BitWidth=*/3);
   Record.push_back(FunctionDeclBits);
 
   Record.AddSourceLocation(D->getEndLoc());
@@ -1777,7 +1775,7 @@ void ASTDeclWriter::VisitCXXMethodDecl(CXXMethodDecl *D) {
 }
 
 void ASTDeclWriter::VisitCXXConstructorDecl(CXXConstructorDecl *D) {
-  static_assert(DeclContext::NumCXXConstructorDeclBits == 48,
+  static_assert(DeclContext::NumCXXConstructorDeclBits == 45,
                 "You need to update the serializer after you change the "
                 "CXXConstructorDeclBits");
 
