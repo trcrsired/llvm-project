@@ -4152,6 +4152,27 @@ Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
         << FSI->getFirstCoroutineStmtKeyword();
   }
 
+  // d0708 generalized operator=: `inout T operator=(in T)` lowers its return
+  // type to T&, and `return this;` is the safe spelling of `return *this;`
+  // (an explicit *this is a pointer dereference and is banned in safe source).
+  if (getLangOpts().ParameterPassing && RetVal.get()) {
+    if (const auto *This = dyn_cast<CXXThisExpr>(RetVal.get()->IgnoreParens())) {
+      if (const auto *MD = dyn_cast_or_null<CXXMethodDecl>(getCurFunctionDecl())) {
+        QualType RT = MD->getReturnType();
+        if (RT->isLValueReferenceType() &&
+            Context.hasSameUnqualifiedType(
+                RT.getNonReferenceType(),
+                Context.getCanonicalTagType(MD->getParent()))) {
+          Expr *Object = const_cast<CXXThisExpr *>(This);
+          RetVal = UnaryOperator::Create(
+              Context, Object, UO_Deref, Object->getType()->getPointeeType(),
+              VK_LValue, OK_Ordinary, Object->getExprLoc(), false,
+              CurFPFeatureOverrides());
+        }
+      }
+    }
+  }
+
   CheckInvalidBuiltinCountedByRef(RetVal.get(),
                                   BuiltinCountedByRefKind::ReturnArg);
 

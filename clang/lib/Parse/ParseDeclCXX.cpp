@@ -2895,6 +2895,16 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
        TemplateInfo.Kind == ParsedTemplateKind::ExplicitSpecialization);
   SuppressAccessChecks diagsFromTag(*this, IsTemplateSpecOrInst);
 
+  // d0708 return-type borrow kinds on class members: `inout T f();`.
+  if (ParameterPassingKind RPK = isParameterPassingKeyword();
+      RPK == ParameterPassingKind::In ||
+      RPK == ParameterPassingKind::Out ||
+      RPK == ParameterPassingKind::Inout ||
+      RPK == ParameterPassingKind::Move) {
+    ConsumeToken();
+    DS.setFunctionReturnPassingKind(RPK);
+  }
+
   ParseDeclarationSpecifiers(DS, TemplateInfo, AS, DeclSpecContext::DSC_class,
                              &CommonLateParsedAttrs);
 
