@@ -7225,9 +7225,15 @@ static void handleLifetimeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   }
   D->addAttr(LifetimeAttr::Create(S.Context, Source, AL));
   if ((S.getLangOpts().SafeCXX || S.getLangOpts().LifetimeProtocol) &&
-      Source == "this")
+      Source == "this") {
     if (isa<ParmVarDecl>(D))
       D->addAttr(LifetimeBoundAttr::CreateImplicit(S.Context));
+    else if (isa<CXXMethodDecl>(D))
+      // A view-producing member such as `span::subspan` borrows from its
+      // implicit object parameter. Reuse Clang's lifetimebound-on-`this`
+      // representation; the public spelling stays [[lifetime("this")]].
+      D->addAttr(LifetimeBoundAttr::CreateImplicit(S.Context));
+  }
 }
 
 static void handleNoMergeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {

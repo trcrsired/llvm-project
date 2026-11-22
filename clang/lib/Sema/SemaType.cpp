@@ -9312,6 +9312,18 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       if (TAL == TAL_DeclChunk)
         HandleLifetimeBoundAttr(state, type, attr);
       break;
+    case ParsedAttr::AT_Lifetime:
+      // P1179's public [[lifetime("this")]] on a member function means the
+      // implicit object parameter. Mirror Clang's lifetimebound-on-`this`
+      // representation by attaching it to the function type. Only "this"
+      // is meaningful here; other source strings are handled as parameters.
+      if (TAL == TAL_DeclChunk && state.getDeclarator().isDeclarationOfFunction()) {
+        type = state.getAttributedType(
+            createSimpleAttr<LifetimeBoundAttr>(state.getSema().Context, attr),
+            type, type);
+        attr.setUsedAsTypeAttr();
+      }
+      break;
     case ParsedAttr::AT_LifetimeCaptureBy:
       if (TAL == TAL_DeclChunk)
         HandleLifetimeCaptureByAttr(state, type, attr);
