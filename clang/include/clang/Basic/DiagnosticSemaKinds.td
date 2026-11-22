@@ -13780,6 +13780,13 @@ def err_safecxx_new_delete : Error<
 def err_safecxx_unsafe_member : Error<
   "data member %0 is declared [[unsafe]] and may only be used inside a "
   "[[unsafe]] block">;
+def err_safecxx_unsafe_member_init : Error<
+  "data member %0 is declared [[unsafe]]; initialize the object inside a "
+  "[[unsafe]] block or declare the object itself [[unsafe]]">;
+def err_safecxx_unsafe_copy : Error<
+  "implicit copy or move of %0 is not allowed in safe C++ source because it "
+  "has a data member declared [[unsafe]]; perform the operation inside a "
+  "[[unsafe]] block">;
 def err_safecxx_borrow_move : Error<
   "borrow parameter %0 ('in', 'out' or 'inout') may not be used as the source "
   "of a move, forward or destructive_move; declare the parameter 'move' or "

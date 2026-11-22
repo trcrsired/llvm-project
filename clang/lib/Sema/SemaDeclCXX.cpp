@@ -15992,6 +15992,7 @@ void Sema::DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
          "DefineImplicitCopyAssignment called for wrong function");
   if (CopyAssignOperator->willHaveBody() || CopyAssignOperator->isInvalidDecl())
     return;
+  SafeCXXImplicitSpecialMemberScope SafeCXXScope(*this, CurrentLocation);
 
   CXXRecordDecl *ClassDecl = CopyAssignOperator->getParent();
   if (ClassDecl->isInvalidDecl()) {
@@ -16399,6 +16400,7 @@ void Sema::DefineImplicitMoveAssignment(SourceLocation CurrentLocation,
          "DefineImplicitMoveAssignment called for wrong function");
   if (MoveAssignOperator->willHaveBody() || MoveAssignOperator->isInvalidDecl())
     return;
+  SafeCXXImplicitSpecialMemberScope SafeCXXScope(*this, CurrentLocation);
 
   CXXRecordDecl *ClassDecl = MoveAssignOperator->getParent();
   if (ClassDecl->isInvalidDecl()) {
@@ -16752,6 +16754,7 @@ void Sema::DefineImplicitCopyConstructor(SourceLocation CurrentLocation,
          "DefineImplicitCopyConstructor - call it for implicit copy ctor");
   if (CopyConstructor->willHaveBody() || CopyConstructor->isInvalidDecl())
     return;
+  SafeCXXImplicitSpecialMemberScope SafeCXXScope(*this, CurrentLocation);
 
   CXXRecordDecl *ClassDecl = CopyConstructor->getParent();
   assert(ClassDecl && "DefineImplicitCopyConstructor - invalid constructor");
@@ -16891,6 +16894,7 @@ void Sema::DefineImplicitMoveConstructor(SourceLocation CurrentLocation,
          "DefineImplicitMoveConstructor - call it for implicit move ctor");
   if (MoveConstructor->willHaveBody() || MoveConstructor->isInvalidDecl())
     return;
+  SafeCXXImplicitSpecialMemberScope SafeCXXScope(*this, CurrentLocation);
 
   CXXRecordDecl *ClassDecl = MoveConstructor->getParent();
   assert(ClassDecl && "DefineImplicitMoveConstructor - invalid constructor");

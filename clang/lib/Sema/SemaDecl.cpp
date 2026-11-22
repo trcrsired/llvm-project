@@ -6532,6 +6532,11 @@ bool Sema::isUnsafeInitializerDecl(const Decl *D) const {
 }
 
 bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
+  // While an implicit copy/move member is being defined, every expression is
+  // compiler-generated: it names the class's own data members. The operation
+  // is judged at its use site instead, so no source-level check applies here.
+  if (ImplicitSpecialMemberUseLoc.isValid())
+    return false;
   return enforcingSafeCXX() && UnsafeInitializerDepth == 0 &&
          !getSourceManager().isInSystemHeader(Loc) &&
          !isInUnsafeFenceRange(Loc);

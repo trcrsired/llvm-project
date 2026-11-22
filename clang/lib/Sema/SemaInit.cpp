@@ -615,8 +615,36 @@ public:
 
 } // end anonymous namespace
 
+/// A data member declared `[[unsafe]]` may only be written from unsafe context.
+/// Aggregate initialization (positional, designated, or by omission) writes the
+/// member without building a member reference, so the member-access check never
+/// sees it. The escape is the same one the attribute always offers: perform the
+/// initialization inside a `[[unsafe]]` block, or mark the declared object
+/// itself `[[unsafe]]` (which exempts its initializer).
+static void checkSafeCxxUnsafeMemberInit(Sema &S,
+                                         const InitializedEntity &Entity,
+                                         SourceLocation Loc) {
+  if (!S.enforcingSafeCXXAt(Loc))
+    return;
+  if (Entity.getKind() != InitializedEntity::EK_Member &&
+      Entity.getKind() != InitializedEntity::EK_ParenAggInitMember)
+    return;
+  // A default member initializer is the member's own declaration, and an
+  // implicit member initializer comes from a synthesized copy/move; neither is
+  // an aggregate element written at the use site.
+  if (Entity.isDefaultMemberInitializer() ||
+      Entity.isImplicitMemberInitializer())
+    return;
+  const auto *FD = dyn_cast_or_null<FieldDecl>(Entity.getDecl());
+  if (FD && FD->hasAttr<UnsafeAttr>())
+    S.Diag(Loc, diag::err_safecxx_unsafe_member_init) << FD;
+}
+
 ExprResult InitListChecker::PerformEmptyInit(SourceLocation Loc,
                                              const InitializedEntity &Entity) {
+  if (!VerifyOnly)
+    checkSafeCxxUnsafeMemberInit(SemaRef, Entity, Loc);
+
   InitializationKind Kind = InitializationKind::CreateValue(Loc, Loc, Loc,
                                                             true);
   MultiExprArg SubInit;
@@ -1502,6 +1530,9 @@ void InitListChecker::CheckSubElementType(const InitializedEntity &Entity,
                                           unsigned &StructuredIndex,
                                           bool DirectlyDesignated) {
   Expr *expr = IList->getInit(Index);
+
+  if (!VerifyOnly)
+    checkSafeCxxUnsafeMemberInit(SemaRef, Entity, expr->getBeginLoc());
 
   if (ElemType->isReferenceType())
     return CheckReferenceType(Entity, IList, ElemType, Index,
