@@ -15302,6 +15302,14 @@ ExprResult Sema::BuildCXXMemberCallExpr(Expr *E, NamedDecl *FoundDecl,
   // then using FoundDecl vs Method shouldn't make a difference either.
   if (FoundDecl->getUnderlyingDecl() == FoundDecl)
     FoundDecl = Method;
+  // Safe C++: invoking a conversion function is a call, whether the conversion
+  // is written as a cast, an initialization, a function argument, or any other
+  // implicit context. Enforce [[unsafe]] call restrictions here so no spelling
+  // of the conversion can bypass them. A [[unsafe]] variable declaration makes
+  // its initializer an unsafe region, which enforcingSafeCXXAt recognizes.
+  if (!isUnevaluatedContext() && enforcingSafeCXXAt(E->getExprLoc()) &&
+      isUnsafeToCall(Method))
+    Diag(E->getExprLoc(), diag::err_safecxx_unsafe_call) << Method;
   // Convert the expression to match the conversion function's implicit object
   // parameter.
   ExprResult Exp;
@@ -16393,6 +16401,14 @@ ExprResult Sema::CreateOverloadedArraySubscriptExpr(SourceLocation LLoc,
         CallExpr *TheCall = CXXOperatorCallExpr::Create(
             Context, OO_Subscript, FnExpr.get(), MethodArgs, ResultTy, VK, RLoc,
             CurFPFeatureOverrides());
+
+        // Safe C++: `v[i]` is a call to operator[], just like an explicitly
+        // spelled `v.operator[](i)`. The other operator-call builders apply
+        // the same check; a subscript can otherwise bypass an [[unsafe]] call
+        // restriction simply by using bracket syntax.
+        if (!isUnevaluatedContext() && enforcingSafeCXXAt(LLoc) &&
+            isUnsafeToCall(FnDecl))
+          Diag(LLoc, diag::err_safecxx_unsafe_call) << FnDecl;
 
         if (CheckCallReturnType(FnDecl->getReturnType(), LLoc, TheCall, FnDecl))
           return ExprError();
