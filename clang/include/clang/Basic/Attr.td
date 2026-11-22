@@ -2014,7 +2014,11 @@ def Lifetime : InheritableParamAttr {
   let Spellings = [CXX11<"", "lifetime", 202600>];
   let Args = [StringArgument<"Source">];
   let Documentation = [LifetimeDocs];
-  let Subjects = SubjectList<[ParmVar], ErrorDiag, "parameters">;
+  // On a parameter, `[[lifetime("this")]]` marks the object being constructed
+  // as borrowing from that argument. On a member function it marks the
+  // implicit object parameter, for view-producing methods such as subspan.
+  let Subjects = SubjectList<[ParmVar, CXXMethod], ErrorDiag,
+                             "parameters or member functions">;
 }
 
 def MustTail : StmtAttr, TargetSpecificAttr<TargetMustTailAvailable> {

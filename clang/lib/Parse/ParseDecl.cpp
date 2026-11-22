@@ -3541,10 +3541,12 @@ void Parser::ParseDeclarationSpecifiers(
           // are type attributes, because we historically haven't allowed these
           // to be used as type attributes in C++11 / C23 syntax.
           if (PA.isTypeAttr() && PA.getKind() != ParsedAttr::AT_LifetimeBound &&
+              PA.getKind() != ParsedAttr::AT_Lifetime &&
               PA.getKind() != ParsedAttr::AT_AnyX86NoCfCheck)
             continue;
 
-          if (PA.getKind() == ParsedAttr::AT_LifetimeBound)
+          if (PA.getKind() == ParsedAttr::AT_LifetimeBound ||
+              PA.getKind() == ParsedAttr::AT_Lifetime)
             Diag(PA.getLoc(), diag::err_attribute_wrong_decl_type)
                 << PA << PA.isRegularKeywordAttribute()
                 << ExpectedParameterOrImplicitObjectParameter;
