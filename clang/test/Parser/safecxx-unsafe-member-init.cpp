@@ -60,7 +60,7 @@ static void nested() noexcept {
 
 // ... and through an array of aggregates.
 static void array() noexcept {
-  Members a[2] = {{1, 2}, {3, 4}}; // expected-error 2 {{data member 'hidden' is declared [[unsafe]]}}
+  Members a[2] = {{1, 2}, {3, 4}}; // expected-error {{C-style array declarations are not allowed}} expected-error 2 {{data member 'hidden' is declared [[unsafe]]}}
   use(a[0].plain);
 }
 
@@ -119,7 +119,7 @@ static void assign_rejected(inout Members a, inout Members b) noexcept {
 }
 
 static void binding_rejected(inout Members a) noexcept {
-  auto [h, p] = a; // expected-error {{implicit copy or move of 'Members' is not allowed in safe C++ source}}
+  auto [h, p] = a; // expected-error {{implicit copy or move of 'Members' is not allowed in safe C++ source}} expected-error {{structured binding names data member 'hidden' declared [[unsafe]]}}
   use(h);
   use(p);
 }

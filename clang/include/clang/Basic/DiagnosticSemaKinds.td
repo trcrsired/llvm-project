@@ -13780,6 +13780,18 @@ def err_safecxx_new_delete : Error<
 def err_safecxx_unsafe_member : Error<
   "data member %0 is declared [[unsafe]] and may only be used inside a "
   "[[unsafe]] block">;
+def err_safecxx_unsafe_binding_decl : Error<
+  "structured binding names data member %0 declared [[unsafe]]; mark the "
+  "decomposition [[unsafe]] or place it inside a [[unsafe]] block">;
+def err_safecxx_unsafe_binding : Error<
+  "binding %0 names a data member declared [[unsafe]] and may only be used "
+  "inside a [[unsafe]] block">;
+def err_safecxx_borrow_with_reference : Error<
+  "a %0 borrow already means a reference; do not write '&' with it (a pointer "
+  "type is fine)">;
+def err_safecxx_c_array : Error<
+  "C-style array declarations are not allowed in safe C++ source; mark the "
+  "declaration [[unsafe]] or place it inside a [[unsafe]] block">;
 def err_safecxx_unsafe_destructor : Error<
   "[[unsafe]] is not allowed on a destructor; fence the unsafe operations "
   "inside its body, or fence the whole legacy class instead">;

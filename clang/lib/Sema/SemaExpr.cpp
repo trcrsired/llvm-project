@@ -3486,6 +3486,12 @@ ExprResult Sema::BuildDeclarationNameExpr(
     const auto *AsVar = dyn_cast<VarDecl>(VD);
     if (AsVar && AsVar->isStaticDataMember() && AsVar->hasAttr<UnsafeAttr>())
       Diag(Loc, diag::err_safecxx_unsafe_member) << VD;
+    // A binding from a [[unsafe]] decomposition aliases an [[unsafe]] data
+    // member. Its mentions are DeclRefExprs, not MemberExprs, so the member
+    // access check never sees them; check the marked binding here instead.
+    if (const auto *BD = dyn_cast<BindingDecl>(VD);
+        BD && BD->hasAttr<UnsafeAttr>())
+      Diag(Loc, diag::err_safecxx_unsafe_binding) << BD;
   }
 
   // Safe C++: a range-for over an owner/view freezes the range object. Any
