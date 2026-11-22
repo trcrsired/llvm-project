@@ -1051,7 +1051,8 @@ protected:
     /// function parameter scope in which it was declared.
     unsigned ParameterIndex : NumParameterIndexBits;
 
-    /// The d0708 parameter-passing kind (in/out/inout/move/destructive_move)
+    /// The d0708 parameter-passing kind (in/out/inout/move/forward/
+    /// destructive_move)
     /// written on this parameter, or None for an ordinary parameter.
     LLVM_PREFERRED_TYPE(ParameterPassingKind)
     unsigned ParameterPassing : 3;

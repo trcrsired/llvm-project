@@ -1028,6 +1028,7 @@ void TextNodeDumper::dumpBareDeclRef(const Decl *D) {
         case ParameterPassingKind::Out: OS << " out"; break;
         case ParameterPassingKind::Inout: OS << " inout"; break;
         case ParameterPassingKind::Move: OS << " move"; break;
+        case ParameterPassingKind::Forward: OS << " forward"; break;
         case ParameterPassingKind::DestructiveMove:
           OS << " destructive_move";
           break;
@@ -2629,6 +2630,7 @@ void TextNodeDumper::VisitVarDecl(const VarDecl *D) {
     case ParameterPassingKind::Out: OS << " out"; break;
     case ParameterPassingKind::Inout: OS << " inout"; break;
     case ParameterPassingKind::Move: OS << " move"; break;
+    case ParameterPassingKind::Forward: OS << " forward"; break;
     case ParameterPassingKind::DestructiveMove: OS << " destructive_move"; break;
     case ParameterPassingKind::None: break;
     }

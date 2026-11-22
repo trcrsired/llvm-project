@@ -6412,7 +6412,8 @@ bool Sema::isSafeCxxBorrowParam(const ParmVarDecl *P) {
     return false;
   auto K = P->getParameterPassingKind();
   return K == ParameterPassingKind::In || K == ParameterPassingKind::Out ||
-         K == ParameterPassingKind::Inout;
+         K == ParameterPassingKind::Inout ||
+         K == ParameterPassingKind::Forward;
 }
 
 void Sema::noteDestructiveMove(const DeclRefExpr *DRE) {
@@ -6559,6 +6560,7 @@ static const char *safeCxxBorrowSpelling(ParameterPassingKind K) {
   case ParameterPassingKind::Out: return "out";
   case ParameterPassingKind::Inout: return "inout";
   case ParameterPassingKind::Move: return "move";
+  case ParameterPassingKind::Forward: return "forward";
   default: return "borrow";
   }
 }
@@ -6935,6 +6937,12 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
         break;
       case ParameterPassingKind::Move:
         Lowered = Context.getRValueReferenceType(Ret);
+        break;
+      case ParameterPassingKind::Forward:
+        // D0708 lowers `forward X` to X&, with the definite-last-use
+        // cv/value-category preservation applied at each use. The reference
+        // form is the provisional representation (design decision D3).
+        Lowered = Context.getLValueReferenceType(Ret);
         break;
       default:
         break;
@@ -16480,6 +16488,12 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
       break;
     case ParameterPassingKind::Move:
       parmDeclType = Context.getRValueReferenceType(parmDeclType);
+      break;
+    case ParameterPassingKind::Forward:
+      // D0708: `forward X x` is X& (argument may be any object); each
+      // definite last use preserves the argument's cv-qualification and
+      // value category. Only the reference form is modeled here.
+      parmDeclType = Context.getLValueReferenceType(parmDeclType);
       break;
     case ParameterPassingKind::DestructiveMove:
       // A destructive move is a relocation: bitwise copy plus

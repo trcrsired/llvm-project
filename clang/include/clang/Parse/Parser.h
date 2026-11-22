@@ -2917,6 +2917,7 @@ private:
   mutable IdentifierInfo *Ident_inout;
   mutable IdentifierInfo *Ident_move;
   mutable IdentifierInfo *Ident_destructive_move;
+  mutable IdentifierInfo *Ident_forward;
 
   /// Representation of a class that has been parsed, including
   /// any member function declarations or definitions that need to be
@@ -3235,7 +3236,7 @@ private:
   bool isCXX11FinalKeyword() const;
 
   /// isParameterPassingKeyword - Determine whether the given token is a
-  /// d0708 parameter-passing contextual keyword (in/out/inout/move/
+  /// d0708 parameter-passing contextual keyword (in/out/inout/move/forward/
   /// destructive_move). Always returns None unless -fparameter-passing is on.
   ParameterPassingKind isParameterPassingKeyword(const Token &Tok) const;
   ParameterPassingKind isParameterPassingKeyword() const {
