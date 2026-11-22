@@ -6507,14 +6507,10 @@ bool Sema::isUnsafeToCall(const FunctionDecl *FD) const {
             T->isMemberPointerType())
           return true;
       }
-      // A d0708 `inout`/`out`/`move` return lowers to a reference but was
-      // written as a borrow kind, not as a raw reference.
-      if (D->getFunctionReturnPassingKind() == ParameterPassingKind::None) {
-        QualType R = D->getReturnType();
-        if (R->isPointerType() || R->isReferenceType() ||
-            R->isMemberPointerType())
-          return true;
-      }
+      QualType R = D->getReturnType();
+      if (R->isPointerType() || R->isReferenceType() ||
+          R->isMemberPointerType())
+        return true;
     }
 
     const FunctionDecl *Pattern = D->getTemplateInstantiationPattern();
@@ -6890,37 +6886,6 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   QualType R = TInfo->getType();
 
   diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R, D.getEndLoc());
-
-  // d0708 return-type borrows. The source spelling was checked above, before
-  // lowering, exactly as for in/inout/move parameters. `inout T` becomes T&,
-  // `out T` becomes T&, `move T` becomes T&&, and `in T` becomes const T.
-  ParameterPassingKind RPK = D.getDeclSpec().getFunctionReturnPassingKind();
-  if (RPK != ParameterPassingKind::None && D.isFunctionDeclarator() &&
-      !D.isInvalidType()) {
-    if (const auto *FPT = R->getAs<FunctionProtoType>()) {
-      QualType Ret = FPT->getReturnType();
-      QualType Lowered = Ret;
-      switch (RPK) {
-      case ParameterPassingKind::In:
-        Lowered = Ret.withConst();
-        break;
-      case ParameterPassingKind::Out:
-      case ParameterPassingKind::Inout:
-        Lowered = Context.getLValueReferenceType(Ret);
-        break;
-      case ParameterPassingKind::Move:
-        Lowered = Context.getRValueReferenceType(Ret);
-        break;
-      default:
-        break;
-      }
-      if (Lowered != Ret) {
-        R = Context.getFunctionType(Lowered, FPT->getParamTypes(),
-                                    FPT->getExtProtoInfo());
-        TInfo = Context.getTrivialTypeSourceInfo(R, D.getIdentifierLoc());
-      }
-    }
-  }
 
   if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                       UPPC_DeclarationType))
@@ -10632,10 +10597,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   FunctionDecl *NewFD = CreateNewFunctionDecl(*this, D, DC, R, TInfo, SC,
                                               isVirtualOkay);
   if (!NewFD) return nullptr;
-  if (ParameterPassingKind RPK =
-          D.getDeclSpec().getFunctionReturnPassingKind();
-      RPK != ParameterPassingKind::None)
-    NewFD->setFunctionReturnPassingKind(RPK);
 
   if (OriginalLexicalContext && OriginalLexicalContext->isObjCContainer())
     NewFD->setTopLevelDeclInObjCContainer();
@@ -17462,22 +17423,6 @@ public:
   }
 
   bool VisitCallExpr(CallExpr *CE) {
-    // d0708 unified value-setting: `out T x; x = v;` calls operator=, which
-    // sets x's value. The implicit object argument is arg 0 of the operator
-    // call; it is a construction, not a read. Compound assignments are other
-    // operators and still read the object first.
-    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE))
-      if (OCE->getOperator() == OO_Equal && CE->getNumArgs() >= 1) {
-        const ParmVarDecl *P = getParam(CE->getArg(0));
-        if (P && OutParams.count(P)) {
-          TraverseStmt(CE->getCallee());
-          for (unsigned I = 1; I < CE->getNumArgs(); ++I)
-            TraverseStmt(CE->getArg(I));
-          Constructed.insert(P);
-          return false;
-        }
-      }
-
     const FunctionDecl *Callee = CE->getDirectCallee();
     if (!Callee)
       return true;

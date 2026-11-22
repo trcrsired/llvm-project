@@ -1112,16 +1112,6 @@ Parser::DeclGroupPtrTy Parser::ParseDeclOrFunctionDefInternal(
 
   ParsedTemplateInfo TemplateInfo;
   MaybeParseMicrosoftAttributes(DS.getAttributes());
-  // d0708 return-type borrows on namespace-scope function definitions
-  // (including out-of-class member definitions).
-  if (ParameterPassingKind RPK = isParameterPassingKeyword();
-      RPK == ParameterPassingKind::In ||
-      RPK == ParameterPassingKind::Out ||
-      RPK == ParameterPassingKind::Inout ||
-      RPK == ParameterPassingKind::Move) {
-    ConsumeToken();
-    DS.setFunctionReturnPassingKind(RPK);
-  }
   // Parse the common declaration-specifiers piece.
   ParseDeclarationSpecifiers(DS, TemplateInfo, AS,
                              DeclSpecContext::DSC_top_level);

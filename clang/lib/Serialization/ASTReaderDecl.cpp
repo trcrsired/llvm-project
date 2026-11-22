@@ -1086,8 +1086,6 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->setUsesSEHTry(FunctionDeclBits.getNextBit());
   FD->setIsDestroyingOperatorDelete(FunctionDeclBits.getNextBit());
   FD->setIsTypeAwareOperatorNewOrDelete(FunctionDeclBits.getNextBit());
-  FD->setFunctionReturnPassingKind(static_cast<ParameterPassingKind>(
-      FunctionDeclBits.getNextBits(/*Width=*/3)));
 
   FD->EndRangeLoc = readSourceLocation();
   if (FD->isExplicitlyDefaulted())
