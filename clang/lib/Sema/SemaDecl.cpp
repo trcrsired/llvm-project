@@ -17479,6 +17479,9 @@ static void runSafeCxxOutParamCheck(Sema &S, const FunctionDecl *FD,
       llvm::DenseSet<const ParmVarDecl *> NewIn;
       bool First = true;
       for (CFGBlock *Pred : B->preds()) {
+        // An unreachable edge keeps a null target.
+        if (!Pred)
+          continue;
         const auto &PredOut = Out[Pred->getBlockID()];
         if (First) {
           NewIn = PredOut;
@@ -17721,6 +17724,9 @@ static void runSafeCxxCFGUseCheck(Sema &S, const FunctionDecl *FD,
       }
     }
     for (CFGBlock *Succ : B->succs()) {
+      // An unreachable edge keeps a null target.
+      if (!Succ)
+        continue;
       bool Changed = false;
       for (const VarDecl *V : State)
         if (In[Succ->getBlockID()].insert(V).second)
