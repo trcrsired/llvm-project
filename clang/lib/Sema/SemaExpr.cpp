@@ -16890,7 +16890,12 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
       // operator* is a CXXOperatorCallExpr and is not affected here.
       // `*this` names the current object itself, not a value reached through
       // an opaque pointer, so it stays legal in safe source.
-      if (!SuppressSafeCXXDerefCheck && enforcingSafeCXXAt(OpLoc) &&
+      // Unevaluated operands are compile-time probes; diagnosing a dereference
+      // there would poison constraint satisfaction (`requires { *t; }`) and
+      // reject harmless queries like `sizeof(*p)` and `noexcept(*p)`. The
+      // subscript, arrow and call checks already carry this guard.
+      if (!isUnevaluatedContext() && !SuppressSafeCXXDerefCheck &&
+          enforcingSafeCXXAt(OpLoc) &&
           !isa<CXXThisExpr>(InputExpr->IgnoreParenImpCasts()) &&
           InputExpr->getType()->isPointerType())
         Diag(OpLoc, diag::err_safecxx_ptr_deref);
