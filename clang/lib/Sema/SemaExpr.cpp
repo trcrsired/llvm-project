@@ -16833,7 +16833,10 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
       // Safe C++: pointers are opaque tokens. Looking through one with unary
       // `*` is an unsafe act confined to [[unsafe]] blocks. Overloaded
       // operator* is a CXXOperatorCallExpr and is not affected here.
+      // `*this` names the current object itself, not a value reached through
+      // an opaque pointer, so it stays legal in safe source.
       if (!SuppressSafeCXXDerefCheck && enforcingSafeCXXAt(OpLoc) &&
+          !isa<CXXThisExpr>(InputExpr->IgnoreParenImpCasts()) &&
           InputExpr->getType()->isPointerType())
         Diag(OpLoc, diag::err_safecxx_ptr_deref);
       Input = DefaultFunctionArrayLvalueConversion(Input.get());

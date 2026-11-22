@@ -2,25 +2,29 @@
 
 // d0708 generalized value-setting: a class may spell its assignment operator
 // with borrow kinds instead of raw references. `inout T` lowers to T&, and
-// `return this;` is the safe spelling of `return *this;`. A plain assignment
-// to an out parameter sets its value (it is not a read of it).
+// `*this`, `this->` and `this` itself remain legal in safe source, so the
+// ordinary `return *this;` spelling is unchanged. A plain assignment to an
+// out parameter sets its value (it is not a read of it).
 
 struct Str {
   int n = 0;
 
-  inout Str get() noexcept { return this; } // other inout-returning methods too
+  inout Str get() noexcept { return *this; } // `*this` is legal in safe source
   inout Str set(in Str other) noexcept;
 
   inout Str operator=(in Str other) noexcept {
     n = other.n;
-    return this; // OK: returns the borrowed object
+    return *this; // OK: the ordinary C++ spelling, unchanged
   }
 };
 
 // Out-of-class definitions use the same spelling.
 inout Str Str::set(in Str other) noexcept {
   n = other.n;
-  return this;
+  this->n += 0;     // `this->` is legal in safe source
+  auto p = this;    // `this` itself is an opaque token
+  (void)p;
+  return *this;
 }
 
 static void use(in int) noexcept {}
@@ -44,7 +48,7 @@ struct Add {
   int n = 0;
   inout Add operator+=(in Add other) noexcept {
     n += other.n;
-    return this;
+    return *this;
   }
 };
 
@@ -67,6 +71,6 @@ static void member_write(out Pair p) noexcept {
 // The raw-reference spelling remains banned in safe source.
 struct Raw {
   Raw &operator=(const Raw &) noexcept { // expected-error 2 {{raw pointer or reference type}}
-    return *this;                        // expected-error {{dereference of a pointer}}
+    return *this;                        // OK: *this is not an opaque pointer deref
   }
 };

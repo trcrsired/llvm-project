@@ -706,7 +706,10 @@ ExprResult Sema::BuildMemberReferenceExpr(
     ActOnMemberAccessExtraArgs *ExtraArgs) {
   // Safe C++: `p->m` looks through an opaque pointer. Overloaded operator->
   // yields a class-type base and is not affected here.
+  // `this->member` names a member of the current object, so it stays legal;
+  // `p->member` through an opaque pointer does not.
   if (IsArrow && !isUnevaluatedContext() && enforcingSafeCXXAt(OpLoc) &&
+      !isa_and_nonnull<CXXThisExpr>(Base->IgnoreParenImpCasts()) &&
       !BaseType.isNull() && BaseType->isPointerType())
     Diag(OpLoc, diag::err_safecxx_ptr_deref);
 
