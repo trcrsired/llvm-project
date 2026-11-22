@@ -6548,8 +6548,50 @@ bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
 // *source-written* declared type before d0708 lowering, so in/out/inout/move
 // parameters (which lower to references) and implicit compiler-generated
 // declarations are unaffected.
-static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T) {
+/// A deleted function has no body and cannot be called, so there is no unsafe
+/// operation concealed in a raw pointer or reference in its signature. Sema
+/// sees the declarator before the parser reads the `= delete` suffix, so this
+/// is a lexical lookahead from the end of the declarator, like the fences.
+static bool hasDeletedFunctionSuffix(Sema &S, SourceLocation DeclEndLoc) {
+  if (DeclEndLoc.isInvalid())
+    return false;
+  const SourceManager &SM = S.getSourceManager();
+  SourceLocation Loc = SM.getExpansionLoc(DeclEndLoc);
+  std::optional<Token> Tok = Lexer::findNextToken(Loc, SM, S.getLangOpts());
+  bool SawEqual = false;
+  for (unsigned N = 0; Tok && N < 512; ++N) {
+    if (Tok->is(tok::comment)) {
+      Tok = Lexer::findNextToken(Tok->getLocation(), SM, S.getLangOpts());
+      continue;
+    }
+    if (!Tok->is(tok::unknown)) {
+      if (SawEqual) {
+        // findNextToken raw-lexes, so `delete` arrives as a raw identifier.
+        if (Tok->is(tok::kw_delete) ||
+            (Tok->is(tok::raw_identifier) &&
+             Tok->getRawIdentifier() == "delete") ||
+            (Tok->is(tok::identifier) && Tok->getIdentifierInfo() &&
+             Tok->getIdentifierInfo()->getName() == "delete"))
+          return true;
+        if (Tok->is(tok::semi) || Tok->is(tok::l_brace))
+          return false;
+        SawEqual = false;
+      }
+      if (Tok->is(tok::equal))
+        SawEqual = true;
+      else if (Tok->is(tok::semi) || Tok->is(tok::l_brace))
+        return false;
+    }
+    Tok = Lexer::findNextToken(Tok->getLocation(), SM, S.getLangOpts());
+  }
+  return false;
+}
+
+static void diagnoseSafecxxRawPtrRef(Sema &S, SourceLocation Loc, QualType T,
+                                     SourceLocation DeclEndLoc) {
   if (T.isNull() || Loc.isInvalid() || !S.enforcingSafeCXXAt(Loc))
+    return;
+  if (hasDeletedFunctionSuffix(S, DeclEndLoc))
     return;
 
   // `int *a[4]` still names an element type, so look through array levels.
@@ -6843,7 +6885,7 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType R = TInfo->getType();
 
-  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R);
+  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R, D.getEndLoc());
 
   if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                       UPPC_DeclarationType))
@@ -12736,8 +12778,12 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   // declaration, and only written (non-implicit, non-template-instantiated)
   // functions, so one diagnostic per function. Declarations that come from a
   // system header or from a fenced `#include` are legacy code and exempt.
+  // `= delete` is attached after the declarator, so isDeleted() is still
+  // false here. The lexical lookahead supplies the same answer: a deleted
+  // function is never called and needs no error channel or linkage mark.
   if (enforcingSafeCXXAt(NewFD->getLocation()) && !NewFD->isInvalidDecl() &&
       !NewFD->isImplicit() && !NewFD->isDeleted() && !NewFD->isDefaulted() &&
+      !hasDeletedFunctionSuffix(*this, NewFD->getEndLoc()) &&
       !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate() &&
       // main is special: its signature is fixed by the language, so it cannot
       // carry an explicit linkage specifier or error channel. Under safe C++
@@ -16332,7 +16378,8 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   // Check the source spelling before d0708 lowering: in/out/inout/move
   // parameters are declared with a value type and lowered to references, so
   // they must not be flagged by the raw-pointer/reference ban.
-  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), parmDeclType);
+  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), parmDeclType,
+                            D.getEndLoc());
 
   // Lower the d0708 parameter-passing kind to its reference form. This is a
   // provisional representation (design decision D3): a distinct borrow type
@@ -20483,7 +20530,7 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType T = TInfo->getType();
-  diagnoseSafecxxRawPtrRef(*this, Loc, T);
+  diagnoseSafecxxRawPtrRef(*this, Loc, T, D.getEndLoc());
   if (getLangOpts().CPlusPlus) {
     CheckExtraCXXDefaultArguments(D);
 
