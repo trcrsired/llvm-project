@@ -17743,10 +17743,17 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
 
-  // d0708 definite-first-use for out parameters.
+  // d0708 definite-first-use for out parameters, and definite-last-use for
+  // moves. These run on bodies that will be compiled. A template pattern is
+  // not such a body: it may contain dependent code, and the checks run on its
+  // instantiations instead. Skipping both the pattern and the instantiation
+  // would leave templates entirely unchecked. An explicit specialization is
+  // an ordinary function and is checked here.
+  bool IsTemplatePattern =
+      FD && (FD->getDescribedFunctionTemplate() ||
+             FD->getDeclContext()->isDependentContext());
   if (getLangOpts().ParameterPassing && FD && Body &&
-      !FD->isInvalidDecl() && !IsInstantiation &&
-      !FD->getDescribedFunctionTemplate()) {
+      !FD->isInvalidDecl() && !IsTemplatePattern) {
     runSafeCxxOutParamCheck(*this, FD, Body);
 
     // d0708 definite-last-use: diagnose use-after-move.
