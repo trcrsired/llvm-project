@@ -944,9 +944,21 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
       // A static data member is a VarDecl rather than a FieldDecl, but carries
       // the same access restriction. `obj.staticMember` lands here.
       const auto *AsVar = dyn_cast<VarDecl>(VD);
-      if (!isUnevaluatedContext() && VD->hasAttr<UnsafeAttr>() &&
-          (isa<FieldDecl>(VD) || (AsVar && AsVar->isStaticDataMember()))) {
-        Diag(MemberLoc, diag::err_safecxx_unsafe_member) << VD;
+      // A member of an anonymous union/struct is found as an
+      // IndirectFieldDecl, which carries neither the [[unsafe]] attribute nor
+      // FieldDecl-ness. Look through to the real field so grouping fields in
+      // an anonymous record is not a back door around the access restriction.
+      const ValueDecl *UnsafeDecl = nullptr;
+      if (VD->hasAttr<UnsafeAttr>() &&
+          (isa<FieldDecl>(VD) || (AsVar && AsVar->isStaticDataMember())))
+        UnsafeDecl = VD;
+      else if (const auto *IFD = dyn_cast<IndirectFieldDecl>(VD)) {
+        const FieldDecl *Anon = IFD->getAnonField();
+        if (Anon && Anon->hasAttr<UnsafeAttr>())
+          UnsafeDecl = Anon;
+      }
+      if (!isUnevaluatedContext() && UnsafeDecl) {
+        Diag(MemberLoc, diag::err_safecxx_unsafe_member) << UnsafeDecl;
         break;
       }
       if (isFrozenRangeForOwner(VD)) {
