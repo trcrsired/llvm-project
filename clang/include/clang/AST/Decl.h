@@ -3053,6 +3053,17 @@ public:
     return getType()->castAs<FunctionType>()->getReturnType();
   }
 
+  /// The d0708 borrow kind written on this function's return type, or None
+  /// for an ordinary return type. Such a return type is lowered to a reference
+  /// or value but is not an implicit unsafe signature.
+  ParameterPassingKind getFunctionReturnPassingKind() const {
+    return static_cast<ParameterPassingKind>(
+        FunctionDeclBits.FunctionReturnPassing);
+  }
+  void setFunctionReturnPassingKind(ParameterPassingKind K) {
+    FunctionDeclBits.FunctionReturnPassing = static_cast<uint64_t>(K);
+  }
+
   /// Attempt to compute an informative source range covering the
   /// function return type. This may omit qualifiers and other information with
   /// limited representation in the AST.
