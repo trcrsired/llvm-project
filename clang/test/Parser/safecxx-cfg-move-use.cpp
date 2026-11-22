@@ -35,3 +35,23 @@ static void no_move() noexcept {
   for (int i = 0; i < 2; ++i)
     a.x = i;
 }
+
+// A declaration starts a new lifetime. A loop-local variable moved at the end
+// of an iteration is a fresh object on the next one, so the state must be
+// killed at its declaration. The same loop with the variable declared outside
+// still reports the use on the second iteration.
+static void loop_local() noexcept {
+  for (int i = 0; i < 3; ++i) {
+    Buf local{1};
+    local.x = i;                   // OK: fresh object each iteration
+    consume(destructive_move(local));
+  }
+}
+
+static void loop_outer() noexcept {
+  Buf outer{1};
+  for (int i = 0; i < 3; ++i) {
+    outer.x = i; // expected-error {{value 'outer' is used after it was passed to a move parameter}}
+    consume(destructive_move(outer));
+  }
+}
