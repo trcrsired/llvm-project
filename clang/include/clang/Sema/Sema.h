@@ -8822,6 +8822,32 @@ public:
   /// declared variable itself remains an ordinary safe object.
   unsigned UnsafeInitializerDepth = 0;
 
+  /// Location of the use that caused an implicit copy/move constructor or
+  /// assignment to be defined. Its memberwise body names data members on the
+  /// class author's behalf, so it is compiler-generated code, not source: the
+  /// member mentions are not checked here. Whether the operation is safe is
+  /// decided once, at the use site (see MarkFunctionReferenced), which keeps
+  /// the verdict independent of which use happened to define the member first.
+  SourceLocation ImplicitSpecialMemberUseLoc;
+
+  class SafeCXXImplicitSpecialMemberScope {
+    Sema &S;
+    SourceLocation Saved;
+
+  public:
+    SafeCXXImplicitSpecialMemberScope(Sema &S, SourceLocation Loc)
+        : S(S), Saved(S.ImplicitSpecialMemberUseLoc) {
+      S.ImplicitSpecialMemberUseLoc = Loc;
+    }
+    ~SafeCXXImplicitSpecialMemberScope() {
+      S.ImplicitSpecialMemberUseLoc = Saved;
+    }
+    SafeCXXImplicitSpecialMemberScope(const SafeCXXImplicitSpecialMemberScope &) =
+        delete;
+    SafeCXXImplicitSpecialMemberScope &
+    operator=(const SafeCXXImplicitSpecialMemberScope &) = delete;
+  };
+
   /// True if \p D is a variable declared with `[[unsafe]]` in safe source;
   /// only its initializer is an unsafe region.
   bool isUnsafeInitializerDecl(const Decl *D) const;

@@ -19537,6 +19537,36 @@ static bool isImplicitlyDefinableConstexprFunction(FunctionDecl *Func) {
   return CCD && CCD->getInheritedConstructor();
 }
 
+/// True if \p RD has a non-static data member declared `[[unsafe]]`, or a base
+/// or member subobject of class type that does (recursively). An implicit
+/// copy/move operation of such a class reads or writes that subobject.
+static bool safeCxxHasUnsafeSubobject(
+    const CXXRecordDecl *RD,
+    llvm::SmallPtrSetImpl<const CXXRecordDecl *> &Seen) {
+  if (!RD || !RD->isCompleteDefinition() || !Seen.insert(RD).second)
+    return false;
+  for (const FieldDecl *FD : RD->fields()) {
+    if (FD->hasAttr<UnsafeAttr>())
+      return true;
+    QualType T = FD->getType();
+    while (const auto *AT = T->getAsArrayTypeUnsafe())
+      T = AT->getElementType();
+    if (const auto *Sub = T->getAsCXXRecordDecl())
+      if (safeCxxHasUnsafeSubobject(Sub, Seen))
+        return true;
+  }
+  for (const CXXBaseSpecifier &B : RD->bases())
+    if (const auto *Base = B.getType()->getAsCXXRecordDecl())
+      if (safeCxxHasUnsafeSubobject(Base, Seen))
+        return true;
+  return false;
+}
+
+static bool safeCxxHasUnsafeSubobject(const CXXRecordDecl *RD) {
+  llvm::SmallPtrSet<const CXXRecordDecl *, 8> Seen;
+  return safeCxxHasUnsafeSubobject(RD, Seen);
+}
+
 void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
                                   bool MightBeOdrUse) {
   assert(Func && "No function?");
@@ -19603,6 +19633,29 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
       !IsRecursiveCall &&
       (OdrUse == OdrUseContext::Used ||
        (NeededForConstantEvaluation && !Func->isPureVirtual()));
+
+  // Safe C++: an implicit or defaulted copy/move operation of a class that has
+  // an `[[unsafe]]` data member (directly, or through a base or a member of a
+  // class type) copies that subobject on the class author's behalf. The
+  // synthesized body itself is exempt (see enforcingSafeCXXAt); the operation
+  // is judged here, at the use site, so the verdict is per use and does not
+  // depend on which use happened to define the member first.
+  if (enforcingSafeCXXAt(Loc) && Loc.isValid() && !isUnevaluatedContext() &&
+      OdrUse != OdrUseContext::None &&
+      (Func->isImplicit() || Func->isDefaulted())) {
+    const CXXRecordDecl *ClassDecl = nullptr;
+    if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(Func)) {
+      if (Ctor->isCopyOrMoveConstructor())
+        ClassDecl = Ctor->getParent();
+    } else if (const auto *MD = dyn_cast<CXXMethodDecl>(Func)) {
+      if (MD->isCopyAssignmentOperator() || MD->isMoveAssignmentOperator())
+        ClassDecl = MD->getParent();
+    }
+    if (ClassDecl && ClassDecl->isCompleteDefinition() &&
+        safeCxxHasUnsafeSubobject(ClassDecl)) {
+      Diag(Loc, diag::err_safecxx_unsafe_copy) << ClassDecl;
+    }
+  }
 
   // C++14 [temp.expl.spec]p6:
   //   If a template [...] is explicitly specialized then that specialization
