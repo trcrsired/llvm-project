@@ -6552,6 +6552,30 @@ bool Sema::enforcingSafeCXXAt(SourceLocation Loc) const {
 // *source-written* declared type before d0708 lowering, so in/out/inout/move
 // parameters (which lower to references) and implicit compiler-generated
 // declarations are unaffected.
+/// The source spelling of a d0708 borrow kind, for diagnostics.
+static const char *safeCxxBorrowSpelling(ParameterPassingKind K) {
+  switch (K) {
+  case ParameterPassingKind::In: return "in";
+  case ParameterPassingKind::Out: return "out";
+  case ParameterPassingKind::Inout: return "inout";
+  case ParameterPassingKind::Move: return "move";
+  default: return "borrow";
+  }
+}
+
+/// `in`/`out`/`inout`/`move` already imply a reference. An explicit '&' on the
+/// written type is redundant and is rejected; pointers remain valid operands.
+static bool checkSafeCxxBorrowWithReference(Sema &S, SourceLocation Loc,
+                                            ParameterPassingKind K,
+                                            QualType T) {
+  if (K != ParameterPassingKind::None && !T.isNull() && T->isReferenceType()) {
+    S.Diag(Loc, diag::err_safecxx_borrow_with_reference)
+        << safeCxxBorrowSpelling(K);
+    return true;
+  }
+  return false;
+}
+
 /// A deleted function has no body and cannot be called, so there is no unsafe
 /// operation concealed in a raw pointer or reference in its signature. Sema
 /// sees the declarator before the parser reads the `= delete` suffix, so this
@@ -6889,7 +6913,8 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType R = TInfo->getType();
 
-  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R, D.getEndLoc());
+  if (D.getDeclSpec().getVariablePassingKind() == ParameterPassingKind::None)
+    diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), R, D.getEndLoc());
 
   // d0708 return-type borrows. The source spelling was checked above, before
   // lowering, exactly as for in/inout/move parameters. `inout T` becomes T&,
@@ -7038,6 +7063,7 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   if (VPK != ParameterPassingKind::None &&
       D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef &&
       !R->isFunctionType()) {
+    checkSafeCxxBorrowWithReference(*this, D.getIdentifierLoc(), VPK, R);
     QualType Borrowed = R;
     if (VPK == ParameterPassingKind::In)
       Borrowed = Borrowed.withConst();
@@ -8666,6 +8692,13 @@ NamedDecl *Sema::ActOnVariableDeclarator(
 
   // Handle attributes prior to checking for duplicates in MergeVarDecl
   ProcessDeclAttributes(S, NewVD, D);
+
+  // Safe C++ has no C-style arrays: use a safe container, or fence the
+  // declaration. The [[unsafe]] mark makes the declaration itself an unsafe
+  // region, just as it does for an initializer.
+  if (R->isArrayType() && !NewVD->hasAttr<UnsafeAttr>() &&
+      enforcingSafeCXXAt(NewVD->getLocation()))
+    Diag(NewVD->getLocation(), diag::err_safecxx_c_array);
 
   if (getLangOpts().HLSL)
     HLSL().ActOnVariableDeclarator(NewVD);
@@ -16417,13 +16450,18 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   // Check the source spelling before d0708 lowering: in/out/inout/move
   // parameters are declared with a value type and lowered to references, so
   // they must not be flagged by the raw-pointer/reference ban.
-  diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), parmDeclType,
-                            D.getEndLoc());
+  // A borrow keyword already handles the source spelling; its own diagnostic
+  // covers a redundant '&' so do not double-report the raw reference here.
+  if (PPKind == ParameterPassingKind::None)
+    diagnoseSafecxxRawPtrRef(*this, D.getIdentifierLoc(), parmDeclType,
+                              D.getEndLoc());
 
   // Lower the d0708 parameter-passing kind to its reference form. This is a
   // provisional representation (design decision D3): a distinct borrow type
   // can replace it once lifetime checking is in place. The original spelling
   // is still recorded on the ParmVarDecl via getParameterPassingKind().
+  checkSafeCxxBorrowWithReference(*this, D.getIdentifierLoc(), PPKind,
+                                  parmDeclType);
   if (PPKind != ParameterPassingKind::None) {
     switch (PPKind) {
     case ParameterPassingKind::In:
@@ -20594,6 +20632,8 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType T = TInfo->getType();
   diagnoseSafecxxRawPtrRef(*this, Loc, T, D.getEndLoc());
+  if (T->isArrayType() && enforcingSafeCXXAt(Loc))
+    Diag(Loc, diag::err_safecxx_c_array);
   if (getLangOpts().CPlusPlus) {
     CheckExtraCXXDefaultArguments(D);
 

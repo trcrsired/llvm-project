@@ -865,6 +865,21 @@ Sema::ActOnDecompositionDeclarator(Scope *S, Declarator &D,
   TypeSourceInfo *TInfo = GetTypeForDeclarator(D);
   QualType R = TInfo->getType();
 
+  // Borrow keywords already imply a reference, so `inout auto& [a,b]` is
+  // redundant. Reject it; a pointer operand is still allowed.
+  if (ParameterPassingKind VPK = DS.getVariablePassingKind();
+      VPK != ParameterPassingKind::None && R->isReferenceType()) {
+    const char *Name = "borrow";
+    switch (VPK) {
+    case ParameterPassingKind::In: Name = "in"; break;
+    case ParameterPassingKind::Out: Name = "out"; break;
+    case ParameterPassingKind::Inout: Name = "inout"; break;
+    case ParameterPassingKind::Move: Name = "move"; break;
+    default: break;
+    }
+    Diag(D.getIdentifierLoc(), diag::err_safecxx_borrow_with_reference) << Name;
+  }
+
   if (DiagnoseUnexpandedParameterPack(D.getIdentifierLoc(), TInfo,
                                       UPPC_DeclarationType))
     D.setInvalidType();
@@ -1664,6 +1679,22 @@ static bool checkMemberDecomposition(Sema &S, ArrayRef<BindingDecl*> Bindings,
     if (FD->isMutable())
       Q.removeConst();
     B->setBinding(S.BuildQualifiedType(FD->getType(), Loc, Q), E.get());
+
+    // Safe C++: naming an [[unsafe]] data member in a structured binding is a
+    // use of it. An unmarked decomposition is rejected here; a [[unsafe]] mark
+    // on the decomposition exempts the binding creation but marks the binding
+    // itself unsafe, so each later mention is checked at the use site.
+    if (FD->hasAttr<UnsafeAttr>()) {
+      // The declaration mark makes the binding creation an unsafe region, so
+      // enforcingSafeCXXAt() is already false here. Check the mark directly to
+      // decide whether the resulting bindings stay unsafe for later uses.
+      if (DD->hasAttr<UnsafeAttr>()) {
+        if (!B->hasAttr<UnsafeAttr>())
+          B->addAttr(UnsafeAttr::CreateImplicit(S.Context));
+      } else if (S.enforcingSafeCXXAt(Loc)) {
+        S.Diag(Loc, diag::err_safecxx_unsafe_binding_decl) << FD;
+      }
+    }
   }
 
   return false;
@@ -1687,6 +1718,12 @@ void Sema::CheckCompleteDecompositionDeclaration(DecompositionDecl *DD) {
   DecompType = DecompType.getNonReferenceType();
   ArrayRef<BindingDecl*> Bindings = DD->bindings();
 
+  // Safe C++: a binding that names an [[unsafe]] data member is itself an
+  // unsafe value. Creating the binding names the member, so an unmarked
+  // decomposition is rejected here. `[[unsafe]]` on the decomposition exempts
+  // the binding creation, but each binding that aliases an unsafe member is
+  // marked unsafe so its later uses are still checked. A decomposition inside
+  // an enclosing fence needs neither: its bindings go out of scope with it.
   // C++1z [dcl.decomp]/2:
   //   If E is an array type [...]
   // As an extension, we also support decomposition of built-in complex and

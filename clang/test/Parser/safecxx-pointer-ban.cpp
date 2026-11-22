@@ -20,7 +20,7 @@ typedef int *IntPtr;
 static void ptr_local() noexcept {
   int *p = nullptr;
   (void)p;
-  int *arr[2];
+  int *arr[2]; // expected-error {{C-style array declarations are not allowed}}
   (void)arr;
 }
 
@@ -83,7 +83,7 @@ static void use_fenced() noexcept {
 // --- d0708 parameters are unaffected by the ban ------------------------------
 
 struct Big {
-  char buf[64];
+  char buf[64]; // expected-error {{C-style array declarations are not allowed}}
 };
 static void d0708(in int x, out int y, inout int z, move int w) noexcept {
   y = x + z;
