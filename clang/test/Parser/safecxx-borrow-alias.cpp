@@ -1,40 +1,41 @@
 // RUN: %clang_cc1 -fsyntax-only -fsafecxx -verify %s
 
-// A write borrow (out/inout) may not name the same object as any other borrow
-// argument of the same call. Two read-only in arguments may alias.
+// `inout auto` lowers to a reference, so it aliases the source's storage.
+// The range-for freeze and the destructive_move use-after-move check must
+// follow that alias instead of only the declaration named in the source.
 
-static void write_first(out int a, in int b) noexcept {
-  a = 1;
-  (void)b;
-}
-static void mutate(inout int a, in int b) noexcept {
-  a = 2;
-  (void)b;
-}
-static void read_both(in int a, in int b) noexcept {
-  (void)a;
-  (void)b;
-}
-static void write_both(out int a, out int b) noexcept {
-  a = 1;
-  b = 2;
-}
-
-static void f() noexcept {
+[[unsafe]] {
+struct It {
   int x = 0;
-  write_first(x, x); // expected-error {{the same object 'x' is passed to more than one borrow parameter}} expected-note {{first passed here as a out parameter}}
-  mutate(x, x);      // expected-error {{the same object 'x' is passed to more than one borrow parameter}} expected-note {{first passed here as a inout parameter}}
-  write_both(x, x);  // expected-error {{the same object 'x' is passed to more than one borrow parameter}} expected-note {{first passed here as a out parameter}}
-  read_both(x, x);   // OK: both are read-only
+  int &operator*() noexcept { return x; }
+  It &operator++() noexcept { return *this; }
+  bool operator!=(const It &) const noexcept { return false; }
+};
+struct V {
+  [[unsafe]] It begin() noexcept { return {}; }
+  [[unsafe]] It end() noexcept { return {}; }
+};
 }
 
-static void different() noexcept {
-  int x = 0, y = 0;
-  write_first(x, y); // OK: distinct objects
+struct Buf {
+  int x;
+};
+
+static void consume(destructive_move Buf b) noexcept {}
+static void use(in V) noexcept {}
+
+static void uam_alias() noexcept {
+  Buf a{1};
+  inout auto alias = a;
+  consume(destructive_move(a));
+  alias.x = 2; // expected-error {{value 'alias' is used after it was passed to a move parameter}}
 }
 
-// A fenced call is legacy code and is not checked.
-static void fenced() noexcept {
-  int x = 0;
-  [[unsafe]] { write_first(x, x); }
+static void freeze_alias() noexcept {
+  V v;
+  inout auto alias = v;
+  for (in auto x : v) {
+    (void)x;
+    use(alias); // expected-error {{cannot use 'alias' inside a range-for over it}}
+  }
 }
