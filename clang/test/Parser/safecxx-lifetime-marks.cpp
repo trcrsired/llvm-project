@@ -32,8 +32,10 @@ static View escape_ctor() noexcept {
 
 static View escape_member() noexcept {
   Vec v{};
+  // The escaped view is a transparent alias for its owner, so the dangling
+  // borrow is attributed to 'v', the owner that actually dies.
+  // expected-error@+1 {{stack memory associated with local variable 'v' is returned}}
   View s(v);
   // expected-warning@+1 {{address of stack memory associated with local variable 's' returned}}
-  return s.sub(); // expected-error {{stack memory associated with local variable 's' is returned}}
-  // expected-note@-1 {{returned here}}
+  return s.sub(); // expected-note {{returned here}}
 }

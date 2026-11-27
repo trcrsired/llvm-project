@@ -50,6 +50,50 @@ static void good(const my_string& s) noexcept {
   my_view v(s);
   (void)v;
 }
+
+// A function that returns a view binds its result to the view inputs it does
+// not own. No explicit mark is needed: the signature says it all.
+static my_view pass(my_view v) noexcept { return v; }
+
+// Returning a view parameter directly is fine; the caller keeps the owner.
+static my_view pass_through(my_view v) noexcept { return v; }
+
+// The returned view carries the borrow of the argument, so escaping a local
+// through the call is diagnosed at the caller.
+static my_view bad_pass() noexcept {
+  my_string local;
+  // expected-error@+2 {{stack memory associated with local variable 'local' is returned}}
+  // expected-note@+1 {{returned here}}
+  return pass(my_view(local));
+}
+
+// Multiple view inputs bind the result to their union.
+static my_view pass2(my_view a, my_view b) noexcept { return a; }
+static my_view bad_union(my_view a) noexcept {
+  my_string local;
+  // expected-error@+2 {{stack memory associated with local variable 'local' is returned}}
+  // expected-note@+1 {{returned here}}
+  return pass2(a, my_view(local));
+}
+
+// A local view may be returned when everything it refers to outlives the call.
+static my_string global_owner;
+static my_view good_pass_local() noexcept {
+  my_view g(global_owner);
+  return pass(g);
+}
+
+// Containment makes an aggregate holding a view a view as well, so the same
+// escape rule applies without looking at any callee body.
+struct holder {
+  my_view v;
+};
+static holder bad_holder() noexcept {
+  my_string local;
+  // expected-error@+2 {{stack memory associated with local variable 'local' is returned}}
+  // expected-note@+1 {{returned here}}
+  return holder{my_view(local)};
+}
 } // end trusted-unsafe library implementation
 
 // Without -fsafecxx / -flifetime-protocol the marks are inert and the engine

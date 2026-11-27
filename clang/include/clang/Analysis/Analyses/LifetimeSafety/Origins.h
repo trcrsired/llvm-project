@@ -193,6 +193,10 @@ public:
   bool hasOrigins(QualType QT, bool IntrinsicOnly = false) const;
   bool hasOrigins(const Expr *E) const;
 
+  /// Whether QT is a view type for the dialect's default lifetime binding.
+  /// Declaration-level and cached per canonical type.
+  bool isViewType(QualType QT) const;
+
   void dump(OriginID OID, llvm::raw_ostream &OS) const;
 
   /// Collects statistics about expressions that lack associated origins.
@@ -231,6 +235,8 @@ private:
   /// because of lifetime annotations (currently [[clang::lifetimebound]]) on
   /// functions that return them.
   llvm::DenseSet<const Type *> LifetimeAnnotatedOriginTypes;
+  /// Cache for isViewType, keyed by canonical type.
+  mutable llvm::DenseMap<const Type *, bool> ViewTypeCache;
 };
 } // namespace clang::lifetimes::internal
 

@@ -418,6 +418,62 @@ template <typename T> static bool isRecordWithAttr(QualType Type) {
 }
 
 bool isGslPointerType(QualType QT) { return isRecordWithAttr<PointerAttr>(QT); }
+
+static bool hasLifetimeBoundParameter(const FunctionDecl &FD) {
+  for (const ParmVarDecl *P : FD.parameters())
+    if (P->hasAttr<LifetimeBoundAttr>())
+      return true;
+  return false;
+}
+
+bool isViewType(QualType QT) {
+  if (QT.isNull())
+    return false;
+  QT = QT.getCanonicalType();
+  if (QT->isPointerType() || QT->isMemberPointerType())
+    return false;
+  // A reference to a view is still a view for the binding rule; look through
+  // the reference (e.g. the lowered form of an `in`/`out` parameter).
+  if (QT->isReferenceType())
+    QT = QT.getNonReferenceType().getCanonicalType();
+  const auto *RD = QT->getAsCXXRecordDecl();
+  if (!RD)
+    return false;
+
+  // Explicit mark: the object is constructed by borrowing from an argument.
+  // The public [[lifetime("this")]] is lowered to a LifetimeBoundAttr on the
+  // constructor/assignment parameter. Constructor templates are stored as
+  // FunctionTemplateDecl, so look through them.
+  for (const Decl *D : RD->decls()) {
+    const FunctionDecl *FD = dyn_cast<FunctionDecl>(D);
+    if (!FD)
+      if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(D))
+        FD = FTD->getTemplatedDecl();
+    if (!FD)
+      continue;
+    const bool IsBorrowingCtor = isa<CXXConstructorDecl>(FD);
+    const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+    const bool IsBorrowingAssignment =
+        MD && (MD->isCopyAssignmentOperator() ||
+               MD->isMoveAssignmentOperator()) &&
+        !isa<CXXConstructorDecl>(MD);
+    if ((IsBorrowingCtor || IsBorrowingAssignment) &&
+        hasLifetimeBoundParameter(*FD))
+      return true;
+  }
+
+  // Containment closure: a class that holds a view is itself a view. Only
+  // view-typed members participate, so an ordinary owning type with pointer
+  // fields does not become a view.
+  for (const CXXBaseSpecifier &B : RD->bases())
+    if (isViewType(B.getType()))
+      return true;
+  for (const FieldDecl *F : RD->fields())
+    if (isViewType(F->getType()))
+      return true;
+  return false;
+}
+
 bool isGslOwnerType(QualType QT) { return isRecordWithAttr<OwnerAttr>(QT); }
 bool isGslOwnerType(const CXXRecordDecl *RD) {
   return isRecordWithAttr<OwnerAttr>(RD);

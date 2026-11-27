@@ -136,8 +136,27 @@ private:
 
 } // namespace
 
+bool OriginManager::isViewType(QualType QT) const {
+  QualType Canonical = QT.getCanonicalType();
+  const Type *T = Canonical.getTypePtrOrNull();
+  if (!T)
+    return false;
+  auto It = ViewTypeCache.find(T);
+  if (It != ViewTypeCache.end())
+    return It->second;
+  const bool IsView = clang::lifetimes::isViewType(Canonical);
+  ViewTypeCache.insert({T, IsView});
+  return IsView;
+}
+
 bool OriginManager::hasOrigins(QualType QT, bool IntrinsicOnly) const {
   if (QT->isPointerOrReferenceType() || isGslPointerType(QT))
+    return true;
+  // View types are declaration-level origin carriers: a class whose
+  // constructor borrows from an argument, or a class containing such a view.
+  // Unlike LifetimeAnnotatedOriginTypes below, this does not depend on the
+  // calls that happen to appear in the current function body.
+  if (isViewType(QT))
     return true;
   if (!IntrinsicOnly &&
       LifetimeAnnotatedOriginTypes.contains(QT.getCanonicalType().getTypePtr()))
@@ -195,7 +214,16 @@ bool OriginManager::hasOrigins(const Expr *E) const {
 ///   Foo&& f = Foo{};   // temporary has storage, lifetime extended
 /// Currently, this function returns false for all reference types.
 bool doesDeclHaveStorage(const ValueDecl *D) {
-  return !D->getType()->isReferenceType();
+  if (D->getType()->isReferenceType())
+    return false;
+  // A view object is a transparent alias for what it refers to. Its own
+  // storage is not a borrow target: returning or passing a view by value does
+  // not return the view variable, only the object it refers to. Without this,
+  // a view parameter or a view variable referring to a global would be treated
+  // as a dangling stack borrow of the view object itself.
+  if (isViewType(D->getType()))
+    return false;
+  return true;
 }
 
 OriginManager::OriginManager(const AnalysisDeclContext &AC)

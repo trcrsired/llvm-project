@@ -139,6 +139,16 @@ bool isGslPointerType(QualType QT);
 bool isGslOwnerType(QualType QT);
 bool isGslOwnerType(const CXXRecordDecl *RD);
 
+// Tells whether the type is a view type for the dialect's default lifetime
+// binding.
+//
+// A class is a view if one of its constructors or assignment operators borrows
+// from a parameter (the public [[lifetime("this")]] mark, which lowers to a
+// LifetimeBoundAttr on that parameter), or if a base or field is a view. This
+// is a declaration-level property: it never inspects a function body, and it
+// never guesses from the presence of raw pointer fields.
+bool isViewType(QualType QT);
+
 // Tells whether the given constructor belongs to an Owner type and the
 // parameter is of pointer type. This is useful to disable inference on owning
 // pointers being captured by owners.

@@ -1227,12 +1227,43 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
   };
   if (Args.empty())
     return;
+  // A function that returns a view binds its result to the inputs it does not
+  // own, even without an explicit mark. This is the signature-level rule that
+  // makes `V foo(V s) { return s; }` safe to call: the caller transfers the
+  // borrows of the view arguments (and of caller-owned owner arguments) to the
+  // call result. Inputs the callee owns (by-value or `move` owners) are not
+  // sources: returning a view into such a copy is an error in the callee.
+  const bool ImplicitViewResult =
+      !IsGslConstruction && isViewType(FD->getReturnType());
   bool KillSrc = true;
   for (unsigned I = 0; I < Args.size(); ++I) {
     OriginList *ArgList = getOriginsList(*Args[I]);
     if (!ArgList)
       continue;
     bool ShouldTrackArg = getTrackedArgInfo(FD, Args, I).has_value();
+    if (ImplicitViewResult && !ShouldTrackArg) {
+      // Is argument I an input the callee does not own? Views are always
+      // caller-owned (the copy does not own what it refers to); owners are
+      // caller-owned only when the lowered parameter is an lvalue reference
+      // (`in` lowered to a reference, `out`, `inout`, `forward`). A `move`
+      // rvalue reference, a destructive move, or a by-value owner is owned by
+      // the callee and cannot be a source of the returned view.
+      ShouldTrackArg = [&] {
+        if (I == 0 && hasObjectArg(*FD)) {
+          if (hasImplicitObjectArg(*FD))
+            return true;
+          return cast<CXXMethodDecl>(FD)
+              ->getParamDecl(0)
+              ->getType()
+              ->isReferenceType();
+        }
+        const ParmVarDecl *PVD = getParamForArg(*FD, I);
+        if (!PVD)
+          return false;
+        QualType PT = PVD->getType();
+        return isViewType(PT) || PT->isLValueReferenceType();
+      }();
+    }
     if (IsGslConstruction) {
       // TODO: document with code example.
       // std::string_view(const std::string_view& from)
