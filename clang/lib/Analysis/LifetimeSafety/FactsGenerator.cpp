@@ -198,6 +198,10 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
           if (const auto *CCE =
                   dyn_cast<CXXConstructExpr>(InitExpr->IgnoreParenImpCasts()))
             VisitCXXConstructExpr(CCE);
+        // Same fold-in for aggregate initialization: key the view members by
+        // the variable so `h.v` later reads what `{...}` stored.
+        if (const auto *ILE = dyn_cast<InitListExpr>(InitExpr))
+          handleViewAggregateInit(ILE, VD);
         OriginList *InitList = getOriginsList(*InitExpr);
         assert(InitList && "VarDecl had origins but InitExpr did not");
         flow(VDList, InitList, /*Kill=*/true);
@@ -468,6 +472,14 @@ void FactsGenerator::VisitReturnStmt(const ReturnStmt *RS) {
       for (OriginList *L = List; L != nullptr; L = L->peelOuterOrigin())
         EscapesInCurrentBlock.push_back(FactMgr.createFact<ReturnEscapeFact>(
             L->getOuterOriginID(), RetExpr));
+    // A returned Holder escapes the borrows held by its view-typed fields,
+    // even though those fields live in side origin lists rather than in the
+    // object's own indirection chain.
+    llvm::SmallVector<OriginID, 2> MemberOrigins;
+    collectViewMemberOrigins(RetExpr, MemberOrigins);
+    for (OriginID OID : MemberOrigins)
+      EscapesInCurrentBlock.push_back(
+          FactMgr.createFact<ReturnEscapeFact>(OID, RetExpr));
   }
 }
 
@@ -522,6 +534,30 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
   if (TargetList && LHSList->getLength() > TargetList->getLength())
     LHSList = LHSList->peelOuterOrigin();
   flow(TargetList, LHSList, /*Kill=*/true);
+
+  // Assigning a whole Holder copies the borrows held by each view-typed
+  // field. Those values live in per-object side origins, so the ordinary
+  // flow above does not reach them.
+  auto StripRef = [](QualType QT) {
+    return QT->isReferenceType() ? QT.getNonReferenceType() : QT;
+  };
+  const auto *LRD = StripRef(LHSExpr->getType())->getAsCXXRecordDecl();
+  const auto *SRD = StripRef(RHSExpr->getType())->getAsCXXRecordDecl();
+  if (!LRD || LRD != SRD)
+    return;
+  const void *LKey = getObjectKey(LHSExpr);
+  const void *SKey = getObjectKey(RHSExpr);
+  if (!LKey || !SKey)
+    return;
+  for (const FieldDecl *F : LRD->fields())
+    if (isViewType(F->getType())) {
+      OriginList *From = FactMgr.getOriginMgr().getViewMemberList(SKey, F);
+      if (!From)
+        continue;
+      OriginList *To =
+          FactMgr.getOriginMgr().getOrCreateViewMemberList(LKey, F);
+      flow(To, From, /*Kill=*/true);
+    }
 }
 
 void FactsGenerator::handlePointerArithmetic(const BinaryOperator *BO) {
@@ -662,9 +698,120 @@ void FactsGenerator::VisitCXXFunctionalCastExpr(
   VisitCastExpr(FCE);
 }
 
+void FactsGenerator::handleViewAggregateInit(const InitListExpr *ILE,
+                                             const void *Owner) {
+  const auto *RD = ILE->getType()->getAsCXXRecordDecl();
+  if (!RD || !isViewType(ILE->getType()))
+    return;
+  // Aggregate initialization assigns inits to base classes and then fields in
+  // declaration order. Only view-typed fields carry provenance, but the index
+  // still advances over ordinary fields (e.g. the `int x` in `H2{0, v}`).
+  unsigned Idx = 0;
+  for (const FieldDecl *F : RD->fields()) {
+    if (Idx >= ILE->getNumInits())
+      break;
+    const Expr *Init = ILE->getInit(Idx++);
+    if (!isViewType(F->getType()))
+      continue;
+    // The initializer's constructor may be folded into the init list by the
+    // CFG, so make sure its borrow facts exist before reading its origins.
+    if (const auto *CCE =
+            dyn_cast<CXXConstructExpr>(Init->IgnoreParenImpCasts()))
+      VisitCXXConstructExpr(CCE);
+    if (OriginList *Src = readValue(Init))
+      flow(FactMgr.getOriginMgr().getOrCreateViewMemberList(Owner, F), Src,
+           /*Kill=*/true);
+  }
+}
+
+/// Peels implicit wrappers around an aggregate value so member origins can be
+/// found at the expression that actually denotes the object.
+static const Expr *stripAggregateWrappers(const Expr *E) {
+  while (E) {
+    if (const auto *P = dyn_cast<ParenExpr>(E)) {
+      E = P->getSubExpr();
+      continue;
+    }
+    if (const auto *ICE = dyn_cast<ImplicitCastExpr>(E)) {
+      E = ICE->getSubExpr();
+      continue;
+    }
+    if (const auto *FCE = dyn_cast<CXXFunctionalCastExpr>(E);
+        FCE && (FCE->getCastKind() == CK_NoOp ||
+                FCE->getCastKind() == CK_ConstructorConversion)) {
+      E = FCE->getSubExpr();
+      continue;
+    }
+    if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E)) {
+      E = BTE->getSubExpr();
+      continue;
+    }
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E)) {
+      E = MTE->getSubExpr();
+      continue;
+    }
+    // `return h` and `H2 copy = h` wrap the object in an implicit copy/move
+    // constructor. The copy holds the same view members, so use the source
+    // object as the key for their provenance.
+    if (const auto *CCE = dyn_cast<CXXConstructExpr>(E);
+        CCE && CCE->getConstructor()->isCopyOrMoveConstructor() &&
+        CCE->getConstructor()->isDefaulted() && CCE->getNumArgs() == 1) {
+      E = CCE->getArg(0);
+      continue;
+    }
+    break;
+  }
+  return E;
+}
+
+const void *FactsGenerator::getObjectKey(const Expr *E) const {
+  if (!E)
+    return nullptr;
+  const Expr *Base = stripAggregateWrappers(E);
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(Base))
+    if (const auto *VD = dyn_cast<ValueDecl>(DRE->getDecl()))
+      return VD;
+  return Base;
+}
+
+void FactsGenerator::collectViewMemberOriginsImpl(
+    const void *Key, QualType QT, llvm::SmallVectorImpl<OriginID> &Out) {
+  if (!Key || QT.isNull())
+    return;
+  if (QT->isReferenceType())
+    QT = QT.getNonReferenceType();
+  const auto *RD = QT->getAsCXXRecordDecl();
+  if (!RD || !isViewType(QT))
+    return;
+  for (const FieldDecl *F : RD->fields())
+    if (isViewType(F->getType())) {
+      OriginList *M = FactMgr.getOriginMgr().getOrCreateViewMemberList(Key, F);
+      Out.push_back(M->getOuterOriginID());
+    }
+}
+
+void FactsGenerator::collectViewMemberOrigins(
+    const Expr *E, llvm::SmallVectorImpl<OriginID> &Out) {
+  if (!E)
+    return;
+  const Expr *Base = stripAggregateWrappers(E);
+  collectViewMemberOriginsImpl(getObjectKey(E), Base->getType(), Out);
+}
+
+void FactsGenerator::collectViewMemberOrigins(
+    const ValueDecl *D, llvm::SmallVectorImpl<OriginID> &Out) {
+  if (!D)
+    return;
+  collectViewMemberOriginsImpl(D, D->getType(), Out);
+}
+
 void FactsGenerator::VisitInitListExpr(const InitListExpr *ILE) {
   if (!hasOrigins(ILE))
     return;
+  // `Holder{...}` carries the borrows of its view-typed members even when it
+  // has more than one initializer; the single-element shortcut below only
+  // handles the outer origin.
+  handleViewAggregateInit(ILE, ILE);
   // For list initialization with a single element, like `View{...}`, the
   // origin of the list itself is the origin of its single element.
   if (ILE->getNumInits() == 1) {
@@ -987,6 +1134,13 @@ void FactsGenerator::handleExitBlock() {
       continue;
     EscapesInCurrentBlock.push_back(FactMgr.createFact<OutEscapeFact>(
         Referent->getOuterOriginID(), PVD));
+    // A Holder written to the output also leaks the borrows held by its
+    // view-typed fields.
+    llvm::SmallVector<OriginID, 2> MemberOrigins;
+    collectViewMemberOrigins(PVD, MemberOrigins);
+    for (OriginID OID : MemberOrigins)
+      EscapesInCurrentBlock.push_back(
+          FactMgr.createFact<OutEscapeFact>(OID, PVD));
   }
 }
 
@@ -1299,6 +1453,24 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
         CurrentBlockFacts.push_back(
             FactMgr.createFact<KillOriginFact>(Dst->getOuterOriginID()));
       OutDestLists.push_back(Dst);
+      // A Holder output carries its borrows in per-object field origins. The
+      // caller's fields must receive the same inputs, and an `out` replaces
+      // their previous provenance just as it does for a plain view.
+      QualType PT = PVD->getType();
+      if (PT->isReferenceType())
+        PT = PT.getNonReferenceType();
+      if (const auto *RD = PT->getAsCXXRecordDecl()) {
+        const void *Key = getObjectKey(Args[I]);
+        for (const FieldDecl *F : RD->fields())
+          if (isViewType(F->getType())) {
+            OriginList *M =
+                FactMgr.getOriginMgr().getOrCreateViewMemberList(Key, F);
+            if (Kind == ParameterPassingKind::Out)
+              CurrentBlockFacts.push_back(
+                  FactMgr.createFact<KillOriginFact>(M->getOuterOriginID()));
+            OutDestLists.push_back(M);
+          }
+      }
     }
   }
 

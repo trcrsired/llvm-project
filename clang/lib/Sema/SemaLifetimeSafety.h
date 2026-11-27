@@ -33,6 +33,7 @@ inline bool ShouldCheckSafety(Sema &S, const Decl *D) {
       diag::warn_lifetime_safety_use_after_free,
       diag::warn_lifetime_safety_return_stack_addr,
       diag::warn_lifetime_safety_return_stack_addr_moved,
+      diag::warn_lifetime_safety_out_stack_addr,
       diag::warn_lifetime_safety_invalidation,
       diag::warn_lifetime_safety_dangling_field,
       diag::warn_lifetime_safety_dangling_field_moved,

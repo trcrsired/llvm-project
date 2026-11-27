@@ -103,6 +103,26 @@ private:
 
   void handleGSLPointerConstruction(const CXXConstructExpr *CCE);
 
+  /// Flows each view-typed initializer of an aggregate initialization into the
+  /// originating object's per-field view origin. \p Owner identifies the
+  /// object being initialized (a declaration for a local, the ILE itself for
+  /// a temporary), so later reads/writes of `obj.field` meet the same origin.
+  void handleViewAggregateInit(const InitListExpr *ILE, const void *Owner);
+
+  /// The object a view-field expression refers to: a declaration for a named
+  /// object, the expression itself for a temporary. Used to key per-object
+  /// view-member origins.
+  const void *getObjectKey(const Expr *E) const;
+
+  /// Collects the per-object origins of the view-typed fields of an aggregate,
+  /// which must escape with the object itself.
+  void collectViewMemberOrigins(const Expr *E,
+                                llvm::SmallVectorImpl<OriginID> &Out);
+  void collectViewMemberOrigins(const ValueDecl *D,
+                                llvm::SmallVectorImpl<OriginID> &Out);
+  void collectViewMemberOriginsImpl(const void *Key, QualType QT,
+                                    llvm::SmallVectorImpl<OriginID> &Out);
+
   /// Detects arguments passed to rvalue reference parameters and creates
   /// MovedOriginFact for them. The MovedLoansAnalysis then uses these facts
   /// to track in a flow-sensitive manner which loans have been moved at each

@@ -280,6 +280,32 @@ OriginList *OriginManager::buildListForType(QualType QT, const T *Node,
   return Head;
 }
 
+OriginList *OriginManager::getOrCreateViewMemberList(const void *Key,
+                                                     const FieldDecl *F) {
+  assert(Key && F && isViewType(F->getType()));
+  auto K = std::make_pair(Key, F);
+  if (auto It = ViewMemberOrigins.find(K); It != ViewMemberOrigins.end())
+    return It->second;
+  // A view is a transparent alias: the field's single origin denotes what the
+  // view refers to, not the storage of the field inside the object. Give it no
+  // FieldDecl node, so exit-time field-escape checks do not misclassify the
+  // stored value as a write into a field that outlives the function.
+  OriginID NewID = getNextOriginID();
+  AllOrigins.emplace_back(NewID, F->getType().getTypePtrOrNull());
+  OriginList *List =
+      new (ListAllocator.Allocate<OriginList>()) OriginList(NewID);
+  ViewMemberOrigins[K] = List;
+  return List;
+}
+
+OriginList *OriginManager::getViewMemberList(const void *Key,
+                                             const FieldDecl *F) const {
+  if (!Key || !F)
+    return nullptr;
+  auto It = ViewMemberOrigins.find(std::make_pair(Key, F));
+  return It == ViewMemberOrigins.end() ? nullptr : It->second;
+}
+
 OriginList *OriginManager::getOrCreateList(const ValueDecl *D) {
   if (!hasOrigins(D->getType()))
     return nullptr;
@@ -339,6 +365,22 @@ OriginList *OriginManager::getOrCreateList(const Expr *E) {
   // implicit object parameter.
   if (isa<CXXThisExpr>(E) && ThisOrigins)
     return *ThisOrigins;
+
+  // A view-typed field of a normal object is a stored alias: reads and writes
+  // of `h.v` must share the origin that holds what the view refers to. Key it
+  // by the owning object, not just the FieldDecl, so `a.v` and `b.v` cannot
+  // alias each other. Subobjects of `this` keep the existing FieldDecl-keyed
+  // sharing used by the field-escape machinery.
+  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    if (const auto *Field = dyn_cast<FieldDecl>(ME->getMemberDecl());
+        Field && isViewType(Field->getType()) && !isSubobjectOfThis(ME)) {
+      const Expr *Base = ignoreParensAndImpCasts(ME->getBase());
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(Base))
+        if (const auto *VD = dyn_cast<ValueDecl>(DRE->getDecl()))
+          return ExprToList[E] = getOrCreateViewMemberList(VD, Field);
+      return ExprToList[E] = getOrCreateViewMemberList(Base, Field);
+    }
+  }
 
   // Special handling for expressions referring to a decl to share origins with
   // the underlying decl.

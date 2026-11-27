@@ -67,6 +67,10 @@ struct Origin {
   Origin(OriginID ID, const clang::Expr *E, const Type *QT,
          bool NamesDeclStorage)
       : ID(ID), Ptr(E), Ty(QT), NamesDeclStorage(NamesDeclStorage) {}
+  /// A per-object view-member value: it is not the field's storage origin, so
+  /// it must not be mistaken for one by field-escape checks.
+  Origin(OriginID ID, const Type *QT)
+      : ID(ID), Ptr(), Ty(QT), NamesDeclStorage(false) {}
 
   const clang::ValueDecl *getDecl() const {
     return dyn_cast<const clang::ValueDecl *>(Ptr);
@@ -158,6 +162,14 @@ public:
   /// can refer to a single level of an existing OriginList.
   OriginList *createSingleOriginList(OriginID OID);
 
+  /// The origin of the value held in a view-typed field of a particular
+  /// object. \p Key identifies the owning object (a ValueDecl or an Expr), so
+  /// two objects of the same class never share a field's loans. Only
+  /// view-typed fields participate: raw pointer members are opaque in safe
+  /// source and need no provenance.
+  OriginList *getOrCreateViewMemberList(const void *Key, const FieldDecl *F);
+  OriginList *getViewMemberList(const void *Key, const FieldDecl *F) const;
+
   /// Returns the OriginList for the implicit 'this' parameter if the current
   /// declaration is an instance method.
   std::optional<OriginList *> getThisOrigins() const { return ThisOrigins; }
@@ -230,6 +242,10 @@ private:
   llvm::BumpPtrAllocator ListAllocator;
   llvm::DenseMap<const clang::ValueDecl *, OriginList *> DeclToList;
   llvm::DenseMap<const clang::Expr *, OriginList *> ExprToList;
+  /// View-typed fields, keyed by (owning object, field). Kept separate from
+  /// the indirection chain so aggregates do not acquire extra levels.
+  llvm::DenseMap<std::pair<const void *, const FieldDecl *>, OriginList *>
+      ViewMemberOrigins;
   std::optional<OriginList *> ThisOrigins;
   /// Types that are not inherently pointer-like but require origin tracking
   /// because of lifetime annotations (currently [[clang::lifetimebound]]) on
