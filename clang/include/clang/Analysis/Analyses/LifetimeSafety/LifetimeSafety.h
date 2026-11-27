@@ -89,6 +89,18 @@ public:
                                     const Expr *MovedExpr,
                                     llvm::ArrayRef<const Expr *> ExprChain) {}
 
+  // Reports that a view written to an `out`/`inout` parameter borrows from
+  // storage that dies with the call. The subject is either an expression (a
+  // local owner) or a parameter (a callee-owned copy).
+  virtual void reportOutEscape(const Expr *IssueExpr,
+                               const ParmVarDecl *OutParam,
+                               const Expr *MovedExpr,
+                               llvm::ArrayRef<const Expr *> ExprChain) {}
+  virtual void reportOutEscape(const ParmVarDecl *SubjectPVD,
+                               const ParmVarDecl *OutParam,
+                               const Expr *MovedExpr,
+                               llvm::ArrayRef<const Expr *> ExprChain) {}
+
   virtual void reportDanglingField(const Expr *IssueExpr,
                                    const FieldDecl *Field,
                                    const Expr *MovedExpr,

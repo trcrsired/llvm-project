@@ -590,6 +590,14 @@ This may contain false-positives, e.g. when the borrowed storage is potentially 
   }];
 }
 
+// Out-Parameter Escape (a view written to an `out`/`inout` parameter borrows
+// storage that dies with the call).
+def LifetimeSafetyOutStackAddr : DiagGroup<"lifetime-safety-out-stack-addr"> {
+  code Documentation = [{
+Warning to detect a view written to an output parameter whose borrowed storage dies when the call returns.
+  }];
+}
+
 def LifetimeSafetyUseAfterFree : DiagGroup<"lifetime-safety-use-after-free"> {
     code Documentation = [{
 Warning to detect use-after-free, introduced by freeing an object and later using it.
@@ -671,6 +679,7 @@ Detects function definitions whose parameters or implicit this argument are mark
 def LifetimeSafetyPermissive : DiagGroup<"lifetime-safety-permissive",
                                          [LifetimeSafetyUseAfterScope,
                                          LifetimeSafetyReturnStackAddr,
+                                         LifetimeSafetyOutStackAddr,
                                          LifetimeSafetyDanglingField,
                                          LifetimeSafetyDanglingGlobal,
                                          LifetimeSafetyUseAfterFree]>;

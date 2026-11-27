@@ -174,6 +174,11 @@ OriginList *FactsGenerator::readValue(const Expr *E) {
   if (!E->isGLValue())
     return List;
   handleAccess(E);
+  // A view value is a transparent alias: its single origin already denotes
+  // what the view refers to, so reading it must not peel that level away. A
+  // reference to a view still has a storage level to peel.
+  if (isViewType(E->getType()) && List->getLength() == 1)
+    return List;
   return List->peelOuterOrigin();
 }
 
@@ -184,6 +189,15 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
         OriginList *VDList = getOriginsList(*VD);
         if (!VDList)
           continue;
+        // A direct-initialized view (`V v(arg);`) is folded into the DeclStmt
+        // by the CFG, so its constructor is not visited as a separate
+        // full-expression. Generate the constructor's origin flow here; for
+        // copy-initialization the call was already visited, and re-flowing the
+        // same origins is idempotent.
+        if (isViewType(VD->getType()))
+          if (const auto *CCE =
+                  dyn_cast<CXXConstructExpr>(InitExpr->IgnoreParenImpCasts()))
+            VisitCXXConstructExpr(CCE);
         OriginList *InitList = getOriginsList(*InitExpr);
         assert(InitList && "VarDecl had origins but InitExpr did not");
         flow(VDList, InitList, /*Kill=*/true);
@@ -479,10 +493,15 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
   if (!LHSList)
     return;
 
+  // A view value has a single origin that already denotes what it refers to;
+  // references and pointers have a storage level to peel before writing the
+  // assigned value.
+  OriginList *AssignedList =
+      LHSList->getLength() > 1 ? LHSList->peelOuterOrigin() : LHSList;
   if (!RHSList) {
     // RHS has no tracked origins (e.g., assigning a callable without origins
     // to std::function). Clear loans of the destination.
-    for (OriginList *LHSInner = LHSList->peelOuterOrigin(); LHSInner;
+    for (OriginList *LHSInner = AssignedList; LHSInner;
          LHSInner = LHSInner->peelOuterOrigin())
       CurrentBlockFacts.push_back(
           FactMgr.createFact<KillOriginFact>(LHSInner->getOuterOriginID()));
@@ -490,13 +509,19 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
   }
   // Kill the old loans of the destination origin and flow the new loans
   // from the source origin.
-  flow(LHSList->peelOuterOrigin(), RHSList, /*Kill=*/true);
+  flow(AssignedList, RHSList, /*Kill=*/true);
 
   // In C, assignment expressions are not GLValues, so the assignment result has
   // the assigned value origins, not the LHS storage origin.
   if (IsCMode)
     LHSList = LHSList->peelOuterOrigin();
-  flow(getOriginsList(*TargetExpr), LHSList, /*Kill=*/true);
+  OriginList *TargetList = getOriginsList(*TargetExpr);
+  // A view assignment result is a view value, while a reference LHS still has
+  // a storage level to peel. Give the expression the assigned value, not the
+  // reference object.
+  if (TargetList && LHSList->getLength() > TargetList->getLength())
+    LHSList = LHSList->peelOuterOrigin();
+  flow(TargetList, LHSList, /*Kill=*/true);
 }
 
 void FactsGenerator::handlePointerArithmetic(const BinaryOperator *BO) {
@@ -663,6 +688,13 @@ void FactsGenerator::VisitMaterializeTemporaryExpr(
   if (!MTEList)
     return;
   OriginList *SubExprList = getOriginsList(*MTE->getSubExpr());
+  // A temporary view is a transparent alias: the view object itself is not
+  // borrowed storage. Propagate only what it refers to.
+  if (isViewType(MTE->getType())) {
+    if (SubExprList)
+      flow(MTEList, SubExprList, /*Kill=*/true);
+    return;
+  }
   assert((!SubExprList ||
           MTEList->getLength() == (SubExprList->getLength() + 1)) &&
          "MTE top level origin should contain a loan to the MTE itself");
@@ -932,6 +964,30 @@ void FactsGenerator::handleExitBlock() {
       ThisOrigins && !IsDestructor)
     EscapesInCurrentBlock.push_back(FactMgr.createFact<ThisEscapeFact>(
         (*ThisOrigins)->getOuterOriginID(), AC.getDecl()->getEndLoc()));
+
+  // A view-typed `out`/`inout` parameter is an output the caller keeps using
+  // after the call. Its provenance must therefore come from an input, never
+  // from a callee-local value or a callee-owned copy. The view's referent is
+  // the inner origin of the lowered reference parameter.
+  const auto *FD = dyn_cast<FunctionDecl>(AC.getDecl());
+  if (!FD || IsDestructor)
+    return;
+  for (const ParmVarDecl *PVD : FD->parameters()) {
+    const auto Kind = PVD->getParameterPassingKind();
+    if (Kind != ParameterPassingKind::Out &&
+        Kind != ParameterPassingKind::Inout)
+      continue;
+    if (!isViewType(PVD->getType()))
+      continue;
+    OriginList *List = getOriginsList(*PVD);
+    if (!List)
+      continue;
+    OriginList *Referent = List->peelOuterOrigin();
+    if (!Referent)
+      continue;
+    EscapesInCurrentBlock.push_back(FactMgr.createFact<OutEscapeFact>(
+        Referent->getOuterOriginID(), PVD));
+  }
 }
 
 void FactsGenerator::handleGSLPointerConstruction(const CXXConstructExpr *CCE) {
@@ -1203,9 +1259,52 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
   handleLifetimeCaptureBy(FD, Args);
   handleAllocatingCall(Call, FD);
   handleFreeingCall(Call, FD, Args);
-  if (!CallList)
+  // View-typed `out`/`inout` parameters are outputs: the caller's variable
+  // receives the borrows of the inputs the callee does not own.
+  llvm::SmallVector<OriginList *, 2> OutDestLists;
+  auto IsCallerOwnedInput = [&](unsigned I) -> bool {
+    if (I == 0 && hasObjectArg(*FD)) {
+      if (hasImplicitObjectArg(*FD))
+        return true;
+      return cast<CXXMethodDecl>(FD)
+          ->getParamDecl(0)
+          ->getType()
+          ->isReferenceType();
+    }
+    const ParmVarDecl *PVD = getParamForArg(*FD, I);
+    // A pure output is not an input.
+    if (!PVD || PVD->getParameterPassingKind() == ParameterPassingKind::Out)
+      return false;
+    QualType PT = PVD->getType();
+    return isViewType(PT) || PT->isLValueReferenceType();
+  };
+  if (!IsGslConstruction) {
+    for (unsigned I = 0; I < Args.size(); ++I) {
+      const ParmVarDecl *PVD = getParamForArg(*FD, I);
+      if (!PVD)
+        continue;
+      const auto Kind = PVD->getParameterPassingKind();
+      if (Kind != ParameterPassingKind::Out &&
+          Kind != ParameterPassingKind::Inout)
+        continue;
+      if (!isViewType(PVD->getType()))
+        continue;
+      OriginList *List = getOriginsList(*Args[I]);
+      if (!List)
+        continue;
+      OriginList *Dst = List->getLength() > 1 ? List->peelOuterOrigin() : List;
+      // The callee must construct an `out` view on every path, so its old
+      // provenance is replaced. `inout` may be passed through unchanged.
+      if (Kind == ParameterPassingKind::Out)
+        CurrentBlockFacts.push_back(
+            FactMgr.createFact<KillOriginFact>(Dst->getOuterOriginID()));
+      OutDestLists.push_back(Dst);
+    }
+  }
+
+  if (!CallList && OutDestLists.empty())
     return;
-  if (isStdReferenceCast(FD)) {
+  if (CallList && isStdReferenceCast(FD)) {
     assert(Args.size() == 1 &&
            "std reference cast builtins take exactly one argument");
     // std reference-cast functions like std::move return a result that refers
@@ -1241,73 +1340,65 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
     if (!ArgList)
       continue;
     bool ShouldTrackArg = getTrackedArgInfo(FD, Args, I).has_value();
-    if (ImplicitViewResult && !ShouldTrackArg) {
-      // Is argument I an input the callee does not own? Views are always
-      // caller-owned (the copy does not own what it refers to); owners are
-      // caller-owned only when the lowered parameter is an lvalue reference
-      // (`in` lowered to a reference, `out`, `inout`, `forward`). A `move`
-      // rvalue reference, a destructive move, or a by-value owner is owned by
-      // the callee and cannot be a source of the returned view.
-      ShouldTrackArg = [&] {
-        if (I == 0 && hasObjectArg(*FD)) {
-          if (hasImplicitObjectArg(*FD))
-            return true;
-          return cast<CXXMethodDecl>(FD)
-              ->getParamDecl(0)
-              ->getType()
-              ->isReferenceType();
+    if (ImplicitViewResult && !ShouldTrackArg)
+      ShouldTrackArg = IsCallerOwnedInput(I);
+    if (CallList) {
+      if (IsGslConstruction) {
+        // TODO: document with code example.
+        // std::string_view(const std::string_view& from)
+        if (isGslPointerType(Args[I]->getType())) {
+          assert(!Args[I]->isGLValue() || ArgList->getLength() >= 2);
+          ArgList = readValue(Args[I]);
         }
-        const ParmVarDecl *PVD = getParamForArg(*FD, I);
-        if (!PVD)
-          return false;
-        QualType PT = PVD->getType();
-        return isViewType(PT) || PT->isLValueReferenceType();
-      }();
-    }
-    if (IsGslConstruction) {
-      // TODO: document with code example.
-      // std::string_view(const std::string_view& from)
-      if (isGslPointerType(Args[I]->getType())) {
-        assert(!Args[I]->isGLValue() || ArgList->getLength() >= 2);
-        ArgList = readValue(Args[I]);
-      }
-      if (isGslOwnerType(Args[I]->getType()) &&
-          (Args.size() == 1 || ShouldTrackArg)) {
-        // The constructed gsl::Pointer borrows from the Owner's storage, not
-        // from what the Owner itself borrows, so only the outermost origin is
-        // needed.
+        if (isGslOwnerType(Args[I]->getType()) &&
+            (Args.size() == 1 || ShouldTrackArg)) {
+          // The constructed gsl::Pointer borrows from the Owner's storage, not
+          // from what the Owner itself borrows, so only the outermost origin is
+          // needed.
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              CallList->getOuterOriginID(), ArgList->getOuterOriginID(),
+              KillSrc));
+          KillSrc = false;
+        } else if (ShouldTrackArg) {
+          // Only flow the outer origin here. For lifetimebound args in
+          // gsl::Pointer construction, we do not have enough information to
+          // safely match inner origins, so the source and
+          // destination origin lists may have different lengths.
+          // FIXME: Handle origin-shape mismatches gracefully so we can also
+          // flow inner origins.
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              CallList->getOuterOriginID(), ArgList->getOuterOriginID(),
+              KillSrc));
+          KillSrc = false;
+        }
+      } else if (shouldTrackPointerImplicitObjectArg(I)) {
+        assert(ArgList->getLength() >= 2 &&
+               "Object arg of pointer type should have at least two origins");
+        // See through the GSLPointer reference to see the pointer's value.
         CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-            CallList->getOuterOriginID(), ArgList->getOuterOriginID(),
-            KillSrc));
+            CallList->getOuterOriginID(),
+            ArgList->peelOuterOrigin()->getOuterOriginID(), KillSrc));
         KillSrc = false;
       } else if (ShouldTrackArg) {
-        // Only flow the outer origin here. For lifetimebound args in
-        // gsl::Pointer construction, we do not have enough information to
-        // safely match inner origins, so the source and
-        // destination origin lists may have different lengths.
-        // FIXME: Handle origin-shape mismatches gracefully so we can also flow
-        // inner origins.
+        // Lifetimebound on a non-GSL-ctor function means the returned
+        // pointer/reference itself must not outlive the arguments. This
+        // only constrains the top-level origin.
         CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
             CallList->getOuterOriginID(), ArgList->getOuterOriginID(),
             KillSrc));
         KillSrc = false;
       }
-    } else if (shouldTrackPointerImplicitObjectArg(I)) {
-      assert(ArgList->getLength() >= 2 &&
-             "Object arg of pointer type should have at least two origins");
-      // See through the GSLPointer reference to see the pointer's value.
-      CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-          CallList->getOuterOriginID(),
-          ArgList->peelOuterOrigin()->getOuterOriginID(), KillSrc));
-      KillSrc = false;
-    } else if (ShouldTrackArg) {
-      // Lifetimebound on a non-GSL-ctor function means the returned
-      // pointer/reference itself must not outlive the arguments. This
-      // only constrains the top-level origin.
-      CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-          CallList->getOuterOriginID(), ArgList->getOuterOriginID(), KillSrc));
-      KillSrc = false;
     }
+    // Caller-side binding for view-typed `out`/`inout` parameters: the
+    // caller's variable inherits the borrows of the inputs.
+    if (!OutDestLists.empty() && IsCallerOwnedInput(I))
+      for (OriginList *Dst : OutDestLists) {
+        if (Dst->getOuterOriginID() == ArgList->getOuterOriginID())
+          continue;
+        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+            Dst->getOuterOriginID(), ArgList->getOuterOriginID(),
+            /*KillDest=*/false));
+      }
   }
 }
 

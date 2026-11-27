@@ -204,6 +204,22 @@ public:
         << ReturnExpr->getSourceRange();
   }
 
+  void reportOutEscape(const Expr *IssueExpr, const ParmVarDecl *OutParam,
+                       const Expr *MovedExpr,
+                       llvm::ArrayRef<const Expr *> ExprChain) override {
+    reportOutEscapeImpl(getDiagSubjectDescription(IssueExpr),
+                        IssueExpr->getExprLoc(), IssueExpr->getSourceRange(),
+                        OutParam, MovedExpr, ExprChain);
+  }
+
+  void reportOutEscape(const ParmVarDecl *SubjectPVD,
+                       const ParmVarDecl *OutParam, const Expr *MovedExpr,
+                       llvm::ArrayRef<const Expr *> ExprChain) override {
+    reportOutEscapeImpl(getDiagSubjectDescription(SubjectPVD),
+                        SubjectPVD->getLocation(), SubjectPVD->getSourceRange(),
+                        OutParam, MovedExpr, ExprChain);
+  }
+
   void reportDanglingField(const Expr *IssueExpr,
                            const FieldDecl *DanglingField,
                            const Expr *MovedExpr, bool IsCapturedByLambda,
@@ -647,6 +663,25 @@ private:
                     : diag::note_lifetime_safety_invalidated_here;
     S.Diag(InvalidationExpr->getExprLoc(), Diag)
         << InvalidatedSubject << InvalidationExpr->getSourceRange();
+  }
+
+  void reportOutEscapeImpl(std::string Subject, SourceLocation IssueLoc,
+                           SourceRange IssueRange,
+                           const ParmVarDecl *OutParam,
+                           const Expr *MovedExpr,
+                           llvm::ArrayRef<const Expr *> ExprChain) {
+    std::string OutSubject = OutParam->getName().empty()
+                                 ? "output parameter"
+                                 : "'" + OutParam->getNameAsString() + "'";
+    S.Diag(IssueLoc, diag::warn_lifetime_safety_out_stack_addr)
+        << Subject << OutSubject << IssueRange;
+    if (MovedExpr)
+      S.Diag(MovedExpr->getExprLoc(), diag::note_lifetime_safety_moved_here)
+          << MovedExpr->getSourceRange();
+    reportAliasingChain(ExprChain);
+    S.Diag(OutParam->getLocation(),
+           diag::note_lifetime_safety_escapes_to_out_here)
+        << OutSubject << OutParam->getSourceRange();
   }
 
   void reportUseAfterInvalidationImpl(SourceLocation IssueLoc,

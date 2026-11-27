@@ -378,10 +378,11 @@ OriginList *OriginManager::getOrCreateList(const Expr *E) {
     return ExprToList[E] = Head;
   }
 
-  // If E is an lvalue , it refers to storage. We model this storage as the
+  // If E is an lvalue, it refers to storage. We model this storage as the
   // first level of origin list, as if it were a reference, because l-values are
-  // addressable.
-  if (E->isGLValue() && !Type->isReferenceType())
+  // addressable. View values are transparent aliases: their origin already
+  // denotes what they refer to, so they get no separate storage level.
+  if (E->isGLValue() && !Type->isReferenceType() && !isViewType(Type))
     Type = AST.getLValueReferenceType(Type);
   // A qualification conversion of a glvalue names what its operand names. It is
   // not transparent: for class types it is the node alias notes report.

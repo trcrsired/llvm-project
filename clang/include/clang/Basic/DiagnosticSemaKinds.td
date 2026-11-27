@@ -11225,6 +11225,10 @@ def warn_lifetime_safety_return_stack_addr_moved : Warning<
   "Consider moving first and then aliasing later to resolve the issue">,
   InGroup<LifetimeSafetyReturnStackAddrMoved>, DefaultIgnore;
 
+def warn_lifetime_safety_out_stack_addr : Warning<
+  "stack memory associated with %0 is written to output parameter %1">,
+  InGroup<LifetimeSafetyOutStackAddr>, DefaultIgnore;
+
 def warn_lifetime_safety_invalidation
     : Warning<"%0 is later invalidated">,
       InGroup<LifetimeSafetyInvalidation>,
@@ -11304,6 +11308,8 @@ def note_lifetime_safety_invalidated_here : Note<"%0 is invalidated here">;
 def note_lifetime_safety_destroyed_here : Note<"%0 is destroyed here">;
 def note_lifetime_safety_freed_here : Note<"%0 is freed here">;
 def note_lifetime_safety_returned_here : Note<"returned here">;
+def note_lifetime_safety_escapes_to_out_here : Note<
+  "escapes through output parameter %0">;
 def note_lifetime_safety_moved_here : Note<"potentially moved here">;
 def note_lifetime_safety_dangling_field_here: Note<"this field dangles">;
 def note_lifetime_safety_dangling_global_here: Note<"this global dangles">;

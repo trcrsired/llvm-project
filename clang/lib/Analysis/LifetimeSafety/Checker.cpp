@@ -26,6 +26,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -143,7 +144,76 @@ public:
   /// Checks if an escaping origin holds a placeholder loan, indicating a
   /// missing [[clang::lifetimebound]] annotation, or a violation of
   /// [[clang::noescape]] or [[clang::lifetime_capture_by]].
+  /// Checks that a view written to an `out`/`inout` parameter does not borrow
+  /// from anything the callee owns. Unlike the return escape, this is checked
+  /// directly at the exit fact: reference and moved parameters have no
+  /// lifetime-end expiry to hang the usual path-expiry warning on.
+  void checkOutEscape(const OutEscapeFact *OEF) {
+    const ParmVarDecl *OutParam = OEF->getParamDecl();
+    LoanSet EscapedLoans =
+        LoanPropagation.getLoans(OEF->getEscapedOriginID(), OEF);
+    llvm::SmallPtrSet<const ValueDecl *, 4> ReportedDecls;
+    llvm::SmallPtrSet<const Expr *, 4> ReportedTemporaries;
+    for (LoanID LID : EscapedLoans) {
+      const Loan *L = FactMgr.getLoanMgr().getLoan(LID);
+      const AccessPath &Path = L->getAccessPath();
+      const Expr *IssueExpr = L->getIssueExpr();
+
+      // `this` and fields of `this` outlive the call: the caller owns them.
+      if (const auto *PB = Path.getAsPlaceholderBase()) {
+        const ParmVarDecl *PVD = PB->getParmVarDecl();
+        if (!PVD)
+          continue;
+        // Views are always caller-owned, and so are owners passed by
+        // lvalue reference (`inout`, `forward`, reference-lowered `in`).
+        // A by-value, `move`, or `destructive_move` owner is a callee-owned
+        // copy and cannot be a source of the output view.
+        if (isViewType(PVD->getType()) ||
+            PVD->getType()->isLValueReferenceType())
+          continue;
+        if (!ReportedDecls.insert(PVD).second)
+          continue;
+        SemaHelper->reportOutEscape(PVD, OutParam, /*MovedExpr=*/nullptr,
+                                    /*ExprChain=*/{});
+        continue;
+      }
+
+      if (const auto *VD = Path.getAsValueDecl()) {
+        const auto *Var = dyn_cast<VarDecl>(VD);
+        if (!Var || Var->hasGlobalStorage())
+          continue;
+        // A parameter reached through a real (non-placeholder) loan is a
+        // by-value or destructive-move owner copy; either way the callee owns
+        // it.
+        if (!ReportedDecls.insert(Var).second)
+          continue;
+        if (IssueExpr)
+          SemaHelper->reportOutEscape(IssueExpr, OutParam,
+                                      /*MovedExpr=*/nullptr,
+                                      /*ExprChain=*/{});
+        else if (const auto *PVD = dyn_cast<ParmVarDecl>(Var))
+          SemaHelper->reportOutEscape(PVD, OutParam, /*MovedExpr=*/nullptr,
+                                      /*ExprChain=*/{});
+        continue;
+      }
+
+      // A temporary dies at the end of its full-expression, before the caller
+      // can use the output parameter.
+      if (Path.getAsMaterializeTemporaryExpr() && IssueExpr &&
+          ReportedTemporaries.insert(IssueExpr).second)
+        SemaHelper->reportOutEscape(IssueExpr, OutParam,
+                                    /*MovedExpr=*/nullptr,
+                                    /*ExprChain=*/{});
+    }
+  }
+
   void checkAnnotations(const OriginEscapesFact *OEF) {
+    // Output-parameter escapes are checked by the implicit view rule, not by
+    // lifetimebound/noescape annotation inference.
+    if (const auto *OutEsc = dyn_cast<OutEscapeFact>(OEF)) {
+      checkOutEscape(OutEsc);
+      return;
+    }
     OriginID EscapedOID = OEF->getEscapedOriginID();
     LoanSet EscapedLoans = LoanPropagation.getLoans(EscapedOID, OEF);
     auto CheckParam = [&](const ParmVarDecl *PVD, bool IsMoved) {
@@ -397,6 +467,10 @@ public:
 
       } else if (const auto *OEF =
                      dyn_cast<const OriginEscapesFact *>(CausingFact)) {
+        // Output-parameter escapes are reported directly by checkOutEscape;
+        // this expiry-driven path only handles storage that expires.
+        if (isa<OutEscapeFact>(OEF))
+          continue;
         llvm::SmallVector<const Expr *> ExprChain =
             getExprChain(LoanPropagation.buildOriginFlowChain(OEF, LID, Cfg));
         if (Warning.InvalidatedByExpr) {

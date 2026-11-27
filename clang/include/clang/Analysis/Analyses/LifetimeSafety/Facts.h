@@ -235,6 +235,8 @@ public:
     Global, /// Escapes via assignment to global storage.
     This,   /// Escapes via the enclosing object `this`, which outlives the
             /// method.
+    Out,    /// Escapes through a view-typed `out`/`inout` parameter, which the
+            /// caller keeps using after the call.
   } EscKind;
 
   static bool classof(const Fact *F) {
@@ -322,6 +324,26 @@ public:
                EscapeKind::This;
   }
   SourceLocation getLoc() const { return Loc; }
+  void dump(llvm::raw_ostream &OS, const LoanManager &, const OriginManager &OM,
+            const LoanPropagationAnalysis *LPA = nullptr) const override;
+};
+
+/// Represents a view escaping through a view-typed `out`/`inout` parameter.
+/// The caller keeps using the parameter after the call, so its provenance must
+/// come from an input, never from a local or a callee-owned value.
+class OutEscapeFact : public OriginEscapesFact {
+  const ParmVarDecl *OutParam;
+
+public:
+  OutEscapeFact(OriginID OID, const ParmVarDecl *OutParam)
+      : OriginEscapesFact(OID, EscapeKind::Out), OutParam(OutParam) {}
+
+  static bool classof(const Fact *F) {
+    return F->getKind() == Kind::OriginEscapes &&
+           static_cast<const OriginEscapesFact *>(F)->getEscapeKind() ==
+               EscapeKind::Out;
+  }
+  const ParmVarDecl *getParamDecl() const { return OutParam; }
   void dump(llvm::raw_ostream &OS, const LoanManager &, const OriginManager &OM,
             const LoanPropagationAnalysis *LPA = nullptr) const override;
 };
