@@ -375,6 +375,12 @@ OriginList *OriginManager::getOrCreateList(const Expr *E) {
     if (const auto *Field = dyn_cast<FieldDecl>(ME->getMemberDecl());
         Field && isViewType(Field->getType()) && !isSubobjectOfThis(ME)) {
       const Expr *Base = ignoreParensAndImpCasts(ME->getBase());
+      // Walk chained field paths (`o.inner.s`) to the root object: keying the
+      // side origin by the immediate base Expr would use a fresh AST node on
+      // every read, so the loan recorded on the write would never be found.
+      // The root ValueDecl is stable, so distinct objects keep distinct loans.
+      while (const auto *BME = dyn_cast<MemberExpr>(Base))
+        Base = ignoreParensAndImpCasts(BME->getBase());
       if (const auto *DRE = dyn_cast<DeclRefExpr>(Base))
         if (const auto *VD = dyn_cast<ValueDecl>(DRE->getDecl()))
           return ExprToList[E] = getOrCreateViewMemberList(VD, Field);

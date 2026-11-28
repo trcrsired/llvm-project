@@ -196,8 +196,39 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
         // same origins is idempotent.
         if (isViewType(VD->getType()))
           if (const auto *CCE =
-                  dyn_cast<CXXConstructExpr>(InitExpr->IgnoreParenImpCasts()))
+                  dyn_cast<CXXConstructExpr>(InitExpr->IgnoreParenImpCasts())) {
             VisitCXXConstructExpr(CCE);
+            // A view field initialized in a constructor body cannot be seen
+            // from this call site. Conservatively bind each view-typed field
+            // of the constructed object to the constructor's arguments, the
+            // same way a view-returning function binds its outputs to inputs.
+            // For a copy this keeps the source's borrow: `H b = a` must not
+            // launder a loan held by `a`'s view field.
+            if (const auto *RD = VD->getType()->getAsCXXRecordDecl())
+              for (const FieldDecl *F : RD->fields())
+                if (isViewType(F->getType())) {
+                  OriginList *To =
+                      FactMgr.getOriginMgr().getOrCreateViewMemberList(VD, F);
+                  bool First = true;
+                  // A copy keeps the source's per-field loans verbatim.
+                  if (CCE->getConstructor()->isCopyOrMoveConstructor() &&
+                      CCE->getNumArgs() == 1)
+                    if (OriginList *From =
+                            FactMgr.getOriginMgr().getViewMemberList(
+                                getObjectKey(CCE->getArg(0)), F)) {
+                      flow(To, From, /*Kill=*/true);
+                      First = false;
+                    }
+                  for (unsigned I = 0; I != CCE->getNumArgs(); ++I)
+                    if (OriginList *ArgList = getOriginsList(*CCE->getArg(I))) {
+                      CurrentBlockFacts.push_back(
+                          FactMgr.createFact<OriginFlowFact>(
+                              To->getOuterOriginID(),
+                              ArgList->getOuterOriginID(), /*Kill=*/First));
+                      First = false;
+                    }
+                }
+          }
         // Same fold-in for aggregate initialization: key the view members by
         // the variable so `h.v` later reads what `{...}` stored.
         if (const auto *ILE = dyn_cast<InitListExpr>(InitExpr))
@@ -239,12 +270,13 @@ void FactsGenerator::VisitCXXConstructExpr(const CXXConstructExpr *CCE) {
     handleGSLPointerConstruction(CCE);
     return;
   }
-  // For defaulted (implicit or `= default`) copy/move constructors, propagate
-  // origins directly. User-defined copy/move constructors are not handled here
-  // as they have opaque semantics.
+  // Propagate origins through copy/move constructors. A user-defined copy of
+  // a view type is assumed to copy what the view refers to; not assuming so
+  // would let `H b = a` launder a borrow. This is conservative: a copy that
+  // deliberately drops the borrow yields a false positive, never a dangling
+  // view accepted as safe.
   if (CCE->getConstructor()->isCopyOrMoveConstructor() &&
-      CCE->getConstructor()->isDefaulted() && CCE->getNumArgs() == 1 &&
-      hasOrigins(CCE->getType())) {
+      CCE->getNumArgs() == 1 && hasOrigins(CCE->getType())) {
     const Expr *Arg = CCE->getArg(0);
     if (OriginList *ArgList = readValue(Arg)) {
       flow(getOriginsList(*CCE), ArgList, /*Kill=*/true);
@@ -750,12 +782,12 @@ static const Expr *stripAggregateWrappers(const Expr *E) {
       E = MTE->getSubExpr();
       continue;
     }
-    // `return h` and `H2 copy = h` wrap the object in an implicit copy/move
-    // constructor. The copy holds the same view members, so use the source
-    // object as the key for their provenance.
+    // `return h` and `H2 copy = h` wrap the object in a copy/move constructor.
+    // The copy holds the same view members (including when the constructor is
+    // user-written), so use the source object as the key for their provenance.
     if (const auto *CCE = dyn_cast<CXXConstructExpr>(E);
         CCE && CCE->getConstructor()->isCopyOrMoveConstructor() &&
-        CCE->getConstructor()->isDefaulted() && CCE->getNumArgs() == 1) {
+        CCE->getNumArgs() == 1) {
       E = CCE->getArg(0);
       continue;
     }
@@ -1392,6 +1424,24 @@ void FactsGenerator::handleAllocatingCall(const Expr *Call,
       FactMgr.createFact<IssueFact>(L->getID(), CallList->getOuterOriginID()));
 }
 
+/// A const method can still mutate an object through a `mutable` data member,
+/// so the owner-freeze rule must not treat every const method as read-only.
+/// Classes with mutable state are rare; treating all their const methods as
+/// potentially mutating closes the loophole with only conservative false
+/// positives.
+static bool hasMutableState(const CXXRecordDecl *RD) {
+  if (!RD)
+    return false;
+  for (const FieldDecl *F : RD->fields())
+    if (F->isMutable())
+      return true;
+  for (const auto &B : RD->bases())
+    if (const auto *Base = B.getType()->getAsCXXRecordDecl();
+        Base && hasMutableState(Base))
+      return true;
+  return false;
+}
+
 void FactsGenerator::handleFunctionCall(const Expr *Call,
                                         bool IsGslConstruction) {
   FunctionCallInfo CallInfo(Call);
@@ -1413,8 +1463,9 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
   // reports it only when a live view origin actually holds a loan into the
   // object. Inside [[unsafe]] fences the call is permitted.
   if (const auto *MD = dyn_cast<CXXMethodDecl>(FD);
-      MD && MD->isInstance() && !MD->isConst() && !isa<CXXDestructorDecl>(MD) &&
-      hasObjectArg(*FD) && !Args.empty()) {
+      MD && MD->isInstance() &&
+      (!MD->isConst() || hasMutableState(MD->getParent())) &&
+      !isa<CXXDestructorDecl>(MD) && hasObjectArg(*FD) && !Args.empty()) {
     if (OriginList *ObjList = getOriginsList(*Args[0]))
       CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
           ObjList->getOuterOriginID(), Call, /*IsOwnerFreeze=*/true));
