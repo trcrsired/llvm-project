@@ -20,8 +20,11 @@
 #define HERBCEPTIONS_SAFECXX_BEGIN [[unsafe]] {
 #define HERBCEPTIONS_SAFECXX_END }
 #define HERBCEPTIONS_UNSAFE_API [[unsafe]]
+// A whole legacy class: every member (including constructors) is call-restricted.
+#define HERBCEPTIONS_UNSAFE_CLASS [[unsafe]]
 #else
 #define HERBCEPTIONS_SAFECXX_BEGIN
 #define HERBCEPTIONS_SAFECXX_END
 #define HERBCEPTIONS_UNSAFE_API
+#define HERBCEPTIONS_UNSAFE_CLASS
 #endif

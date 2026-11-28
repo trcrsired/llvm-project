@@ -17186,8 +17186,13 @@ ExprResult Sema::BuildCXXConstructExpr(
   // Safe C++: [[unsafe]] on a function is a call restriction. Constructors are
   // calls too (e.g. a [[unsafe]] move constructor), so enforce the restriction
   // here as well; the ordinary CallExpr check cannot see CXXConstructExpr.
-  if (!isUnevaluatedContext() && enforcingSafeCXXAt(ConstructLoc) &&
-      Constructor->hasAttr<UnsafeAttr>())
+  // Only explicit attributes count here: isUnsafeToCall() also infers
+  // [[unsafe]] from a raw reference in the signature, which is a source-level
+  // declaration rule and must not retroactively restrict a constructor call.
+  bool UnsafeCtor = Constructor->hasAttr<UnsafeAttr>();
+  if (const auto *Parent = Constructor->getParent())
+    UnsafeCtor = UnsafeCtor || Parent->hasAttr<UnsafeAttr>();
+  if (!isUnevaluatedContext() && enforcingSafeCXXAt(ConstructLoc) && UnsafeCtor)
     Diag(ConstructLoc, diag::err_safecxx_unsafe_call) << Constructor;
 
   MarkFunctionReferenced(ConstructLoc, Constructor);

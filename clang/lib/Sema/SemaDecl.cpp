@@ -6494,6 +6494,13 @@ bool Sema::isUnsafeToCall(const FunctionDecl *FD) const {
   for (const FunctionDecl *D = FD; D;) {
     if (D->hasAttr<UnsafeAttr>())
       return true;
+    // A class marked [[unsafe]] is a legacy type: every member, including
+    // constructors and the implicit special members, carries the same call
+    // restriction. Safe source must enter a fence to use it at all.
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(D))
+      if (const auto *Parent = MD->getParent())
+        if (Parent->hasAttr<UnsafeAttr>())
+          return true;
 
     // A function declared in safe source whose signature names a raw pointer
     // or reference is implicitly [[unsafe]]: safe code may pass such tokens

@@ -115,7 +115,7 @@ __exec_charset_reporter_encoding() noexcept {
 
 } // namespace __details
 
-class cxx_std_error_legacy_exception : public ::std::exception {
+class HERBCEPTIONS_UNSAFE_CLASS cxx_std_error_legacy_exception : public ::std::exception {
   ::std::error_domain_singleton const *__domain_opaque{};
   ::std::size_t __code_opaque{};
   ::std::io_scatter_t __what{};
