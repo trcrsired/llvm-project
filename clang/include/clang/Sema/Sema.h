@@ -879,6 +879,13 @@ public:
 };
 } // namespace sema
 
+/// Whether an `in T` parameter crosses by value instead of by const reference.
+/// Scalars and small trivially-copyable records are already passed in
+/// registers, so a by-value const copy avoids a pointer indirection with no
+/// ABI cost. Used both when declaring a parameter and when its dependent type
+/// becomes known during template instantiation.
+bool isCheapToCopyInParameter(ASTContext &Ctx, QualType T);
+
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattributes"

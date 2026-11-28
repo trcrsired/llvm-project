@@ -3237,6 +3237,23 @@ bool Sema::SubstTypeConstraint(
           : SourceLocation());
 }
 
+/// A dependent `in T` parameter was lowered to `const T&` when written,
+/// because cheapness could not be judged before substitution. Now that T is
+/// concrete, pass cheap types by value as the dialect specifies.
+static QualType resolveDeferredInType(ASTContext &Ctx, QualType T) {
+  if (const auto *PE = T->getAs<PackExpansionType>())
+    return Ctx.getPackExpansionType(
+        resolveDeferredInType(Ctx, PE->getPattern()), PE->getNumExpansions());
+  const auto *RT = T->getAs<LValueReferenceType>();
+  if (!RT)
+    return T;
+  QualType Pointee = RT->getPointeeType();
+  if (!Pointee.isConstQualified() ||
+      !isCheapToCopyInParameter(Ctx, Pointee.getUnqualifiedType()))
+    return T;
+  return Pointee;
+}
+
 ParmVarDecl *Sema::SubstParmVarDecl(
     ParmVarDecl *OldParm, const MultiLevelTemplateArgumentList &TemplateArgs,
     int indexAdjustment, UnsignedOrNone NumExpansions, bool ExpectParameterPack,
@@ -3281,6 +3298,16 @@ ParmVarDecl *Sema::SubstParmVarDecl(
   if (NewTSI->getType()->isVoidType()) {
     Diag(OldParm->getLocation(), diag::err_param_with_void_type);
     return nullptr;
+  }
+
+  // d0708: finish the by-value decision for a dependent `in` parameter now
+  // that its type is known. A pack expansion keeps its shape.
+  if (getLangOpts().SafeCXX &&
+      OldParm->getParameterPassingKind() == ParameterPassingKind::In) {
+    QualType Adjusted = resolveDeferredInType(Context, NewTSI->getType());
+    if (Adjusted != NewTSI->getType())
+      NewTSI =
+          Context.getTrivialTypeSourceInfo(Adjusted, OldParm->getLocation());
   }
 
   // In abbreviated templates, TemplateTypeParmDecls with possible

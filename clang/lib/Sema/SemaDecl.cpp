@@ -16399,7 +16399,9 @@ static void CheckExplicitObjectParameter(Sema &S, ParmVarDecl *P,
 /// already passed in registers, so a by-value const copy avoids an indirect
 /// pointer load with no ABI cost. The register budget is 2 on SysV-like targets
 /// and 4 on wincall; larger (or non-trivially-copyable) types use const ref.
-static bool isCheapToCopyInParameter(ASTContext &Ctx, QualType T) {
+namespace clang {
+
+bool isCheapToCopyInParameter(ASTContext &Ctx, QualType T) {
   if (T->isReferenceType() || T->isFunctionType() || T->isVoidType())
     return false;
 
@@ -16418,6 +16420,8 @@ static bool isCheapToCopyInParameter(ASTContext &Ctx, QualType T) {
       Ctx.getTargetInfo().getTriple().isWindowsMSVCEnvironment() ? 4 : 2;
   return Size <= RegBits * MaxRegs;
 }
+
+} // namespace clang
 
 Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
                                  SourceLocation ExplicitThisLoc,
