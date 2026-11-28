@@ -464,7 +464,11 @@ bool isViewType(QualType QT) {
 
   // Containment closure: a class that holds a view is itself a view. Only
   // view-typed members participate, so an ordinary owning type with pointer
-  // fields does not become a view.
+  // fields does not become a view. An incomplete declaration can appear here
+  // (e.g. a forward-declared C struct used through a pointer); bases() and
+  // fields() require a definition, so skip the closure in that case.
+  if (!RD->isCompleteDefinition())
+    return false;
   for (const CXXBaseSpecifier &B : RD->bases())
     if (isViewType(B.getType()))
       return true;
