@@ -12881,6 +12881,10 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       !NewFD->isImplicit() && !NewFD->isDeleted() && !NewFD->isDefaulted() &&
       !hasDeletedFunctionSuffix(*this, NewFD->getEndLoc()) &&
       !NewFD->getPreviousDecl() && !NewFD->getDescribedFunctionTemplate() &&
+      // A template pattern is inline by definition and its instantiation
+      // inherits the pattern's marks; asking the user to re-mark each
+      // specialization is noise.
+      !NewFD->isTemplateInstantiation() &&
       // main is special: its signature is fixed by the language, so it cannot
       // carry an explicit linkage specifier or error channel. Under safe C++
       // a throws call in main simply traps, so leaving it unmarked is fine.
@@ -12891,11 +12895,13 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
           << NewFD;
 
     if (NewFD->getDeclContext()->isFileContext()) {
-      bool ExplicitLinkage =
-          NewFD->getStorageClass() == SC_Static ||
-          NewFD->getStorageClass() == SC_Extern ||
-          NewFD->isInlineSpecified() ||
-          NewFD->getFormalLinkage() == Linkage::Internal;
+      // isInlined() covers both a written `inline` and functions that are
+      // implicitly inline (constexpr, class members defined in the body).
+      // Such functions need no explicit linkage mark.
+      bool ExplicitLinkage = NewFD->getStorageClass() == SC_Static ||
+                             NewFD->getStorageClass() == SC_Extern ||
+                             NewFD->isInlined() ||
+                             NewFD->getFormalLinkage() == Linkage::Internal;
       if (!ExplicitLinkage)
         Diag(NewFD->getLocation(), diag::err_safecxx_linkage_unmarked) << NewFD;
     }
@@ -16487,45 +16493,52 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D,
   checkSafeCxxBorrowWithReference(*this, D.getIdentifierLoc(), PPKind,
                                   parmDeclType);
   if (PPKind != ParameterPassingKind::None) {
-    switch (PPKind) {
-    case ParameterPassingKind::In:
-      // Cheap-to-copy types cross in registers anyway: pass a read-only copy
-      // by value (const T), avoiding a pointer indirection. Everything else
-      // uses a const reference.
-      if (isCheapToCopyInParameter(Context, parmDeclType))
-        parmDeclType = parmDeclType.withConst();
-      else
-        parmDeclType =
-            Context.getLValueReferenceType(parmDeclType.withConst());
-      break;
-    case ParameterPassingKind::Out:
-    case ParameterPassingKind::Inout:
-      parmDeclType = Context.getLValueReferenceType(parmDeclType);
-      break;
-    case ParameterPassingKind::Move:
-      parmDeclType = Context.getRValueReferenceType(parmDeclType);
-      break;
-    case ParameterPassingKind::Forward:
-      // D0708: `forward X x` is X& (argument may be any object); each
-      // definite last use preserves the argument's cv-qualification and
-      // value category. Only the reference form is modeled here.
-      parmDeclType = Context.getLValueReferenceType(parmDeclType);
-      break;
-    case ParameterPassingKind::DestructiveMove:
-      // A destructive move is a relocation: bitwise copy plus
-      // skip-source-destructor, valid only for trivially relocatable types.
-      // The callee owns a complete T, so the parameter is T by value.
-      if (!parmDeclType->isDependentType() &&
-          !IsCXXTriviallyRelocatableType(parmDeclType)) {
-        Diag(D.getIdentifierLoc(),
-             diag::err_destructive_move_not_trivially_relocatable)
-            << parmDeclType;
-        D.setInvalidType(true);
+    auto LowerKind = [&](QualType T) -> QualType {
+      switch (PPKind) {
+      case ParameterPassingKind::In:
+        // Cheap-to-copy types cross in registers anyway: pass a read-only
+        // copy by value (const T), avoiding a pointer indirection. Everything
+        // else uses a const reference.
+        if (isCheapToCopyInParameter(Context, T))
+          return T.withConst();
+        return Context.getLValueReferenceType(T.withConst());
+      case ParameterPassingKind::Out:
+      case ParameterPassingKind::Inout:
+        return Context.getLValueReferenceType(T);
+      case ParameterPassingKind::Move:
+        return Context.getRValueReferenceType(T);
+      case ParameterPassingKind::Forward:
+        // D0708: `forward X x` is X& (argument may be any object); each
+        // definite last use preserves the argument's cv-qualification and
+        // value category. Only the reference form is modeled here.
+        return Context.getLValueReferenceType(T);
+      case ParameterPassingKind::DestructiveMove:
+        // A destructive move is a relocation: bitwise copy plus
+        // skip-source-destructor, valid only for trivially relocatable types.
+        // The callee owns a complete T, so the parameter is T by value.
+        if (!T->isDependentType() && !IsCXXTriviallyRelocatableType(T)) {
+          Diag(D.getIdentifierLoc(),
+               diag::err_destructive_move_not_trivially_relocatable)
+              << T;
+          D.setInvalidType(true);
+        }
+        return T;
+      case ParameterPassingKind::None:
+        return T;
       }
-      break;
-    case ParameterPassingKind::None:
-      break;
-    }
+      llvm_unreachable("invalid parameter passing kind");
+    };
+
+    // A pack parameter's type is a PackExpansionType, and isParameterPack()
+    // checks for exactly that shape. Lower the pattern instead of wrapping the
+    // whole expansion, so `in Args... args` becomes `const Args&... args`
+    // rather than `const PackExpansionType<Args>& args`.
+    if (const auto *PE = parmDeclType->getAs<PackExpansionType>())
+      parmDeclType = Context.getPackExpansionType(LowerKind(PE->getPattern()),
+                                                  PE->getNumExpansions());
+    else
+      parmDeclType = LowerKind(parmDeclType);
+
     TInfo = Context.getTrivialTypeSourceInfo(parmDeclType,
                                              D.getIdentifierLoc());
   }
