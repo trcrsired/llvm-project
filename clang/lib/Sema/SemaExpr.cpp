@@ -7819,7 +7819,8 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
   // ActOnCallExpr) are restricted too. Both source-written and compiler-built
   // calls flow through BuildCallExpr; the location guard exempts fenced
   // headers, system headers, unevaluated operands and constant evaluation.
-  if (FDecl && !isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+  if (FDecl && FDecl->getBuiltinID() == 0 && !FDecl->isImplicit() &&
+      !isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
       HerbceptionOperandDepth == 0 && SafecxxSynthesizedCallDepth == 0 &&
       enforcingSafeCXXAt(TheCall->getExprLoc()) && isUnsafeToCall(FDecl))
     Diag(TheCall->getExprLoc(), diag::err_safecxx_unsafe_call) << FDecl;
