@@ -254,6 +254,8 @@ public:
   // Moves the {domain, code} payload out as the compiler's channel type —
   // ownership transfers to the caller — and empties the box, dropping the
   // cached message.
+  // Same ownership transfer as std::error::release().
+  HERBCEPTIONS_UNSAFE_API
   [[nodiscard]] constexpr ::std::cxx_std_error release() noexcept {
     if (__what.len != 0) {
       ::std::error_domains::__cxa_error_query_information_free(__what.base,

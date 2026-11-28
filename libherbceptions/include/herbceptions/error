@@ -225,6 +225,9 @@ public:
   // otherwise.
   // constexpr: error_domain<errc>::domain() is intercepted by the constant
   // evaluator, so release() works during constant evaluation too.
+  // Hands the raw {domain, code} payload out of the safe error channel:
+  // only fenced code may take ownership of the channel token.
+  HERBCEPTIONS_UNSAFE_API
   [[nodiscard]] constexpr auto release() noexcept -> ::std::cxx_std_error;
 #endif
 
@@ -655,6 +658,7 @@ namespace std {
 // evaluation — the constexpr evaluator intercepts the call and fabricates
 // a unique opaque domain; at runtime it resolves to the real
 // __cxa_error_domain_posix() singleton.
+HERBCEPTIONS_UNSAFE_API
 constexpr auto error::release() noexcept -> ::std::cxx_std_error {
   ::std::cxx_std_error __ec{__domain_opaque, __code_opaque};
   __domain_opaque = ::std::error_domain<::std::errc>::domain();
