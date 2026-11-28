@@ -1419,6 +1419,26 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
       CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
           ObjList->getOuterOriginID(), Call, /*IsOwnerFreeze=*/true));
   }
+  // Named functions: a frozen owner may only be passed by `in` (read-only) or
+  // copied by value. Mutating parameter kinds are treated like a non-const
+  // member call. Views are aliases and have their own out/inout rule.
+  for (unsigned I = 0; I < Args.size(); ++I) {
+    const ParmVarDecl *PVD = getParamForArg(*FD, I);
+    if (!PVD)
+      continue;
+    const auto Kind = PVD->getParameterPassingKind();
+    if (Kind != ParameterPassingKind::Out &&
+        Kind != ParameterPassingKind::Inout &&
+        Kind != ParameterPassingKind::Move &&
+        Kind != ParameterPassingKind::Forward &&
+        Kind != ParameterPassingKind::DestructiveMove)
+      continue;
+    if (isViewType(PVD->getType()) || isViewType(Args[I]->getType()))
+      continue;
+    if (OriginList *ArgList = getOriginsList(*Args[I]))
+      CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
+          ArgList->getOuterOriginID(), Call, /*IsOwnerFreeze=*/true));
+  }
   handleDestructiveCall(Call, FD, Args);
   handleMovedArgsInCall(FD, Args);
   handleImplicitObjectFieldUses(Call, FD);

@@ -212,11 +212,11 @@ public:
 
   void reportFrozenOwner(const Expr *Call, const Expr *ViewIssueExpr) override {
     llvm::StringRef Name;
-    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(Call))
-      if (const auto *MD = MCE->getMethodDecl())
-        Name = MD->getName();
+    if (const auto *CE = dyn_cast<CallExpr>(Call))
+      if (const FunctionDecl *FD = CE->getDirectCallee())
+        Name = FD->getName();
     if (Name.empty())
-      Name = "mutating member function";
+      Name = "mutating function";
     S.Diag(Call->getExprLoc(), diag::warn_lifetime_safety_frozen_owner)
         << Name << Call->getSourceRange();
     if (ViewIssueExpr)

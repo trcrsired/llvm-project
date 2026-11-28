@@ -11230,7 +11230,7 @@ def warn_lifetime_safety_out_stack_addr : Warning<
   InGroup<LifetimeSafetyOutStackAddr>, DefaultIgnore;
 
 def warn_lifetime_safety_frozen_owner : Warning<
-  "cannot call non-const member function %0 while a live view borrows from this object">,
+  "cannot call %0 while a live view borrows from this object">,
   InGroup<LifetimeSafetyFrozenOwner>, DefaultIgnore;
 
 def warn_lifetime_safety_invalidation

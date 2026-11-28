@@ -78,6 +78,7 @@ private:
   llvm::MapVector<std::pair<const ParmVarDecl *, int>, CaptureByViolation>
       CaptureByViolations;
   llvm::DenseSet<const Decl *> VerifiedLiftimeboundEscapes;
+  llvm::DenseSet<SourceLocation> ReportedOwnerFreezeCalls;
   const LoanPropagationAnalysis &LoanPropagation;
   const MovedLoansAnalysis &MovedLoans;
   const LiveOriginsAnalysis &LiveOrigins;
@@ -429,6 +430,8 @@ public:
     };
     LiveOriginSet Live = LiveOrigins.getLiveOriginsAt(IOF);
     if (!FindLiveView(Live.Persistent) && !FindLiveView(Live.BlockLocal))
+      return;
+    if (!ReportedOwnerFreezeCalls.insert(Call->getExprLoc()).second)
       return;
     SemaHelper->reportFrozenOwner(Call, ViewIssue);
   }
