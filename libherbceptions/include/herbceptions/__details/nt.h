@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 /*
 nt (nt_errc) error domain header.
 
@@ -38,3 +41,5 @@ public:
 };
 
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

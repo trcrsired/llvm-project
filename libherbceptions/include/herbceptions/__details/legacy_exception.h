@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 /*
 Legacy-EH box for the herbceptions {domain, code} channel.
 
@@ -285,3 +288,5 @@ public:
 } // namespace std
 
 #undef __HERBCEPTIONS_CONSTEXPR_EXCEPTION
+
+HERBCEPTIONS_SAFECXX_END

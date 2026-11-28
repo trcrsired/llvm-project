@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 #include <exception>
 #include <typeinfo>
 
@@ -53,7 +56,7 @@ public:
 // channel error keeps ownership.
 template <typename __T>
   requires(::std::is_pointer_v<__T>)
-[[nodiscard]] inline __T
+[[nodiscard]] HERBCEPTIONS_UNSAFE_API inline __T
 exception_cast_std_error(::std::error const &__e) noexcept {
 #if defined(_LIBHERBCEPTIONS_CPP_RTTI)
 #ifdef _MSC_VER
@@ -78,7 +81,7 @@ exception_cast_std_error(::std::error const &__e) noexcept {
 // interop). When the error belongs to the platform exception_ptr domain a
 // retained copy of the boxed exception is decoded into an exception_ptr —
 // no rethrow needed; any other domain yields an empty exception_ptr.
-[[nodiscard]] inline ::std::exception_ptr
+[[nodiscard]] HERBCEPTIONS_UNSAFE_API inline ::std::exception_ptr
 make_exception_ptr_from_std_error(::std::error const &__e) noexcept {
   if (!__e.is_code_of<::std::exception_ptr>()) {
     return {};
@@ -102,3 +105,5 @@ make_exception_ptr_from_std_error(::std::error const &__e) noexcept {
 #endif
 
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

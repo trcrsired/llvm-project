@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "__details/safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 /*
 Herbception error core types.
 
@@ -273,6 +276,7 @@ public:
   // Defined out-of-line after __details/legacy_exception.h: the fallback
   // boxes the {domain, code} pair into std::cxx_std_error_legacy_exception,
   // which must be complete first.
+  HERBCEPTIONS_UNSAFE_API
   [[noreturn]] void throw_legacy_exception() const
 #if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
       ;
@@ -669,6 +673,7 @@ constexpr auto error::release() noexcept -> ::std::cxx_std_error {
 #if defined(_LIBHERBCEPTIONS_CPP_EXCEPTIONS)
 // Defined here, after __details/legacy_exception.h, because the fallback
 // throw needs the complete cxx_std_error_legacy_exception type.
+HERBCEPTIONS_UNSAFE_API
 inline void error::throw_legacy_exception() const {
   auto __dothrow{__domain_opaque->do_throw_legacy_exception};
   if (__dothrow) {
@@ -698,3 +703,5 @@ inline void error::throw_legacy_exception() const {
 #pragma pop_macro("new")
 #pragma pop_macro("max")
 #pragma pop_macro("min")
+
+HERBCEPTIONS_SAFECXX_END

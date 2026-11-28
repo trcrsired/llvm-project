@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 /*
 com (com_errc) error domain header.
 
@@ -40,3 +43,5 @@ public:
 };
 
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

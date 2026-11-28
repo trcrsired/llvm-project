@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 namespace std {
 // HTTP response status codes, IANA-registered values = the wire code.
 // 1xx informational, 2xx success, 3xx redirection, 4xx client error,
@@ -100,3 +103,5 @@ public:
   }
 };
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

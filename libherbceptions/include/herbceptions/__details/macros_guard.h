@@ -1,3 +1,6 @@
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -60,3 +63,5 @@ own export mechanism picks them up.
 #define __HERBCEPTIONS_API_ALLOC
 #endif
 #endif
+
+HERBCEPTIONS_SAFECXX_END

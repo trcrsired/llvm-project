@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 namespace std {
 enum class parse_errc : ::std::uint_least32_t {
   ok = 0,
@@ -34,3 +37,5 @@ public:
   }
 };
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 /*
 posix (std::errc) error domain header.
 
@@ -28,3 +31,5 @@ public:
   }
 };
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

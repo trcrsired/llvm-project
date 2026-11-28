@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 #if __has_include(<math.h>)
 #include <math.h>
 #endif
@@ -53,3 +56,5 @@ public:
   }
 };
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END

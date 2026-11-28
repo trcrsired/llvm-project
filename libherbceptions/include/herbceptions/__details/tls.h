@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
+#include "safecxx.h"
+
+HERBCEPTIONS_SAFECXX_BEGIN
 namespace std {
 // TLS Alert protocol values, RFC 9846 Appendix B (the consolidated TLS 1.3
 // spec, obsoleting RFC 8446). The Alert struct — one level byte followed by
@@ -96,3 +99,5 @@ public:
   }
 };
 } // namespace std
+
+HERBCEPTIONS_SAFECXX_END
