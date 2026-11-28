@@ -12863,7 +12863,13 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   // usable, and declarations written in the main file are covered by the
   // parse-time fence depth. The attribute is implicit: it only carries the
   // call restriction, not an unsafe body.
+  // Template instantiations inherit the pattern's attributes through
+  // isUnsafeToCall(), so they must not be classified here: a specialization
+  // triggered inside a main-file fence (e.g. a span from_range constructor
+  // instantiated with a vector argument) would otherwise get an implicit
+  // UnsafeAttr and become uncallable from safe source after the fence closes.
   if (isInUnsafeFence() && isInMainFileUnsafeFence() && !NewFD->isImplicit() &&
+      !NewFD->isTemplateInstantiation() &&
       !getSourceManager().isInSystemHeader(NewFD->getLocation()) &&
       !getSourceManager().isWrittenInMainFile(NewFD->getLocation()) &&
       !NewFD->hasAttr<UnsafeAttr>())
