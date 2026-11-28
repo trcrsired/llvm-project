@@ -8316,6 +8316,9 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
   case ParsedAttr::AT_SafeOwner:
     handleOwnerAttr(S, D, AL);
     break;
+  case ParsedAttr::AT_LifetimeExpression:
+    handleSimpleAttribute<LifetimeExpressionAttr>(S, D, AL);
+    break;
   case ParsedAttr::AT_Lifetime:
     handleLifetimeAttr(S, D, AL);
     break;

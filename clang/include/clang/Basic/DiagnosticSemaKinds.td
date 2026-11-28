@@ -13803,6 +13803,9 @@ def err_safecxx_borrow_with_reference : Error<
 def err_safecxx_c_array : Error<
   "C-style array declarations are not allowed in safe C++ source; mark the "
   "declaration [[unsafe]] or place it inside a [[unsafe]] block">;
+def err_safecxx_expression_only : Error<
+  "type %0 is expression-only ([[lifetime_expression]]): it may only be used "
+  "as a temporary in an expression, not stored in a variable or field">;
 def err_safecxx_unsafe_destructor : Error<
   "[[unsafe]] is not allowed on a destructor; fence the unsafe operations "
   "inside its body, or fence the whole legacy class instead">;

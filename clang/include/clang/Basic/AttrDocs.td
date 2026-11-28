@@ -2795,6 +2795,19 @@ second explicit mark that seeds the P1179 provenance analysis.
   }];
 }
 
+def LifetimeExpressionDocs : Documentation {
+  let Category = DocCatType;
+  let Heading = "lifetime_expression (expression-only object)";
+  let Content = [{
+A class marked `[[lifetime_expression]]` may only be used as a temporary
+within a larger expression, such as a manipulator passed directly to an I/O
+call. Declaring a variable or data member of that type is rejected in safe
+source, because a stored object could outlive the values it was formed from.
+The restriction is enforced by the safe-source rule set and has no effect in
+ordinary C++.
+  }];
+}
+
 def UnsafeDocs : Documentation {
   let Category = DocCatStmt;
   let Heading = "unsafe (safe C++ fence)";

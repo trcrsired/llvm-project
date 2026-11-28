@@ -15608,6 +15608,18 @@ void Sema::addLifetimeBoundToImplicitThis(CXXMethodDecl *MD) {
 void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
   if (var->isInvalidDecl()) return;
 
+  // A class marked [[lifetime_expression]] is meant to be created only as a
+  // temporary inside a larger expression. A stored variable or field could
+  // outlive the values it was formed from, so reject it in safe source.
+  // Parameters and references are not stored objects and are exempt.
+  if (!isa<ParmVarDecl>(var) && enforcingSafeCXXAt(var->getLocation())) {
+    QualType T = var->getType();
+    if (!T->isReferenceType())
+      if (const auto *RD = T->getAsCXXRecordDecl())
+        if (RD->hasAttr<LifetimeExpressionAttr>())
+          Diag(var->getLocation(), diag::err_safecxx_expression_only) << T;
+  }
+
   CUDA().MaybeAddConstantAttr(var);
 
   if (getLangOpts().OpenCL) {
@@ -20691,6 +20703,12 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
   diagnoseSafecxxRawPtrRef(*this, Loc, T, D.getEndLoc());
   if (T->isArrayType() && enforcingSafeCXXAt(Loc))
     Diag(Loc, diag::err_safecxx_c_array);
+  // A field of an expression-only class type would outlive the expression
+  // that produced it.
+  if (enforcingSafeCXXAt(Loc) && !T->isReferenceType())
+    if (const auto *RD = T->getAsCXXRecordDecl())
+      if (RD->hasAttr<LifetimeExpressionAttr>())
+        Diag(Loc, diag::err_safecxx_expression_only) << T;
   if (getLangOpts().CPlusPlus) {
     CheckExtraCXXDefaultArguments(D);
 

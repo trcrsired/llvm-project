@@ -2022,6 +2022,16 @@ def Lifetime : InheritableParamAttr {
                              "parameters or member functions">;
 }
 
+def LifetimeExpression : InheritableAttr {
+  let Spellings = [CXX11<"", "lifetime_expression", 202600>];
+  let Documentation = [LifetimeExpressionDocs];
+  // A class whose objects may only exist as temporaries inside a larger
+  // expression. Storing such an object in a variable or field is rejected in
+  // safe source because it could outlive the operands it was built from.
+  let Subjects = SubjectList<[CXXRecord, ClassTemplate], ErrorDiag,
+                             "classes and class templates">;
+}
+
 def MustTail : StmtAttr, TargetSpecificAttr<TargetMustTailAvailable> {
   let Spellings = [Clang<"musttail">];
   let Documentation = [MustTailDocs];
