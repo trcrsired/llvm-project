@@ -15307,8 +15307,8 @@ ExprResult Sema::BuildCXXMemberCallExpr(Expr *E, NamedDecl *FoundDecl,
   // implicit context. Enforce [[unsafe]] call restrictions here so no spelling
   // of the conversion can bypass them. A [[unsafe]] variable declaration makes
   // its initializer an unsafe region, which enforcingSafeCXXAt recognizes.
-  if (!isUnevaluatedContext() && enforcingSafeCXXAt(E->getExprLoc()) &&
-      isUnsafeToCall(Method))
+  if (!isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+      enforcingSafeCXXAt(E->getExprLoc()) && isUnsafeToCall(Method))
     Diag(E->getExprLoc(), diag::err_safecxx_unsafe_call) << Method;
   // Convert the expression to match the conversion function's implicit object
   // parameter.
@@ -15519,8 +15519,8 @@ Sema::CreateOverloadedUnaryOp(SourceLocation OpLoc, UnaryOperatorKind Opc,
       // [[unsafe]] on an operator is a call restriction (e.g. an [[unsafe]]
       // move-assignment operator). Operator calls are CXXOperatorCallExpr,
       // which the ordinary ActOnCallExpr check never sees.
-      if (!isUnevaluatedContext() && enforcingSafeCXXAt(OpLoc) &&
-          FnDecl->hasAttr<UnsafeAttr>())
+      if (!isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+          enforcingSafeCXXAt(OpLoc) && FnDecl->hasAttr<UnsafeAttr>())
         Diag(OpLoc, diag::err_safecxx_unsafe_call) << FnDecl;
 
       if (CheckCallReturnType(FnDecl->getReturnType(), OpLoc, TheCall, FnDecl))
@@ -15950,8 +15950,8 @@ ExprResult Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
             static_cast<CallExpr::ADLCallKind>(Best->IsADLCandidate),
             IsReversed);
 
-        if (!isUnevaluatedContext() && enforcingSafeCXXAt(OpLoc) &&
-            FnDecl->hasAttr<UnsafeAttr>())
+        if (!isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+            enforcingSafeCXXAt(OpLoc) && FnDecl->hasAttr<UnsafeAttr>())
           Diag(OpLoc, diag::err_safecxx_unsafe_call) << FnDecl;
 
         if (const auto *Method = dyn_cast<CXXMethodDecl>(FnDecl);
@@ -16406,8 +16406,8 @@ ExprResult Sema::CreateOverloadedArraySubscriptExpr(SourceLocation LLoc,
         // spelled `v.operator[](i)`. The other operator-call builders apply
         // the same check; a subscript can otherwise bypass an [[unsafe]] call
         // restriction simply by using bracket syntax.
-        if (!isUnevaluatedContext() && enforcingSafeCXXAt(LLoc) &&
-            isUnsafeToCall(FnDecl))
+        if (!isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+            enforcingSafeCXXAt(LLoc) && isUnsafeToCall(FnDecl))
           Diag(LLoc, diag::err_safecxx_unsafe_call) << FnDecl;
 
         if (CheckCallReturnType(FnDecl->getReturnType(), LLoc, TheCall, FnDecl))

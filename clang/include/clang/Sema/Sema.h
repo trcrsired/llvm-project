@@ -2802,6 +2802,24 @@ public:
            isConstantEvaluatedOverride;
   }
 
+  /// Safe C++: an expression whose value is required at compile time cannot
+  /// cause a run-time memory-safety violation, so [[unsafe]] call restrictions
+  /// do not apply to it. This covers manifestly constant-evaluated contexts
+  /// (static_assert, enum initializers, ...), immediate functions, and the
+  /// initializer of a constexpr variable -- the last is parsed as potentially
+  /// evaluated even though it is required to be a constant expression (see
+  /// DiagIfReachable, which makes the same distinction).
+  bool isSafecxxConstantEvaluated() const {
+    if (isConstantEvaluatedContext() || isImmediateFunctionContext() ||
+        SafecxxConstexprInitDepth > 0)
+      return true;
+    if (!ExprEvalContexts.empty())
+      if (const VarDecl *VD = ExprEvalContexts.back().DeclForInitializer)
+        if (VD->isConstexpr())
+          return true;
+    return false;
+  }
+
   SourceLocation getLocationOfStringLiteralByte(const StringLiteral *SL,
                                                 unsigned ByteNo) const;
 
@@ -8854,6 +8872,17 @@ public:
   /// never routed at runtime; the evaluator reports an error only if it
   /// escapes the constant evaluation.
   unsigned HerbceptionConstexprInitDepth = 0;
+
+  /// Depth of compiler-synthesized herbception runtime calls (the implicit
+  /// domain/code calls inside `throw throws` and `catch throws`). These are
+  /// not user calls, so safe-source [[unsafe]] restrictions do not apply.
+  unsigned SafecxxSynthesizedCallDepth = 0;
+
+  /// Whether the parser is inside the initializer of a constexpr or constinit
+  /// variable (file scope or local). Such initializers are required to be
+  /// constant expressions, so safe C++ treats calls in them as compile-time
+  /// operations and does not apply [[unsafe]] call restrictions.
+  unsigned SafecxxConstexprInitDepth = 0;
 
   /// Variables consumed by an explicit `destructive_move(x)` call-site marker.
   /// The marker itself ends the variable's usable lifetime, regardless of the

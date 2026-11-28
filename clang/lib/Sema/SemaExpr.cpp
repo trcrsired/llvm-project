@@ -7102,7 +7102,8 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     // Only potentially-evaluated calls are restricted. Calls inside
     // `noexcept(...)`, `decltype`, and requires-expressions are compile-time
     // probes; diagnosing them would poison constraint satisfaction.
-    if (!isUnevaluatedContext() && enforcingSafeCXXAt(CE->getExprLoc())) {
+    if (!isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+        enforcingSafeCXXAt(CE->getExprLoc())) {
       // Safe C++: pointers are opaque tokens, so calling through one is a
       // forbidden dereference. This also closes the indirect route to an
       // [[unsafe]] function: taking its address is fine, calling it is not.
@@ -7110,9 +7111,14 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
       if (!CE->getDirectCallee() && CalleeTy->isPointerType() &&
           CalleeTy->getPointeeType()->isFunctionType())
         Diag(CE->getExprLoc(), diag::err_safecxx_ptr_deref);
-      if (const FunctionDecl *Callee = CE->getDirectCallee())
-        if (isUnsafeToCall(Callee))
-          Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
+      // Member calls are built in SemaOverload, not through BuildCallExpr;
+      // check them here. Free functions are checked in BuildCallExpr so that
+      // calls rebuilt while deducing an `auto` return type are covered too.
+      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE))
+        if (const FunctionDecl *Callee = MCE->getDirectCallee())
+          if (HerbceptionOperandDepth == 0 &&
+              SafecxxSynthesizedCallDepth == 0 && isUnsafeToCall(Callee))
+            Diag(CE->getExprLoc(), diag::err_safecxx_unsafe_call) << Callee;
 
       // A borrow parameter (in/out/inout) may not be used as the source of a
       // move. std::move/std::forward return an rvalue reference; move and
@@ -7807,6 +7813,16 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
             << FDecl << Fn->getSourceRange());
     }
   }
+
+  // Safe C++: check [[unsafe]] here rather than in ActOnCallExpr so that
+  // calls built while deducing an `auto` return type (which never reach
+  // ActOnCallExpr) are restricted too. Both source-written and compiler-built
+  // calls flow through BuildCallExpr; the location guard exempts fenced
+  // headers, system headers, unevaluated operands and constant evaluation.
+  if (FDecl && !isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+      HerbceptionOperandDepth == 0 && SafecxxSynthesizedCallDepth == 0 &&
+      enforcingSafeCXXAt(TheCall->getExprLoc()) && isUnsafeToCall(FDecl))
+    Diag(TheCall->getExprLoc(), diag::err_safecxx_unsafe_call) << FDecl;
 
   // Check for a valid return type
   if (CheckCallReturnType(FuncT->getReturnType(), Fn->getBeginLoc(), TheCall,

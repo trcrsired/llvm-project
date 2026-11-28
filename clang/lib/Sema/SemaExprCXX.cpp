@@ -1221,7 +1221,10 @@ static ExprResult buildStaticMemberCall(Sema &S, CXXMethodDecl *Fn,
   DeclRefExpr *DRE = S.BuildDeclRefExprForStaticMember(Fn, Loc);
   if (!DRE)
     return ExprError();
-  return S.BuildCallExpr(nullptr, DRE, Loc, Args, Loc);
+  ++S.SafecxxSynthesizedCallDepth;
+  ExprResult Result = S.BuildCallExpr(nullptr, DRE, Loc, Args, Loc);
+  --S.SafecxxSynthesizedCallDepth;
+  return Result;
 }
 
 /// Build a DeclRefExpr referring to the static member function \p Fn.
@@ -1431,7 +1434,10 @@ static ExprResult buildImplicitExternCCall(FunctionDecl *Fn, MultiExprArg Args,
       S.BuildDeclarationNameExpr(CXXScopeSpec(), NameInfo, Fn, /*FoundD=*/Fn);
   if (DRE.isInvalid())
     return ExprError();
-  return S.BuildCallExpr(nullptr, DRE.get(), Loc, Args, Loc);
+  ++S.SafecxxSynthesizedCallDepth;
+  ExprResult Result = S.BuildCallExpr(nullptr, DRE.get(), Loc, Args, Loc);
+  --S.SafecxxSynthesizedCallDepth;
+  return Result;
 }
 
 /// Build the compiler-fabricated `std::error` value that captures a legacy

@@ -2541,6 +2541,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     Decl *ThisDecl;
     bool Entered;
     bool HerbceptionConstexprInit = false;
+    bool SafecxxConstexprInit = false;
 
     InitializerScopeRAII(Parser &P, Declarator &D, Decl *ThisDecl)
         : P(P), D(D), ThisDecl(ThisDecl), Entered(false) {
@@ -2554,6 +2555,14 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
               VD->isConstexpr() || VD->hasAttr<ConstInitAttr>();
       if (HerbceptionConstexprInit)
         ++P.Actions.HerbceptionConstexprInitDepth;
+      // Safe C++: the same compile-time initializer is exempt from [[unsafe]]
+      // call restrictions, whether it is a constexpr or constinit variable,
+      // file scope or local, and regardless of the herbceptions mode.
+      if (const auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl))
+        SafecxxConstexprInit =
+            VD->isConstexpr() || VD->hasAttr<ConstInitAttr>();
+      if (SafecxxConstexprInit)
+        ++P.Actions.SafecxxConstexprInitDepth;
       if (ThisDecl && P.getLangOpts().CPlusPlus) {
         Scope *S = nullptr;
         if (D.getCXXScopeSpec().isSet()) {
@@ -2579,6 +2588,8 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
       }
       if (HerbceptionConstexprInit)
         --P.Actions.HerbceptionConstexprInitDepth;
+      if (SafecxxConstexprInit)
+        --P.Actions.SafecxxConstexprInitDepth;
       ThisDecl = nullptr;
     }
   };

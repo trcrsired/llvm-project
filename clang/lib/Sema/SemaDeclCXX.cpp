@@ -17192,7 +17192,8 @@ ExprResult Sema::BuildCXXConstructExpr(
   bool UnsafeCtor = Constructor->hasAttr<UnsafeAttr>();
   if (const auto *Parent = Constructor->getParent())
     UnsafeCtor = UnsafeCtor || Parent->hasAttr<UnsafeAttr>();
-  if (!isUnevaluatedContext() && enforcingSafeCXXAt(ConstructLoc) && UnsafeCtor)
+  if (!isUnevaluatedContext() && !isSafecxxConstantEvaluated() &&
+      enforcingSafeCXXAt(ConstructLoc) && UnsafeCtor)
     Diag(ConstructLoc, diag::err_safecxx_unsafe_call) << Constructor;
 
   MarkFunctionReferenced(ConstructLoc, Constructor);
