@@ -304,7 +304,14 @@ Retry:
     }
     if (IsUnsafeFence) {
       Sema::UnsafeFenceScope Fence(Actions, FenceLoc);
-      return ParseCompoundStatement();
+      StmtResult Res = ParseCompoundStatement();
+      // Record the precise range so location-sensitive checks (e.g. the
+      // owner-freeze call restriction) can see that a call was written inside
+      // the fence. File-scope fences are closed in
+      // Parser::ParseCXX11Attributes.
+      if (Res.isUsable())
+        Fence.close(Res.get()->getEndLoc());
+      return Res;
     }
     return ParseCompoundStatement();
   }

@@ -598,6 +598,13 @@ Warning to detect a view written to an output parameter whose borrowed storage d
   }];
 }
 
+// Owner Freeze (a non-const member call while a live view borrows the object).
+def LifetimeSafetyFrozenOwner : DiagGroup<"lifetime-safety-frozen-owner"> {
+  code Documentation = [{
+Warning to detect a mutation of an object that is still borrowed by a live view.
+  }];
+}
+
 def LifetimeSafetyUseAfterFree : DiagGroup<"lifetime-safety-use-after-free"> {
     code Documentation = [{
 Warning to detect use-after-free, introduced by freeing an object and later using it.
@@ -680,6 +687,7 @@ def LifetimeSafetyPermissive : DiagGroup<"lifetime-safety-permissive",
                                          [LifetimeSafetyUseAfterScope,
                                          LifetimeSafetyReturnStackAddr,
                                          LifetimeSafetyOutStackAddr,
+                                         LifetimeSafetyFrozenOwner,
                                          LifetimeSafetyDanglingField,
                                          LifetimeSafetyDanglingGlobal,
                                          LifetimeSafetyUseAfterFree]>;

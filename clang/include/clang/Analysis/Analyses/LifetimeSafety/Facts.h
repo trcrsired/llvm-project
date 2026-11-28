@@ -378,18 +378,25 @@ public:
 class InvalidateOriginFact : public Fact {
   OriginID OID;
   const Expr *InvalidationExpr;
+  /// True for the universal owner-freeze rule: a non-const member call on an
+  /// owner while a live view still borrows from it. Unlike a real
+  /// invalidation, this does not change any loan sets; it is a call
+  /// restriction checked against live view origins.
+  bool IsOwnerFreeze;
 
 public:
   static bool classof(const Fact *F) {
     return F->getKind() == Kind::InvalidateOrigin;
   }
 
-  InvalidateOriginFact(OriginID OID, const Expr *InvalidationExpr)
+  InvalidateOriginFact(OriginID OID, const Expr *InvalidationExpr,
+                       bool IsOwnerFreeze = false)
       : Fact(Kind::InvalidateOrigin), OID(OID),
-        InvalidationExpr(InvalidationExpr) {}
+        InvalidationExpr(InvalidationExpr), IsOwnerFreeze(IsOwnerFreeze) {}
 
   OriginID getInvalidatedOrigin() const { return OID; }
   const Expr *getInvalidationExpr() const { return InvalidationExpr; }
+  bool isOwnerFreeze() const { return IsOwnerFreeze; }
   void dump(llvm::raw_ostream &OS, const LoanManager &, const OriginManager &OM,
             const LoanPropagationAnalysis *LPA = nullptr) const override;
 };

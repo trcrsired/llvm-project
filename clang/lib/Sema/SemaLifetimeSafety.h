@@ -34,6 +34,7 @@ inline bool ShouldCheckSafety(Sema &S, const Decl *D) {
       diag::warn_lifetime_safety_return_stack_addr,
       diag::warn_lifetime_safety_return_stack_addr_moved,
       diag::warn_lifetime_safety_out_stack_addr,
+      diag::warn_lifetime_safety_frozen_owner,
       diag::warn_lifetime_safety_invalidation,
       diag::warn_lifetime_safety_dangling_field,
       diag::warn_lifetime_safety_dangling_field_moved,
@@ -203,6 +204,24 @@ public:
     reportAliasingChain(ExprChain);
     S.Diag(ReturnExpr->getExprLoc(), diag::note_lifetime_safety_returned_here)
         << ReturnExpr->getSourceRange();
+  }
+
+  bool isInUnsafeFence(SourceLocation Loc) const override {
+    return S.isInUnsafeFenceRange(Loc);
+  }
+
+  void reportFrozenOwner(const Expr *Call, const Expr *ViewIssueExpr) override {
+    llvm::StringRef Name;
+    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(Call))
+      if (const auto *MD = MCE->getMethodDecl())
+        Name = MD->getName();
+    if (Name.empty())
+      Name = "mutating member function";
+    S.Diag(Call->getExprLoc(), diag::warn_lifetime_safety_frozen_owner)
+        << Name << Call->getSourceRange();
+    if (ViewIssueExpr)
+      S.Diag(ViewIssueExpr->getExprLoc(), diag::note_lifetime_safety_view_here)
+          << ViewIssueExpr->getSourceRange();
   }
 
   void reportOutEscape(const Expr *IssueExpr, const ParmVarDecl *OutParam,

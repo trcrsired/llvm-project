@@ -1407,6 +1407,18 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
   if (!FD)
     return;
   handleInvalidatingCall(Call, FD, Args);
+  // Owner freeze: a non-const member call mutates the object, so it is not
+  // allowed in safe source while any live view still borrows from it. This is
+  // a universal rule — no per-container invalidation lists — and the checker
+  // reports it only when a live view origin actually holds a loan into the
+  // object. Inside [[unsafe]] fences the call is permitted.
+  if (const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+      MD && MD->isInstance() && !MD->isConst() && !isa<CXXDestructorDecl>(MD) &&
+      hasObjectArg(*FD) && !Args.empty()) {
+    if (OriginList *ObjList = getOriginsList(*Args[0]))
+      CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
+          ObjList->getOuterOriginID(), Call, /*IsOwnerFreeze=*/true));
+  }
   handleDestructiveCall(Call, FD, Args);
   handleMovedArgsInCall(FD, Args);
   handleImplicitObjectFieldUses(Call, FD);

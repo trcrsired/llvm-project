@@ -89,6 +89,13 @@ public:
                                     const Expr *MovedExpr,
                                     llvm::ArrayRef<const Expr *> ExprChain) {}
 
+  /// True when \p Loc lies inside an [[unsafe]] fence. Used by the owner-freeze
+  /// rule, which is a call restriction and therefore lifted inside fences.
+  virtual bool isInUnsafeFence(SourceLocation) const { return false; }
+
+  /// A non-const member call on an owner while a live view borrows from it.
+  virtual void reportFrozenOwner(const Expr *Call, const Expr *ViewIssueExpr) {}
+
   // Reports that a view written to an `out`/`inout` parameter borrows from
   // storage that dies with the call. The subject is either an expression (a
   // local owner) or a parameter (a callee-owned copy).

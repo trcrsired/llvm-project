@@ -11229,6 +11229,10 @@ def warn_lifetime_safety_out_stack_addr : Warning<
   "stack memory associated with %0 is written to output parameter %1">,
   InGroup<LifetimeSafetyOutStackAddr>, DefaultIgnore;
 
+def warn_lifetime_safety_frozen_owner : Warning<
+  "cannot call non-const member function %0 while a live view borrows from this object">,
+  InGroup<LifetimeSafetyFrozenOwner>, DefaultIgnore;
+
 def warn_lifetime_safety_invalidation
     : Warning<"%0 is later invalidated">,
       InGroup<LifetimeSafetyInvalidation>,
@@ -11310,6 +11314,7 @@ def note_lifetime_safety_freed_here : Note<"%0 is freed here">;
 def note_lifetime_safety_returned_here : Note<"returned here">;
 def note_lifetime_safety_escapes_to_out_here : Note<
   "escapes through output parameter %0">;
+def note_lifetime_safety_view_here : Note<"view borrowing from this object">;
 def note_lifetime_safety_moved_here : Note<"potentially moved here">;
 def note_lifetime_safety_dangling_field_here: Note<"this field dangles">;
 def note_lifetime_safety_dangling_global_here: Note<"this global dangles">;

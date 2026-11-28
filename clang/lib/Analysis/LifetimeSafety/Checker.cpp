@@ -116,9 +116,12 @@ public:
       for (const Fact *F : FactMgr.getFacts(B))
         if (const auto *EF = F->getAs<ExpireFact>())
           checkExpiry(EF);
-        else if (const auto *IOF = F->getAs<InvalidateOriginFact>())
-          checkInvalidation(IOF);
-        else if (const auto *OEF = F->getAs<OriginEscapesFact>())
+        else if (const auto *IOF = F->getAs<InvalidateOriginFact>()) {
+          if (IOF->isOwnerFreeze())
+            checkOwnerFreeze(IOF);
+          else
+            checkInvalidation(IOF);
+        } else if (const auto *OEF = F->getAs<OriginEscapesFact>())
           checkAnnotations(OEF);
     issuePendingWarnings();
     suggestAnnotations();
@@ -386,6 +389,48 @@ public:
           CurWarning.InvalidatedByExpr = nullptr;
         }
       }
+  }
+
+  /// Universal owner-freeze rule: a non-const member call is rejected in safe
+  /// source while a live view still holds a loan into the object. Unlike real
+  /// invalidation, this needs no per-container knowledge and does not clear
+  /// any loans. It is a call restriction, so [[unsafe]] fences permit it.
+  void checkOwnerFreeze(const InvalidateOriginFact *IOF) {
+    const Expr *Call = IOF->getInvalidationExpr();
+    if (!Call || !SemaHelper || SemaHelper->isInUnsafeFence(Call->getExprLoc()))
+      return;
+
+    LoanSet Invalidated =
+        LoanPropagation.getLoans(IOF->getInvalidatedOrigin(), IOF);
+    bool HasLoans = false;
+    for (LoanID LID : Invalidated) {
+      HasLoans = true;
+      break;
+    }
+    if (!HasLoans)
+      return;
+
+    const Expr *ViewIssue = nullptr;
+    auto FindLiveView = [&](const LivenessMap &Live) {
+      for (const auto &[OID, Info] : Live) {
+        const Origin &O = FactMgr.getOriginMgr().getOrigin(OID);
+        QualType QT(O.Ty, 0);
+        if (QT.isNull() || !isViewType(QT))
+          continue;
+        for (LoanID HeldID : LoanPropagation.getLoans(OID, IOF))
+          for (LoanID InvID : Invalidated)
+            if (FactMgr.getLoanMgr().getLoan(InvID)->getAccessPath().isPrefixOf(
+                    FactMgr.getLoanMgr().getLoan(HeldID)->getAccessPath())) {
+              ViewIssue = FactMgr.getLoanMgr().getLoan(HeldID)->getIssueExpr();
+              return true;
+            }
+      }
+      return false;
+    };
+    LiveOriginSet Live = LiveOrigins.getLiveOriginsAt(IOF);
+    if (!FindLiveView(Live.Persistent) && !FindLiveView(Live.BlockLocal))
+      return;
+    SemaHelper->reportFrozenOwner(Call, ViewIssue);
   }
 
   /// Checks for use-after-invalidation errors when a container is modified.
